@@ -1,6 +1,6 @@
 # Portable Minecraft Launcher
 An easy to use portable Minecraft launcher in only one Python script !
-This single-script launcher is still compatible with the official (Mojang) Minecraft Launcher stored in famous `.minecraft`.
+This single-script launcher is still compatible with the official (Mojang) Minecraft Launcher stored in `.minecraft` and use it.
 
 ![illustration](https://github.com/mindstorm38/portablemc/blob/master/illustration.png?raw=true)
 
