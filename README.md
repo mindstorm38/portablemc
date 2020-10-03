@@ -24,7 +24,7 @@ extract from the first part of the UUID's represention *(for a `110e8400-e29b-11
 
 You can use `-u` *(`--username`)* argument followed by the username and `-i` *(`--uuid`)* with your user UUID.
 
-**Online mode is not yet available.**
+*Online mode is not yet available.*
 
 > Not that even if you have set another UUID, the username will be the same as default (with extracted part from default UUID).
 
