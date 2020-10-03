@@ -42,8 +42,8 @@ def main():
     parser.add_argument("--nostart", help="Only download Minecraft required data, but do not launch the game", default=False, action="store_true")
     parser.add_argument("--demo", help="Start game in demo mode", default=False, action="store_true")
     parser.add_argument("--resol", help="Set a custom start resolution (<width>x<height>)", type=DECODE_RESOLUTION, dest="resolution")
-    parser.add_argument("-n", "--username", help="Set a custom user name to play", default=player_uuid.split("-")[0])
-    parser.add_argument("-u", "--uuid", help="Set a custom user UUID to play", default=player_uuid)
+    parser.add_argument("-u", "--username", help="Set a custom user name to play", default=player_uuid.split("-")[0])
+    parser.add_argument("-i", "--uuid", help="Set a custom user UUID to play", default=player_uuid)
     args = parser.parse_args()
 
     mc_dir = get_minecraft_dir("minecraft")
