@@ -36,3 +36,7 @@ You can set the default window resolution *(do not affect the game if already in
 
 #### No start mode
 By using `--nostart` flag, you force the launcher to download all requirements to the game, but do not start it.
+
+#### Custom Java executable
+By default the launcher use the `javaw` executable to launch Minecraft, if you want to
+change this executable, use the `--java` argument followed by the executable.

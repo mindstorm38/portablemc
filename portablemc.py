@@ -23,7 +23,7 @@ SPECIAL_VERSIONS = {"snapshot", "release"}
 LAUNCHER_NAME = "portablemc"
 LAUNCHER_VERSION = "1.0.0"
 
-JAVA_EXEC = "javaw"
+JAVA_EXEC_DEFAULT = "javaw"
 
 EXIT_VERSION_NOT_FOUND = 10
 EXIT_CLIENT_JAR_NOT_FOUND = 11
@@ -42,6 +42,7 @@ def main():
     parser.add_argument("--nostart", help="Only download Minecraft required data, but do not launch the game", default=False, action="store_true")
     parser.add_argument("--demo", help="Start game in demo mode", default=False, action="store_true")
     parser.add_argument("--resol", help="Set a custom start resolution (<width>x<height>)", type=DECODE_RESOLUTION, dest="resolution")
+    parser.add_argument("--java", help="Set a custom javaw executable path", default=JAVA_EXEC_DEFAULT)
     parser.add_argument("-u", "--username", help="Set a custom user name to play", default=player_uuid.split("-")[0])
     parser.add_argument("-i", "--uuid", help="Set a custom user UUID to play", default=player_uuid)
     args = parser.parse_args()
@@ -282,7 +283,7 @@ def main():
         start_args_replacements["resolution_width"] = str(custom_resol[0])
         start_args_replacements["resolution_height"] = str(custom_resol[1])
 
-    start_args = [JAVA_EXEC]
+    start_args = [args.java]
     for arg in raw_args:
         for repl_id, repl_val in start_args_replacements.items():
             arg = arg.replace("${{{}}}".format(repl_id), repl_val)
