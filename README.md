@@ -26,9 +26,10 @@ you can use `-t` (`--temp-login`) flag.*
 > Session are stored in a separated file from official launcher *(`.minecraft/portablemc_tokens`)*,
 note that no trace of your password remain in this file, so don't worry about using this !
 
-> This argument override arguments for offline username and UUID.
+> These arguments override arguments for offline username and UUID.
 
 Your session is cached and you want to invalidate it ? Use `--logout` followed by your email or username.
+This do not start the game.
 
 ### Minecraft version
 By default the launcher starts the latest release version, to change this, you can use the `-v` *(`--version`)* followed by the
