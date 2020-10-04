@@ -29,7 +29,7 @@ SPECIAL_VERSIONS = {"snapshot", "release"}
 LAUNCHER_NAME = "portablemc"
 LAUNCHER_VERSION = "1.0.0"
 
-JAVA_EXEC_DEFAULT = "javaw"
+JAVA_EXEC_DEFAULT = "java"
 
 EXIT_VERSION_NOT_FOUND = 10
 EXIT_CLIENT_JAR_NOT_FOUND = 11
@@ -122,6 +122,9 @@ def main():
         auth_access_token = auth_entry.access_token
         print("=> Logged in")
 
+    elif args.uuid is not None:  # Remove dashes from UUID
+        args.uuid = args.uuid.replace("-", "")
+
     # Searching version
     mc_os = get_minecraft_os()
     version_manifest = read_version_manifest()
@@ -195,7 +198,7 @@ def main():
     if assets_index is None:
         asset_index_info = version_meta["assetIndex"]
         asset_index_url = asset_index_info["url"]
-        print("Found asset index in version meta: {}".format(asset_index_url))
+        print("=> Found asset index in version meta: {}".format(asset_index_url))
         assets_index = read_url_json(asset_index_url)
         if not os_path.isdir(assets_indexes_dir):
             os.makedirs(assets_indexes_dir, 0o777, True)
@@ -205,14 +208,20 @@ def main():
     assets_objects_dir = os_path.join(assets_dir, "objects")
     assets_total_size = version_meta["assetIndex"]["totalSize"]
     assets_current_size = 0
+    assets_mapped_to_resources = assets_index.get("map_to_resources", False)
+
+    if assets_mapped_to_resources:
+        print("=> This version use lagacy assets placed in {}/resources".format(mc_dir))
 
     for asset_id, asset_obj in assets_index["objects"].items():
+
         asset_hash = asset_obj["hash"]
         asset_hash_prefix = asset_hash[:2]
         asset_size = asset_obj["size"]
         asset_url = ASSET_BASE_URL.format(asset_hash_prefix, asset_hash)
         asset_hash_dir = os_path.join(assets_objects_dir, asset_hash_prefix)
         asset_file = os_path.join(asset_hash_dir, asset_hash)
+
         if not os_path.isfile(asset_file) or os_path.getsize(asset_file) != asset_size:
             if not os_path.isdir(asset_hash_dir):
                 os.makedirs(asset_hash_dir, 0o777, True)
@@ -222,6 +231,13 @@ def main():
                                                          name=asset_id)
         else:
             assets_current_size += asset_size
+
+        if assets_mapped_to_resources:
+            resources_asset_file = os_path.join(mc_dir, "resources", asset_id)
+            resources_asset_dir = os_path.dirname(resources_asset_file)
+            if not os_path.isdir(resources_asset_dir):
+                os.makedirs(resources_asset_dir, 0o777, True)
+            shutil.copyfile(asset_file, resources_asset_file)
 
     # Logging setup
     print("Loading logger config...")
@@ -243,6 +259,8 @@ def main():
     print("Loading libraries and natives...")
     libraries_dir = os_path.join(mc_dir, "libraries")
 
+    main_class = version_meta["mainClass"]
+    main_class_launchwrapper = (main_class == "net.minecraft.launchwrapper.Launch")
     classpath_libs = [version_jar_file]
     native_libs = []
 
@@ -311,7 +329,6 @@ def main():
                     native_zip.extract(native_zip_info, bin_dir)
 
     # Decode arguments
-
     custom_resol = args.resolution
     if custom_resol is None or len(custom_resol) != 2:
         custom_resol = None
@@ -322,12 +339,27 @@ def main():
         "has_custom_resolution": custom_resol is not None
     }
 
-    raw_args.extend(interpret_args(version_meta["arguments"]["jvm"], mc_os, features))
+    legacy_args = version_meta.get("minecraftArguments")  # type: Optional[str]
+
+    if legacy_args is not None:
+        raw_args.extend(interpret_args(LEGACY_JVM_ARGUMENTS, mc_os, features))
+    else:
+        raw_args.extend(interpret_args(version_meta["arguments"]["jvm"], mc_os, features))
+
     if logging_arg is not None:
         raw_args.append(logging_arg)
-    raw_args.append(version_meta["mainClass"])
-    raw_args.extend(interpret_args(version_meta["arguments"]["game"], mc_os, features))
 
+    if main_class_launchwrapper:
+        raw_args.append("-Dminecraft.client.jar={}".format(version_jar_file))
+
+    raw_args.append(main_class)
+
+    if legacy_args is not None:
+        raw_args.extend(legacy_args.split(" "))
+    else:
+        raw_args.extend(interpret_args(version_meta["arguments"]["game"], mc_os, features))
+
+    # Arguments replacements
     start_args_replacements = {
         # Game
         "auth_player_name": args.username,
@@ -335,10 +367,13 @@ def main():
         "game_directory": mc_dir,
         "assets_root": assets_dir,
         "assets_index_name": assets_index_version,
-        "auth_uuid": args.uuid.replace("-", ""),
+        "auth_uuid": args.uuid,
         "auth_access_token": auth_access_token,
         "user_type": "mojang",
         "version_type": version_type,
+        # Game (legacy)
+        "auth_session": "token:{}:{}".format(auth_access_token, args.uuid) if len(auth_access_token) else "",
+        "game_assets": os_path.join(assets_dir, "virtual", assets_index_version),
         # JVM
         "natives_directory": bin_dir,
         "launcher_name": LAUNCHER_NAME,
@@ -630,6 +665,55 @@ def auth_invalidate(auth_entry: AuthEntry):
 
 class AuthError(Exception):
     pass
+
+
+# Used for versions <= 1.12.2
+LEGACY_JVM_ARGUMENTS = [
+    {
+        "rules": [
+            {
+                "action": "allow",
+                "os": {
+                    "name": "osx"
+                }
+            }
+        ],
+        "value": [
+            "-XstartOnFirstThread"
+        ]
+    },
+    {
+        "rules": [
+            {
+                "action": "allow",
+                "os": {
+                    "name": "windows"
+                }
+            }
+        ],
+        "value": "-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump"
+    },
+    {
+        "rules": [
+            {
+                "action": "allow",
+                "os": {
+                    "name": "windows",
+                    "version": "^10\\."
+                }
+            }
+        ],
+        "value": [
+            "-Dos.name=Windows 10",
+            "-Dos.version=10.0"
+        ]
+    },
+    "-Djava.library.path=${natives_directory}",
+    "-Dminecraft.launcher.brand=${launcher_name}",
+    "-Dminecraft.launcher.version=${launcher_version}",
+    "-cp",
+    "${classpath}"
+]
 
 
 if __name__ == '__main__':
