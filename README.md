@@ -20,7 +20,7 @@ to test the game in offline mode *(custom username and UUID)*, or demo mode for 
 Do you want to authenticate using your Mojang account ?
 
 It's now possible using `-l` *(`--login`)* followed by your email or username (for legacy account).
-You will be asked for the password after starting the launcher. *If you don't want cache the session,
+You will be asked for the password once the launcher is start. *If you don't want cache the session,
 you can use `-t` (`--temp-login`) flag.*
 
 > Session are stored in a separated file from official launcher *(`.minecraft/portablemc_tokens`)*,
