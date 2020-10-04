@@ -16,6 +16,8 @@ to test the game in offline mode *(custom username and UUID)*, or demo mode for 
 
 *You can read the complete help message using `-h` argument.*
 
+***[Usage examples](#examples)***
+
 ### Mojang authentication
 Do you want to authenticate using your Mojang account ?
 
@@ -57,3 +59,13 @@ By using `--nostart` flag, you force the launcher to download all requirements t
 ### Custom Java executable
 By default the launcher use the `javaw` executable to launch Minecraft, if you want to
 change this executable, use the `--java` argument followed by the executable.
+
+# Examples
+```
+python portablemc.py                            Start latest Minecraft version using offline mode and random username and UUID
+python portablemc.py -l <email|username>        Start latest Minecraft version using mojang authentication for specific email or username (legacy)
+python portablemc.py -tl <email|username>       Same as previous command, but do not cache the session (you need to re-enter password on each launch)
+python portablemc.py --nostart                  Download all components of the latest Minecraft version but do not start the game
+python portablemc.py --logout <email|username>  Logout from a session
+python portablemc.py -u OfflineTest -v 1.15     Start 1.15 Minecraft version in offline mode with a specific username
+```
