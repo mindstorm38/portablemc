@@ -1,11 +1,16 @@
+from urllib.request import Request as URLRequest
+from http.client import HTTPResponse
+from urllib import request as urlreq
+from urllib.error import HTTPError
+
 from json.decoder import JSONDecodeError
 from argparse import ArgumentParser
-from urllib import request as urlreq
 from os import path as os_path
 from zipfile import ZipFile
 import subprocess
 import platform
 import hashlib
+import getpass
 import shutil
 import uuid
 import json
@@ -13,11 +18,12 @@ import sys
 import re
 import os
 
-from typing import Optional, Tuple, List
+from typing import cast, Optional, Tuple, List, Dict
 
 
 VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
 ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
+AUTHSERVER_URL = "https://authserver.mojang.com/{}"
 SPECIAL_VERSIONS = {"snapshot", "release"}
 
 LAUNCHER_NAME = "portablemc"
@@ -29,6 +35,7 @@ EXIT_VERSION_NOT_FOUND = 10
 EXIT_CLIENT_JAR_NOT_FOUND = 11
 EXIT_NATIVES_DIR_ALREADY_EXITS = 12
 EXIT_DOWNLOAD_FILE_CORRUPTED = 13
+EXIT_AUTHENTICATION_FAILED = 14
 
 DECODE_RESOLUTION = lambda raw: tuple(int(size) for size in raw.split("x"))
 
@@ -43,6 +50,7 @@ def main():
     parser.add_argument("--demo", help="Start game in demo mode", default=False, action="store_true")
     parser.add_argument("--resol", help="Set a custom start resolution (<width>x<height>)", type=DECODE_RESOLUTION, dest="resolution")
     parser.add_argument("--java", help="Set a custom javaw executable path", default=JAVA_EXEC_DEFAULT)
+    parser.add_argument("-l", "--login", help="Use login to authenticate using mojang servers (override --username and --uuid)")
     parser.add_argument("-u", "--username", help="Set a custom user name to play", default=player_uuid.split("-")[0])
     parser.add_argument("-i", "--uuid", help="Set a custom user UUID to play", default=player_uuid)
     args = parser.parse_args()
@@ -227,6 +235,41 @@ def main():
     # Start game
     print("Starting game ...")
 
+    auth_access_token = ""
+    if args.login is not None:
+
+        print("=> Logging in...")
+
+        login = args.login
+        auth_db_file = os_path.join(mc_dir, "portablemc_tokens")
+        auth_db = AuthDatabase(auth_db_file)
+        auth_db.load()
+        auth_entry = auth_db.get_entry(login)
+
+        if auth_entry is not None and not auth_validate_request(auth_entry):
+            print("=> Session {} is not validated, refreshing...".format(login))
+            try:
+                auth_refresh_request(auth_entry)
+                auth_db.save()
+            except AuthError as auth_err:
+                print("=> {}".format(str(auth_err)))
+                exit(EXIT_AUTHENTICATION_FAILED)
+        elif auth_entry is None:
+            client_uuid = uuid.uuid4().hex
+            password = getpass.getpass("=> Enter {} password: ".format(login))
+            try:
+                auth_entry = auth_authenticate_request(login, password, client_uuid)
+                auth_db.add_entry(login, auth_entry)
+                auth_db.save()
+            except AuthError as auth_err:
+                print("=> {}".format(str(auth_err)))
+                exit(EXIT_AUTHENTICATION_FAILED)
+
+        args.username = auth_entry.username
+        args.uuid = auth_entry.uuid
+        auth_access_token = auth_entry.access_token
+        print("=> Logged in")
+
     # Extracting binaries
     bin_dir = os_path.join(mc_dir, "bin", str(uuid.uuid4()))
 
@@ -269,7 +312,7 @@ def main():
         "assets_root": assets_dir,
         "assets_index_name": assets_index_version,
         "auth_uuid": args.uuid.replace("-", ""),
-        "auth_access_token": "",
+        "auth_access_token": auth_access_token,
         "user_type": "mojang",
         "version_type": version_type,
         # JVM
@@ -439,6 +482,119 @@ def download_file_progress(url: str, size: int, sha1: str, dst: str, *, start_si
 
 def download_file_info_progress(info: dict, dst: str, *, start_size: int = 0, total_size: int = 0, name: Optional[str] = None) -> int:
     return download_file_progress(info["url"], info["size"], info["sha1"], dst, start_size=start_size, total_size=total_size, name=name)
+
+
+####################
+## Authentication ##
+####################
+
+
+class AuthEntry:
+    def __init__(self, client_token: str, username: str, _uuid: str, access_token: str):
+        self.client_token = client_token
+        self.username = username
+        self.uuid = _uuid
+        self.access_token = access_token
+
+
+class AuthDatabase:
+
+    def __init__(self, filename: str):
+        self._filename = filename
+        self._entries = {}  # type: Dict[str, AuthEntry]
+
+    def load(self):
+        self._entries.clear()
+        if os_path.isfile(self._filename):
+            with open(self._filename, "rt") as fp:
+                line = fp.readline()
+                if line is not None:
+                    parts = line.split(" ")
+                    if len(parts) == 5:
+                        self._entries[parts[0]] = AuthEntry(
+                            parts[1],
+                            parts[2],
+                            parts[3],
+                            parts[4]
+                        )
+
+    def save(self):
+        with open(self._filename, "wt") as fp:
+            fp.writelines(("{} {} {} {} {}".format(
+                login,
+                entry.client_token,
+                entry.username,
+                entry.uuid,
+                entry.access_token
+            ) for login, entry in self._entries.items()))
+
+    def get_entry(self, login: str) -> Optional[AuthEntry]:
+        return self._entries.get(login, None)
+
+    def add_entry(self, login: str, entry: AuthEntry):
+        self._entries[login] = entry
+
+
+
+def auth_request(req: str, payload: dict, error: bool = True) -> (int, dict):
+
+    req_url = AUTHSERVER_URL.format(req)
+    data = json.dumps(payload).encode("ascii")
+    req = URLRequest(req_url, data, headers={
+        "Content-Type": "application/json",
+        "Content-Length": len(data)
+    }, method="POST")
+
+    try:
+        res = urlreq.urlopen(req)  # type: HTTPResponse
+    except HTTPError as err:
+        res = cast(HTTPResponse, err.fp)
+
+    try:
+        res_data = json.load(res)
+    except JSONDecodeError:
+        res_data = {}
+
+    if error and res.status != 200:
+        raise AuthError(res_data["errorMessage"])
+
+    return res.status, res_data
+
+
+def auth_authenticate_request(login: str, password: str, client_token: str) -> AuthEntry:
+
+    _, res = auth_request("authenticate", {
+        "agent": {
+            "name": "Minecraft",
+            "version": 1
+        },
+        "username": login,
+        "password": password,
+        "clientToken": client_token
+    })
+
+    return AuthEntry(res["clientToken"], res["selectedProfile"]["name"], res["selectedProfile"]["id"], res["accessToken"])
+
+
+def auth_validate_request(auth_entry: AuthEntry) -> bool:
+    return auth_request("validate", {
+        "accessToken": auth_entry.access_token,
+        "clientToken": auth_entry.client_token
+    }, False)[0] == 204
+
+
+def auth_refresh_request(auth_entry: AuthEntry):
+
+    _, res = auth_request("refresh", {
+        "accessToken": auth_entry.access_token,
+        "clientToken": auth_entry.client_token
+    })
+
+    auth_entry.access_token = res["accessToken"]
+
+
+class AuthError(Exception):
+    pass
 
 
 if __name__ == '__main__':
