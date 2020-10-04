@@ -253,8 +253,9 @@ def main():
                 auth_db.save()
             except AuthError as auth_err:
                 print("=> {}".format(str(auth_err)))
-                exit(EXIT_AUTHENTICATION_FAILED)
-        elif auth_entry is None:
+                auth_entry = None
+
+        if auth_entry is None:
             client_uuid = uuid.uuid4().hex
             password = getpass.getpass("=> Enter {} password: ".format(login))
             try:
