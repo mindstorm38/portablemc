@@ -46,19 +46,18 @@ def main():
 
     parser = ArgumentParser()
     parser.add_argument("-v", "--version", help="Specify Minecraft version ('snapshot' for latest snapshot, 'release' for latest release)", default="release")
-    parser.add_argument("--nostart", help="Only download Minecraft required data, but do not launch the game", default=False, action="store_true")
+    parser.add_argument("--nostart", help="Only download Minecraft required data, but does not launch the game", default=False, action="store_true")
     parser.add_argument("--demo", help="Start game in demo mode", default=False, action="store_true")
     parser.add_argument("--resol", help="Set a custom start resolution (<width>x<height>)", type=DECODE_RESOLUTION, dest="resolution")
     parser.add_argument("--java", help="Set a custom javaw executable path", default=JAVA_EXEC_DEFAULT)
-    parser.add_argument("-l", "--login", help="Use login to authenticate using mojang servers (override --username and --uuid)")
+    parser.add_argument("--logout", help="Override all other arguments, does not start the game, and logout from this specific session")
+    parser.add_argument("-l", "--login", help="Use a email or username (legacy) to authenticate using mojang servers (you will be asked for password, it override --username and --uuid)")
     parser.add_argument("-u", "--username", help="Set a custom user name to play", default=player_uuid.split("-")[0])
     parser.add_argument("-i", "--uuid", help="Set a custom user UUID to play", default=player_uuid)
     args = parser.parse_args()
 
     mc_dir = get_minecraft_dir("minecraft")
-    mc_os = get_minecraft_os()
-    version_manifest = read_version_manifest()
-    version_name = args.version
+    auth_db_file = os_path.join(mc_dir, "portablemc_tokens")
 
     print()
     print("==== COMMON INFO ====")
@@ -67,6 +66,63 @@ def main():
     print("=====================")
     print()
 
+    # Logging in
+    if args.logout is not None:
+
+        print("=> Logging out...")
+        username = args.logout
+        auth_db = AuthDatabase(auth_db_file)
+        auth_db.load()
+        auth_entry = auth_db.get_entry(username)
+
+        if auth_entry is None:
+            print("=> Session {} is not cached".format(username))
+            exit(0)
+
+        auth_invalidate(auth_entry)
+        auth_db.remove_entry(username)
+        auth_db.save()
+        print("=> Session {} is no longer valid".format(username))
+        exit(0)
+
+    auth_access_token = ""
+    if args.login is not None:
+
+        print("=> Logging in...")
+        login = args.login
+        auth_db = AuthDatabase(auth_db_file)
+        auth_db.load()
+        auth_entry = auth_db.get_entry(login)
+
+        if auth_entry is not None and not auth_validate_request(auth_entry):
+            print("=> Session {} is not validated, refreshing...".format(login))
+            try:
+                auth_refresh_request(auth_entry)
+                auth_db.save()
+            except AuthError as auth_err:
+                print("=> {}".format(str(auth_err)))
+                auth_entry = None
+
+        if auth_entry is None:
+            client_uuid = uuid.uuid4().hex
+            password = getpass.getpass("=> Enter {} password: ".format(login))
+            try:
+                auth_entry = auth_authenticate_request(login, password, client_uuid)
+                auth_db.add_entry(login, auth_entry)
+                auth_db.save()
+            except AuthError as auth_err:
+                print("=> {}".format(str(auth_err)))
+                exit(EXIT_AUTHENTICATION_FAILED)
+
+        args.username = auth_entry.username
+        args.uuid = auth_entry.uuid
+        auth_access_token = auth_entry.access_token
+        print("=> Logged in")
+
+    # Searching version
+    mc_os = get_minecraft_os()
+    version_manifest = read_version_manifest()
+    version_name = args.version
     print("Searching for version '{}' ...".format(version_name))
 
     # Aliasing version
@@ -234,42 +290,6 @@ def main():
 
     # Start game
     print("Starting game ...")
-
-    auth_access_token = ""
-    if args.login is not None:
-
-        print("=> Logging in...")
-
-        login = args.login
-        auth_db_file = os_path.join(mc_dir, "portablemc_tokens")
-        auth_db = AuthDatabase(auth_db_file)
-        auth_db.load()
-        auth_entry = auth_db.get_entry(login)
-
-        if auth_entry is not None and not auth_validate_request(auth_entry):
-            print("=> Session {} is not validated, refreshing...".format(login))
-            try:
-                auth_refresh_request(auth_entry)
-                auth_db.save()
-            except AuthError as auth_err:
-                print("=> {}".format(str(auth_err)))
-                auth_entry = None
-
-        if auth_entry is None:
-            client_uuid = uuid.uuid4().hex
-            password = getpass.getpass("=> Enter {} password: ".format(login))
-            try:
-                auth_entry = auth_authenticate_request(login, password, client_uuid)
-                auth_db.add_entry(login, auth_entry)
-                auth_db.save()
-            except AuthError as auth_err:
-                print("=> {}".format(str(auth_err)))
-                exit(EXIT_AUTHENTICATION_FAILED)
-
-        args.username = auth_entry.username
-        args.uuid = auth_entry.uuid
-        auth_access_token = auth_entry.access_token
-        print("=> Logged in")
 
     # Extracting binaries
     bin_dir = os_path.join(mc_dir, "bin", str(uuid.uuid4()))
@@ -535,6 +555,10 @@ class AuthDatabase:
     def add_entry(self, login: str, entry: AuthEntry):
         self._entries[login] = entry
 
+    def remove_entry(self, login: str):
+        if login in self._entries:
+            del self._entries[login]
+
 
 
 def auth_request(req: str, payload: dict, error: bool = True) -> (int, dict):
@@ -592,6 +616,13 @@ def auth_refresh_request(auth_entry: AuthEntry):
     })
 
     auth_entry.access_token = res["accessToken"]
+
+
+def auth_invalidate(auth_entry: AuthEntry):
+    auth_request("invalidate", {
+        "accessToken": auth_entry.access_token,
+        "clientToken": auth_entry.client_token
+    }, False)
 
 
 class AuthError(Exception):
