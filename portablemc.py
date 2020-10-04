@@ -51,6 +51,7 @@ def main():
     parser.add_argument("--resol", help="Set a custom start resolution (<width>x<height>)", type=DECODE_RESOLUTION, dest="resolution")
     parser.add_argument("--java", help="Set a custom javaw executable path", default=JAVA_EXEC_DEFAULT)
     parser.add_argument("--logout", help="Override all other arguments, does not start the game, and logout from this specific session")
+    parser.add_argument("-t", "--temp-login", help="Flag used with -l (--login) to tell launcher not to cache your session if not already cached, deactivated by default", default=False, action="store_true", dest="templogin")
     parser.add_argument("-l", "--login", help="Use a email or username (legacy) to authenticate using mojang servers (you will be asked for password, it override --username and --uuid)")
     parser.add_argument("-u", "--username", help="Set a custom user name to play", default=player_uuid.split("-")[0])
     parser.add_argument("-i", "--uuid", help="Set a custom user UUID to play", default=player_uuid)
@@ -108,8 +109,10 @@ def main():
             password = getpass.getpass("=> Enter {} password: ".format(login))
             try:
                 auth_entry = auth_authenticate_request(login, password, client_uuid)
-                auth_db.add_entry(login, auth_entry)
-                auth_db.save()
+                if not args.templogin:
+                    print("=> Caching your session...")
+                    auth_db.add_entry(login, auth_entry)
+                    auth_db.save()
             except AuthError as auth_err:
                 print("=> {}".format(str(auth_err)))
                 exit(EXIT_AUTHENTICATION_FAILED)
