@@ -410,14 +410,14 @@ def main():
         "natives_directory": bin_dir,
         "launcher_name": LAUNCHER_NAME,
         "launcher_version": LAUNCHER_VERSION,
-        "classpath": ";".join(classpath_libs)
+        "classpath": get_classpath_separator().join(classpath_libs)
     }
 
     if custom_resol is not None:
         start_args_replacements["resolution_width"] = str(custom_resol[0])
         start_args_replacements["resolution_height"] = str(custom_resol[1])
 
-    start_args = [args.java]
+    start_args = [*args.java.split(" ")]
     for arg in raw_args:
         for repl_id, repl_val in start_args_replacements.items():
             arg = arg.replace("${{{}}}".format(repl_id), repl_val)
@@ -467,6 +467,10 @@ def get_minecraft_os() -> str:
         return "windows"
     elif pf == "darwin":
         return "osx"
+
+
+def get_classpath_separator() -> str:
+    return ";" if sys.platform == "win32" else ":"
 
 
 def get_minecraft_arch() -> str:
