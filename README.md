@@ -50,6 +50,11 @@ You can use `-u` *(`--username`)* followed by the username and `-i` *(`--uuid`)*
 
 > Note that even if you have set another UUID, the username will be the same as default (with extracted part from default UUID).
 
+### Main & working directory
+You can now configure directories used for game to work. These directories are:
+- `-md` *(`--main-dir`)*: this directory store libraries, assets, versions, binaries (at runtime) and launcher cache *(default values [here](https://minecraft-fr.gamepedia.com/.minecraft))* 
+- `-wd` *(`--work-dir`)*: this directory store game files like save, resource packs or logs *(if not specified, it is the same as main directory)*.
+
 ### Demo mode
 Demo mode is a mostly unknown feature that allows to start the game with a restricted play duration, it is disabled by default.
 Use `--demo` to enable.
