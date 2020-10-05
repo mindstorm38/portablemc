@@ -48,30 +48,46 @@ def main():
 
     player_uuid = str(uuid.uuid4())
 
-    parser = ArgumentParser()
-    parser.add_argument("-v", "--version", help="Specify Minecraft version (exact version, 'snapshot' for latest snapshot, 'release' for latest release)", default="release")
-    parser.add_argument("-s", "--search", help="A flag that exit the launcher after searching version, with this flag the version argument can be inexact", default=False, action="store_true")
-    parser.add_argument("--nostart", help="Only download Minecraft required data, but does not launch the game", default=False, action="store_true")
-    parser.add_argument("--demo", help="Start game in demo mode", default=False, action="store_true")
-    parser.add_argument("--resol", help="Set a custom start resolution (<width>x<height>)", type=DECODE_RESOLUTION, dest="resolution")
-    parser.add_argument("--java", help="Set a custom javaw executable path", default=JAVA_EXEC_DEFAULT)
-    parser.add_argument("--logout", help="Override all other arguments, does not start the game, and logout from this specific session")
-    parser.add_argument("-t", "--temp-login", help="Flag used with -l (--login) to tell launcher not to cache your session if not already cached, deactivated by default", default=False, action="store_true", dest="templogin")
-    parser.add_argument("-l", "--login", help="Use a email or username (legacy) to authenticate using mojang servers (you will be asked for password, it override --username and --uuid)")
-    parser.add_argument("-u", "--username", help="Set a custom user name to play", default=player_uuid.split("-")[0])
-    parser.add_argument("-i", "--uuid", help="Set a custom user UUID to play", default=player_uuid)
+    parser = ArgumentParser(
+        allow_abbrev=False,
+        description="[PortableMC] "
+                    "An easy to use portable Minecraft launcher in only one Python script ! "
+                    "This single-script launcher is still compatible with the official (Mojang) Minecraft "
+                    "Launcher stored in .minecraft and use it."
+    )
+    parser.add_argument("-v", "--version", help="Specify Minecraft version (exact version, 'snapshot' for latest snapshot, 'release' for latest release).", default="release")
+    parser.add_argument("-s", "--search", help="A flag that exit the launcher after searching version, with this flag the version argument can be inexact.", default=False, action="store_true")
+    parser.add_argument("--nostart", help="Only download Minecraft required data, but does not launch the game.", default=False, action="store_true")
+    parser.add_argument("--demo", help="Start game in demo mode.", default=False, action="store_true")
+    parser.add_argument("--resol", help="Set a custom start resolution (<width>x<height>).", type=DECODE_RESOLUTION, dest="resolution")
+    parser.add_argument("--java", help="Set a custom javaw executable path.", default=JAVA_EXEC_DEFAULT)
+    parser.add_argument("--logout", help="Override all other arguments, does not start the game, and logout from this specific session.")
+    parser.add_argument("-md", "--main-dir", help="Set the main directory where libraries, assets, versions and binaries (at runtime) are stored.", dest="main_dir")
+    parser.add_argument("-wd", "--work-dir", help="Set the working directory where the game run and place for examples the saves (and resources for legacy versions).", dest="work_dir")
+    parser.add_argument("-t", "--temp-login", help="Flag used with -l (--login) to tell launcher not to cache your session if not already cached, deactivated by default.", default=False, action="store_true", dest="templogin")
+    parser.add_argument("-l", "--login", help="Use a email or username (legacy) to authenticate using mojang servers (you will be asked for password, it override --username and --uuid).")
+    parser.add_argument("-u", "--username", help="Set a custom user name to play.", default=player_uuid.split("-")[0])
+    parser.add_argument("-i", "--uuid", help="Set a custom user UUID to play.", default=player_uuid)
     args = parser.parse_args()
 
-    mc_dir = get_minecraft_dir("minecraft")
-    os.makedirs(mc_dir, 0o777, True)
-    auth_db_file = os_path.join(mc_dir, "portablemc_tokens")
+    main_dir = get_minecraft_dir("minecraft") if args.main_dir is None else os_path.realpath(args.main_dir)
+    work_dir = main_dir if args.work_dir is None else os_path.realpath(args.work_dir)
+    os.makedirs(main_dir, 0o777, True)
+
+    auth_db_file = os_path.join(main_dir, "portablemc_tokens")
 
     print()
-    print("==== COMMON INFO ====")
-    print("Minecraft directory: {}".format(mc_dir))
-    print("Version manifest url: {}".format(VERSION_MANIFEST_URL))
-    print("=====================")
+    print("============ COMMON INFO ============")
+    print(" Main directory: {}".format(main_dir))
+    print(" Working directory: {}".format(work_dir))
+    print(" Version manifest url: {}".format(VERSION_MANIFEST_URL))
+    print("=====================================")
     print()
+
+    if not os_path.isfile(auth_db_file):
+        if input("Continue using this main directory? (y/N)") != "y":
+            print("=> Abort")
+            exit(0)
 
     # Logging in
     if args.logout is not None:
@@ -161,7 +177,7 @@ def main():
             exit(0)
 
     # Version meta file caching
-    version_dir = os_path.join(mc_dir, "versions", version_name)
+    version_dir = os_path.join(main_dir, "versions", version_name)
     version_meta_file = os_path.join(version_dir, "{}.json".format(version_name))
     version_meta = None
 
@@ -206,7 +222,7 @@ def main():
 
     # Assets loading
     print("Loading assets...")
-    assets_dir = os_path.join(mc_dir, "assets")
+    assets_dir = os_path.join(main_dir, "assets")
     assets_indexes_dir = os_path.join(assets_dir, "indexes")
     assets_index_version = version_meta["assets"]
     assets_index_file = os_path.join(assets_indexes_dir, "{}.json".format(assets_index_version))
@@ -238,7 +254,7 @@ def main():
     assets_virtual = assets_index.get("virtual", False)  # For 13w23b < version <= 13w48b (1.7.2)
 
     if assets_mapped_to_resources:
-        print("=> This version use lagacy assets, put in {}/resources".format(mc_dir))
+        print("=> This version use lagacy assets, put in {}/resources".format(work_dir))
     if assets_virtual:
         print("=> This version use virtual assets, put in {}".format(assets_virtual_dir))
 
@@ -262,7 +278,7 @@ def main():
             assets_current_size += asset_size
 
         if assets_mapped_to_resources:
-            resources_asset_file = os_path.join(mc_dir, "resources", asset_id)
+            resources_asset_file = os_path.join(work_dir, "resources", asset_id)
             if not os_path.isfile(resources_asset_file):
                 os.makedirs(os_path.dirname(resources_asset_file), 0o777, True)
                 shutil.copyfile(asset_file, resources_asset_file)
@@ -290,7 +306,7 @@ def main():
 
     # Libraries and natives loading
     print("Loading libraries and natives...")
-    libraries_dir = os_path.join(mc_dir, "libraries")
+    libraries_dir = os_path.join(main_dir, "libraries")
 
     main_class = version_meta["mainClass"]
     main_class_launchwrapper = (main_class == "net.minecraft.launchwrapper.Launch")
@@ -345,7 +361,7 @@ def main():
     print("Starting game ...")
 
     # Extracting binaries
-    bin_dir = os_path.join(mc_dir, "bin", str(uuid.uuid4()))
+    bin_dir = os_path.join(main_dir, "bin", str(uuid.uuid4()))
 
     if os_path.isdir(bin_dir):
         print("=> Natives directory already exists at: {}".format(bin))
@@ -396,7 +412,7 @@ def main():
         # Game
         "auth_player_name": args.username,
         "version_name": version_name,
-        "game_directory": mc_dir,
+        "game_directory": work_dir,
         "assets_root": assets_dir,
         "assets_index_name": assets_index_version,
         "auth_uuid": args.uuid,
@@ -404,7 +420,7 @@ def main():
         "user_type": "mojang",
         "version_type": version_type,
         # Game (legacy)
-        "auth_session": "token:{}:{}".format(auth_access_token, args.uuid) if len(auth_access_token) else "",
+        "auth_session": "token:{}:{}".format(auth_access_token, args.uuid) if len(auth_access_token) else "notok",
         "game_assets": assets_virtual_dir,
         # JVM
         "natives_directory": bin_dir,
@@ -425,7 +441,8 @@ def main():
 
     print("=> Running...")
     print("=> Command line: {}".format(" ".join(start_args)))
-    subprocess.run(start_args, stdout=subprocess.PIPE, cwd=mc_dir)
+    os.makedirs(work_dir, 0o777, True)
+    subprocess.run(start_args, stdout=subprocess.PIPE, cwd=work_dir)
 
     print("=> Game stopped, removing bin directory...")
     shutil.rmtree(bin_dir)
