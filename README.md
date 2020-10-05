@@ -37,6 +37,11 @@ This do not start the game.
 By default the launcher starts the latest release version, to change this, you can use the `-v` *(`--version`)* followed by the
 version name, or `snapshot` to target the latest snapshot, `release` does the same for latest release.
 
+Using the `-s` *(`--search`)* flag you can tell this launcher to only search for all versions prefixed by the specified version of `-v` argument,
+this stop the application just after searching. Exit codes: `15` if no version was found, else `0`.
+
+> Note that latest version of Java may not work for old versions of Minecraft.
+
 ### Username and UUID (manual offline mode)
 By default, a random player [UUID](https://fr.wikipedia.org/wiki/Universally_unique_identifier) is used, and the username is
 extracted from the first part of the UUID's represention *(for a `110e8400-e29b-11d4-a716-446655440000` uuid, the username will be `110e8400`)*.
@@ -68,4 +73,5 @@ python portablemc.py -tl <email|username>       Same as previous command, but do
 python portablemc.py --nostart                  Download all components of the latest Minecraft version but do not start the game
 python portablemc.py --logout <email|username>  Logout from a session
 python portablemc.py -u OfflineTest -v 1.15     Start 1.15 Minecraft version in offline mode with a specific username
+python portablemc.py -sv 1.7                    Search for
 ```
