@@ -6,6 +6,7 @@ from urllib.error import HTTPError
 from json.decoder import JSONDecodeError
 from argparse import ArgumentParser
 from os import path as os_path
+from datetime import datetime
 from zipfile import ZipFile
 import subprocess
 import platform
@@ -36,6 +37,7 @@ EXIT_CLIENT_JAR_NOT_FOUND = 11
 EXIT_NATIVES_DIR_ALREADY_EXITS = 12
 EXIT_DOWNLOAD_FILE_CORRUPTED = 13
 EXIT_AUTHENTICATION_FAILED = 14
+EXIT_VERSION_SEARCH_NOT_FOUND = 15
 
 DECODE_RESOLUTION = lambda raw: tuple(int(size) for size in raw.split("x"))
 
@@ -45,7 +47,8 @@ def main():
     player_uuid = str(uuid.uuid4())
 
     parser = ArgumentParser()
-    parser.add_argument("-v", "--version", help="Specify Minecraft version ('snapshot' for latest snapshot, 'release' for latest release)", default="release")
+    parser.add_argument("-v", "--version", help="Specify Minecraft version (exact version, 'snapshot' for latest snapshot, 'release' for latest release)", default="release")
+    parser.add_argument("-s", "--search", help="A flag that exit the launcher after searching version, with this flag the version argument can be inexact", default=False, action="store_true")
     parser.add_argument("--nostart", help="Only download Minecraft required data, but does not launch the game", default=False, action="store_true")
     parser.add_argument("--demo", help="Start game in demo mode", default=False, action="store_true")
     parser.add_argument("--resol", help="Set a custom start resolution (<width>x<height>)", type=DECODE_RESOLUTION, dest="resolution")
@@ -137,6 +140,24 @@ def main():
         version_name = version_manifest["latest"][version_type]
         print("=> Latest {} is '{}'".format(version_type, version_name))
 
+    # If searching flag is True
+    if args.search:
+        search = args.search
+        found = False
+        for manifest_version in version_manifest["versions"]:
+            if manifest_version["id"].startswith(version_name):
+                found = True
+                print("=> {:10s} {:16s} {}".format(
+                    manifest_version["type"],
+                    manifest_version["id"],
+                    format_manifest_date(manifest_version["releaseTime"])
+                ))
+        if not found:
+            print("=> No version found")
+            exit(EXIT_VERSION_SEARCH_NOT_FOUND)
+        else:
+            exit(0)
+
     # Version meta file caching
     version_dir = os_path.join(mc_dir, "versions", version_name)
     version_meta_file = os_path.join(version_dir, "{}.json".format(version_name))
@@ -156,8 +177,7 @@ def main():
                 version_url = manifest_version["url"]
                 print("=> Found version meta in manifest to cache: {}".format(version_url))
                 version_meta = read_url_json(version_url)
-                if not os_path.isdir(version_dir):
-                    os.makedirs(version_dir, 0o777, True)
+                os.makedirs(version_dir, 0o777, True)
                 with open(version_meta_file, "wt") as version_meta_fp:
                     json.dump(version_meta, version_meta_fp, indent=2)
 
@@ -208,10 +228,14 @@ def main():
     assets_objects_dir = os_path.join(assets_dir, "objects")
     assets_total_size = version_meta["assetIndex"]["totalSize"]
     assets_current_size = 0
-    assets_mapped_to_resources = assets_index.get("map_to_resources", False)
+    assets_virtual_dir = os_path.join(assets_dir, "virtual", assets_index_version)
+    assets_mapped_to_resources = assets_index.get("map_to_resources", False)  # For version <= 13w23b
+    assets_virtual = assets_index.get("virtual", False)  # For 13w23b < version <= 13w48b (1.7.2)
 
     if assets_mapped_to_resources:
-        print("=> This version use lagacy assets placed in {}/resources".format(mc_dir))
+        print("=> This version use lagacy assets, put in {}/resources".format(mc_dir))
+    if assets_virtual:
+        print("=> This version use virtual assets, put in {}".format(assets_virtual_dir))
 
     for asset_id, asset_obj in assets_index["objects"].items():
 
@@ -223,8 +247,7 @@ def main():
         asset_file = os_path.join(asset_hash_dir, asset_hash)
 
         if not os_path.isfile(asset_file) or os_path.getsize(asset_file) != asset_size:
-            if not os_path.isdir(asset_hash_dir):
-                os.makedirs(asset_hash_dir, 0o777, True)
+            os.makedirs(asset_hash_dir, 0o777, True)
             assets_current_size = download_file_progress(asset_url, asset_size, asset_hash, asset_file,
                                                          start_size=assets_current_size,
                                                          total_size=assets_total_size,
@@ -234,10 +257,15 @@ def main():
 
         if assets_mapped_to_resources:
             resources_asset_file = os_path.join(mc_dir, "resources", asset_id)
-            resources_asset_dir = os_path.dirname(resources_asset_file)
-            if not os_path.isdir(resources_asset_dir):
-                os.makedirs(resources_asset_dir, 0o777, True)
-            shutil.copyfile(asset_file, resources_asset_file)
+            if not os_path.isfile(resources_asset_file):
+                os.makedirs(os_path.dirname(resources_asset_file), 0o777, True)
+                shutil.copyfile(asset_file, resources_asset_file)
+
+        if assets_virtual:
+            virtual_asset_file = os_path.join(assets_virtual_dir, asset_id)
+            if not os_path.isfile(virtual_asset_file):
+                os.makedirs(os_path.dirname(virtual_asset_file), 0o777, True)
+                shutil.copyfile(asset_file, virtual_asset_file)
 
     # Logging setup
     print("Loading logger config...")
@@ -373,7 +401,7 @@ def main():
         "version_type": version_type,
         # Game (legacy)
         "auth_session": "token:{}:{}".format(auth_access_token, args.uuid) if len(auth_access_token) else "",
-        "game_assets": os_path.join(assets_dir, "virtual", assets_index_version),
+        "game_assets": assets_virtual_dir,
         # JVM
         "natives_directory": bin_dir,
         "launcher_name": LAUNCHER_NAME,
@@ -543,6 +571,10 @@ def download_file_info_progress(info: dict, dst: str, *, start_size: int = 0, to
     return download_file_progress(info["url"], info["size"], info["sha1"], dst, start_size=start_size, total_size=total_size, name=name)
 
 
+def format_manifest_date(raw: str):
+    return datetime.strptime(raw.rsplit("+", 2)[0], "%Y-%m-%dT%H:%M:%S").strftime("%c")
+
+
 ####################
 ## Authentication ##
 ####################
@@ -596,7 +628,6 @@ class AuthDatabase:
     def remove_entry(self, login: str):
         if login in self._entries:
             del self._entries[login]
-
 
 
 def auth_request(req: str, payload: dict, error: bool = True) -> (int, dict):
