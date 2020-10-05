@@ -73,5 +73,5 @@ python portablemc.py -tl <email|username>       Same as previous command, but do
 python portablemc.py --nostart                  Download all components of the latest Minecraft version but do not start the game
 python portablemc.py --logout <email|username>  Logout from a session
 python portablemc.py -u OfflineTest -v 1.15     Start 1.15 Minecraft version in offline mode with a specific username
-python portablemc.py -sv 1.7                    Search for
+python portablemc.py -sv 1.7                    Search for all versions starting with "1.7"
 ```
