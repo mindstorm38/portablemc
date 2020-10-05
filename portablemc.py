@@ -145,7 +145,6 @@ def main():
 
     # If searching flag is True
     if args.search:
-        search = args.search
         found = False
         for manifest_version in version_manifest["versions"]:
             if manifest_version["id"].startswith(version_name):
@@ -560,12 +559,13 @@ def download_file_progress(url: str, size: int, sha1: str, dst: str, *, start_si
                     print("    {:6.2f}% of total".format(progress), end='')
                 
                 now_time = time.monotonic()
-                print("    {}kB/s".format(read_len / (now_time - last_time) // 1000), end='')
+                if now_time != last_time:
+                    print("    {}/s   ".format(format_bytes(read_len / (now_time - last_time))), end='')
                 last_time = now_time
 
-            print("\r{}100.00%".format(base_message), end='')
+            """print("\r{}100.00%".format(base_message), end='')
             if total_size != 0:
-                print("    {:6.2f}% of total".format(start_size / total_size * 100), end='')
+                print("    {:6.2f}% of total".format(start_size / total_size * 100), end='')"""
 
             if dl_size != size:
                 print(" => Invalid size")
@@ -587,6 +587,17 @@ def download_file_info_progress(info: dict, dst: str, *, start_size: int = 0, to
 
 def format_manifest_date(raw: str):
     return datetime.strptime(raw.rsplit("+", 2)[0], "%Y-%m-%dT%H:%M:%S").strftime("%c")
+
+
+def format_bytes(n: float) -> str:
+    if n < 1000:
+        return "{:4.0f}B".format(int(n))
+    elif n < 1000000:
+        return "{:4.0f}kB".format(n // 1000)
+    elif n < 1000000000:
+        return "{:4.0f}MB".format(n // 1000000)
+    else:
+        return "{:4.0f}GB".format(n // 1000000000)
 
 
 ####################
