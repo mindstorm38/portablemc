@@ -6,7 +6,7 @@ This single-script launcher is still compatible with the official (Mojang) Minec
 
 ![illustration](https://github.com/mindstorm38/portablemc/blob/master/illustration.png?raw=true)
 
-***I used Python 3.8 to develop this launcher, further testing using prior versions are welcome.***
+***This launcher is tester for Python 3.8 & 3.6, further testing using other versions are welcome.***
 
 Once you have the script, you can launch it using python (e.g `python portablemc.py`).
 
