@@ -55,6 +55,8 @@ You can now configure directories used for game to work. These directories are:
 - `-md` *(`--main-dir`)*: this directory store libraries, assets, versions, binaries (at runtime) and launcher cache *(default values [here](https://minecraft-fr.gamepedia.com/.minecraft))* 
 - `-wd` *(`--work-dir`)*: this directory store game files like save, resource packs or logs *(if not specified, it is the same as main directory)*.
 
+> When using a main directory with portablemc for the first time, luncher will ask you to continue or not.
+
 ### Demo mode
 Demo mode is a mostly unknown feature that allows to start the game with a restricted play duration, it is disabled by default.
 Use `--demo` to enable.
