@@ -15,6 +15,7 @@ import getpass
 import shutil
 import uuid
 import json
+import time
 import sys
 import re
 import os
@@ -31,6 +32,7 @@ LAUNCHER_NAME = "portablemc"
 LAUNCHER_VERSION = "1.0.0"
 
 JAVA_EXEC_DEFAULT = "java"
+DOWNLOAD_BUFFER_SIZE = 32768
 
 EXIT_VERSION_NOT_FOUND = 10
 EXIT_CLIENT_JAR_NOT_FOUND = 11
@@ -61,6 +63,7 @@ def main():
     args = parser.parse_args()
 
     mc_dir = get_minecraft_dir("minecraft")
+    os.makedirs(mc_dir, 0o777, True)
     auth_db_file = os_path.join(mc_dir, "portablemc_tokens")
 
     print()
@@ -189,6 +192,9 @@ def main():
     version_type = version_meta["type"]
     print("Loading {} {}...".format(version_type, version_name))
 
+    # Common buffer to avoid realloc
+    buffer = bytearray(DOWNLOAD_BUFFER_SIZE)
+
     # JAR file loading
     print("Loading jar file...")
     version_jar_file = os_path.join(version_dir, "{}.jar".format(version_name))
@@ -197,7 +203,7 @@ def main():
         if "client" not in version_downloads:
             print("=> Can't found client download in version meta")
             exit(EXIT_CLIENT_JAR_NOT_FOUND)
-        download_file_info_progress(version_downloads["client"], version_jar_file)
+        download_file_info_progress(version_downloads["client"], version_jar_file, buffer=buffer)
 
     # Assets loading
     print("Loading assets...")
@@ -251,7 +257,8 @@ def main():
             assets_current_size = download_file_progress(asset_url, asset_size, asset_hash, asset_file,
                                                          start_size=assets_current_size,
                                                          total_size=assets_total_size,
-                                                         name=asset_id)
+                                                         name=asset_id,
+                                                         buffer=buffer)
         else:
             assets_current_size += asset_size
 
@@ -274,13 +281,12 @@ def main():
         version_logging = version_meta["logging"]
         if "client" in version_logging:
             log_config_dir = os_path.join(assets_dir, "log_configs")
-            if not os_path.isdir(log_config_dir):
-                os.makedirs(log_config_dir, 0x777, True)
+            os.makedirs(log_config_dir, 0o777, True)
             client_logging = version_logging["client"]
             logging_file_info = client_logging["file"]
             logging_file = os_path.join(log_config_dir, logging_file_info["id"])
             if not os_path.isfile(logging_file) or os_path.getsize(logging_file) != logging_file_info["size"]:
-                download_file_info_progress(logging_file_info, logging_file, name=logging_file_info["id"])
+                download_file_info_progress(logging_file_info, logging_file, name=logging_file_info["id"], buffer=buffer)
             logging_arg = client_logging["argument"].replace("${path}", logging_file)
 
     # Libraries and natives loading
@@ -322,11 +328,10 @@ def main():
         lib_dl_dir = os_path.dirname(lib_dl_path)
         lib_dl_size = lib_dl_info["size"]
 
-        if not os_path.isdir(lib_dl_dir):
-            os.makedirs(lib_dl_dir, 0x777, True)
+        os.makedirs(lib_dl_dir, 0o777, True)
 
         if not os_path.isfile(lib_dl_path) or os_path.getsize(lib_dl_path) != lib_dl_size:
-            download_file_info_progress(lib_dl_info, lib_dl_path, name=lib_name)
+            download_file_info_progress(lib_dl_info, lib_dl_path, name=lib_name, buffer=buffer)
 
         if lib_type == "classpath":
             classpath_libs.append(lib_dl_path)
@@ -518,7 +523,7 @@ def is_native_zip_info_valid(filename: str) -> bool:
     return not filename.startswith("META-INF") and not filename.endswith(".git") and not filename.endswith(".sha1")
 
 
-def download_file_progress(url: str, size: int, sha1: str, dst: str, *, start_size: int = 0, total_size: int = 0, name: Optional[str] = None) -> int:
+def download_file_progress(url: str, size: int, sha1: str, dst: str, *, start_size: int = 0, total_size: int = 0, name: Optional[str] = None, buffer: Optional[bytearray] = None) -> int:
 
     base_message = "Downloading {} ... ".format(url if name is None else name)
     print(base_message, end='')
@@ -531,23 +536,32 @@ def download_file_progress(url: str, size: int, sha1: str, dst: str, *, start_si
             dl_sha1 = hashlib.sha1()
             dl_size = 0
 
+            if buffer is None:
+                buffer = bytearray(DOWNLOAD_BUFFER_SIZE)
+
+            last_time = time.monotonic()
+
             while True:
 
-                chunk = req.read(32768)
-                chunk_len = len(chunk)
-                if not chunk_len:
+                read_len = req.readinto(buffer)
+                if not read_len:
                     break
 
-                dl_size += chunk_len
-                dl_sha1.update(chunk)
-                dst_fp.write(chunk)
+                buffer_view = buffer[:read_len]
+                dl_size += read_len
+                dl_sha1.update(buffer_view)
+                dst_fp.write(buffer_view)
                 progress = dl_size / size * 100
                 print("\r{}{:6.2f}%".format(base_message, progress), end='')
 
                 if total_size != 0:
-                    start_size += chunk_len
+                    start_size += read_len
                     progress = start_size / total_size * 100
                     print("    {:6.2f}% of total".format(progress), end='')
+                
+                now_time = time.monotonic()
+                print("    {}kB/s".format(read_len / (now_time - last_time) // 1000), end='')
+                last_time = now_time
 
             print("\r{}100.00%".format(base_message), end='')
             if total_size != 0:
@@ -567,8 +581,8 @@ def download_file_progress(url: str, size: int, sha1: str, dst: str, *, start_si
         return start_size
 
 
-def download_file_info_progress(info: dict, dst: str, *, start_size: int = 0, total_size: int = 0, name: Optional[str] = None) -> int:
-    return download_file_progress(info["url"], info["size"], info["sha1"], dst, start_size=start_size, total_size=total_size, name=name)
+def download_file_info_progress(info: dict, dst: str, *, start_size: int = 0, total_size: int = 0, name: Optional[str] = None, buffer: Optional[bytearray] = None) -> int:
+    return download_file_progress(info["url"], info["size"], info["sha1"], dst, start_size=start_size, total_size=total_size, name=name, buffer=buffer)
 
 
 def format_manifest_date(raw: str):
