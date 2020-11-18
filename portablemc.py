@@ -89,7 +89,7 @@ def main():
             print("=> Abort")
             exit(0)
 
-    # Logging in
+    # Logging out
     if args.logout is not None:
 
         print("=> Logging out...")
@@ -108,6 +108,36 @@ def main():
         print("=> Session {} is no longer valid".format(username))
         exit(0)
 
+    # Searching version
+    mc_os = get_minecraft_os()
+    version_manifest = read_version_manifest()
+    version_name = args.version
+    print("Searching for version '{}' ...".format(version_name))
+
+    # Aliasing version
+    if version_name in SPECIAL_VERSIONS and version_name in version_manifest["latest"]:
+        version_type = version_name
+        version_name = version_manifest["latest"][version_type]
+        print("=> Latest {} is '{}'".format(version_type, version_name))
+
+    # If searching flag is True
+    if args.search:
+        found = False
+        for manifest_version in version_manifest["versions"]:
+            if manifest_version["id"].startswith(version_name):
+                found = True
+                print("=> {:10s} {:16s} {}".format(
+                    manifest_version["type"],
+                    manifest_version["id"],
+                    format_manifest_date(manifest_version["releaseTime"])
+                ))
+        if not found:
+            print("=> No version found")
+            exit(EXIT_VERSION_SEARCH_NOT_FOUND)
+        else:
+            exit(0)
+
+    # Login in
     auth_access_token = ""
     if args.login is not None:
 
@@ -147,61 +177,49 @@ def main():
     elif args.uuid is not None:  # Remove dashes from UUID
         args.uuid = args.uuid.replace("-", "")
 
-    # Searching version
-    mc_os = get_minecraft_os()
-    version_manifest = read_version_manifest()
-    version_name = args.version
-    print("Searching for version '{}' ...".format(version_name))
-
-    # Aliasing version
-    if version_name in SPECIAL_VERSIONS and version_name in version_manifest["latest"]:
-        version_type = version_name
-        version_name = version_manifest["latest"][version_type]
-        print("=> Latest {} is '{}'".format(version_type, version_name))
-
-    # If searching flag is True
-    if args.search:
-        found = False
-        for manifest_version in version_manifest["versions"]:
-            if manifest_version["id"].startswith(version_name):
-                found = True
-                print("=> {:10s} {:16s} {}".format(
-                    manifest_version["type"],
-                    manifest_version["id"],
-                    format_manifest_date(manifest_version["releaseTime"])
-                ))
-        if not found:
-            print("=> No version found")
-            exit(EXIT_VERSION_SEARCH_NOT_FOUND)
-        else:
-            exit(0)
-
     # Version meta file caching
-    version_dir = os_path.join(main_dir, "versions", version_name)
-    version_meta_file = os_path.join(version_dir, "{}.json".format(version_name))
-    version_meta = None
 
-    if os_path.isfile(version_meta_file):
-        print("=> Found cached version meta: {}".format(version_meta_file))
-        with open(version_meta_file, "rb") as version_meta_fp:
-            try:
-                version_meta = json.load(version_meta_fp)
-            except JSONDecodeError:
-                print("=> Failed to decode cached version meta, try updating ...")
+    def ensure_version_meta(name: str) -> Tuple[dict, str]:
 
-    if version_meta is None:
-        for manifest_version in version_manifest["versions"]:
-            if manifest_version["id"] == version_name:
-                version_url = manifest_version["url"]
-                print("=> Found version meta in manifest to cache: {}".format(version_url))
-                version_meta = read_url_json(version_url)
-                os.makedirs(version_dir, 0o777, True)
-                with open(version_meta_file, "wt") as version_meta_fp:
-                    json.dump(version_meta, version_meta_fp, indent=2)
+        version_dir = os_path.join(main_dir, "versions", name)
+        version_meta_file = os_path.join(version_dir, "{}.json".format(name))
+        content = None
+
+        if os_path.isfile(version_meta_file):
+            print("=> Found cached version meta: {}".format(version_meta_file))
+            with open(version_meta_file, "rb") as version_meta_fp:
+                try:
+                    content = json.load(version_meta_fp)
+                except JSONDecodeError:
+                    print("=> Failed to decode cached version meta, try updating ...")
+
+        if content is None:
+            for mf_version in version_manifest["versions"]:
+                if mf_version["id"] == name:
+                    version_url = mf_version["url"]
+                    print("=> Found version meta in manifest, caching: {}".format(version_url))
+                    content = read_url_json(version_url)
+                    os.makedirs(version_dir, 0o777, True)
+                    with open(version_meta_file, "wt") as version_meta_fp:
+                        json.dump(version_meta, version_meta_fp, indent=2)
+
+        return content, version_dir
+
+    version_meta, version_dir = ensure_version_meta(version_name)
 
     if version_meta is None:
         print("=> Failed to find version '{}'".format(args.version))
         exit(EXIT_VERSION_NOT_FOUND)
+
+    while "inheritsFrom" in version_meta:
+        print("=> Version '{}' inherits version '{}'...".format(version_meta["id"], version_meta["inheritsFrom"]))
+        parent_meta, _ = ensure_version_meta(version_meta["inheritsFrom"])
+        if parent_meta is None:
+            print("=> Failed to find parent version '{}'".format(version_meta["inheritsFrom"]))
+            exit(EXIT_VERSION_NOT_FOUND)
+        del version_meta["inheritsFrom"]
+        dict_merge(parent_meta, version_meta)
+        version_meta = parent_meta
 
     # Loading version dependencies
     version_type = version_meta["type"]
@@ -312,6 +330,8 @@ def main():
     main_class_launchwrapper = (main_class == "net.minecraft.launchwrapper.Launch")
     classpath_libs = [version_jar_file]
     native_libs = []
+    
+    archbits = get_minecraft_archbits()
 
     for lib_obj in version_meta["libraries"]:
 
@@ -319,39 +339,58 @@ def main():
             if not interpret_rule(lib_obj["rules"], mc_os):
                 continue
 
-        lib_dl = lib_obj["downloads"]
-        lib_name = lib_obj["name"]
-        lib_dl_info = None
-        lib_type = None
+        lib_name = lib_obj["name"]  # type: str
+        lib_type = None  # type: Optional[str]
 
-        if "natives" in lib_obj and "classifiers" in lib_dl:
-            lib_natives = lib_obj["natives"]
-            if mc_os in lib_natives:
-                lib_native_classifier = lib_natives[mc_os]
-                lib_name += ":{}".format(lib_native_classifier)
-                lib_dl_info = lib_dl["classifiers"][lib_native_classifier]
-                lib_type = "native"
-        elif "artifact" in lib_dl:
-            lib_dl_info = lib_dl["artifact"]
+        if "downloads" in lib_obj:
+
+            lib_dl = lib_obj["downloads"]
+            lib_dl_info = None
+
+            if "natives" in lib_obj and "classifiers" in lib_dl:
+                lib_natives = lib_obj["natives"]
+                if mc_os in lib_natives:
+                    lib_native_classifier = lib_natives[mc_os]
+                    if archbits is not None:
+                        lib_native_classifier = lib_native_classifier.replace("${arch}", archbits)
+                    lib_name += ":{}".format(lib_native_classifier)
+                    lib_dl_info = lib_dl["classifiers"][lib_native_classifier]
+                    lib_type = "native"
+            elif "artifact" in lib_dl:
+                lib_dl_info = lib_dl["artifact"]
+                lib_type = "classpath"
+
+            if lib_dl_info is None:
+                print("=> Can't found library for {}".format(lib_name))
+                continue
+
+            lib_path = os_path.join(libraries_dir, lib_dl_info["path"])
+            lib_dir = os_path.dirname(lib_path)
+            lib_size = lib_dl_info["size"]
+
+            os.makedirs(lib_dir, 0o777, True)
+
+            if not os_path.isfile(lib_path) or os_path.getsize(lib_path) != lib_size:
+                download_file_info_progress(lib_dl_info, lib_path, name=lib_name, buffer=buffer)
+
+        else:
+
+            # If no 'downloads' trying to parse the maven dependency string "<group>:<product>:<version>
+            # to directory path. This may be used by custom configuration that do not provide download
+            # links like Optifine.
+
+            lib_name_parts = lib_name.split(":")
+            lib_path = os_path.join(libraries_dir, *lib_name_parts[0].split("."), lib_name_parts[1], lib_name_parts[2], "{}-{}.jar".format(lib_name_parts[1], lib_name_parts[2]))
             lib_type = "classpath"
 
-        if lib_dl_info is None:
-            print("=> Can't found library for {}".format(lib_name))
-            continue
-
-        lib_dl_path = os_path.join(libraries_dir, lib_dl_info["path"])
-        lib_dl_dir = os_path.dirname(lib_dl_path)
-        lib_dl_size = lib_dl_info["size"]
-
-        os.makedirs(lib_dl_dir, 0o777, True)
-
-        if not os_path.isfile(lib_dl_path) or os_path.getsize(lib_dl_path) != lib_dl_size:
-            download_file_info_progress(lib_dl_info, lib_dl_path, name=lib_name, buffer=buffer)
+            if not os_path.isfile(lib_path):
+                print("=> Can't found cached library for {} at {}".format(lib_name, lib_path))
+                continue
 
         if lib_type == "classpath":
-            classpath_libs.append(lib_dl_path)
+            classpath_libs.append(lib_path)
         elif lib_type == "native":
-            native_libs.append(lib_dl_path)
+            native_libs.append(lib_path)
 
     if args.nostart:
         print("Not starting")
@@ -422,6 +461,7 @@ def main():
         # Game (legacy)
         "auth_session": "token:{}:{}".format(auth_access_token, args.uuid) if len(auth_access_token) else "notok",
         "game_assets": assets_virtual_dir,
+        "user_properties": "{}",
         # JVM
         "natives_directory": bin_dir,
         "launcher_name": LAUNCHER_NAME,
@@ -452,6 +492,18 @@ def read_url_json(url: str) -> dict:
     return json.load(urlreq.urlopen(url))
 
 
+def dict_merge(dst: dict, other: dict):
+    for k, v in other.items():
+        if k in dst:
+            if isinstance(dst[k], dict) and isinstance(other[k], dict):
+                dict_merge(dst[k], other[k])
+                continue
+            elif isinstance(dst[k], list) and isinstance(other[k], list):
+                dst[k].extend(other[k])
+                continue
+        dst[k] = other[k]
+
+
 def read_version_manifest() -> dict:
     return read_url_json(VERSION_MANIFEST_URL)
 
@@ -476,6 +528,10 @@ def get_minecraft_dir(dirname: str) -> str:
         return os_path.join(home, "Library", "Application Support", dirname)
 
 
+def get_classpath_separator() -> str:
+    return ";" if sys.platform == "win32" else ":"
+
+
 def get_minecraft_os() -> str:
     pf = sys.platform
     if pf.startswith("freebsd") or pf.startswith("linux") or pf.startswith("aix") or pf.startswith("cygwin"):
@@ -486,13 +542,14 @@ def get_minecraft_os() -> str:
         return "osx"
 
 
-def get_classpath_separator() -> str:
-    return ";" if sys.platform == "win32" else ":"
-
-
 def get_minecraft_arch() -> str:
     machine = platform.machine().lower()
     return "x86" if machine == "i386" else "x86_64" if machine in ("x86_64", "amd64") else "unknown"
+
+
+def get_minecraft_archbits() -> Optional[str]:
+    raw_bits = platform.architecture()[0]
+    return "64" if raw_bits == "64bit" else "32" if raw_bits == "32bit" else None
 
 
 def interpret_rule(rules: list, mc_os: str, features: Optional[dict] = None) -> bool:
