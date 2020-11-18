@@ -201,7 +201,7 @@ def main():
                     content = read_url_json(version_url)
                     os.makedirs(version_dir, 0o777, True)
                     with open(version_meta_file, "wt") as version_meta_fp:
-                        json.dump(version_meta, version_meta_fp, indent=2)
+                        json.dump(content, version_meta_fp, indent=2)
 
         return content, version_dir
 
@@ -492,6 +492,8 @@ def main():
 
     while retcode is None:
 
+        time.sleep(0.1)
+
         data = stdout_tail.read_and_append(buffer, proc.stdout)
         if data is not None:
             sys.stdout.buffer.write(data)
@@ -502,8 +504,8 @@ def main():
 
         retcode = proc.poll()
 
-    sys.stdout.flush()
-    sys.stderr.flush()
+    sys.stdout.buffer.flush()
+    sys.stderr.buffer.flush()
 
     print("================================================")
 
