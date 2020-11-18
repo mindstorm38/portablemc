@@ -481,12 +481,43 @@ def main():
 
     print("=> Running...")
     print("=> Command line: {}".format(" ".join(start_args)))
+    print("================================================")
     os.makedirs(work_dir, 0o777, True)
-    subprocess.run(start_args, stdout=subprocess.PIPE, cwd=work_dir)
+
+    proc = subprocess.Popen(start_args, cwd=work_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    retcode = None  # type: Optional[int]
+    stdout_tail = TailBuffer(1024)
+    stderr_tail = TailBuffer(1024)
+
+    while retcode is None:
+
+        data = stdout_tail.read_and_append(buffer, proc.stdout)
+        if data is not None:
+            sys.stdout.buffer.write(data)
+
+        data = stderr_tail.read_and_append(buffer, proc.stderr)
+        if data is not None:
+            sys.stderr.buffer.write(data)
+
+        retcode = proc.poll()
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    print("================================================")
+
+    diagnostic = diagnose_error(retcode, str(stdout_tail), str(stderr_tail))
+    if diagnostic is not None:
+        print("=> Error diagnostic: {}".format(diagnostic))
 
     print("=> Game stopped, removing bin directory...")
     shutil.rmtree(bin_dir)
 
+
+#############
+##  Utils  ##
+#############
 
 def read_url_json(url: str) -> dict:
     return json.load(urlreq.urlopen(url))
@@ -678,10 +709,41 @@ def format_bytes(n: float) -> str:
         return "{:4.0f}GB".format(n // 1000000000)
 
 
+class TailBuffer:
+
+    def __init__(self, size: int):
+        self.size = size
+        self.buf = bytearray(size)
+
+    def append(self, data: bytearray, data_len: int = -1):
+
+        # 0 1 2 3 4 5 6 7
+
+        if data_len < 0:
+            data_len = len(data)
+
+        keep_limit = self.size - data_len
+        for i in range(self.size):
+            if i < keep_limit:
+                self.buf[i] = self.buf[data_len + i]
+            else:
+                self.buf[i] = data[i - keep_limit]
+
+    def read_and_append(self, buf: bytearray, io) -> Optional[bytearray]:
+        read_len = io.readinto(buf)
+        if read_len > 0:
+            self.append(buf, read_len)
+            return buf[:read_len]
+        else:
+            return None
+
+    def __str__(self) -> str:
+        return self.buf.decode()
+
+
 ####################
 ## Authentication ##
 ####################
-
 
 class AuthEntry:
     def __init__(self, client_token: str, username: str, _uuid: str, access_token: str):
@@ -801,7 +863,10 @@ class AuthError(Exception):
     pass
 
 
-# Used for versions <= 1.12.2
+###############################
+## Retro compatible JVM args ##
+###############################
+
 LEGACY_JVM_ARGUMENTS = [
     {
         "rules": [
@@ -848,6 +913,21 @@ LEGACY_JVM_ARGUMENTS = [
     "-cp",
     "${classpath}"
 ]
+
+
+########################
+## Errors diagnostics ##
+########################
+
+def diagnose_error(return_code: int, stdout: str, stderr: str) -> Optional[str]:
+
+    if return_code == 0:
+        return None
+
+    if stderr.find("class jdk.internal.loader.ClassLoaders$AppClassLoader cannot be cast to class java.net.URLClassLoader") != -1:
+        return "This error can be caused by using modern Java versions that are incompatible with old versions and/or launch wrapper."
+    else:
+        return "Unknown error."
 
 
 if __name__ == '__main__':
