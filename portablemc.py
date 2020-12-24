@@ -433,6 +433,16 @@ def main():
     else:
         raw_args.extend(interpret_args(version_meta["arguments"]["jvm"], mc_os, features))
 
+    # Default JVM arguments :
+    # -Xmx2G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M
+    raw_args.append("-Xmx2G")
+    raw_args.append("-XX:+UnlockExperimentalVMOptions")
+    raw_args.append("-XX:+UseG1GC")
+    raw_args.append("-XX:G1NewSizePercent=20")
+    raw_args.append("-XX:G1ReservePercent=20")
+    raw_args.append("-XX:MaxGCPauseMillis=50")
+    raw_args.append("-XX:G1HeapRegionSize=32M")
+
     if logging_arg is not None:
         raw_args.append(logging_arg)
 
