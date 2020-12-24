@@ -484,6 +484,9 @@ def main():
     print("================================================")
     os.makedirs(work_dir, 0o777, True)
 
+    subprocess.run(start_args, cwd=work_dir)
+
+    """
     proc = subprocess.Popen(start_args, cwd=work_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     retcode = None  # type: Optional[int]
@@ -492,11 +495,11 @@ def main():
 
     while retcode is None:
 
-        time.sleep(0.1)
+        time.sleep(1)
 
         data = stdout_tail.read_and_append(buffer, proc.stdout)
-        if data is not None:
-            sys.stdout.buffer.write(data)
+        # if data is not None:
+        #     sys.stdout.buffer.write(data)
 
         data = stderr_tail.read_and_append(buffer, proc.stderr)
         if data is not None:
@@ -512,6 +515,7 @@ def main():
     diagnostic = diagnose_error(retcode, str(stdout_tail), str(stderr_tail))
     if diagnostic is not None:
         print("=> Error diagnostic: {}".format(diagnostic))
+    """
 
     print("=> Game stopped, removing bin directory...")
     shutil.rmtree(bin_dir)
@@ -711,6 +715,7 @@ def format_bytes(n: float) -> str:
         return "{:4.0f}GB".format(n // 1000000000)
 
 
+# No longer used
 class TailBuffer:
 
     def __init__(self, size: int):
@@ -917,6 +922,7 @@ LEGACY_JVM_ARGUMENTS = [
 ]
 
 
+"""
 ########################
 ## Errors diagnostics ##
 ########################
@@ -930,7 +936,7 @@ def diagnose_error(return_code: int, stdout: str, stderr: str) -> Optional[str]:
         return "This error can be caused by using modern Java versions that are incompatible with old versions and/or launch wrapper."
     else:
         return "Unknown error."
-
+"""
 
 if __name__ == '__main__':
     main()
