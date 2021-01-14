@@ -87,6 +87,13 @@ By using `--nostart` flag, you force the launcher to download all requirements t
 By default the launcher use the `javaw` executable to launch Minecraft, if you want to
 change this executable, use the `--jvm` argument followed by the executable.
 
+You can also set JVM arguments string using the `--jvm-args`. By defaults the JVM arguments are the same as the officiel launcher:
+```
+-Xmx2G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M
+```
+
+> The `--java` argument is used if `--jvm` is not defined, but it will be removed in future versions.
+
 # Examples
 ```
 python portablemc.py                            Start latest Minecraft version using offline mode and random username and UUID
