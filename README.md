@@ -10,15 +10,24 @@ This single-script launcher is still compatible with the official (Mojang) Minec
 
 Once you have the script, you can launch it using python (e.g `python portablemc.py`).
 
+- [Arguments](#arguments)
+  - [Mojang authentication](#mojang-authentication)
+  - [Minecraft version](#minecraft-version)
+  - [Offline mode](#username-and-uuid-manual-offline-mode)
+  - [Main & working directories](#main--working-directory)
+  - [Demo mode](#demo-mode)
+  - [Resolution](#window-resolution)
+  - [No start mode](#no-start-mode)
+  - [Customize JVM](#customize-jvm-java-virtual-machine)
+- [Usage examples](#examples)
+
 # Arguments
 The launcher support various arguments that make it really useful and faster than the official launcher
 to test the game in offline mode *(custom username and UUID)*, or demo mode for example.
 
 *You can read the complete help message using `-h` argument.*
 
-***[Usage examples](#examples)***
-
-### Mojang authentication
+## Mojang authentication
 Do you want to authenticate using your Mojang account ?
 
 It's now possible using `-l` *(`--login`)* followed by your email or username (for legacy account).
@@ -33,7 +42,7 @@ note that no trace of your password remain in this file, so don't worry about us
 Your session is cached and you want to invalidate it ? Use `--logout` followed by your email or username.
 This do not start the game.
 
-### Minecraft version
+## Minecraft version
 By default the launcher starts the latest release version, to change this, you can use the `-v` *(`--version`)* followed by the
 version name, or `snapshot` to target the latest snapshot, `release` does the same for latest release.
 
@@ -42,7 +51,7 @@ this stop the application just after searching. Exit codes: `15` if no version w
 
 > Note that latest version of Java may not work for old versions of Minecraft.
 
-### Username and UUID (manual offline mode)
+## Username and UUID (manual offline mode)
 By default, a random player [UUID](https://fr.wikipedia.org/wiki/Universally_unique_identifier) is used, and the username is
 extracted from the first part of the UUID's represention *(for a `110e8400-e29b-11d4-a716-446655440000` uuid, the username will be `110e8400`)*.
 
@@ -50,27 +59,29 @@ You can use `-u` *(`--username`)* followed by the username and `-i` *(`--uuid`)*
 
 > Note that even if you have set another UUID, the username will be the same as default (with extracted part from default UUID).
 
-### Main & working directory
+## Main & working directory
 You can now configure directories used for game to work. These directories are:
-- `-md` *(`--main-dir`)*: this directory store libraries, assets, versions, binaries (at runtime) and launcher cache *(default values [here](https://minecraft-fr.gamepedia.com/.minecraft))* 
-- `-wd` *(`--work-dir`)*: this directory store game files like save, resource packs or logs *(if not specified, it is the same as main directory)*.
+- `--main-dir`: this directory store libraries, assets, versions, binaries (at runtime) and launcher cache *(default values [here](https://minecraft-fr.gamepedia.com/.minecraft))* 
+- `--work-dir`: this directory store game files like save, resource packs or logs *(if not specified, it is the same as main directory)*.
+
+> **Shortcuts versions of previous arguments (`-md`, `-wd`) will be removed in future versions because it's not standard to have short argument with two letters.**
 
 > When using a main directory with portablemc for the first time, luncher will ask you to continue or not.
 
-### Demo mode
+## Demo mode
 Demo mode is a mostly unknown feature that allows to start the game with a restricted play duration, it is disabled by default.
 Use `--demo` to enable.
 
-### Window resolution
+## Window resolution
 You can set the default window resolution *(does not affect the game if already in fullscreen mode)* by using `--resol` followed by
 `<width>x<height>`, `width` and `height` are positive integers.
 
-### No start mode
+## No start mode
 By using `--nostart` flag, you force the launcher to download all requirements to the game, but does not start it.
 
-### Custom Java executable
+## Customize JVM (Java Virtual Machine)
 By default the launcher use the `javaw` executable to launch Minecraft, if you want to
-change this executable, use the `--java` argument followed by the executable.
+change this executable, use the `--jvm` argument followed by the executable.
 
 # Examples
 ```
@@ -81,5 +92,5 @@ python portablemc.py --nostart                  Download all components of the l
 python portablemc.py --logout <email|username>  Logout from a session
 python portablemc.py -u OfflineTest -v 1.15     Start 1.15 Minecraft version in offline mode with a username 'OfflineTest' and random UUID
 python portablemc.py -sv 1.7                    Search for all versions starting with "1.7"
-python portablemc.py -md /tmp/mc                Start latest Minecraft version in /tmp/mc instead of .minecraft
+python portablemc.py --main-dir /tmp/mc         Start latest Minecraft version in /tmp/mc instead of .minecraft
 ```
