@@ -31,7 +31,8 @@ SPECIAL_VERSIONS = {"snapshot", "release"}
 LAUNCHER_NAME = "portablemc"
 LAUNCHER_VERSION = "1.0.0"
 
-JAVA_EXEC_DEFAULT = "java"
+JVM_EXEC_DEFAULT = "java"
+JVM_ARGS_DEFAULT = "-Xmx2G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M"
 DOWNLOAD_BUFFER_SIZE = 32768
 
 EXIT_VERSION_NOT_FOUND = 10
@@ -60,7 +61,9 @@ def main():
     parser.add_argument("--nostart", help="Only download Minecraft required data, but does not launch the game.", default=False, action="store_true")
     parser.add_argument("--demo", help="Start game in demo mode.", default=False, action="store_true")
     parser.add_argument("--resol", help="Set a custom start resolution (<width>x<height>).", type=DECODE_RESOLUTION, dest="resolution")
-    parser.add_argument("--java", help="Set a custom javaw executable path.", default=JAVA_EXEC_DEFAULT)
+    parser.add_argument("--java", help="Set a custom JVM javaw executable path (deprecated).", default=JVM_EXEC_DEFAULT)
+    parser.add_argument("--jvm", help="Set a custom JVM javaw executable path.", default=None)
+    parser.add_argument("--jvm-args", help="Change the default JVM arguments.", default=JVM_ARGS_DEFAULT, dest="jvm_args")
     parser.add_argument("--logout", help="Override all other arguments, does not start the game, and logout from this specific session.")
     parser.add_argument("-md", "--main-dir", help="Set the main directory where libraries, assets, versions and binaries (at runtime) are stored.", dest="main_dir")
     parser.add_argument("-wd", "--work-dir", help="Set the working directory where the game run and place for examples the saves (and resources for legacy versions).", dest="work_dir")
@@ -76,16 +79,13 @@ def main():
 
     auth_db_file = os_path.join(main_dir, "portablemc_tokens")
 
-    print()
-    print("============ COMMON INFO ============")
-    print(" Main directory: {}".format(main_dir))
-    print(" Working directory: {}".format(work_dir))
-    print(" Version manifest url: {}".format(VERSION_MANIFEST_URL))
-    print("=====================================")
-    print()
+    print("Welcome to PortableMC, the easy to use Python Minecraft Launcher.")
+    print("=> Main directory: {}".format(main_dir))
+    print("=> Working directory: {}".format(work_dir))
+    print("=> Version manifest url: {}".format(VERSION_MANIFEST_URL))
 
     if not os_path.isfile(auth_db_file):
-        if input("Continue using this main directory? (y/N)") != "y":
+        if input("Continue using this main directory? (y/N) ") != "y":
             print("=> Abort")
             exit(0)
 
@@ -433,15 +433,17 @@ def main():
     else:
         raw_args.extend(interpret_args(version_meta["arguments"]["jvm"], mc_os, features))
 
+    raw_args.extend(args.jvm_args.split(" "))
+
     # Default JVM arguments :
     # -Xmx2G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M
-    raw_args.append("-Xmx2G")
-    raw_args.append("-XX:+UnlockExperimentalVMOptions")
-    raw_args.append("-XX:+UseG1GC")
-    raw_args.append("-XX:G1NewSizePercent=20")
-    raw_args.append("-XX:G1ReservePercent=20")
-    raw_args.append("-XX:MaxGCPauseMillis=50")
-    raw_args.append("-XX:G1HeapRegionSize=32M")
+    # raw_args.append("-Xmx2G")
+    # raw_args.append("-XX:+UnlockExperimentalVMOptions")
+    # raw_args.append("-XX:+UseG1GC")
+    # raw_args.append("-XX:G1NewSizePercent=20")
+    # raw_args.append("-XX:G1ReservePercent=20")
+    # raw_args.append("-XX:MaxGCPauseMillis=50")
+    # raw_args.append("-XX:G1HeapRegionSize=32M")
 
     if logging_arg is not None:
         raw_args.append(logging_arg)
@@ -483,7 +485,12 @@ def main():
         start_args_replacements["resolution_width"] = str(custom_resol[0])
         start_args_replacements["resolution_height"] = str(custom_resol[1])
 
-    start_args = [*args.java.split(" ")]
+    jvm_path = args.jvm
+    # For deprecated "java" argument:
+    if jvm_path is None:
+        jvm_path = args.java
+
+    start_args = [*jvm_path.split(" ")]
     for arg in raw_args:
         for repl_id, repl_val in start_args_replacements.items():
             arg = arg.replace("${{{}}}".format(repl_id), repl_val)
@@ -493,8 +500,10 @@ def main():
     print("=> Command line: {}".format(" ".join(start_args)))
     print("================================================")
     os.makedirs(work_dir, 0o777, True)
-
     subprocess.run(start_args, cwd=work_dir)
+    print("================================================")
+    print("=> Game stopped, removing bin directory...")
+    shutil.rmtree(bin_dir)
 
     """
     proc = subprocess.Popen(start_args, cwd=work_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -526,10 +535,6 @@ def main():
     if diagnostic is not None:
         print("=> Error diagnostic: {}".format(diagnostic))
     """
-
-    print("=> Game stopped, removing bin directory...")
-    shutil.rmtree(bin_dir)
-
 
 #############
 ##  Utils  ##
