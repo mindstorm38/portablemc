@@ -506,36 +506,6 @@ def main():
     print("=> Game stopped, removing bin directory...")
     shutil.rmtree(bin_dir)
 
-    """
-    proc = subprocess.Popen(start_args, cwd=work_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    retcode = None  # type: Optional[int]
-    stdout_tail = TailBuffer(1024)
-    stderr_tail = TailBuffer(1024)
-
-    while retcode is None:
-
-        time.sleep(1)
-
-        data = stdout_tail.read_and_append(buffer, proc.stdout)
-        # if data is not None:
-        #     sys.stdout.buffer.write(data)
-
-        data = stderr_tail.read_and_append(buffer, proc.stderr)
-        if data is not None:
-            sys.stderr.buffer.write(data)
-
-        retcode = proc.poll()
-
-    sys.stdout.buffer.flush()
-    sys.stderr.buffer.flush()
-
-    print("================================================")
-
-    diagnostic = diagnose_error(retcode, str(stdout_tail), str(stderr_tail))
-    if diagnostic is not None:
-        print("=> Error diagnostic: {}".format(diagnostic))
-    """
 
 #############
 ##  Utils  ##
@@ -694,10 +664,6 @@ def download_file_progress(url: str, size: int, sha1: str, dst: str, *, start_si
                     print("    {}/s   ".format(format_bytes(read_len / (now_time - last_time))), end='')
                 last_time = now_time
 
-            """print("\r{}100.00%".format(base_message), end='')
-            if total_size != 0:
-                print("    {:6.2f}% of total".format(start_size / total_size * 100), end='')"""
-
             if dl_size != size:
                 print(" => Invalid size")
             elif dl_sha1.hexdigest() != sha1:
@@ -729,39 +695,6 @@ def format_bytes(n: float) -> str:
         return "{:4.0f}MB".format(n // 1000000)
     else:
         return "{:4.0f}GB".format(n // 1000000000)
-
-
-# No longer used
-class TailBuffer:
-
-    def __init__(self, size: int):
-        self.size = size
-        self.buf = bytearray(size)
-
-    def append(self, data: bytearray, data_len: int = -1):
-
-        # 0 1 2 3 4 5 6 7
-
-        if data_len < 0:
-            data_len = len(data)
-
-        keep_limit = self.size - data_len
-        for i in range(self.size):
-            if i < keep_limit:
-                self.buf[i] = self.buf[data_len + i]
-            else:
-                self.buf[i] = data[i - keep_limit]
-
-    def read_and_append(self, buf: bytearray, io) -> Optional[bytearray]:
-        read_len = io.readinto(buf)
-        if read_len > 0:
-            self.append(buf, read_len)
-            return buf[:read_len]
-        else:
-            return None
-
-    def __str__(self) -> str:
-        return self.buf.decode()
 
 
 ####################
@@ -937,22 +870,6 @@ LEGACY_JVM_ARGUMENTS = [
     "${classpath}"
 ]
 
-
-"""
-########################
-## Errors diagnostics ##
-########################
-
-def diagnose_error(return_code: int, stdout: str, stderr: str) -> Optional[str]:
-
-    if return_code == 0:
-        return None
-
-    if stderr.find("class jdk.internal.loader.ClassLoaders$AppClassLoader cannot be cast to class java.net.URLClassLoader") != -1:
-        return "This error can be caused by using modern Java versions that are incompatible with old versions and/or launch wrapper."
-    else:
-        return "Unknown error."
-"""
 
 if __name__ == '__main__':
     main()
