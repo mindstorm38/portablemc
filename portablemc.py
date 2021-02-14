@@ -41,6 +41,7 @@ EXIT_NATIVES_DIR_ALREADY_EXITS = 12
 EXIT_DOWNLOAD_FILE_CORRUPTED = 13
 EXIT_AUTHENTICATION_FAILED = 14
 EXIT_VERSION_SEARCH_NOT_FOUND = 15
+EXIT_DEPRECATED_ARGUMENT = 15
 
 DECODE_RESOLUTION = lambda raw: tuple(int(size) for size in raw.split("x"))
 
@@ -61,8 +62,8 @@ def main():
     parser.add_argument("--nostart", help="Only download Minecraft required data, but does not launch the game.", default=False, action="store_true")
     parser.add_argument("--demo", help="Start game in demo mode.", default=False, action="store_true")
     parser.add_argument("--resol", help="Set a custom start resolution (<width>x<height>).", type=DECODE_RESOLUTION, dest="resolution")
-    parser.add_argument("--java", help="Set a custom JVM javaw executable path (deprecated).", default=JVM_EXEC_DEFAULT)
-    parser.add_argument("--jvm", help="Set a custom JVM javaw executable path.", default=None)
+    parser.add_argument("--java", help="Set a custom JVM javaw executable path (deprecated, use --jvm).")
+    parser.add_argument("--jvm", help="Set a custom JVM javaw executable path.", default=JVM_EXEC_DEFAULT)
     parser.add_argument("--jvm-args", help="Change the default JVM arguments.", default=JVM_ARGS_DEFAULT, dest="jvm_args")
     parser.add_argument("--logout", help="Override all other arguments, does not start the game, and logout from this specific session.")
     parser.add_argument("-md", "--main-dir", help="Set the main directory where libraries, assets, versions and binaries (at runtime) are stored.", dest="main_dir")
@@ -72,6 +73,10 @@ def main():
     parser.add_argument("-u", "--username", help="Set a custom user name to play.", default=player_uuid.split("-")[0])
     parser.add_argument("-i", "--uuid", help="Set a custom user UUID to play.", default=player_uuid)
     args = parser.parse_args()
+
+    if args.java is not None:
+        print("The '--java' argument is deprecated, please use --jvm and --jvm-args")
+        exit(EXIT_DEPRECATED_ARGUMENT)
 
     main_dir = get_minecraft_dir("minecraft") if args.main_dir is None else os_path.realpath(args.main_dir)
     work_dir = main_dir if args.work_dir is None else os_path.realpath(args.work_dir)
@@ -486,10 +491,6 @@ def main():
         start_args_replacements["resolution_height"] = str(custom_resol[1])
 
     jvm_path = args.jvm
-    # For deprecated "java" argument:
-    if jvm_path is None:
-        jvm_path = args.java
-
     start_args = [*jvm_path.split(" ")]
     for arg in raw_args:
         for repl_id, repl_val in start_args_replacements.items():
