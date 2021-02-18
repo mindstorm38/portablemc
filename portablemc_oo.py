@@ -329,16 +329,16 @@ class PortableMC:
                     self.download_file_info_progress(logging_file_info, logging_file, name=logging_file_info["id"])
                     logging_dirty = True
                 if not args.no_better_logging:
-                    custom_logging_file = path.join(log_config_dir, "portablemc-{}".format(logging_file_info["id"]))
-                    if logging_dirty or not path.isfile(custom_logging_file):
+                    better_logging_file = path.join(log_config_dir, "portablemc-{}".format(logging_file_info["id"]))
+                    if logging_dirty or not path.isfile(better_logging_file):
                         print("=> Generating custom logging configuration...")
                         with open(logging_file, "rt") as logging_fp:
-                            with open(custom_logging_file, "wt") as custom_logging_fp:
+                            with open(better_logging_file, "wt") as custom_logging_fp:
                                 raw = logging_fp.read()\
                                     .replace("<XMLLayout />", LOGGING_CONSOLE_REPLACEMENT)\
                                     .replace("<LegacyXMLLayout />", LOGGING_CONSOLE_REPLACEMENT)
                                 custom_logging_fp.write(raw)
-                        logging_file = custom_logging_file
+                    logging_file = better_logging_file
                 logging_arg = client_logging["argument"].replace("${path}", logging_file)
 
         # Libraries and natives loading
