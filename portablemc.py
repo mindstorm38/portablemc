@@ -719,8 +719,7 @@ class AuthDatabase:
         self._entries.clear()
         if os_path.isfile(self._filename):
             with open(self._filename, "rt") as fp:
-                line = fp.readline()
-                if line is not None:
+                for line in fp.readlines():
                     parts = line.split(" ")
                     if len(parts) == 5:
                         self._entries[parts[0]] = AuthEntry(
