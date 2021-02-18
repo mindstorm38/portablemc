@@ -242,8 +242,7 @@ class PortableMC:
             if "client" not in version_downloads:
                 print("=> Can't found client download in version meta")
                 exit(EXIT_CLIENT_JAR_NOT_FOUND)
-            if self.download_file_info_progress(version_downloads["client"], version_jar_file) is None:
-                exit(EXIT_DOWNLOAD_FILE_CORRUPTED)
+            self.download_file_info_progress(version_downloads["client"], version_jar_file, exit_if_corrupted=True)
 
         # Assets loading
         print("Loading assets...")
@@ -295,9 +294,10 @@ class PortableMC:
                 os.makedirs(asset_hash_dir, 0o777, True)
                 asset_url = ASSET_BASE_URL.format(asset_hash_prefix, asset_hash)
                 assets_current_size = self.download_file_progress(asset_url, asset_size, asset_hash, asset_file,
-                                                             start_size=assets_current_size,
-                                                             total_size=assets_total_size,
-                                                             name=asset_id)
+                                                                  start_size=assets_current_size,
+                                                                  total_size=assets_total_size,
+                                                                  name=asset_id,
+                                                                  exit_if_corrupted=True)
             else:
                 assets_current_size += asset_size
 
@@ -326,7 +326,7 @@ class PortableMC:
                 logging_file = path.join(log_config_dir, logging_file_info["id"])
                 logging_dirty = False
                 if not path.isfile(logging_file) or path.getsize(logging_file) != logging_file_info["size"]:
-                    self.download_file_info_progress(logging_file_info, logging_file, name=logging_file_info["id"])
+                    self.download_file_info_progress(logging_file_info, logging_file, name=logging_file_info["id"], exit_if_corrupted=True)
                     logging_dirty = True
                 if not args.no_better_logging:
                     better_logging_file = path.join(log_config_dir, "portablemc-{}".format(logging_file_info["id"]))
@@ -385,7 +385,7 @@ class PortableMC:
                 os.makedirs(lib_dir, 0o777, True)
 
                 if not path.isfile(lib_path) or path.getsize(lib_path) != lib_size:
-                    self.download_file_info_progress(lib_dl_info, lib_path, name=lib_name)
+                    self.download_file_info_progress(lib_dl_info, lib_path, name=lib_name, exit_if_corrupted=True)
 
             else:
 
@@ -628,7 +628,7 @@ class PortableMC:
             version_meta = parent_meta
         return version_meta, version_dir
 
-    def download_file_progress(self, url: str, size: int, sha1: str, dst: str, *, start_size: int = 0, total_size: int = 0, name: Optional[str] = None) -> Optional[int]:
+    def download_file_progress(self, url: str, size: int, sha1: str, dst: str, *, start_size: int = 0, total_size: int = 0, name: Optional[str] = None, exit_if_corrupted: bool = False) -> Optional[int]:
 
         base_message = "Downloading {}... ".format(url if name is None else name)
         print(base_message, end='')
@@ -677,10 +677,13 @@ class PortableMC:
                     print()
                     success = True
 
+        if exit_if_corrupted and not success:
+            exit(EXIT_DOWNLOAD_FILE_CORRUPTED)
+
         return start_size if success else None
 
-    def download_file_info_progress(self, info: dict, dst: str, *, start_size: int = 0, total_size: int = 0, name: Optional[str] = None) -> Optional[int]:
-        return self.download_file_progress(info["url"], info["size"], info["sha1"], dst, start_size=start_size, total_size=total_size, name=name)
+    def download_file_info_progress(self, info: dict, dst: str, *, start_size: int = 0, total_size: int = 0, name: Optional[str] = None, exit_if_corrupted: bool = False) -> Optional[int]:
+        return self.download_file_progress(info["url"], info["size"], info["sha1"], dst, start_size=start_size, total_size=total_size, name=name, exit_if_corrupted=exit_if_corrupted)
 
     def interpret_rule(self, rules: list, features: Optional[dict] = None) -> bool:
         allowed = False
