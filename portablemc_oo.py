@@ -5,7 +5,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Set, Callable, Any, Optional, Generator, Tuple
+from typing import cast, Dict, Set, Callable, Any, Optional, Generator, Tuple, Union
 from argparse import ArgumentParser, Namespace
 from json.decoder import JSONDecodeError
 from datetime import datetime
@@ -91,7 +91,10 @@ class PortableMC:
         if hasattr(self, builtin_func_name) and callable(getattr(self, builtin_func_name)):
             getattr(self, builtin_func_name)(args)
 
-        self.trigger_event("subcommand", subcommand, args)
+        self.trigger_event("subcommand", lambda: {
+            "subcommand": subcommand,
+            "args": args
+        })
 
     def _register_extensions(self):
 
@@ -110,7 +113,7 @@ class PortableMC:
                     module_loader.exec_module(module)
                     if hasattr(module, "load") and callable(module.load):
                         ext = PortableExtension(module, ext_name)
-                        if ext.load():
+                        if ext.load(self):
                             self._extensions[ext_name] = ext
 
     def _register_arguments(self):
@@ -152,7 +155,16 @@ class PortableMC:
 
         sub_parsers.add_parser("listext", help="List extensions.")
 
-        self.trigger_event("register_arguments", parser=parser)
+        self.trigger_event("register_arguments", lambda: {
+            "parser": parser,
+            "sub_parsers": sub_parsers,
+            "builtins_parsers": {
+                "search": search,
+                "start": start,
+                "login": login,
+                "logout": logout
+            }
+        })
 
     # Builtin subcommands
 
@@ -222,6 +234,17 @@ class PortableMC:
         if uuid is None: uuid = uuid4().hex
         if username is None: username = uuid[:8]
 
+        # Storage for extensions if they want to store values accros all events.
+        ext_storage = {}
+        self.trigger_event("start:setup", lambda: {
+            "args": args,
+            "work_dir": work_dir,
+            "dry_run": dry_run,
+            "uuid": uuid,
+            "username": username,
+            "storage": ext_storage
+        })
+
         # Resolve version metadata
         try:
             version, version_alias = self.get_version_manifest().filter_latest(args.version)
@@ -234,6 +257,14 @@ class PortableMC:
         version_type = version_meta["type"]
         print("Loading {} {}...".format(version_type, version))
 
+        self.trigger_event("start:version", lambda: {
+            "version": version,
+            "type": version_type,
+            "meta": version_meta,
+            "dir": version_dir,
+            "storage": ext_storage
+        })
+
         # JAR file loading
         print("Loading jar file...")
         version_jar_file = path.join(version_dir, "{}.jar".format(version))
@@ -243,6 +274,11 @@ class PortableMC:
                 print("=> Can't found client download in version meta")
                 exit(EXIT_CLIENT_JAR_NOT_FOUND)
             self.download_file_info_progress(version_downloads["client"], version_jar_file, exit_if_corrupted=True)
+
+        self.trigger_event("start:version_jar_file", lambda: {
+            "file": version_jar_file,
+            "storage": ext_storage
+        })
 
         # Assets loading
         print("Loading assets...")
@@ -407,6 +443,13 @@ class PortableMC:
             elif lib_type == "native":
                 native_libs.append(lib_path)
 
+        self.trigger_event("start:libraries", lambda: {
+            "dir": libraries_dir,
+            "classpath_libs": classpath_libs,
+            "native_libs": native_libs,
+            "storage": ext_storage
+        })
+
         # Don't run if dry run
         if dry_run:
             print("Dry run, stopping.")
@@ -450,13 +493,24 @@ class PortableMC:
             raw_args.append(logging_arg)
 
         main_class = version_meta["mainClass"]
-        main_class_launchwrapper = (main_class == "net.minecraft.launchwrapper.Launch")
-
-        if main_class_launchwrapper:
+        if main_class == "net.minecraft.launchwrapper.Launch":
             raw_args.append("-Dminecraft.client.jar={}".format(version_jar_file))
+
+        event_data = {
+            "main_class": main_class,
+            "args": raw_args,
+            "storage": ext_storage
+        }
+        self.trigger_event("start:args_jvm", event_data)
+        main_class = event_data["main_class"]
 
         raw_args.append(main_class)
         raw_args.extend(self.interpret_args(version_meta["arguments"]["game"], features) if legacy_args is None else legacy_args.split(" "))
+
+        self.trigger_event("start:args_game", lambda: {
+            "args": raw_args,
+            "storage": ext_storage
+        })
 
         # Arguments replacements
         start_args_replacements = {
@@ -485,21 +539,44 @@ class PortableMC:
             start_args_replacements["resolution_width"] = str(custom_resol[0])
             start_args_replacements["resolution_height"] = str(custom_resol[1])
 
+        self.trigger_event("start:args_replacements", lambda: {
+            "replacements": start_args_replacements,
+            "storage": ext_storage
+        })
+
         start_args = [args.jvm]
         for arg in raw_args:
             for repl_id, repl_val in start_args_replacements.items():
                 arg = arg.replace("${{{}}}".format(repl_id), repl_val)
             start_args.append(arg)
 
-        print("=> Running...")
+        event_data = {
+            "final_args": start_args,
+            "process_runner": self._default_process_runner,
+            "storage": ext_storage
+        }
+
+        self.trigger_event("start:start", event_data)
+
+        print("Running...")
         print("=> Username: {}, UUID: {}".format(username, uuid))
         print("=> Command line: {}".format(" ".join(start_args)))
-        print("================================================")
         os.makedirs(work_dir, 0o777, True)
-        subprocess.run(start_args, cwd=work_dir)
-        print("================================================")
-        print("=> Game stopped, removing bin directory...")
+        (event_data["process_runner"])(start_args, work_dir)
+        print("Game stopped...")
+        print("=> Removing bin directory")
+
+        self.trigger_event("start:stop", lambda: {
+            "storage": ext_storage
+        })
+
         exit(0)
+
+    @staticmethod
+    def _default_process_runner(proc_args, proc_cwd):
+        print("================================================")
+        subprocess.run(proc_args, cwd=proc_cwd)
+        print("================================================")
 
     # Getters
 
@@ -537,11 +614,13 @@ class PortableMC:
             except KeyError:
                 pass
 
-    def trigger_event(self, event: str, *args, **kwargs):
+    def trigger_event(self, event: str, data: Union[dict, Callable[[], dict]]):
         listeners = self._event_listeners.get(event)
         if listeners is not None:
+            if callable(data):
+                data = data()
             for listener in listeners:
-                listener(*args, **kwargs)
+                listener(data)
 
     # Utils
 
@@ -978,9 +1057,9 @@ class PortableExtension:
         if not isinstance(self.authors, tuple):
             self.authors = (str(self.authors),)
 
-    def load(self) -> bool:
+    def load(self, portablemc: PortableMC) -> bool:
         try:
-            self.module.load(self)
+            self.module.load(portablemc)
             return True
         except (Exception,):
             import traceback
