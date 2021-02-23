@@ -51,10 +51,7 @@ class PortableMC:
 
         self._argument_parser = ArgumentParser(
             allow_abbrev=False,
-            prog="portablemc",
-            description="PortableMC is an easy to use portable Minecraft launcher in only one Python script! "
-                        "This single-script launcher is still compatible with the official (Mojang) Minecraft "
-                        "Launcher stored in .minecraft and use it."
+            prog="portablemc"
         )
 
         self._extensions: Dict[str, PortableExtension] = {}
@@ -68,6 +65,42 @@ class PortableMC:
         self._version_manifest: Optional[VersionManifest] = None
         self._auth_database: Optional[AuthDatabase] = None
         self._download_buffer: Optional[bytearray] = None
+
+        self._messages = {
+
+            "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
+                    "script! This single-script launcher is still compatible with the official "
+                    "(Mojang) Minecraft Launcher stored in .minecraft and use it.",
+            "args.main_dir": "Set the main directory where libraries, assets, versions and binaries (at runtime) "
+                             "are stored. It also contains the launcher authentication database.",
+            "args.search": "Search for official Minecraft versions.",
+            "args.start": "Start a Minecraft version, default to the latest release.",
+            "args.start.dry": "Simulate game starting.",
+            "args.start.demo": "Start game in demo mode.",
+            "args.start.resol": "Set a custom start resolution (<width>x<height>).",
+            "args.start.jvm": "Set a custom JVM 'javaw' executable path.",
+            "args.start.jvm_args": "Change the default JVM arguments.",
+            "args.start.work_dir": "Set the working directory where the game run and place for examples the "
+                                   "saves (and resources for legacy versions).",
+            "args.start.work_dir_bin": "Flag to force temporary binaries to be copied inside working directory, "
+                                       "by default they are copied into main directory.",
+            "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
+                                            "order to improve the log readability in the console.",
+            "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
+                                     "not already cached, deactivated by default.",
+            "args.start.login": "Use a email or username (legacy) to authenticate using mojang servers (you "
+                                "will be asked for password, it override --username and --uuid).",
+            "args.start.username": "Set a custom user name to play.",
+            "args.start.uuid": "Set a custom user UUID to play.",
+            "args.login": "Login into your Mojang account, this will cache your tokens.",
+            "args.logout": "Logout from your Mojang account.",
+            "args.listext": "List extensions.",
+
+            "cmd.search.pending": "Searching for version '{}'...",
+            "cmd.search.result": "=> {:10s} {:16s} {}{}",
+            "cmd.search.not_found": "=> No version found"
+
+        }
 
     def start(self):
 
@@ -119,41 +152,41 @@ class PortableMC:
     def _register_arguments(self):
 
         parser = self._argument_parser
+        parser.description = self.get_message("args")
+
         sub_parsers = parser.add_subparsers(
             title="subcommands",
             dest="subcommand"
         )
 
         # Main directory is placed here in order to know the path of the auth database.
-        parser.add_argument("--main-dir", help="Set the main directory where libraries, assets, versions and "
-                                               "binaries (at runtime) are stored. It also contains the launcher "
-                                               "authentication database.", dest="main_dir")
+        parser.add_argument("--main-dir", help=self.get_message("args.main_dir"), dest="main_dir")
 
-        search = sub_parsers.add_parser("search", help="Search for official Minecraft versions.")
+        search = sub_parsers.add_parser("search", help=self.get_message("args.search"))
         search.add_argument("input")
 
-        start = sub_parsers.add_parser("start", help="Start a Minecraft version, default to the latest release.")
-        start.add_argument("--dry", help="Simulate game starting.", default=False, action="store_true")
-        start.add_argument("--demo", help="Start game in demo mode.", default=False, action="store_true")
-        start.add_argument("--resol", help="Set a custom start resolution (<width>x<height>).", type=self._decode_resolution, dest="resolution")
-        start.add_argument("--jvm", help="Set a custom JVM 'javaw' executable path.", default=JVM_EXEC_DEFAULT)
-        start.add_argument("--jvm-args", help="Change the default JVM arguments.", default=JVM_ARGS_DEFAULT, dest="jvm_args")
-        start.add_argument("--work-dir", help="Set the working directory where the game run and place for examples the saves (and resources for legacy versions).", dest="work_dir")
-        start.add_argument("--work-dir-bin", help="Flag to force temporary binaries to be copied inside working directory, by default they are copied into main directory.", default=False, action="store_true", dest="work_dir_bin")
-        start.add_argument("--no-better-logging", help="Disable the better logging configuration built by the launcher in order to improve the log readability in the console.", default=False, action="store_true", dest="no_better_logging")
-        start.add_argument("-t", "--temp-login", help="Flag used with -l (--login) to tell launcher not to cache your session if not already cached, deactivated by default.", default=False, action="store_true", dest="templogin")
-        start.add_argument("-l", "--login", help="Use a email or username (legacy) to authenticate using mojang servers (you will be asked for password, it override --username and --uuid).")
-        start.add_argument("-u", "--username", help="Set a custom user name to play.")
-        start.add_argument("-i", "--uuid", help="Set a custom user UUID to play.")
+        start = sub_parsers.add_parser("start", help=self.get_message("args.start"))
+        start.add_argument("--dry", help=self.get_message("args.start.dry"), default=False, action="store_true")
+        start.add_argument("--demo", help=self.get_message("args.start.demo"), default=False, action="store_true")
+        start.add_argument("--resol", help=self.get_message("args.start.resol"), type=self._decode_resolution, dest="resolution")
+        start.add_argument("--jvm", help=self.get_message("args.start.jvm"), default=JVM_EXEC_DEFAULT)
+        start.add_argument("--jvm-args", help=self.get_message("args.start.jvm_args"), default=JVM_ARGS_DEFAULT, dest="jvm_args")
+        start.add_argument("--work-dir", help=self.get_message("args.start.work_dir"), dest="work_dir")
+        start.add_argument("--work-dir-bin", help=self.get_message("args.start.work_dir_bin"), default=False, action="store_true", dest="work_dir_bin")
+        start.add_argument("--no-better-logging", help=self.get_message("args.start.no_better_logging"), default=False, action="store_true", dest="no_better_logging")
+        start.add_argument("-t", "--temp-login", help=self.get_message("args.start.temp_login"), default=False, action="store_true", dest="templogin")
+        start.add_argument("-l", "--login", help=self.get_message("args.start.login"))
+        start.add_argument("-u", "--username", help=self.get_message("args.start.username"))
+        start.add_argument("-i", "--uuid", help=self.get_message("args.start.uuid"))
         start.add_argument("version", nargs="?", default="release")
 
-        login = sub_parsers.add_parser("login", help="Login into your Mojang account, this will cache your tokens.")
+        login = sub_parsers.add_parser("login", help=self.get_message("args.login"))
         login.add_argument("email_or_username")
 
-        logout = sub_parsers.add_parser("logout", help="Logout from your Mojang account.")
+        logout = sub_parsers.add_parser("logout", help=self.get_message("args.logout"))
         logout.add_argument("email_or_username")
 
-        sub_parsers.add_parser("listext", help="List extensions.")
+        sub_parsers.add_parser("listext", help=self.get_message("args.listext"))
 
         self.trigger_event("register_arguments", lambda: {
             "parser": parser,
@@ -169,21 +202,28 @@ class PortableMC:
     # Builtin subcommands
 
     def _cmd_search(self, args: Namespace):
-        print("Searching for version '{}' ...".format(args.input))
+        self.print("cmd.search.pending", args.input)
+        # print("Searching for version '{}'...".format(args.input))
         manifest = self.get_version_manifest()
         found = False
         for version_data in manifest.search_versions(args.input):
             found = True
             # Fix the wrong version id of 1.14 pre releases (just for displaying)
             vid = version_data["id"].replace(" Pre-Release ", "-pre")
-            print("=> {:10s} {:16s} {}{}".format(
+            self.print("cmd.search.result",
+                       version_data["type"],
+                       vid,
+                       self.format_iso_date(version_data["releaseTime"]),
+                       "  real id: {}".format(version_data["id"]) if version_data["id"] != vid else "")
+            """print("=> {:10s} {:16s} {}{}".format(
                 version_data["type"],
                 vid,
                 self.format_iso_date(version_data["releaseTime"]),
                 "  real id: {}".format(version_data["id"]) if version_data["id"] != vid else ""
-            ))
+            ))"""
         if not found:
-            print("=> No version found")
+            # print("=> No version found")
+            self.print("cmd.search.not_found")
             exit(EXIT_VERSION_SEARCH_NOT_FOUND)
         else:
             exit(0)
@@ -431,7 +471,7 @@ class PortableMC:
 
                 lib_name_parts = lib_name.split(":")
                 lib_path = path.join(libraries_dir, *lib_name_parts[0].split("."), lib_name_parts[1],
-                                        lib_name_parts[2], "{}-{}.jar".format(lib_name_parts[1], lib_name_parts[2]))
+                                     lib_name_parts[2], "{}-{}.jar".format(lib_name_parts[1], lib_name_parts[2]))
                 lib_type = "classpath"
 
                 if not path.isfile(lib_path):
@@ -550,33 +590,14 @@ class PortableMC:
                 arg = arg.replace("${{{}}}".format(repl_id), repl_val)
             start_args.append(arg)
 
-        event_data = {
-            "final_args": start_args,
-            "process_runner": self._default_process_runner,
-            "storage": ext_storage
-        }
-
-        self.trigger_event("start:start", event_data)
-
         print("Running...")
         print("=> Username: {}, UUID: {}".format(username, uuid))
         print("=> Command line: {}".format(" ".join(start_args)))
         os.makedirs(work_dir, 0o777, True)
-        (event_data["process_runner"])(start_args, work_dir)
+        self.run_game(start_args, work_dir)
         print("Game stopped...")
         print("=> Removing bin directory")
-
-        self.trigger_event("start:stop", lambda: {
-            "storage": ext_storage
-        })
-
         exit(0)
-
-    @staticmethod
-    def _default_process_runner(proc_args, proc_cwd):
-        print("================================================")
-        subprocess.run(proc_args, cwd=proc_cwd)
-        print("================================================")
 
     # Getters
 
@@ -621,6 +642,23 @@ class PortableMC:
                 data = data()
             for listener in listeners:
                 listener(data)
+
+    # Public methods to be replaced by extensions
+
+    def print(self, message_key: str, *args):
+        print(self.get_message(message_key, *args))
+
+    def get_message(self, message_key: str, *args) -> str:
+        msg = self._messages.get(message_key, message_key)
+        try:
+            return msg.format(*args)
+        except IndexError:
+            return msg
+
+    def run_game(self, proc_args, proc_cwd):
+        print("================================================")
+        subprocess.run(proc_args, cwd=proc_cwd)
+        print("================================================")
 
     # Utils
 
