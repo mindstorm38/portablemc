@@ -28,8 +28,8 @@ def load(portablemc):
     if not loaded:
         raise ValueError("Can't load 'richer' extension since 'rich' must be installed, use `pip install rich` or check https://github.com/willmcgugan/rich.")
 
-    from rich.table import Table, Column
     from rich.console import Console
+    from rich.table import Table
 
     console = Console(highlight=False)
     table: Optional[Table] = None
