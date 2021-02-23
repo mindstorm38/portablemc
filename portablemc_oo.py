@@ -41,6 +41,7 @@ EXIT_DOWNLOAD_FILE_CORRUPTED = 13
 EXIT_AUTHENTICATION_FAILED = 14
 EXIT_VERSION_SEARCH_NOT_FOUND = 15
 EXIT_DEPRECATED_ARGUMENT = 15
+EXIT_LOGOUT_FAILED = 15
 
 LOGGING_CONSOLE_REPLACEMENT = "<PatternLayout pattern=\"%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n\"/>"
 
@@ -67,6 +68,8 @@ class PortableMC:
         self._download_buffer: Optional[bytearray] = None
 
         self._messages = {
+
+            "ext.failed_to_load": "Failed to load extension '{}' (contact extension authors):",
 
             "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
                     "script! This single-script launcher is still compatible with the official "
@@ -98,7 +101,16 @@ class PortableMC:
 
             "cmd.search.pending": "Searching for version '{}'...",
             "cmd.search.result": "=> {:10s} {:16s} {}{}",
-            "cmd.search.not_found": "=> No version found"
+            "cmd.search.not_found": "=> No version found",
+
+            "cmd.logout.pending": "Logging out from {}...",
+            "cmd.logout.success": "=> Logged out.",
+            "cmd.logout.unknown_session": "=> This session is not cached.",
+
+            "cmd.listext.title": "Extensions list ({}):",
+            "cmd.listext.result": "=> {}, version: {}, authors: {}",
+
+            "cmd.start.welcome": "Welcome to PortableMC, the easy to use Python Minecraft Launcher."
 
         }
 
@@ -120,14 +132,17 @@ class PortableMC:
                 exit(0)
             os.makedirs(self._main_dir, 0o777, True)
 
-        builtin_func_name = "_cmd_{}".format(subcommand)
+        builtin_func_name = "cmd_{}".format(subcommand)
+        exit_code = 0
         if hasattr(self, builtin_func_name) and callable(getattr(self, builtin_func_name)):
-            getattr(self, builtin_func_name)(args)
+            exit_code = getattr(self, builtin_func_name)(args)
 
         self.trigger_event("subcommand", lambda: {
             "subcommand": subcommand,
             "args": args
         })
+
+        exit(exit_code)
 
     def _register_extensions(self):
 
@@ -201,9 +216,8 @@ class PortableMC:
 
     # Builtin subcommands
 
-    def _cmd_search(self, args: Namespace):
+    def cmd_search(self, args: Namespace) -> int:
         self.print("cmd.search.pending", args.input)
-        # print("Searching for version '{}'...".format(args.input))
         manifest = self.get_version_manifest()
         found = False
         for version_data in manifest.search_versions(args.input):
@@ -215,25 +229,19 @@ class PortableMC:
                        vid,
                        self.format_iso_date(version_data["releaseTime"]),
                        "  real id: {}".format(version_data["id"]) if version_data["id"] != vid else "")
-            """print("=> {:10s} {:16s} {}{}".format(
-                version_data["type"],
-                vid,
-                self.format_iso_date(version_data["releaseTime"]),
-                "  real id: {}".format(version_data["id"]) if version_data["id"] != vid else ""
-            ))"""
         if not found:
-            # print("=> No version found")
             self.print("cmd.search.not_found")
-            exit(EXIT_VERSION_SEARCH_NOT_FOUND)
+            return EXIT_VERSION_SEARCH_NOT_FOUND
         else:
-            exit(0)
+            return 0
 
-    def _cmd_login(self, args: Namespace):
-        self.promp_password_and_authenticate(args.email_or_username, True)
+    def cmd_login(self, args: Namespace) -> int:
+        entry = self.promp_password_and_authenticate(args.email_or_username, True)
+        return EXIT_AUTHENTICATION_FAILED if entry is None else 0
 
-    def _cmd_logout(self, args: Namespace):
+    def cmd_logout(self, args: Namespace) -> int:
         email_or_username = args.email_or_username
-        print("Logging out from {}...".format(email_or_username))
+        self.print("cmd.logout.pending", email_or_username)
         auth_db = self.get_auth_database()
         auth_db.load()
         entry = auth_db.get_entry(email_or_username)
@@ -241,18 +249,20 @@ class PortableMC:
             entry.invalidate()
             auth_db.remove_entry(email_or_username)
             auth_db.save()
-            print("=> Logged out.")
+            self.print("cmd.logout.success")
+            return 0
         else:
-            print("=> This session is not cached.")
+            self.print("cmd.logout.unknown_session")
+            return EXIT_LOGOUT_FAILED
 
-    def _cmd_listext(self, _args: Namespace):
-        print("Extensions list ({}):".format(len(self._extensions)))
+    def cmd_listext(self, _args: Namespace):
+        self.print("cmd.listext.title", len(self._extensions))
         for ext in self._extensions.values():
-            print("- {}, version: {}, authors: {}".format(ext.name, ext.version, ", ".join(ext.authors)))
+            self.print("cmd.listext.result", ext.name, ext.version, ", ".join(ext.authors))
 
-    def _cmd_start(self, args: Namespace):
+    def cmd_start(self, args: Namespace):
 
-        print("Welcome to PortableMC, the easy to use Python Minecraft Launcher.")
+        self.print("cmd.start.welcome")
 
         # Get all arguments
         work_dir = self._main_dir if args.main_dir is None else path.realpath(args.main_dir)
@@ -619,6 +629,15 @@ class PortableMC:
             self._download_buffer = bytearray(32768)
         return self._download_buffer
 
+    def get_extensions(self) -> Dict[str, 'PortableExtension']:
+        return self._extensions
+
+    def get_messages(self) -> Dict[str, str]:
+        return self._messages
+
+    def add_message(self, key: str, value: str):
+        self._messages[key] = value
+
     # Event listeners
 
     def add_event_listener(self, event: str, listener: Callable):
@@ -645,8 +664,11 @@ class PortableMC:
 
     # Public methods to be replaced by extensions
 
-    def print(self, message_key: str, *args):
+    def print(self, message_key: str, *args, traceback: bool = False):
         print(self.get_message(message_key, *args))
+        if traceback:
+            import traceback
+            traceback.print_exc()
 
     def get_message(self, message_key: str, *args) -> str:
         msg = self._messages.get(message_key, message_key)
@@ -1100,9 +1122,7 @@ class PortableExtension:
             self.module.load(portablemc)
             return True
         except (Exception,):
-            import traceback
-            print("Failed to load extension '{}' (contact extension authors):".format(self.name))
-            traceback.print_exc()
+            portablemc.print("ext.failed_to_load", self.name, traceback=True)
             return False
 
 
