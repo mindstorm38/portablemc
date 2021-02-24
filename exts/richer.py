@@ -18,16 +18,39 @@ def replace(owner: object, name: str):
     return decorator
 
 
+def safe_delete(owner: dict, name: str):
+    if name in owner:
+        del owner[name]
+
+
 def load(portablemc):
 
     from rich.progress import Progress, TaskID, BarColumn, TimeRemainingColumn, \
-        TransferSpeedColumn, DownloadColumn, TextColumn
-    from rich.console import Console
+        TransferSpeedColumn, DownloadColumn
+    from rich.console import Console, Theme
     from rich.table import Table
 
-    console = Console(highlight=False)
+    theme = Theme({
+        "progress.download": "",
+        "progress.data.speed": "",
+        "progress.remaining": ""
+    })
+
+    console = Console(highlight=False, theme=theme)
     table: Optional[Table] = None
-    progress: Optional[Progress] = None
+
+    progress = Progress(
+        "=> [progress.description]{task.description} •",
+        BarColumn(),
+        "•",
+        DownloadColumn(),
+        "•",
+        TransferSpeedColumn(),
+        "•",
+        TimeRemainingColumn(),
+        console=console
+    )
+
     progress_task: Optional[TaskID] = None
     total_progress_task: Optional[TaskID] = None
 
@@ -46,10 +69,7 @@ def load(portablemc):
         )),
         "cmd.listext.result": lambda args: table.add_row(args[0], args[1], args[2]),
 
-        # "download.start": None,
         "download.progress": None,
-        # "download.of_total": None,
-        # "download.speed": None
 
     }
 
@@ -73,46 +93,58 @@ def load(portablemc):
         print_table()
         return res
 
+    @replace(portablemc, "cmd_start")
+    def new_cmd_start(old_cmd_start, args: Namespace):
+        res = old_cmd_start(args)
+        return res
+
     @replace(portablemc, "cmd_listext")
     def new_cmd_listext(old_cmd_listext, args: Namespace):
         res = old_cmd_listext(args)
         print_table()
         return res
 
+    @replace(portablemc, "run_game")
+    def new_run_game(old_run_game, proc_args, proc_cwd):
+
+        from rich.layout import Layout
+        from rich.live import Live
+
+        layout = Layout()
+        layout_game_log = Layout(name="game_logs")
+
+        layout.split(layout_game_log)
+
+        with Live(layout, screen=True, refresh_per_second=4, console=console):
+            pass
+
+        old_run_game(proc_args, proc_cwd)
+
     @replace(portablemc, "download_file")
     def new_download_file(old_download_file,
-                          url: str, size: int, sha1: str, dst: str, *args,
-                          total_size: int = 0, progress_callback=None, end_callback=None, **kwargs) -> Optional[int]:
+                          entry,
+                          *args,
+                          total_size: int = 0,
+                          **kwargs) -> Optional[int]:
 
-        nonlocal progress, progress_task, total_progress_task
+        nonlocal progress_task, total_progress_task
 
-        progress = Progress(
-            TextColumn("[progress.description]{task.description}", justify="right"),
-            BarColumn(bar_width=None),
-            "•",
-            DownloadColumn(),
-            "•",
-            TransferSpeedColumn(),
-            "•",
-            TimeRemainingColumn(),
-            console=console
-        )
+        safe_delete(kwargs, "progress_callback")
+        safe_delete(kwargs, "end_callback")
 
-        # if total_size != 0:
-        #     total_progress_task = progress.add_task("total", total=total_size)
+        progress_task = progress.add_task(entry.name, total=entry.size)
 
-        progress_task = progress.add_task(kwargs.get("name", url), total=size)
-        progress.start()
-        start_size = old_download_file(url, size, sha1, dst, *args,
-                                       total_size=total_size,
-                                       progress_callback=download_file_progress_callback,
-                                       end_callback=None, **kwargs)
-        progress.stop()
+        with progress:
 
-        progress = None
+            start_size = old_download_file(entry,
+                                           *args,
+                                           total_size=total_size,
+                                           progress_callback=download_file_progress_callback,
+                                           end_callback=None,
+                                           **kwargs)
+
         progress_task = None
         total_progress_task = None
-
         return start_size
 
     def download_file_progress_callback(dl_size: int, _size: int, dl_total_size: int, _total_size: int):

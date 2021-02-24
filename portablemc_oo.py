@@ -100,6 +100,9 @@ class PortableMC:
             "args.logout": "Logout from your Mojang account.",
             "args.listext": "List extensions.",
 
+            "abort": "=> Abort",
+            "continue_using_main_dir": "Continue using this main directory? (y/N) ",
+
             "cmd.search.pending": "Searching for version '{}'...",
             "cmd.search.result": "=> {:10s} {:16s} {}",
             "cmd.search.not_found": "=> No version found",
@@ -116,7 +119,26 @@ class PortableMC:
             "download.progress": "\rDownloading {}... {:6.2f}% {}/s {}",
             "download.of_total": "{:6.2f}% of total",
             "download.invalid_size": " => Invalid size",
-            "download.invalid_sha1": " => Invalid SHA1"
+            "download.invalid_sha1": " => Invalid SHA1",
+
+            "auth.pending": "Authenticating {}...",
+            "auth.already_cached": "=> Session already cached, validating...",
+            "auth.refreshing": "=> Session failed to valid, refreshing...",
+            "auth.refreshed": "=> Session refreshed.",
+            "auth.error": "=> {}",
+            "auth.validated": "=> Session validated.",
+            "auth.caching": "=> Caching your session...",
+            "auth.enter_your_password": "=> Enter {} password: ",
+            "auth.logged_in": "=> Logged in",
+
+            "version.resolving": "Resolving version {}",
+            "version.found_cached": "=> Found cached metadata, loading...",
+            "version.loaded": "=> Version loaded.",
+            "version.failed_to_decode_cached": "=> Failed to decode cached metadata, try updating...",
+            "version.found_in_manifest": "=> Found metadata in manifest, caching...",
+            "version.not_found_in_manifest": "=> Not found in manifest.",
+            "version.parent_version": "=> Parent version: {}",
+            "version.parent_version_not_found": "=> Failed to find parent version {}"
 
         }
 
@@ -133,8 +155,8 @@ class PortableMC:
 
         self._main_dir = self.get_minecraft_dir() if args.main_dir is None else path.realpath(args.main_dir)
         if not path.isdir(self._main_dir):
-            if input("Continue using this main directory? (y/N) ") != "y":
-                print("=> Abort")
+            if self.prompt("continue_using_main_dir") != "y":
+                self.print("abort")
                 exit(0)
             os.makedirs(self._main_dir, 0o777, True)
 
@@ -258,12 +280,13 @@ class PortableMC:
             self.print("cmd.logout.unknown_session")
             return EXIT_LOGOUT_FAILED
 
-    def cmd_listext(self, _args: Namespace):
+    def cmd_listext(self, _args: Namespace) -> int:
         self.print("cmd.listext.title", len(self._extensions))
         for ext in self._extensions.values():
             self.print("cmd.listext.result", ext.name, ext.version, ", ".join(ext.authors))
+        return 0
 
-    def cmd_start(self, args: Namespace):
+    def cmd_start(self, args: Namespace) -> int:
 
         self.print("cmd.start.welcome")
 
@@ -277,7 +300,7 @@ class PortableMC:
         if args.login is not None:
             auth_entry = self.promp_password_and_authenticate(args.login, not args.templogin)
             if auth_entry is None:
-                exit(EXIT_AUTHENTICATION_FAILED)
+                return EXIT_AUTHENTICATION_FAILED
             uuid = auth_entry.uuid
             username = auth_entry.username
         else:
@@ -303,8 +326,7 @@ class PortableMC:
             version, version_alias = self.get_version_manifest().filter_latest(args.version)
             version_meta, version_dir = self.resolve_version_meta_recursive(version)
         except VersionNotFoundError:
-            exit(EXIT_VERSION_NOT_FOUND)
-            return  # Return to avoid alert for unknown variables
+            return EXIT_VERSION_NOT_FOUND
 
         # Starting version dependencies resolving
         version_type = version_meta["type"]
@@ -325,8 +347,10 @@ class PortableMC:
             version_downloads = version_meta["downloads"]
             if "client" not in version_downloads:
                 print("=> Can't found client download in version meta")
-                exit(EXIT_CLIENT_JAR_NOT_FOUND)
-            self.download_file_info_pretty(version_downloads["client"], version_jar_file, exit_if_corrupted=True)
+                return EXIT_CLIENT_JAR_NOT_FOUND
+            download_entry = DownloadEntry.from_version_meta_info(version_downloads["client"], version_jar_file, name="{}.jar".format(version))
+            if self.download_file_pretty(download_entry) is None:
+                return EXIT_DOWNLOAD_FILE_CORRUPTED
 
         self.trigger_event("start:version_jar_file", lambda: {
             "file": version_jar_file,
@@ -382,11 +406,12 @@ class PortableMC:
             if not path.isfile(asset_file) or path.getsize(asset_file) != asset_size:
                 os.makedirs(asset_hash_dir, 0o777, True)
                 asset_url = ASSET_BASE_URL.format(asset_hash_prefix, asset_hash)
-                assets_current_size = self.download_file_pretty(asset_url, asset_size, asset_hash, asset_file,
+                download_entry = DownloadEntry(asset_url, asset_size, asset_hash, asset_file, name=asset_id)
+                assets_current_size = self.download_file_pretty(download_entry,
                                                                 start_size=assets_current_size,
-                                                                total_size=assets_total_size,
-                                                                name=asset_id,
-                                                                exit_if_corrupted=True)
+                                                                total_size=assets_total_size)
+                if assets_current_size is None:
+                    return EXIT_DOWNLOAD_FILE_CORRUPTED
             else:
                 assets_current_size += asset_size
 
@@ -414,8 +439,10 @@ class PortableMC:
                 logging_file_info = client_logging["file"]
                 logging_file = path.join(log_config_dir, logging_file_info["id"])
                 logging_dirty = False
-                if not path.isfile(logging_file) or path.getsize(logging_file) != logging_file_info["size"]:
-                    self.download_file_info_pretty(logging_file_info, logging_file, name=logging_file_info["id"], exit_if_corrupted=True)
+                download_entry = DownloadEntry.from_version_meta_info(logging_file_info, logging_file, name=logging_file_info["id"])
+                if not path.isfile(logging_file) or path.getsize(logging_file) != download_entry.size:
+                    if self.download_file_pretty(download_entry) is None:
+                        return EXIT_DOWNLOAD_FILE_CORRUPTED
                     logging_dirty = True
                 if not args.no_better_logging:
                     better_logging_file = path.join(log_config_dir, "portablemc-{}".format(logging_file_info["id"]))
@@ -469,12 +496,14 @@ class PortableMC:
 
                 lib_path = path.join(libraries_dir, lib_dl_info["path"])
                 lib_dir = path.dirname(lib_path)
-                lib_size = lib_dl_info["size"]
+                # lib_size = lib_dl_info["size"]
 
                 os.makedirs(lib_dir, 0o777, True)
+                download_entry = DownloadEntry.from_version_meta_info(lib_dl_info, lib_path, name=lib_name)
 
-                if not path.isfile(lib_path) or path.getsize(lib_path) != lib_size:
-                    self.download_file_info_pretty(lib_dl_info, lib_path, name=lib_name, exit_if_corrupted=True)
+                if not path.isfile(lib_path) or path.getsize(lib_path) != download_entry.size:
+                    if self.download_file_pretty(download_entry) is None:
+                        return EXIT_DOWNLOAD_FILE_CORRUPTED
 
             else:
 
@@ -506,7 +535,7 @@ class PortableMC:
         # Don't run if dry run
         if dry_run:
             print("Dry run, stopping.")
-            exit(0)
+            return 0
 
         # Start game
         print("Starting game...")
@@ -610,7 +639,8 @@ class PortableMC:
         self.run_game(start_args, work_dir)
         print("Game stopped...")
         print("=> Removing bin directory")
-        exit(0)
+
+        return 0
 
     # Getters
 
@@ -673,57 +703,68 @@ class PortableMC:
             import traceback
             traceback.print_exc()
 
+    def prompt(self, message_key: str, *args, password: bool = False) -> str:
+        print(self.get_message(message_key, *args), end="")
+        if password:
+            import getpass
+            return getpass.getpass("")
+        else:
+            return input("")
+
     def get_message(self, message_key: str, *args) -> str:
+        if not len(message_key):
+            return args[0]
         msg = self._messages.get(message_key, message_key)
         try:
             return msg.format(*args)
         except IndexError:
             return msg
 
+
     def run_game(self, proc_args, proc_cwd):
         print("================================================")
         subprocess.run(proc_args, cwd=proc_cwd)
         print("================================================")
 
-    # Utils
+    # Authentication
 
     def promp_password_and_authenticate(self, email_or_username: str, cache_in_db: bool) -> Optional['AuthEntry']:
 
-        print("Authenticating {}...".format(email_or_username))
+        self.print("auth.pending", email_or_username)
 
         auth_db = self.get_auth_database()
         auth_db.load()
 
         auth_entry = auth_db.get_entry(email_or_username)
         if auth_entry is not None:
-            print("=> Session already cached, validating...")
+            self.print("auth.already_cached")
             if not auth_entry.validate():
-                print("=> Session failed to valide, refreshing...")
+                self.print("auth.refreshing")
                 try:
                     auth_entry.refresh()
                     auth_db.save()
-                    print("=> Session refreshed.")
+                    self.print("auth.refreshed")
                     return auth_entry
                 except AuthError as auth_err:
-                    print("=> {}".format(str(auth_err)))
+                    self.print("auth.error", auth_err)
             else:
-                print("=> Session validated.")
+                self.print("auth.validated")
                 return auth_entry
 
-        import getpass
-        password = getpass.getpass("=> Enter {} password: ".format(email_or_username))
-
         try:
+            password = self.prompt("auth.enter_your_password", password=True)
             auth_entry = AuthEntry.authenticate(email_or_username, password)
             if cache_in_db:
-                print("=> Caching your session...")
+                self.print("auth.caching")
                 auth_db.add_entry(email_or_username, auth_entry)
                 auth_db.save()
-            print("=> Logged in")
+            self.print("auth.logged_in")
             return auth_entry
         except AuthError as auth_err:
-            print("=> {}".format(str(auth_err)))
+            self.print("auth.error", auth_err)
             return None
+
+    # Version metadata
 
     def resolve_version_meta(self, name: str) -> Tuple[dict, str]:
 
@@ -731,28 +772,28 @@ class PortableMC:
         version_meta_file = path.join(version_dir, "{}.json".format(name))
         content = None
 
-        print("Resolving version {}".format(name))
+        self.print("version.resolving", name)
 
         if path.isfile(version_meta_file):
-            print("=> Found cached metadata, loading...")
+            self.print("version.found_cached")
             with open(version_meta_file, "rb") as version_meta_fp:
                 try:
                     content = json.load(version_meta_fp)
-                    print("=> Version loaded.")
+                    self.print("version.loaded")
                 except JSONDecodeError:
-                    print("=> Failed to decode cached metadata, try updating...")
+                    self.print("version.failed_to_decode_cached")
 
         if content is None:
             version_data = self.get_version_manifest().get_version(name)
             if version_data is not None:
                 version_url = version_data["url"]
-                print("=> Found metadata in manifest, caching...")
+                self.print("version.found_in_manifest")
                 content = self.read_url_json(version_url)
                 os.makedirs(version_dir, 0o777, True)
                 with open(version_meta_file, "wt") as version_meta_fp:
                     json.dump(content, version_meta_fp, indent=2)
             else:
-                print("=> Not found in manifest.")
+                self.print("version.not_found_in_manifest")
                 raise VersionNotFoundError()
 
         return content, version_dir
@@ -760,69 +801,50 @@ class PortableMC:
     def resolve_version_meta_recursive(self, name: str) -> Tuple[dict, str]:
         version_meta, version_dir = self.resolve_version_meta(name)
         while "inheritsFrom" in version_meta:
-            print("=> Parent version: {}".format(version_meta["inheritsFrom"]))
+            self.print("version.parent_version", version_meta["inheritsFrom"])
             parent_meta, _ = self.resolve_version_meta(version_meta["inheritsFrom"])
             if parent_meta is None:
-                print("=> Failed to find parent version {}".format(version_meta["inheritsFrom"]))
+                self.print("version.parent_version_not_found", version_meta["inheritsFrom"])
                 raise VersionNotFoundError()
             del version_meta["inheritsFrom"]
             self.dict_merge(parent_meta, version_meta)
             version_meta = parent_meta
         return version_meta, version_dir
 
-    def download_file_info_pretty(self, info: dict, dst: str, *,
-                                  start_size: int = 0,
-                                  total_size: int = 0,
-                                  name: Optional[str] = None,
-                                  exit_if_corrupted: bool = False) -> int:
+    # Downloading
 
-        return self.download_file_pretty(info["url"], info["size"], info["sha1"], dst, start_size=start_size, total_size=total_size, name=name, exit_if_corrupted=exit_if_corrupted)
-
-    def download_file_pretty(self, url: str, size: int, sha1: str, dst: str, *,
-                             start_size: int = 0, total_size: int = 0,
-                             name: Optional[str] = None,
-                             exit_if_corrupted: bool = False) -> int:
+    def download_file_pretty(self,
+                             entry: 'DownloadEntry', *,
+                             start_size: int = 0,
+                             total_size: int = 0) -> Optional[int]:
 
         start_time = time.perf_counter()
-        name = url if name is None else name
 
         def progress_callback(p_dl_size: int, p_size: int, p_dl_total_size: int, p_total_size: int):
             nonlocal start_time
             of_total = self.get_message("download.of_total", p_dl_total_size / p_total_size * 100) if p_total_size != 0 else ""
             speed = self.format_bytes(p_dl_size / (time.perf_counter() - start_time))
-            self.print("download.progress", name, p_dl_size / p_size * 100, speed, of_total, end="")
+            self.print("download.progress", entry.name, p_dl_size / p_size * 100, speed, of_total, end="")
 
         def end_callback(issue: Optional[str]):
-            if issue is None:
-                print()
-            else:
-                self.print("download.{}".format(issue))
+            self.print("" if issue is None else "download.{}".format(issue), "")
 
-        end_size = self.download_file(url, size, sha1, dst,
-                                      start_size=start_size,
-                                      total_size=total_size,
-                                      name=name,
-                                      exit_if_corrupted=exit_if_corrupted,
-                                      progress_callback=progress_callback,
-                                      end_callback=end_callback)
-
-        return end_size
+        return self.download_file(entry,
+                                  start_size=start_size,
+                                  total_size=total_size,
+                                  progress_callback=progress_callback,
+                                  end_callback=end_callback)
 
     def download_file(self,
-                      url: str,
-                      size: int,
-                      sha1: str,
-                      dst: str, *,
+                      entry: 'DownloadEntry', *,
                       start_size: int = 0,
                       total_size: int = 0,
-                      name: Optional[str] = None,
-                      exit_if_corrupted: bool = False,
                       progress_callback: Optional[Callable[[int, int, int, int], None]] = None,
-                      end_callback: Optional[Callable[[Optional[str]], None]]) -> int:
+                      end_callback: Optional[Callable[[Optional[str]], None]]) -> Optional[int]:
 
         from urllib import request
-        with request.urlopen(url) as req:
-            with open(dst, "wb") as dst_fp:
+        with request.urlopen(entry.url) as req:
+            with open(entry.dst, "wb") as dst_fp:
 
                 dl_sha1 = hashlib.sha1()
                 dl_size = 0
@@ -844,11 +866,11 @@ class PortableMC:
                         start_size += read_len
 
                     if progress_callback is not None:
-                        progress_callback(dl_size, size, start_size, total_size)
+                        progress_callback(dl_size, entry.size, start_size, total_size)
 
-                if dl_size != size:
+                if dl_size != entry.size:
                     issue = "invalid_size"
-                elif dl_sha1.hexdigest() != sha1:
+                elif dl_sha1.hexdigest() != entry.sha1:
                     issue = "invalid_sha1"
                 else:
                     issue = None
@@ -856,10 +878,9 @@ class PortableMC:
                 if end_callback is not None:
                     end_callback(issue)
 
-        if exit_if_corrupted and issue is not None:
-            exit(EXIT_DOWNLOAD_FILE_CORRUPTED)
+        return start_size if issue is None else None
 
-        return start_size if issue is None else 0
+    # Version meta rules interpretation
 
     def interpret_rule(self, rules: list, features: Optional[dict] = None) -> bool:
         allowed = False
@@ -902,6 +923,8 @@ class PortableMC:
                 elif isinstance(arg_value, str):
                     ret.append(arg_value)
         return ret
+
+    # Miscellenaous utilities
 
     @staticmethod
     def _decode_resolution(raw: str):
@@ -977,6 +1000,41 @@ class PortableMC:
     @staticmethod
     def can_extract_native(filename: str) -> bool:
         return not filename.startswith("META-INF") and not filename.endswith(".git") and not filename.endswith(".sha1")
+
+
+class PortableExtension:
+
+    def __init__(self, module: Any, name: str):
+
+        self.module = module
+        self.name = str(module.NAME) if hasattr(module, "NAME") else name
+        self.version = str(module.VERSION) if hasattr(module, "VERSION") else "unknown"
+        self.authors = module.AUTHORS if hasattr(module, "AUTHORS") else tuple()
+        self.requires = module.REQUIRES if hasattr(module, "REQUIRES") else tuple()
+
+        if not isinstance(self.authors, tuple):
+            self.authors = (str(self.authors),)
+
+        if not isinstance(self.requires, tuple):
+            self.requires = (str(self.requires),)
+
+    def load(self, portablemc: PortableMC) -> bool:
+
+        from importlib import import_module
+
+        for requirement in self.requires:
+            try:
+                import_module(requirement)
+            except ModuleNotFoundError:
+                portablemc.print("ext.missing_requirement", self.name, requirement)
+                return False
+
+        try:
+            self.module.load(portablemc)
+            return True
+        except (Exception,):
+            portablemc.print("ext.failed_to_load", self.name, traceback=True)
+            return False
 
 
 class VersionManifest:
@@ -1134,47 +1192,26 @@ class AuthDatabase:
             del self._entries[email_or_username]
 
 
+class DownloadEntry:
+
+    __slots__ = "url", "size", "sha1", "dst", "name"
+
+    def __init__(self, url: str, size: int, sha1: str, dst: str, *, name: Optional[str] = None):
+        self.url = url
+        self.size = size
+        self.sha1 = sha1
+        self.dst = dst
+        self.name = url if name is None else name
+
+    @classmethod
+    def from_version_meta_info(cls, info: dict, dst: str, *, name: Optional[str] = None) -> 'DownloadEntry':
+        return DownloadEntry(info["url"], info["size"], info["sha1"], dst, name=name)
+
+
 class AuthError(Exception):
     pass
-
-
 class VersionNotFoundError(Exception):
     pass
-
-
-class PortableExtension:
-
-    def __init__(self, module: Any, name: str):
-
-        self.module = module
-        self.name = str(module.NAME) if hasattr(module, "NAME") else name
-        self.version = str(module.VERSION) if hasattr(module, "VERSION") else "unknown"
-        self.authors = module.AUTHORS if hasattr(module, "AUTHORS") else tuple()
-        self.requires = module.REQUIRES if hasattr(module, "REQUIRES") else tuple()
-
-        if not isinstance(self.authors, tuple):
-            self.authors = (str(self.authors),)
-
-        if not isinstance(self.requires, tuple):
-            self.requires = (str(self.requires),)
-
-    def load(self, portablemc: PortableMC) -> bool:
-
-        from importlib import import_module
-
-        for requirement in self.requires:
-            try:
-                import_module(requirement)
-            except ModuleNotFoundError:
-                portablemc.print("ext.missing_requirement", self.name, requirement)
-                return False
-
-        try:
-            self.module.load(portablemc)
-            return True
-        except (Exception,):
-            portablemc.print("ext.failed_to_load", self.name, traceback=True)
-            return False
 
 
 if __name__ == '__main__':
