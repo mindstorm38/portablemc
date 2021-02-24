@@ -69,6 +69,7 @@ class PortableMC:
 
         self._messages = {
 
+            "ext.missing_requirement": "Extension '{}' is missing the requirement '{}'.",
             "ext.failed_to_load": "Failed to load extension '{}' (contact extension authors):",
 
             "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
@@ -100,7 +101,7 @@ class PortableMC:
             "args.listext": "List extensions.",
 
             "cmd.search.pending": "Searching for version '{}'...",
-            "cmd.search.result": "=> {:10s} {:16s} {}{}",
+            "cmd.search.result": "=> {:10s} {:16s} {}",
             "cmd.search.not_found": "=> No version found",
 
             "cmd.logout.pending": "Logging out from {}...",
@@ -110,7 +111,12 @@ class PortableMC:
             "cmd.listext.title": "Extensions list ({}):",
             "cmd.listext.result": "=> {}, version: {}, authors: {}",
 
-            "cmd.start.welcome": "Welcome to PortableMC, the easy to use Python Minecraft Launcher."
+            "cmd.start.welcome": "Welcome to PortableMC, the easy to use Python Minecraft Launcher.",
+
+            "download.progress": "\rDownloading {}... {:6.2f}% {}/s {}",
+            "download.of_total": "{:6.2f}% of total",
+            "download.invalid_size": " => Invalid size",
+            "download.invalid_sha1": " => Invalid SHA1"
 
         }
 
@@ -222,13 +228,10 @@ class PortableMC:
         found = False
         for version_data in manifest.search_versions(args.input):
             found = True
-            # Fix the wrong version id of 1.14 pre releases (just for displaying)
-            vid = version_data["id"].replace(" Pre-Release ", "-pre")
             self.print("cmd.search.result",
                        version_data["type"],
-                       vid,
-                       self.format_iso_date(version_data["releaseTime"]),
-                       "  real id: {}".format(version_data["id"]) if version_data["id"] != vid else "")
+                       version_data["id"],
+                       self.format_iso_date(version_data["releaseTime"]))
         if not found:
             self.print("cmd.search.not_found")
             return EXIT_VERSION_SEARCH_NOT_FOUND
@@ -323,7 +326,7 @@ class PortableMC:
             if "client" not in version_downloads:
                 print("=> Can't found client download in version meta")
                 exit(EXIT_CLIENT_JAR_NOT_FOUND)
-            self.download_file_info_progress(version_downloads["client"], version_jar_file, exit_if_corrupted=True)
+            self.download_file_info_pretty(version_downloads["client"], version_jar_file, exit_if_corrupted=True)
 
         self.trigger_event("start:version_jar_file", lambda: {
             "file": version_jar_file,
@@ -379,11 +382,11 @@ class PortableMC:
             if not path.isfile(asset_file) or path.getsize(asset_file) != asset_size:
                 os.makedirs(asset_hash_dir, 0o777, True)
                 asset_url = ASSET_BASE_URL.format(asset_hash_prefix, asset_hash)
-                assets_current_size = self.download_file_progress(asset_url, asset_size, asset_hash, asset_file,
-                                                                  start_size=assets_current_size,
-                                                                  total_size=assets_total_size,
-                                                                  name=asset_id,
-                                                                  exit_if_corrupted=True)
+                assets_current_size = self.download_file_pretty(asset_url, asset_size, asset_hash, asset_file,
+                                                                start_size=assets_current_size,
+                                                                total_size=assets_total_size,
+                                                                name=asset_id,
+                                                                exit_if_corrupted=True)
             else:
                 assets_current_size += asset_size
 
@@ -412,7 +415,7 @@ class PortableMC:
                 logging_file = path.join(log_config_dir, logging_file_info["id"])
                 logging_dirty = False
                 if not path.isfile(logging_file) or path.getsize(logging_file) != logging_file_info["size"]:
-                    self.download_file_info_progress(logging_file_info, logging_file, name=logging_file_info["id"], exit_if_corrupted=True)
+                    self.download_file_info_pretty(logging_file_info, logging_file, name=logging_file_info["id"], exit_if_corrupted=True)
                     logging_dirty = True
                 if not args.no_better_logging:
                     better_logging_file = path.join(log_config_dir, "portablemc-{}".format(logging_file_info["id"]))
@@ -471,7 +474,7 @@ class PortableMC:
                 os.makedirs(lib_dir, 0o777, True)
 
                 if not path.isfile(lib_path) or path.getsize(lib_path) != lib_size:
-                    self.download_file_info_progress(lib_dl_info, lib_path, name=lib_name, exit_if_corrupted=True)
+                    self.download_file_info_pretty(lib_dl_info, lib_path, name=lib_name, exit_if_corrupted=True)
 
             else:
 
@@ -664,8 +667,8 @@ class PortableMC:
 
     # Public methods to be replaced by extensions
 
-    def print(self, message_key: str, *args, traceback: bool = False):
-        print(self.get_message(message_key, *args))
+    def print(self, message_key: str, *args, traceback: bool = False, end: str = "\n"):
+        print(self.get_message(message_key, *args), end=end)
         if traceback:
             import traceback
             traceback.print_exc()
@@ -767,12 +770,55 @@ class PortableMC:
             version_meta = parent_meta
         return version_meta, version_dir
 
-    def download_file_progress(self, url: str, size: int, sha1: str, dst: str, *, start_size: int = 0, total_size: int = 0, name: Optional[str] = None, exit_if_corrupted: bool = False) -> Optional[int]:
+    def download_file_info_pretty(self, info: dict, dst: str, *,
+                                  start_size: int = 0,
+                                  total_size: int = 0,
+                                  name: Optional[str] = None,
+                                  exit_if_corrupted: bool = False) -> int:
 
-        base_message = "Downloading {}... ".format(url if name is None else name)
-        print(base_message, end='')
+        return self.download_file_pretty(info["url"], info["size"], info["sha1"], dst, start_size=start_size, total_size=total_size, name=name, exit_if_corrupted=exit_if_corrupted)
 
-        success = False
+    def download_file_pretty(self, url: str, size: int, sha1: str, dst: str, *,
+                             start_size: int = 0, total_size: int = 0,
+                             name: Optional[str] = None,
+                             exit_if_corrupted: bool = False) -> int:
+
+        start_time = time.perf_counter()
+        name = url if name is None else name
+
+        def progress_callback(p_dl_size: int, p_size: int, p_dl_total_size: int, p_total_size: int):
+            nonlocal start_time
+            of_total = self.get_message("download.of_total", p_dl_total_size / p_total_size * 100) if p_total_size != 0 else ""
+            speed = self.format_bytes(p_dl_size / (time.perf_counter() - start_time))
+            self.print("download.progress", name, p_dl_size / p_size * 100, speed, of_total, end="")
+
+        def end_callback(issue: Optional[str]):
+            if issue is None:
+                print()
+            else:
+                self.print("download.{}".format(issue))
+
+        end_size = self.download_file(url, size, sha1, dst,
+                                      start_size=start_size,
+                                      total_size=total_size,
+                                      name=name,
+                                      exit_if_corrupted=exit_if_corrupted,
+                                      progress_callback=progress_callback,
+                                      end_callback=end_callback)
+
+        return end_size
+
+    def download_file(self,
+                      url: str,
+                      size: int,
+                      sha1: str,
+                      dst: str, *,
+                      start_size: int = 0,
+                      total_size: int = 0,
+                      name: Optional[str] = None,
+                      exit_if_corrupted: bool = False,
+                      progress_callback: Optional[Callable[[int, int, int, int], None]] = None,
+                      end_callback: Optional[Callable[[Optional[str]], None]]) -> int:
 
         from urllib import request
         with request.urlopen(url) as req:
@@ -782,8 +828,6 @@ class PortableMC:
                 dl_size = 0
 
                 buffer = self.get_download_buffer()
-
-                last_time = time.monotonic()
 
                 while True:
 
@@ -795,34 +839,27 @@ class PortableMC:
                     dl_size += read_len
                     dl_sha1.update(buffer_view)
                     dst_fp.write(buffer_view)
-                    progress = dl_size / size * 100
-                    print("\r{}{:6.2f}%".format(base_message, progress), end='')
 
                     if total_size != 0:
                         start_size += read_len
-                        progress = start_size / total_size * 100
-                        print("    {:6.2f}% of total".format(progress), end='')
 
-                    now_time = time.monotonic()
-                    if now_time != last_time:
-                        print("    {}/s   ".format(self.format_bytes(read_len / (now_time - last_time))), end='')
-                    last_time = now_time
+                    if progress_callback is not None:
+                        progress_callback(dl_size, size, start_size, total_size)
 
                 if dl_size != size:
-                    print(" => Invalid size")
+                    issue = "invalid_size"
                 elif dl_sha1.hexdigest() != sha1:
-                    print(" => Invalid SHA1")
+                    issue = "invalid_sha1"
                 else:
-                    print()
-                    success = True
+                    issue = None
 
-        if exit_if_corrupted and not success:
+                if end_callback is not None:
+                    end_callback(issue)
+
+        if exit_if_corrupted and issue is not None:
             exit(EXIT_DOWNLOAD_FILE_CORRUPTED)
 
-        return start_size if success else None
-
-    def download_file_info_progress(self, info: dict, dst: str, *, start_size: int = 0, total_size: int = 0, name: Optional[str] = None, exit_if_corrupted: bool = False) -> Optional[int]:
-        return self.download_file_progress(info["url"], info["size"], info["sha1"], dst, start_size=start_size, total_size=total_size, name=name, exit_if_corrupted=exit_if_corrupted)
+        return start_size if issue is None else 0
 
     def interpret_rule(self, rules: list, features: Optional[dict] = None) -> bool:
         allowed = False
@@ -1113,11 +1150,25 @@ class PortableExtension:
         self.name = str(module.NAME) if hasattr(module, "NAME") else name
         self.version = str(module.VERSION) if hasattr(module, "VERSION") else "unknown"
         self.authors = module.AUTHORS if hasattr(module, "AUTHORS") else tuple()
+        self.requires = module.REQUIRES if hasattr(module, "REQUIRES") else tuple()
 
         if not isinstance(self.authors, tuple):
             self.authors = (str(self.authors),)
 
+        if not isinstance(self.requires, tuple):
+            self.requires = (str(self.requires),)
+
     def load(self, portablemc: PortableMC) -> bool:
+
+        from importlib import import_module
+
+        for requirement in self.requires:
+            try:
+                import_module(requirement)
+            except ModuleNotFoundError:
+                portablemc.print("ext.missing_requirement", self.name, requirement)
+                return False
+
         try:
             self.module.load(portablemc)
             return True
