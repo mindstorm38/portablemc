@@ -1,4 +1,6 @@
+from sys import exit
 import sys
+
 
 if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     print("PortableMC cannot be used with Python version prior to 3.6.x")
