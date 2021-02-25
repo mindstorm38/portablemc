@@ -1,11 +1,8 @@
-from argparse import Namespace
-from typing import Optional
-
 
 NAME = "Richer"
 VERSION = "0.0.1"
 AUTHORS = "Théo Rozier"
-REQUIRES = "rich"
+REQUIRES = "rich", "prompt_toolkit"
 
 
 def replace(owner: object, name: str):
@@ -25,16 +22,23 @@ def safe_delete(owner: dict, name: str):
 
 def load(portablemc):
 
+    from typing import cast, Optional, TextIO
+    from queue import Queue, Empty, Full
+    from argparse import Namespace
+    from threading import Thread
+
     from rich.progress import Progress, TaskID, BarColumn, TimeRemainingColumn, \
         TransferSpeedColumn, DownloadColumn
     from rich.console import Console, Theme
     from rich.table import Table
+
 
     theme = Theme({
         "progress.download": "",
         "progress.data.speed": "",
         "progress.remaining": ""
     })
+
 
     console = Console(highlight=False, theme=theme)
     table: Optional[Table] = None
@@ -73,6 +77,9 @@ def load(portablemc):
 
     }
 
+    portablemc.add_message("cmd.start.richer.title", "Minecraft {} • {} • {}")
+
+
     @replace(portablemc, "print")
     def new_print(_, message_key: str, *args, traceback: bool = False, end: str = "\n"):
 
@@ -87,16 +94,19 @@ def load(portablemc):
         if traceback:
             console.print_exception()
 
+
     @replace(portablemc, "cmd_search")
     def new_cmd_search(old_cmd_search, args: Namespace):
         res = old_cmd_search(args)
         print_table()
         return res
 
+
     @replace(portablemc, "cmd_start")
     def new_cmd_start(old_cmd_start, args: Namespace):
         res = old_cmd_start(args)
         return res
+
 
     @replace(portablemc, "cmd_listext")
     def new_cmd_listext(old_cmd_listext, args: Namespace):
@@ -104,21 +114,82 @@ def load(portablemc):
         print_table()
         return res
 
+
     @replace(portablemc, "run_game")
-    def new_run_game(old_run_game, proc_args, proc_cwd):
+    def new_run_game(_old_run_game, proc_args: list, proc_cwd: str, options: dict):
 
-        from rich.layout import Layout
-        from rich.live import Live
+        from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
+        from prompt_toolkit.layout.containers import Window, HSplit, VSplit
+        from prompt_toolkit.key_binding.key_processor import KeyPressEvent
+        from prompt_toolkit.application import Application
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.document import Document
+        from prompt_toolkit.buffer import Buffer
+        from prompt_toolkit.layout import Layout
+        from subprocess import Popen, PIPE
+        import asyncio
 
-        layout = Layout()
-        layout_game_log = Layout(name="game_logs")
+        terminal_buffer = Buffer(read_only=True)
+        terminal_string_buffer = RollingStringBuffer(100)
 
-        layout.split(layout_game_log)
+        title_text = portablemc.get_message("cmd.start.richer.title",
+                                            options.get("version", "unknown_version"),
+                                            options.get("username", "anonymous"),
+                                            options.get("uuid", "uuid"))
 
-        with Live(layout, screen=True, refresh_per_second=4, console=console):
-            pass
+        container = HSplit(children=[
+            VSplit(children=[
+                Window(width=2),
+                Window(content=FormattedTextControl(text=title_text)),
+            ], height=1, style="bg:#005fff fg:black"),
+            Window(height=1),
+            VSplit(children=[
+                Window(width=1),
+                Window(content=BufferControl(buffer=terminal_buffer)),
+                Window(width=1)
+            ])
+        ])
 
-        old_run_game(proc_args, proc_cwd)
+        keys = KeyBindings()
+
+        application = Application(
+            layout=Layout(container),
+            key_bindings=keys,
+            full_screen=True
+        )
+
+        process = Popen(proc_args, cwd=proc_cwd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True)
+
+        @keys.add("c-c")
+        def _exit(event: KeyPressEvent):
+            event.app.exit()
+
+        def _update_buffers():
+            terminal_buffer.set_document(Document(terminal_string_buffer.get()), bypass_readonly=True)
+
+        async def _run_process():
+            stdout_reader = ThreadedProcessReader(cast(TextIO, process.stdout))
+            stderr_reader = ThreadedProcessReader(cast(TextIO, process.stderr))
+            while True:
+                code = process.poll()
+                if code is None:
+                    terminal_string_buffer.append(stdout_reader.poll())
+                    terminal_string_buffer.append(stderr_reader.poll())
+                    _update_buffers()
+                    await asyncio.sleep(0.1)
+                else:
+                    break
+
+        async def _run():
+            _done, _pending = await asyncio.wait((_run_process(), application.run_async()), return_when=asyncio.FIRST_COMPLETED)
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+            if application.is_running:
+                application.exit()
+
+        asyncio.get_event_loop().run_until_complete(_run())
+
 
     @replace(portablemc, "download_file")
     def new_download_file(old_download_file,
@@ -147,14 +218,17 @@ def load(portablemc):
         total_progress_task = None
         return start_size
 
+
     def download_file_progress_callback(dl_size: int, _size: int, dl_total_size: int, _total_size: int):
         progress.update(progress_task, completed=dl_size)
         if total_progress_task is not None:
             progress.update(total_progress_task, completed=dl_total_size)
 
+
     def set_table(new_table: Table):
         nonlocal table
         table = new_table
+
 
     def print_table():
         nonlocal table
@@ -163,3 +237,41 @@ def load(portablemc):
         console.print()
         table = None
 
+
+    class RollingStringBuffer:
+
+        def __init__(self, limit: int):
+            self._strings = []
+            self._limit = limit
+
+        def append(self, txt: Optional[str]):
+            if txt is not None and len(txt):
+                self._strings.append(txt)
+                while len(self._strings) > self._limit:
+                    self._strings.pop(0)
+
+        def get(self) -> str:
+            return "".join(self._strings)
+
+
+    class ThreadedProcessReader:
+
+        def __init__(self, in_stream: TextIO):
+            self._input = in_stream
+            self._queue = Queue(100)
+            self._thread = Thread(target=self._entry, daemon=True)
+            self._thread.start()
+
+        def _entry(self):
+            for line in iter(self._input.readline, b''):
+                try:
+                    self._queue.put_nowait(line)
+                except Full:
+                    pass
+            self._input.close()
+
+        def poll(self) -> Optional[str]:
+            try:
+                return self._queue.get_nowait()
+            except Empty:
+                return None

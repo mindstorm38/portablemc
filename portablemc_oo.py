@@ -637,8 +637,15 @@ class PortableMC:
         print("Running...")
         print("=> Username: {}, UUID: {}".format(username, uuid))
         print("=> Command line: {}".format(" ".join(start_args)))
+
         os.makedirs(work_dir, 0o777, True)
-        self.run_game(start_args, work_dir)
+
+        self.run_game(start_args, work_dir, {
+            "username": username,
+            "uuid": uuid,
+            "version": version
+        })
+
         print("Game stopped...")
         print("=> Removing bin directory")
 
@@ -723,7 +730,7 @@ class PortableMC:
             return msg
 
 
-    def run_game(self, proc_args, proc_cwd):
+    def run_game(self, proc_args: list, proc_cwd: str, _options: dict):
         print("================================================")
         subprocess.run(proc_args, cwd=proc_cwd)
         print("================================================")
