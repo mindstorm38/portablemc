@@ -1,11 +1,162 @@
 
+
 NAME = "Richer"
 VERSION = "0.0.1"
 AUTHORS = "Théo Rozier"
 REQUIRES = "rich", "prompt_toolkit"
 
 
-def replace(owner: object, name: str):
+def ext_build():
+
+    from typing import cast, Optional, TextIO
+    from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
+    from prompt_toolkit.layout.containers import Window, HSplit, VSplit
+    from prompt_toolkit.key_binding.key_processor import KeyPressEvent
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.document import Document
+    from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.layout import Layout
+    from queue import Queue, Full, Empty
+    from subprocess import Popen, PIPE
+    from threading import Thread
+    import asyncio
+
+    class RicherExtension:
+
+        def __init__(self, pmc):
+            self.pmc = pmc
+
+        def load(self):
+            self.pmc.add_message("cmd.start.richer.title", "Minecraft {} • {} • {}")
+            self.pmc.mixin("run_game", self.run_game)
+
+        def run_game(self, _old, proc_args: list, proc_cwd: str, options: dict):
+
+            title_text = self.pmc.get_message("cmd.start.richer.title",
+                                              options.get("version", "unknown_version"),
+                                              options.get("username", "anonymous"),
+                                              options.get("uuid", "uuid"))
+
+            buffer_window = LimitedBufferWindow(100)
+
+            container = HSplit(children=[
+                VSplit(children=[
+                    Window(width=2),
+                    Window(content=FormattedTextControl(text=title_text)),
+                ], height=1, style="bg:#005fff fg:black"),
+                VSplit(children=[
+                    Window(width=1),
+                    buffer_window,
+                    Window(width=1)
+                ])
+            ])
+
+            keys = KeyBindings()
+
+            application = Application(
+                layout=Layout(container),
+                key_bindings=keys,
+                full_screen=True
+            )
+
+            process = Popen(proc_args, cwd=proc_cwd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True)
+
+            @keys.add("c-c")
+            def _exit(event: KeyPressEvent):
+                event.app.exit()
+
+            async def _run_process():
+                stdout_reader = ThreadedProcessReader(cast(TextIO, process.stdout))
+                stderr_reader = ThreadedProcessReader(cast(TextIO, process.stderr))
+                while True:
+                    code = process.poll()
+                    if code is None:
+                        buffer_window.append(stdout_reader.poll(), stderr_reader.poll())
+                        await asyncio.sleep(0.1)
+                    else:
+                        break
+
+            async def _run():
+                _done, _pending = await asyncio.wait((_run_process(), application.run_async()),
+                                                     return_when=asyncio.FIRST_COMPLETED)
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
+                if application.is_running:
+                    application.exit()
+
+            asyncio.get_event_loop().run_until_complete(_run())
+
+    class LimitedBufferWindow:
+
+        def __init__(self, limit: int):
+            self.buffer = Buffer(read_only=True)
+            self.string_buffer = RollingStringBuffer(limit)
+            self.window = Window(content=BufferControl(buffer=self.buffer))
+
+        def append(self, *texts: str):
+            modified = False
+            for text in texts:
+                if self.string_buffer.append(text):
+                    modified = True
+            if modified:
+                cursor_pos = None
+                new_text = self.string_buffer.get()
+                if self.buffer.cursor_position < len(self.buffer.text):
+                    cursor_pos = self.buffer.cursor_position
+                self.buffer.set_document(Document(text=new_text, cursor_position=cursor_pos), bypass_readonly=True)
+
+        def __pt_container__(self):
+            return self.window
+
+    class RollingStringBuffer:
+
+        def __init__(self, limit: int):
+            self._strings = []
+            self._limit = limit
+
+        def append(self, txt: Optional[str]) -> bool:
+            if txt is not None and len(txt):
+                self._strings.append(txt)
+                while len(self._strings) > self._limit:
+                    self._strings.pop(0)
+                return True
+            else:
+                return False
+
+        def get(self) -> str:
+            return "".join(self._strings)
+
+    class ThreadedProcessReader:
+
+        def __init__(self, in_stream: TextIO):
+            self._input = in_stream
+            self._queue = Queue(100)
+            self._thread = Thread(target=self._entry, daemon=True)
+            self._thread.start()
+
+        def _entry(self):
+            for line in iter(self._input.readline, b''):
+                try:
+                    self._queue.put_nowait(line)
+                except Full:
+                    pass
+            self._input.close()
+
+        def poll(self) -> Optional[str]:
+            try:
+                return self._queue.get_nowait()
+            except Empty:
+                return None
+
+    return RicherExtension
+
+
+
+
+
+"""def replace(owner: object, name: str):
     old_val = getattr(owner, name, None)
     def decorator(func):
         def wrapper(*args, **kwargs):
@@ -275,3 +426,4 @@ def load(portablemc):
                 return self._queue.get_nowait()
             except Empty:
                 return None
+"""

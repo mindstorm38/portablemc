@@ -71,8 +71,9 @@ class PortableMC:
 
         self._messages = {
 
-            "ext.missing_requirement": "Extension '{}' is missing the requirement '{}'.",
-            "ext.failed_to_load": "Failed to load extension '{}' (contact extension authors):",
+            "ext.missing_requirement.module": "Extension '{}' requires module '{}' to load.",
+            "ext.missing_requirement.ext": "Extension '{}' requires another extension '{}' to load.",
+            "ext.failed_to_build": "Failed to build extension '{}' (contact extension authors):",
 
             "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
                     "script! This single-script launcher is still compatible with the official "
@@ -189,10 +190,15 @@ class PortableMC:
                     module_loader = cast(SourceFileLoader, module_spec.loader)
                     module = importlib.util.module_from_spec(module_spec)
                     module_loader.exec_module(module)
-                    if hasattr(module, "load") and callable(module.load):
-                        ext = PortableExtension(module, ext_name)
-                        if ext.load(self):
-                            self._extensions[ext_name] = ext
+                    if PortableExtension.is_valid(module):
+                        self._extensions[ext_name] = PortableExtension(module, ext_name)
+
+        for ext in self._extensions.values():
+            ext.build(self)
+
+        for ext in self._extensions.values():
+            ext.load()
+
 
     def _register_arguments(self):
 
@@ -651,6 +657,13 @@ class PortableMC:
 
         return 0
 
+    # Start methods
+
+    def run_game(self, proc_args: list, proc_cwd: str, _options: dict):
+        print("================================================")
+        subprocess.run(proc_args, cwd=proc_cwd)
+        print("================================================")
+
     # Getters
 
     def get_main_dir(self) -> str:
@@ -673,6 +686,9 @@ class PortableMC:
 
     def get_extensions(self) -> Dict[str, 'PortableExtension']:
         return self._extensions
+
+    def get_extension(self, name: str) -> Optional['PortableExtension']:
+        return self._extensions.get(name)
 
     def get_messages(self) -> Dict[str, str]:
         return self._messages
@@ -729,11 +745,11 @@ class PortableMC:
         except IndexError:
             return msg
 
-
-    def run_game(self, proc_args: list, proc_cwd: str, _options: dict):
-        print("================================================")
-        subprocess.run(proc_args, cwd=proc_cwd)
-        print("================================================")
+    def mixin(self, target: str, func):
+        old_func = getattr(self, target, None)
+        def wrapper(*args, **kwargs):
+            return func(old_func, *args, **kwargs)
+        setattr(self, target, wrapper)
 
     # Authentication
 
@@ -1015,6 +1031,9 @@ class PortableExtension:
 
     def __init__(self, module: Any, name: str):
 
+        if not self.is_valid(module):
+            raise ValueError("Missing 'ext_build' method.")
+
         self.module = module
         self.name = str(module.NAME) if hasattr(module, "NAME") else name
         self.version = str(module.VERSION) if hasattr(module, "VERSION") else "unknown"
@@ -1027,23 +1046,38 @@ class PortableExtension:
         if not isinstance(self.requires, tuple):
             self.requires = (str(self.requires),)
 
-    def load(self, portablemc: PortableMC) -> bool:
+        self.built = False
+        self.instance: Optional[Any] = None
+
+    @staticmethod
+    def is_valid(module: Any) -> bool:
+        return hasattr(module, "ext_build") and callable(module.ext_build)
+
+    def build(self, pmc: PortableMC):
 
         from importlib import import_module
 
         for requirement in self.requires:
-            try:
-                import_module(requirement)
-            except ModuleNotFoundError:
-                portablemc.print("ext.missing_requirement", self.name, requirement)
-                return False
+            if requirement.startswith("ext:"):
+                requirement = requirement[4:]
+                if pmc.get_extension(requirement) is None:
+                    pmc.print("ext.missing_requirement.ext", self.name, requirement)
+            else:
+                try:
+                    import_module(requirement)
+                except ModuleNotFoundError:
+                    pmc.print("ext.missing_requirement.module", self.name, requirement)
+                    return False
 
         try:
-            self.module.load(portablemc)
-            return True
+            self.instance = self.module.ext_build()(pmc)
+            self.built = True
         except (Exception,):
-            portablemc.print("ext.failed_to_load", self.name, traceback=True)
-            return False
+            pmc.print("ext.failed_to_build", self.name, traceback=True)
+
+    def load(self):
+        if self.built and hasattr(self.instance, "load") and callable(self.instance.load):
+            self.instance.load()
 
 
 class VersionManifest:
