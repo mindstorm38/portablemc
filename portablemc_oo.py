@@ -9,6 +9,8 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
 
 from typing import cast, Dict, Set, Callable, Any, Optional, Generator, Tuple, Union
 from argparse import ArgumentParser, Namespace
+from urllib.error import HTTPError, URLError
+from urllib import request as url_request
 from json.decoder import JSONDecodeError
 from datetime import datetime
 from zipfile import ZipFile
@@ -42,8 +44,9 @@ EXIT_NATIVES_DIR_ALREADY_EXITS = 12
 EXIT_DOWNLOAD_FILE_CORRUPTED = 13
 EXIT_AUTHENTICATION_FAILED = 14
 EXIT_VERSION_SEARCH_NOT_FOUND = 15
-EXIT_DEPRECATED_ARGUMENT = 15
-EXIT_LOGOUT_FAILED = 15
+EXIT_DEPRECATED_ARGUMENT = 16
+EXIT_LOGOUT_FAILED = 17
+EXIT_URL_ERROR = 18
 
 LOGGING_CONSOLE_REPLACEMENT = "<PatternLayout pattern=\"%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n\"/>"
 
@@ -118,6 +121,8 @@ class PortableMC:
             "cmd.listext.result": "=> {}, version: {}, authors: {}",
 
             "cmd.start.welcome": "Welcome to PortableMC, the easy to use Python Minecraft Launcher.",
+
+            "url_error.reason": "URL error: {}",
 
             "download.progress": "\rDownloading {}... {:6.2f}% {}/s {}",
             "download.of_total": "{:6.2f}% of total",
@@ -335,6 +340,9 @@ class PortableMC:
             version_meta, version_dir = self.resolve_version_meta_recursive(version)
         except VersionNotFoundError:
             return EXIT_VERSION_NOT_FOUND
+        except URLError as err:
+            self.print("url_error.reason", err.reason)
+            return EXIT_URL_ERROR
 
         # Starting version dependencies resolving
         version_type = version_meta["type"]
@@ -384,7 +392,11 @@ class PortableMC:
             asset_index_info = version_meta["assetIndex"]
             asset_index_url = asset_index_info["url"]
             print("=> Found asset index in metadata: {}".format(asset_index_url))
-            assets_index = self.read_url_json(asset_index_url)
+            try:
+                assets_index = self.read_url_json(asset_index_url)
+            except URLError as err:
+                self.print("url_error.reason", err.reason)
+                return EXIT_URL_ERROR
             if not path.isdir(assets_indexes_dir):
                 os.makedirs(assets_indexes_dir, 0o777, True)
             with open(assets_index_file, "wt") as assets_index_fp:
@@ -852,7 +864,12 @@ class PortableMC:
             self.print("download.progress", entry.name, p_dl_size / p_size * 100, speed, of_total, end="")
 
         def end_callback(issue: Optional[str]):
-            self.print("" if issue is None else "download.{}".format(issue), "")
+            if issue is None:
+                self.print("", "")
+            elif issue.startswith("url_error "):
+                self.print("url_error.reason", issue[len("url_error "):])
+            else:
+                self.print("download.{}".format(issue))
 
         return self.download_file(entry,
                                   start_size=start_size,
@@ -865,10 +882,16 @@ class PortableMC:
                       start_size: int = 0,
                       total_size: int = 0,
                       progress_callback: Optional[Callable[[int, int, int, int], None]] = None,
-                      end_callback: Optional[Callable[[Optional[str]], None]]) -> Optional[int]:
+                      end_callback: Optional[Callable[[Optional[str]], None]] = None) -> Optional[int]:
 
-        from urllib import request
-        with request.urlopen(entry.url) as req:
+        try:
+            req = url_request.urlopen(entry.url)
+        except URLError as err:
+            if end_callback is not None:
+                end_callback("url_error {}".format(err.reason))
+            return None
+
+        with req:
             with open(entry.dst, "wb") as dst_fp:
 
                 dl_sha1 = hashlib.sha1()
@@ -992,8 +1015,7 @@ class PortableMC:
 
     @staticmethod
     def read_url_json(url: str) -> dict:
-        from urllib import request
-        return json.load(request.urlopen(url))
+        return json.load(url_request.urlopen(url))
 
     @staticmethod
     def format_iso_date(raw: str):
@@ -1168,8 +1190,6 @@ class AuthEntry:
 
         from http.client import HTTPResponse
         from urllib.request import Request
-        from urllib.error import HTTPError
-        from urllib import request
 
         req_url = AUTHSERVER_URL.format(req)
         data = json.dumps(payload).encode("ascii")
@@ -1179,9 +1199,11 @@ class AuthEntry:
         }, method="POST")
 
         try:
-            res = request.urlopen(req)  # type: HTTPResponse
+            res = url_request.urlopen(req)  # type: HTTPResponse
         except HTTPError as err:
             res = cast(HTTPResponse, err.fp)
+        except URLError as err:
+            raise AuthError(err.reason)  # TODO: Check if realiable
 
         try:
             res_data = json.load(res)
@@ -1253,6 +1275,8 @@ class DownloadEntry:
 
 class AuthError(Exception):
     pass
+
+
 class VersionNotFoundError(Exception):
     pass
 

@@ -3,17 +3,22 @@
 NAME = "Richer"
 VERSION = "0.0.1"
 AUTHORS = "Théo Rozier"
-REQUIRES = "rich", "prompt_toolkit"
+REQUIRES = "prompt_toolkit"
 
 
 def ext_build():
 
     from typing import cast, Optional, TextIO
+    from prompt_toolkit.shortcuts.progress_bar.formatters import Formatter, Label, Text, Percentage, Bar
     from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
-    from prompt_toolkit.layout.containers import Window, HSplit, VSplit
+    from prompt_toolkit.layout.containers import Window, HSplit, VSplit, Container
+    from prompt_toolkit.shortcuts import ProgressBar, ProgressBarCounter
     from prompt_toolkit.key_binding.key_processor import KeyPressEvent
+    from prompt_toolkit.formatted_text import AnyFormattedText
+    from prompt_toolkit.layout.dimension import Dimension
     from prompt_toolkit.application import Application
     from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.layout import AnyDimension
     from prompt_toolkit.document import Document
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.layout import Layout
@@ -26,10 +31,28 @@ def ext_build():
 
         def __init__(self, pmc):
             self.pmc = pmc
+            self.progress_bar_formatters = [
+                Label(),
+                Text(" "),
+                Bar(sym_a="#", sym_b="#", sym_c="."),
+                Text(" ["),
+                ByteProgress(),
+                Text("] ["),
+                Percentage(),
+                Text("]"),
+            ]
 
         def load(self):
             self.pmc.add_message("cmd.start.richer.title", "Minecraft {} • {} • {}")
             self.pmc.mixin("run_game", self.run_game)
+            self.pmc.mixin("download_file", self.download_file)
+
+        def build_application(self, container: Container, keys: KeyBindings) -> Application:
+            return Application(
+                layout=Layout(container),
+                key_bindings=keys,
+                full_screen=True
+            )
 
         def run_game(self, _old, proc_args: list, proc_cwd: str, options: dict):
 
@@ -40,12 +63,12 @@ def ext_build():
 
             buffer_window = LimitedBufferWindow(100)
 
-            container = HSplit(children=[
-                VSplit(children=[
+            container = HSplit([
+                VSplit([
                     Window(width=2),
-                    Window(content=FormattedTextControl(text=title_text)),
+                    Window(FormattedTextControl(text=title_text)),
                 ], height=1, style="bg:#005fff fg:black"),
-                VSplit(children=[
+                VSplit([
                     Window(width=1),
                     buffer_window,
                     Window(width=1)
@@ -54,17 +77,12 @@ def ext_build():
 
             keys = KeyBindings()
 
-            application = Application(
-                layout=Layout(container),
-                key_bindings=keys,
-                full_screen=True
-            )
-
-            process = Popen(proc_args, cwd=proc_cwd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True)
-
             @keys.add("c-c")
             def _exit(event: KeyPressEvent):
                 event.app.exit()
+
+            application = self.build_application(container, keys)
+            process = Popen(proc_args, cwd=proc_cwd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True)
 
             async def _run_process():
                 stdout_reader = ThreadedProcessReader(cast(TextIO, process.stdout))
@@ -78,8 +96,10 @@ def ext_build():
                         break
 
             async def _run():
-                _done, _pending = await asyncio.wait((_run_process(), application.run_async()),
-                                                     return_when=asyncio.FIRST_COMPLETED)
+                _done, _pending = await asyncio.wait((
+                    _run_process(),
+                    application.run_async()
+                ), return_when=asyncio.FIRST_COMPLETED)
                 if process.poll() is None:
                     process.kill()
                     process.wait(timeout=5)
@@ -87,6 +107,34 @@ def ext_build():
                     application.exit()
 
             asyncio.get_event_loop().run_until_complete(_run())
+
+        def download_file(self, old, entry, *args, **kwargs):
+
+            safe_delete(kwargs, "progress_callback")
+            safe_delete(kwargs, "end_callback")
+            final_issue: Optional[str] = None
+
+            with ProgressBar(formatters=self.progress_bar_formatters) as pb:
+
+                progress_task = pb(label=entry.name, total=entry.size)
+
+                def progress_callback(p_dl_size: int, _p_size: int, _p_dl_total_size: int, _p_total_size: int):
+                    progress_task.items_completed = p_dl_size
+                    pb.invalidate()
+
+                def end_callback(issue: Optional[str]):
+                    nonlocal final_issue
+                    final_issue = issue
+
+                ret = old(entry, *args, **kwargs, progress_callback=progress_callback, end_callback=end_callback)
+
+            if final_issue is not None:
+                if final_issue.startswith("url_error "):
+                    self.pmc.print("url_error.reason", final_issue[len("url_error "):])
+                else:
+                    self.pmc.print("download.{}".format(final_issue))
+
+            return ret
 
     class LimitedBufferWindow:
 
@@ -102,7 +150,8 @@ def ext_build():
                     modified = True
             if modified:
                 cursor_pos = None
-                new_text = self.string_buffer.get()
+                new_text = self.string_buffer.get()\
+                    .replace("\t", "    ")
                 if self.buffer.cursor_position < len(self.buffer.text):
                     cursor_pos = self.buffer.cursor_position
                 self.buffer.set_document(Document(text=new_text, cursor_position=cursor_pos), bypass_readonly=True)
@@ -149,6 +198,33 @@ def ext_build():
                 return self._queue.get_nowait()
             except Empty:
                 return None
+
+    class ByteProgress(Formatter):
+
+        template = "<current>{current}</current>"
+
+        def format(self, progress_bar: "ProgressBar", progress: "ProgressBarCounter[object]", width: int) -> AnyFormattedText:
+            n = progress.items_completed
+            if n < 1000:
+                return "{:4.0f}B".format(n)
+            elif n < 1000000:
+                return "{:4.0f}kB".format(n // 1000)
+            elif n < 1000000000:
+                return "{:4.0f}MB".format(n // 1000000)
+            else:
+                return "{:4.0f}GB".format(n // 1000000000)
+
+        def get_width(self, progress_bar: "ProgressBar") -> AnyDimension:
+            width = 5
+            for counter in progress_bar.counters:
+                if counter.items_completed >= 1000:
+                    width = 6
+                    break
+            return Dimension.exact(width)
+
+    def safe_delete(owner: dict, name: str):
+        if name in owner:
+            del owner[name]
 
     return RicherExtension
 
