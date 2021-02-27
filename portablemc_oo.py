@@ -55,11 +55,6 @@ class PortableMC:
 
     def __init__(self):
 
-        self._argument_parser = ArgumentParser(
-            allow_abbrev=False,
-            prog="portablemc"
-        )
-
         self._extensions: Dict[str, PortableExtension] = {}
         self._event_listeners: Dict[str, Set[Callable]] = {}
         self._main_dir: Optional[str] = None
@@ -174,37 +169,40 @@ class PortableMC:
     def start(self):
 
         self._register_extensions()
-        self._register_arguments()
-        args = self._argument_parser.parse_args()
+
+        parser = self.register_arguments()
+        args = parser.parse_args()
         subcommand = args.subcommand
 
-        # TODO: Rework this segment
-
         if subcommand is None:
-            self._argument_parser.print_help()
+            parser.print_help()
             return
 
-        self._main_dir = self.get_minecraft_dir() if args.main_dir is None else path.realpath(args.main_dir)
-        if not path.isdir(self._main_dir):
-            if self.prompt("continue_using_main_dir") != "y":
-                self.print("abort")
-                exit(0)
-            os.makedirs(self._main_dir, 0o777, True)
-
-        builtin_func_name = "cmd_{}".format(subcommand)
-        exit_code = 0
-        if hasattr(self, builtin_func_name) and callable(getattr(self, builtin_func_name)):
-            exit_code = getattr(self, builtin_func_name)(args)
+        if "ignore_main_dir" not in args or not args.ignore_main_dir:
+            self._main_dir = self.get_minecraft_dir() if args.main_dir is None else path.realpath(args.main_dir)
+            if not path.isdir(self._main_dir):
+                if self.prompt("continue_using_main_dir") != "y":
+                    self.print("abort")
+                    exit(0)
+                os.makedirs(self._main_dir, 0o777, True)
 
         """self.trigger_event("subcommand", lambda: {
             "subcommand": subcommand,
             "args": args
         })"""
 
-        exit(exit_code)
+        exit(self.start_subcommand(subcommand, args))
+
+    def start_subcommand(self, subcommand: str, args: Namespace) -> int:
+        builtin_func_name = "cmd_{}".format(subcommand)
+        if hasattr(self, builtin_func_name) and callable(getattr(self, builtin_func_name)):
+            return getattr(self, builtin_func_name)(args)
+        else:
+            return 0
 
     def _register_extensions(self):
 
+        # This method is not designed to be dynamically replaced, to mark this we keep the underscore.
         from importlib.machinery import SourceFileLoader
         import importlib.util
 
@@ -227,47 +225,21 @@ class PortableMC:
         for ext in self._extensions.values():
             ext.load()
 
+    def register_arguments(self) -> ArgumentParser:
 
-    def _register_arguments(self):
-
-        # TODO: Rework this segment
-
-        parser = self._argument_parser
-        parser.description = self.get_message("args")
-
-        sub_parsers = parser.add_subparsers(
-            title="subcommands",
-            dest="subcommand"
+        parser = ArgumentParser(
+            allow_abbrev=False,
+            prog="portablemc",
+            description=self.get_message("args")
         )
 
         # Main directory is placed here in order to know the path of the auth database.
         parser.add_argument("--main-dir", help=self.get_message("args.main_dir"), dest="main_dir")
 
-        search = sub_parsers.add_parser("search", help=self.get_message("args.search"))
-        search.add_argument("input")
-
-        start = sub_parsers.add_parser("start", help=self.get_message("args.start"))
-        start.add_argument("--dry", help=self.get_message("args.start.dry"), default=False, action="store_true")
-        start.add_argument("--demo", help=self.get_message("args.start.demo"), default=False, action="store_true")
-        start.add_argument("--resol", help=self.get_message("args.start.resol"), type=self._decode_resolution, dest="resolution")
-        start.add_argument("--jvm", help=self.get_message("args.start.jvm"), default=JVM_EXEC_DEFAULT)
-        start.add_argument("--jvm-args", help=self.get_message("args.start.jvm_args"), default=JVM_ARGS_DEFAULT, dest="jvm_args")
-        start.add_argument("--work-dir", help=self.get_message("args.start.work_dir"), dest="work_dir")
-        start.add_argument("--work-dir-bin", help=self.get_message("args.start.work_dir_bin"), default=False, action="store_true", dest="work_dir_bin")
-        start.add_argument("--no-better-logging", help=self.get_message("args.start.no_better_logging"), default=False, action="store_true", dest="no_better_logging")
-        start.add_argument("-t", "--temp-login", help=self.get_message("args.start.temp_login"), default=False, action="store_true", dest="templogin")
-        start.add_argument("-l", "--login", help=self.get_message("args.start.login"))
-        start.add_argument("-u", "--username", help=self.get_message("args.start.username"))
-        start.add_argument("-i", "--uuid", help=self.get_message("args.start.uuid"))
-        start.add_argument("version", nargs="?", default="release")
-
-        login = sub_parsers.add_parser("login", help=self.get_message("args.login"))
-        login.add_argument("email_or_username")
-
-        logout = sub_parsers.add_parser("logout", help=self.get_message("args.logout"))
-        logout.add_argument("email_or_username")
-
-        sub_parsers.add_parser("listext", help=self.get_message("args.listext"))
+        self.register_subcommands(parser.add_subparsers(
+            title="subcommands",
+            dest="subcommand"
+        ))
 
         """self.trigger_event("register_arguments", lambda: {
             "parser": parser,
@@ -279,6 +251,40 @@ class PortableMC:
                 "logout": logout
             }
         })"""
+
+        return parser
+
+    def register_subcommands(self, subcommands):
+        self.register_search_arguments(subcommands.add_parser("search", help=self.get_message("args.search")))
+        self.register_start_arguments(subcommands.add_parser("start", help=self.get_message("args.start")))
+        self.register_login_arguments(subcommands.add_parser("login", help=self.get_message("args.login")))
+        self.register_logout_arguments(subcommands.add_parser("logout", help=self.get_message("args.logout")))
+        subcommands.add_parser("listext", help=self.get_message("args.listext"))
+
+    def register_search_arguments(self, parser: ArgumentParser):
+        parser.add_argument("input")
+        parser.set_defaults(ignore_main_dir=True)
+
+    def register_start_arguments(self, parser: ArgumentParser):
+        parser.add_argument("--dry", help=self.get_message("args.start.dry"), default=False, action="store_true")
+        parser.add_argument("--demo", help=self.get_message("args.start.demo"), default=False, action="store_true")
+        parser.add_argument("--resol", help=self.get_message("args.start.resol"), type=self._decode_resolution, dest="resolution")
+        parser.add_argument("--jvm", help=self.get_message("args.start.jvm"), default=JVM_EXEC_DEFAULT)
+        parser.add_argument("--jvm-args", help=self.get_message("args.start.jvm_args"), default=JVM_ARGS_DEFAULT, dest="jvm_args")
+        parser.add_argument("--work-dir", help=self.get_message("args.start.work_dir"), dest="work_dir")
+        parser.add_argument("--work-dir-bin", help=self.get_message("args.start.work_dir_bin"), default=False, action="store_true", dest="work_dir_bin")
+        parser.add_argument("--no-better-logging", help=self.get_message("args.start.no_better_logging"), default=False, action="store_true", dest="no_better_logging")
+        parser.add_argument("-t", "--temp-login", help=self.get_message("args.start.temp_login"), default=False, action="store_true", dest="templogin")
+        parser.add_argument("-l", "--login", help=self.get_message("args.start.login"))
+        parser.add_argument("-u", "--username", help=self.get_message("args.start.username"))
+        parser.add_argument("-i", "--uuid", help=self.get_message("args.start.uuid"))
+        parser.add_argument("version", nargs="?", default="release")
+
+    def register_login_arguments(self, parser: ArgumentParser):
+        parser.add_argument("email_or_username")
+
+    def register_logout_arguments(self, parser: ArgumentParser):
+        parser.add_argument("email_or_username")
 
     # Builtin subcommands
 
