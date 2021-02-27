@@ -7,7 +7,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Set, Callable, Any, Optional, Generator, Tuple, Union
+from typing import cast, Dict, Set, Callable, Any, Optional, Generator, Tuple, List, Union
 from argparse import ArgumentParser, Namespace
 from urllib.error import HTTPError, URLError
 from urllib import request as url_request
@@ -120,8 +120,6 @@ class PortableMC:
             "cmd.listext.title": "Extensions list ({}):",
             "cmd.listext.result": "=> {}, version: {}, authors: {}",
 
-            "cmd.start.welcome": "Welcome to PortableMC, the easy to use Python Minecraft Launcher.",
-
             "url_error.reason": "URL error: {}",
 
             "download.progress": "\rDownloading {}... {:6.2f}% {}/s {}",
@@ -146,7 +144,30 @@ class PortableMC:
             "version.found_in_manifest": "=> Found metadata in manifest, caching...",
             "version.not_found_in_manifest": "=> Not found in manifest.",
             "version.parent_version": "=> Parent version: {}",
-            "version.parent_version_not_found": "=> Failed to find parent version {}"
+            "version.parent_version_not_found": "=> Failed to find parent version {}",
+
+            "start.welcome": "Welcome to PortableMC, the easy to use Python Minecraft Launcher.",
+            "start.loading_version": "Loading {} {}...",
+            "start.loading_jar_file": "Loading jar file...",
+            "start.no_client_jar_file": "=> Can't find client download in version meta",
+            "start.loading_assets": "Loading assets...",
+            "start.failed_to_decode_asset_index": "=> Failed to decode assets index, try updating...",
+            "start.found_asset_index": "=> Found asset index in metadata: {}",
+            "start.legacy_assets": "=> This version use lagacy assets, put in {}",
+            "start.virtual_assets": "=> This version use virtual assets, put in {}",
+            "start.verifying_assets": "=> Verifying assets...",
+            "start.loading_logger": "Loading logger config...",
+            "start.generating_better_logging_config": "=> Generating better logging configuration...",
+            "start.loading_libraries": "Loading libraries and natives...",
+            "start.no_download_for_library": "=> Can't found any download for library {}",
+            "start.cached_library_not_found": "=> Can't found cached library {} at {}",
+            "start.dry": "Dry run, stopping.",
+            "start.starting": "Starting game...",
+            "start.extracting_natives": "=> Extracting natives...",
+            "start.running": "Running...",
+            "start.stopped": "Game stopped, clearing natives.",
+            "start.run.session": "=> Username: {}, UUID: {}",
+            "start.run.command_line": "=> Command line: {}"
 
         }
 
@@ -156,6 +177,8 @@ class PortableMC:
         self._register_arguments()
         args = self._argument_parser.parse_args()
         subcommand = args.subcommand
+
+        # TODO: Rework this segment
 
         if subcommand is None:
             self._argument_parser.print_help()
@@ -173,10 +196,10 @@ class PortableMC:
         if hasattr(self, builtin_func_name) and callable(getattr(self, builtin_func_name)):
             exit_code = getattr(self, builtin_func_name)(args)
 
-        self.trigger_event("subcommand", lambda: {
+        """self.trigger_event("subcommand", lambda: {
             "subcommand": subcommand,
             "args": args
-        })
+        })"""
 
         exit(exit_code)
 
@@ -206,6 +229,8 @@ class PortableMC:
 
 
     def _register_arguments(self):
+
+        # TODO: Rework this segment
 
         parser = self._argument_parser
         parser.description = self.get_message("args")
@@ -244,7 +269,7 @@ class PortableMC:
 
         sub_parsers.add_parser("listext", help=self.get_message("args.listext"))
 
-        self.trigger_event("register_arguments", lambda: {
+        """self.trigger_event("register_arguments", lambda: {
             "parser": parser,
             "sub_parsers": sub_parsers,
             "builtins_parsers": {
@@ -253,7 +278,7 @@ class PortableMC:
                 "login": login,
                 "logout": logout
             }
-        })
+        })"""
 
     # Builtin subcommands
 
@@ -301,9 +326,87 @@ class PortableMC:
 
     def cmd_start(self, args: Namespace) -> int:
 
-        self.print("cmd.start.welcome")
-
         # Get all arguments
+        work_dir = self._main_dir if args.main_dir is None else path.realpath(args.main_dir)
+        uuid = None if args.uuid is None else args.uuid.replace("-", "")
+        username = args.username
+
+        # Login if needed
+        if args.login is not None:
+            auth_entry = self.promp_password_and_authenticate(args.login, not args.templogin)
+            if auth_entry is None:
+                return EXIT_AUTHENTICATION_FAILED
+            uuid = auth_entry.uuid
+            username = auth_entry.username
+        else:
+            auth_entry = None
+
+        # Setup defaut UUID and/or username if needed
+        if uuid is None: uuid = uuid4().hex
+        if username is None: username = uuid[:8]
+
+        # Decode resolution
+        custom_resol = args.resolution  # type: Optional[Tuple[int, int]]
+        if custom_resol is not None and len(custom_resol) != 2:
+            custom_resol = None
+
+        def jvm_args_modifier(jvm_args: List[str]):
+            jvm_args.extend(args.jvm_args.split(" "))
+
+        # Actual start
+        try:
+            self.start_game(
+                work_dir=work_dir,
+                dry_run=args.dry,
+                uuid=uuid,
+                username=username,
+                version=args.version,
+                no_better_logging=args.no_better_logging,
+                work_dir_bin=args.work_dir_bin,
+                resolution=custom_resol,
+                demo=args.demo,
+                jvm=args.jvm,
+                auth_entry=auth_entry,
+                jvm_args_modifier=jvm_args_modifier
+            )
+        except VersionNotFoundError:
+            return EXIT_VERSION_NOT_FOUND
+        except URLError as err:
+            self.print("url_error.reason", err.reason)
+            return EXIT_URL_ERROR
+        except DownloadCorruptedError as err:
+            self.print("download.{}".format(err.args[0]))
+            return EXIT_DOWNLOAD_FILE_CORRUPTED
+
+    # Generic start game method
+
+    def start_game(self, *,
+                   work_dir: str,
+                   dry_run: bool,
+                   uuid: str,
+                   username: str,
+                   version: str,
+                   no_better_logging: bool,
+                   work_dir_bin: bool,
+                   resolution: Optional[Tuple[int, int]],
+                   demo: bool,
+                   jvm: str,
+                   auth_entry: Optional["AuthEntry"],
+                   version_meta_modifier: Optional[Callable[[dict], None]] = None,
+                   libraries_modifier: Optional[Callable[[List[str], List[str]], None]] = None,
+                   jvm_args_modifier: Optional[Callable[[List[str]], None]] = None,
+                   final_args_modifier: Optional[Callable[[List[str]], None]] = None,
+                   main_class_supplier: Union[None, Callable[[], str], str] = None,
+                   args_replacement_modifier: Optional[Callable[[Dict[str, str]], None]] = None) -> None:
+
+        # This method can raise these errors:
+        # - VersionNotFoundError: if the given version was not found
+        # - URLError: for any URL resolving error
+        # - DownloadCorruptedError: if a download is corrupted
+
+        self.print("start.welcome")
+
+        """# Get all arguments
         work_dir = self._main_dir if args.main_dir is None else path.realpath(args.main_dir)
         dry_run = args.dry
         uuid = None if args.uuid is None else args.uuid.replace("-", "")
@@ -332,49 +435,54 @@ class PortableMC:
             "uuid": uuid,
             "username": username,
             "storage": ext_storage
-        })
+        })"""
 
         # Resolve version metadata
-        try:
-            version, version_alias = self.get_version_manifest().filter_latest(args.version)
+        """try:
+            version, version_alias = self.get_version_manifest().filter_latest(version)
             version_meta, version_dir = self.resolve_version_meta_recursive(version)
         except VersionNotFoundError:
-            return EXIT_VERSION_NOT_FOUND
+            raise AbordStartError(EXIT_VERSION_NOT_FOUND)
         except URLError as err:
             self.print("url_error.reason", err.reason)
-            return EXIT_URL_ERROR
+            raise AbordStartError(EXIT_URL_ERROR)"""
+
+        version, version_alias = self.get_version_manifest().filter_latest(version)
+        version_meta, version_dir = self.resolve_version_meta_recursive(version)
 
         # Starting version dependencies resolving
         version_type = version_meta["type"]
-        print("Loading {} {}...".format(version_type, version))
+        self.print("start.loading_version", version_type, version)
 
-        self.trigger_event("start:version", lambda: {
+        if callable(version_meta_modifier):
+            version_meta_modifier(version_meta)
+
+        """self.trigger_event("start:version", lambda: {
             "version": version,
             "type": version_type,
             "meta": version_meta,
             "dir": version_dir,
             "storage": ext_storage
-        })
+        })"""
 
         # JAR file loading
-        print("Loading jar file...")
+        self.print("start.loading_jar_file")
         version_jar_file = path.join(version_dir, "{}.jar".format(version))
         if not path.isfile(version_jar_file):
             version_downloads = version_meta["downloads"]
             if "client" not in version_downloads:
-                print("=> Can't found client download in version meta")
-                return EXIT_CLIENT_JAR_NOT_FOUND
+                self.print("start.no_client_jar_file")
+                raise VersionNotFoundError()
             download_entry = DownloadEntry.from_version_meta_info(version_downloads["client"], version_jar_file, name="{}.jar".format(version))
-            if self.download_file_pretty(download_entry) is None:
-                return EXIT_DOWNLOAD_FILE_CORRUPTED
+            self.download_file_pretty(download_entry)
 
-        self.trigger_event("start:version_jar_file", lambda: {
+        """self.trigger_event("start:version_jar_file", lambda: {
             "file": version_jar_file,
             "storage": ext_storage
-        })
+        })"""
 
         # Assets loading
-        print("Loading assets...")
+        self.print("start.loading_assets")
         assets_dir = path.join(self._main_dir, "assets")
         assets_indexes_dir = path.join(assets_dir, "indexes")
         assets_index_version = version_meta["assets"]
@@ -386,17 +494,13 @@ class PortableMC:
                 try:
                     assets_index = json.load(assets_index_fp)
                 except JSONDecodeError:
-                    print("=> Failed to decode assets index, try updating...")
+                    self.print("start.failed_to_decode_asset_index")
 
         if assets_index is None:
             asset_index_info = version_meta["assetIndex"]
             asset_index_url = asset_index_info["url"]
-            print("=> Found asset index in metadata: {}".format(asset_index_url))
-            try:
-                assets_index = self.read_url_json(asset_index_url)
-            except URLError as err:
-                self.print("url_error.reason", err.reason)
-                return EXIT_URL_ERROR
+            self.print("start.found_asset_index", asset_index_url)
+            assets_index = self.read_url_json(asset_index_url)
             if not path.isdir(assets_indexes_dir):
                 os.makedirs(assets_indexes_dir, 0o777, True)
             with open(assets_index_file, "wt") as assets_index_fp:
@@ -410,11 +514,11 @@ class PortableMC:
         assets_virtual = assets_index.get("virtual", False)  # For 13w23b < version <= 13w48b (1.7.2)
 
         if assets_mapped_to_resources:
-            print("=> This version use lagacy assets, put in {}/resources".format(work_dir))
+            self.print("start.legacy_assets", path.join(work_dir, "resources"))
         if assets_virtual:
-            print("=> This version use virtual assets, put in {}".format(assets_virtual_dir))
+            self.print("start.virtual_assets", assets_virtual_dir)
 
-        print("=> Verifying assets...")
+        self.print("start.verifying_assets")
         for asset_id, asset_obj in assets_index["objects"].items():
 
             asset_hash = asset_obj["hash"]
@@ -427,11 +531,9 @@ class PortableMC:
                 os.makedirs(asset_hash_dir, 0o777, True)
                 asset_url = ASSET_BASE_URL.format(asset_hash_prefix, asset_hash)
                 download_entry = DownloadEntry(asset_url, asset_size, asset_hash, asset_file, name=asset_id)
-                assets_current_size = self.download_file_pretty(download_entry,
-                                                                start_size=assets_current_size,
-                                                                total_size=assets_total_size)
-                if assets_current_size is None:
-                    return EXIT_DOWNLOAD_FILE_CORRUPTED
+                self.download_file_pretty(download_entry,
+                                          start_size=assets_current_size,
+                                          total_size=assets_total_size)
             else:
                 assets_current_size += asset_size
 
@@ -448,7 +550,7 @@ class PortableMC:
                     shutil.copyfile(asset_file, virtual_asset_file)
 
         # Logging configuration
-        print("Loading logger config...")
+        self.print("start.loading_logger")
         logging_arg = None
         if "logging" in version_meta:
             version_logging = version_meta["logging"]
@@ -461,13 +563,12 @@ class PortableMC:
                 logging_dirty = False
                 download_entry = DownloadEntry.from_version_meta_info(logging_file_info, logging_file, name=logging_file_info["id"])
                 if not path.isfile(logging_file) or path.getsize(logging_file) != download_entry.size:
-                    if self.download_file_pretty(download_entry) is None:
-                        return EXIT_DOWNLOAD_FILE_CORRUPTED
+                    self.download_file_pretty(download_entry)
                     logging_dirty = True
-                if not args.no_better_logging:
+                if not no_better_logging:
                     better_logging_file = path.join(log_config_dir, "portablemc-{}".format(logging_file_info["id"]))
                     if logging_dirty or not path.isfile(better_logging_file):
-                        print("=> Generating custom logging configuration...")
+                        self.print("start.generating_better_logging_config")
                         with open(logging_file, "rt") as logging_fp:
                             with open(better_logging_file, "wt") as custom_logging_fp:
                                 raw = logging_fp.read()\
@@ -478,7 +579,7 @@ class PortableMC:
                 logging_arg = client_logging["argument"].replace("${path}", logging_file)
 
         # Libraries and natives loading
-        print("Loading libraries and natives...")
+        self.print("start.loading_libraries")
         libraries_dir = path.join(self._main_dir, "libraries")
         classpath_libs = [version_jar_file]
         native_libs = []
@@ -511,19 +612,17 @@ class PortableMC:
                     lib_type = "classpath"
 
                 if lib_dl_info is None:
-                    print("=> Can't found library for {}".format(lib_name))
+                    self.print("start.no_download_for_library", lib_name)
                     continue
 
                 lib_path = path.join(libraries_dir, lib_dl_info["path"])
                 lib_dir = path.dirname(lib_path)
-                # lib_size = lib_dl_info["size"]
 
                 os.makedirs(lib_dir, 0o777, True)
                 download_entry = DownloadEntry.from_version_meta_info(lib_dl_info, lib_path, name=lib_name)
 
                 if not path.isfile(lib_path) or path.getsize(lib_path) != download_entry.size:
-                    if self.download_file_pretty(download_entry) is None:
-                        return EXIT_DOWNLOAD_FILE_CORRUPTED
+                    self.download_file_pretty(download_entry)
 
             else:
 
@@ -537,7 +636,7 @@ class PortableMC:
                 lib_type = "classpath"
 
                 if not path.isfile(lib_path):
-                    print("=> Can't found cached library for {} at {}".format(lib_name, lib_path))
+                    self.print("start.cached_library_not_found", lib_name, lib_path)
                     continue
 
             if lib_type == "classpath":
@@ -545,51 +644,54 @@ class PortableMC:
             elif lib_type == "native":
                 native_libs.append(lib_path)
 
-        self.trigger_event("start:libraries", lambda: {
+        if callable(libraries_modifier):
+            libraries_modifier(classpath_libs, native_libs)
+
+        """self.trigger_event("start:libraries", lambda: {
             "dir": libraries_dir,
             "classpath_libs": classpath_libs,
             "native_libs": native_libs,
             "storage": ext_storage
-        })
+        })"""
 
         # Don't run if dry run
         if dry_run:
-            print("Dry run, stopping.")
-            return 0
+            self.print("start.dry")
+            return
 
         # Start game
-        print("Starting game...")
+        self.print("start.starting")
 
         # Extracting binaries
-        bin_dir = path.join(work_dir if args.work_dir_bin else self._main_dir, "bin", str(uuid4()))
+        bin_dir = path.join(work_dir if work_dir_bin else self._main_dir, "bin", str(uuid4()))
 
         @atexit.register
         def _bin_dir_cleanup():
             if path.isdir(bin_dir):
                 shutil.rmtree(bin_dir)
 
-        print("=> Extracting natives...")
+        self.print("start.extracting_natives")
         for native_lib in native_libs:
             with ZipFile(native_lib, 'r') as native_zip:
                 for native_zip_info in native_zip.infolist():
                     if self.can_extract_native(native_zip_info.filename):
                         native_zip.extract(native_zip_info, bin_dir)
 
-        # Decode arguments
+        """# Decode arguments
         custom_resol = args.resolution
         if custom_resol is not None and len(custom_resol) != 2:
-            custom_resol = None
+            custom_resol = None"""
 
         features = {
-            "is_demo_user": args.demo,
-            "has_custom_resolution": custom_resol is not None
+            "is_demo_user": demo,
+            "has_custom_resolution": resolution is not None
         }
 
         legacy_args = version_meta.get("minecraftArguments")
 
         raw_args = []
         raw_args.extend(self.interpret_args(version_meta["arguments"]["jvm"] if legacy_args is None else LEGACY_JVM_ARGUMENTS, features))
-        raw_args.extend(args.jvm_args.split(" "))
+        #raw_args.extend(args.jvm_args.split(" "))
 
         if logging_arg is not None:
             raw_args.append(logging_arg)
@@ -598,21 +700,32 @@ class PortableMC:
         if main_class == "net.minecraft.launchwrapper.Launch":
             raw_args.append("-Dminecraft.client.jar={}".format(version_jar_file))
 
-        event_data = {
+        if callable(jvm_args_modifier):
+            jvm_args_modifier(raw_args)
+
+        if callable(main_class_supplier):
+            main_class = main_class_supplier()
+        elif isinstance(main_class_supplier, str):
+            main_class = main_class_supplier
+
+        """event_data = {
             "main_class": main_class,
             "args": raw_args,
             "storage": ext_storage
         }
         self.trigger_event("start:args_jvm", event_data)
-        main_class = event_data["main_class"]
+        main_class = event_data["main_class"]"""
 
         raw_args.append(main_class)
         raw_args.extend(self.interpret_args(version_meta["arguments"]["game"], features) if legacy_args is None else legacy_args.split(" "))
 
-        self.trigger_event("start:args_game", lambda: {
+        if callable(final_args_modifier):
+            final_args_modifier(raw_args)
+
+        """self.trigger_event("start:args_game", lambda: {
             "args": raw_args,
             "storage": ext_storage
-        })
+        })"""
 
         # Arguments replacements
         start_args_replacements = {
@@ -637,44 +750,41 @@ class PortableMC:
             "classpath": self.get_classpath_separator().join(classpath_libs)
         }
 
-        if custom_resol is not None:
-            start_args_replacements["resolution_width"] = str(custom_resol[0])
-            start_args_replacements["resolution_height"] = str(custom_resol[1])
+        if resolution is not None:
+            start_args_replacements["resolution_width"] = str(resolution[0])
+            start_args_replacements["resolution_height"] = str(resolution[1])
 
-        self.trigger_event("start:args_replacements", lambda: {
+        if callable(args_replacement_modifier):
+            args_replacement_modifier(start_args_replacements)
+
+        """self.trigger_event("start:args_replacements", lambda: {
             "replacements": start_args_replacements,
             "storage": ext_storage
-        })
+        })"""
 
-        start_args = [args.jvm]
+        start_args = [jvm]
         for arg in raw_args:
             for repl_id, repl_val in start_args_replacements.items():
                 arg = arg.replace("${{{}}}".format(repl_id), repl_val)
             start_args.append(arg)
 
-        print("Running...")
-        print("=> Username: {}, UUID: {}".format(username, uuid))
-        print("=> Command line: {}".format(" ".join(start_args)))
-
+        self.print("start.running")
         os.makedirs(work_dir, 0o777, True)
-
         self.run_game(start_args, work_dir, {
             "username": username,
             "uuid": uuid,
-            "version": version
+            "version": version,
+            "args": start_args
         })
 
-        print("Game stopped...")
-        print("=> Removing bin directory")
+        self.print("start.stopped")
 
-        return 0
-
-    # Start methods
-
-    def run_game(self, proc_args: list, proc_cwd: str, _options: dict):
-        print("================================================")
+    def run_game(self, proc_args: list, proc_cwd: str, options: dict):
+        self.print("", "====================================================")
+        self.print("start.run.session", options["username"], options["uuid"])
+        self.print("start.run.command_line", " ".join(options["args"]))
         subprocess.run(proc_args, cwd=proc_cwd)
-        print("================================================")
+        self.print("", "====================================================")
 
     # Getters
 
@@ -708,7 +818,7 @@ class PortableMC:
     def add_message(self, key: str, value: str):
         self._messages[key] = value
 
-    # Event listeners
+    """# Event listeners
 
     def add_event_listener(self, event: str, listener: Callable):
         listeners = self._event_listeners.get(event)
@@ -730,7 +840,7 @@ class PortableMC:
             if callable(data):
                 data = data()
             for listener in listeners:
-                listener(data)
+                listener(data)"""
 
     # Public methods to be replaced by extensions
 
@@ -831,7 +941,7 @@ class PortableMC:
                     json.dump(content, version_meta_fp, indent=2)
             else:
                 self.print("version.not_found_in_manifest")
-                raise VersionNotFoundError()
+                raise VersionNotFoundError(name)
 
         return content, version_dir
 
@@ -842,7 +952,7 @@ class PortableMC:
             parent_meta, _ = self.resolve_version_meta(version_meta["inheritsFrom"])
             if parent_meta is None:
                 self.print("version.parent_version_not_found", version_meta["inheritsFrom"])
-                raise VersionNotFoundError()
+                raise VersionNotFoundError(version_meta["inheritsFrom"])
             del version_meta["inheritsFrom"]
             self.dict_merge(parent_meta, version_meta)
             version_meta = parent_meta
@@ -853,7 +963,7 @@ class PortableMC:
     def download_file_pretty(self,
                              entry: 'DownloadEntry', *,
                              start_size: int = 0,
-                             total_size: int = 0) -> Optional[int]:
+                             total_size: int = 0) -> int:
 
         start_time = time.perf_counter()
 
@@ -863,35 +973,17 @@ class PortableMC:
             speed = self.format_bytes(p_dl_size / (time.perf_counter() - start_time))
             self.print("download.progress", entry.name, p_dl_size / p_size * 100, speed, of_total, end="")
 
-        def end_callback(issue: Optional[str]):
-            if issue is None:
-                self.print("", "")
-            elif issue.startswith("url_error "):
-                self.print("url_error.reason", issue[len("url_error "):])
-            else:
-                self.print("download.{}".format(issue))
-
-        return self.download_file(entry,
-                                  start_size=start_size,
-                                  total_size=total_size,
-                                  progress_callback=progress_callback,
-                                  end_callback=end_callback)
+        res = self.download_file(entry, start_size=start_size, total_size=total_size, progress_callback=progress_callback)
+        self.print("", "")
+        return res
 
     def download_file(self,
                       entry: 'DownloadEntry', *,
                       start_size: int = 0,
                       total_size: int = 0,
-                      progress_callback: Optional[Callable[[int, int, int, int], None]] = None,
-                      end_callback: Optional[Callable[[Optional[str]], None]] = None) -> Optional[int]:
+                      progress_callback: Optional[Callable[[int, int, int, int], None]] = None) -> int:
 
-        try:
-            req = url_request.urlopen(entry.url)
-        except URLError as err:
-            if end_callback is not None:
-                end_callback("url_error {}".format(err.reason))
-            return None
-
-        with req:
+        with url_request.urlopen(entry.url) as req:
             with open(entry.dst, "wb") as dst_fp:
 
                 dl_sha1 = hashlib.sha1()
@@ -917,16 +1009,21 @@ class PortableMC:
                         progress_callback(dl_size, entry.size, start_size, total_size)
 
                 if dl_size != entry.size:
-                    issue = "invalid_size"
+                    # issue = "invalid_size"
+                    raise DownloadCorruptedError("invalid_size")
                 elif dl_sha1.hexdigest() != entry.sha1:
-                    issue = "invalid_sha1"
+                    # issue = "invalid_sha1"
+                    raise DownloadCorruptedError("invalid_sha1")
                 else:
-                    issue = None
+                    return start_size
 
-                if end_callback is not None:
-                    end_callback(issue)
+                # else:
+                #     issue = None
 
-        return start_size if issue is None else None
+                # if end_callback is not None:
+                #     end_callback(issue)
+
+        # return start_size if issue is None else None
 
     # Version meta rules interpretation
 
@@ -1202,8 +1299,6 @@ class AuthEntry:
             res = url_request.urlopen(req)  # type: HTTPResponse
         except HTTPError as err:
             res = cast(HTTPResponse, err.fp)
-        except URLError as err:
-            raise AuthError(err.reason)  # TODO: Check if realiable
 
         try:
             res_data = json.load(res)
@@ -1273,12 +1368,9 @@ class DownloadEntry:
         return DownloadEntry(info["url"], info["size"], info["sha1"], dst, name=name)
 
 
-class AuthError(Exception):
-    pass
-
-
-class VersionNotFoundError(Exception):
-    pass
+class AuthError(Exception): ...
+class VersionNotFoundError(Exception): ...
+class DownloadCorruptedError(Exception): ...
 
 
 if __name__ == '__main__':

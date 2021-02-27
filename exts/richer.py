@@ -43,7 +43,8 @@ def ext_build():
             ]
 
         def load(self):
-            self.pmc.add_message("cmd.start.richer.title", "Minecraft {} • {} • {}")
+            self.pmc.add_message("start.run.richer.title", "Minecraft {} • {} • {}")
+            self.pmc.add_message("start.run.richer.command_line", "Command line: {}\n")
             self.pmc.mixin("run_game", self.run_game)
             self.pmc.mixin("download_file", self.download_file)
 
@@ -56,12 +57,16 @@ def ext_build():
 
         def run_game(self, _old, proc_args: list, proc_cwd: str, options: dict):
 
-            title_text = self.pmc.get_message("cmd.start.richer.title",
+            title_text = self.pmc.get_message("start.run.richer.title",
                                               options.get("version", "unknown_version"),
                                               options.get("username", "anonymous"),
                                               options.get("uuid", "uuid"))
 
             buffer_window = LimitedBufferWindow(100)
+
+            if "args" in options:
+                buffer_window.append(self.pmc.get_message("start.run.richer.command_line", " ".join(options["args"])))
+                buffer_window.append("\n")
 
             container = HSplit([
                 VSplit([
