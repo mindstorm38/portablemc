@@ -22,7 +22,6 @@ def addon_build():
     from prompt_toolkit.document import Document
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.layout import Layout
-    from prompt_toolkit.styles import Style
     from prompt_toolkit.lexers import Lexer
     from queue import Queue, Full, Empty
     from subprocess import Popen, PIPE
