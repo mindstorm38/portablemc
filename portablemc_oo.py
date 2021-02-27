@@ -7,7 +7,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Set, Callable, Any, Optional, Generator, Tuple, List, Union
+from typing import cast, Dict, Callable, Any, Optional, Generator, Tuple, List, Union
 from argparse import ArgumentParser, Namespace
 from urllib.error import HTTPError, URLError
 from urllib import request as url_request
@@ -58,7 +58,6 @@ class PortableMC:
     def __init__(self):
 
         self._addons: Dict[str, PortableAddon] = {}
-        self._event_listeners: Dict[str, Set[Callable]] = {}
         self._main_dir: Optional[str] = None
 
         self._mc_os = self.get_minecraft_os()
@@ -402,47 +401,7 @@ class PortableMC:
 
         self.print("start.welcome")
 
-        """# Get all arguments
-        work_dir = self._main_dir if args.main_dir is None else path.realpath(args.main_dir)
-        dry_run = args.dry
-        uuid = None if args.uuid is None else args.uuid.replace("-", "")
-        username = args.username
-
-        # Login if needed
-        if args.login is not None:
-            auth_entry = self.promp_password_and_authenticate(args.login, not args.templogin)
-            if auth_entry is None:
-                return EXIT_AUTHENTICATION_FAILED
-            uuid = auth_entry.uuid
-            username = auth_entry.username
-        else:
-            auth_entry = None
-
-        # Setup defaut UUID and/or username if needed
-        if uuid is None: uuid = uuid4().hex
-        if username is None: username = uuid[:8]
-
-        # Storage for extensions if they want to store values accros all events.
-        ext_storage = {}
-        self.trigger_event("start:setup", lambda: {
-            "args": args,
-            "work_dir": work_dir,
-            "dry_run": dry_run,
-            "uuid": uuid,
-            "username": username,
-            "storage": ext_storage
-        })"""
-
         # Resolve version metadata
-        """try:
-            version, version_alias = self.get_version_manifest().filter_latest(version)
-            version_meta, version_dir = self.resolve_version_meta_recursive(version)
-        except VersionNotFoundError:
-            raise AbordStartError(EXIT_VERSION_NOT_FOUND)
-        except URLError as err:
-            self.print("url_error.reason", err.reason)
-            raise AbordStartError(EXIT_URL_ERROR)"""
-
         version, version_alias = self.get_version_manifest().filter_latest(version)
         version_meta, version_dir = self.resolve_version_meta_recursive(version)
 
@@ -452,14 +411,6 @@ class PortableMC:
 
         if callable(version_meta_modifier):
             version_meta_modifier(version_meta)
-
-        """self.trigger_event("start:version", lambda: {
-            "version": version,
-            "type": version_type,
-            "meta": version_meta,
-            "dir": version_dir,
-            "storage": ext_storage
-        })"""
 
         # JAR file loading
         self.print("start.loading_jar_file")
@@ -471,11 +422,6 @@ class PortableMC:
                 raise VersionNotFoundError()
             download_entry = DownloadEntry.from_version_meta_info(version_downloads["client"], version_jar_file, name="{}.jar".format(version))
             self.download_file_pretty(download_entry)
-
-        """self.trigger_event("start:version_jar_file", lambda: {
-            "file": version_jar_file,
-            "storage": ext_storage
-        })"""
 
         # Assets loading
         self.print("start.loading_assets")
@@ -643,13 +589,6 @@ class PortableMC:
         if callable(libraries_modifier):
             libraries_modifier(classpath_libs, native_libs)
 
-        """self.trigger_event("start:libraries", lambda: {
-            "dir": libraries_dir,
-            "classpath_libs": classpath_libs,
-            "native_libs": native_libs,
-            "storage": ext_storage
-        })"""
-
         # Don't run if dry run
         if dry_run:
             self.print("start.dry")
@@ -672,11 +611,6 @@ class PortableMC:
                 for native_zip_info in native_zip.infolist():
                     if self.can_extract_native(native_zip_info.filename):
                         native_zip.extract(native_zip_info, bin_dir)
-
-        """# Decode arguments
-        custom_resol = args.resolution
-        if custom_resol is not None and len(custom_resol) != 2:
-            custom_resol = None"""
 
         features = {
             "is_demo_user": demo,
@@ -704,24 +638,11 @@ class PortableMC:
         elif isinstance(main_class_supplier, str):
             main_class = main_class_supplier
 
-        """event_data = {
-            "main_class": main_class,
-            "args": raw_args,
-            "storage": ext_storage
-        }
-        self.trigger_event("start:args_jvm", event_data)
-        main_class = event_data["main_class"]"""
-
         raw_args.append(main_class)
         raw_args.extend(self.interpret_args(version_meta["arguments"]["game"], features) if legacy_args is None else legacy_args.split(" "))
 
         if callable(final_args_modifier):
             final_args_modifier(raw_args)
-
-        """self.trigger_event("start:args_game", lambda: {
-            "args": raw_args,
-            "storage": ext_storage
-        })"""
 
         # Arguments replacements
         start_args_replacements = {
@@ -752,11 +673,6 @@ class PortableMC:
 
         if callable(args_replacement_modifier):
             args_replacement_modifier(start_args_replacements)
-
-        """self.trigger_event("start:args_replacements", lambda: {
-            "replacements": start_args_replacements,
-            "storage": ext_storage
-        })"""
 
         start_args = [jvm]
         for arg in raw_args:
@@ -813,30 +729,6 @@ class PortableMC:
 
     def add_message(self, key: str, value: str):
         self._messages[key] = value
-
-    """# Event listeners
-
-    def add_event_listener(self, event: str, listener: Callable):
-        listeners = self._event_listeners.get(event)
-        if listeners is None:
-            listeners = self._event_listeners[event] = set()
-        listeners.add(listener)
-
-    def remove_event_listener(self, event: str, listener: Callable):
-        listeners = self._event_listeners.get(event)
-        if listeners is not None:
-            try:
-                listeners.remove(listener)
-            except KeyError:
-                pass
-
-    def trigger_event(self, event: str, data: Union[dict, Callable[[], dict]]):
-        listeners = self._event_listeners.get(event)
-        if listeners is not None:
-            if callable(data):
-                data = data()
-            for listener in listeners:
-                listener(data)"""
 
     # Public methods to be replaced by addons
 
