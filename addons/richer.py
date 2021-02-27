@@ -6,7 +6,7 @@ AUTHORS = "Théo Rozier"
 REQUIRES = "prompt_toolkit"
 
 
-def ext_build():
+def addon_build():
 
     from typing import cast, Optional, TextIO
     from prompt_toolkit.shortcuts.progress_bar.formatters import Formatter, Label, Text, Percentage, Bar

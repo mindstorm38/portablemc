@@ -24,7 +24,7 @@ PACKET_METHOD_INVOKE = 20
 PACKET_RESULT = 30
 
 
-TEMP_JAR_FILE_PATH = "D:/dev/projects/portablemc/exts/scripting_dev/out/artifacts/portablemc_scripting_dev_jar/portablemc_scripting_dev.jar"
+TEMP_JAR_FILE_PATH = "/addons/scripting_dev/out/artifacts/portablemc_scripting_dev_jar/portablemc_scripting_dev.jar"
 
 
 def load(portablemc):

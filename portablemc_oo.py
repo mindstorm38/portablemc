@@ -35,6 +35,8 @@ VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest
 ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
 AUTHSERVER_URL = "https://authserver.mojang.com/{}"
 
+ADDONS_DIR = "addons"
+
 JVM_EXEC_DEFAULT = "java"
 JVM_ARGS_DEFAULT = "-Xmx2G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M"
 
@@ -55,7 +57,7 @@ class PortableMC:
 
     def __init__(self):
 
-        self._extensions: Dict[str, PortableExtension] = {}
+        self._addons: Dict[str, PortableAddon] = {}
         self._event_listeners: Dict[str, Set[Callable]] = {}
         self._main_dir: Optional[str] = None
 
@@ -69,9 +71,9 @@ class PortableMC:
 
         self._messages = {
 
-            "ext.missing_requirement.module": "Extension '{}' requires module '{}' to load.",
-            "ext.missing_requirement.ext": "Extension '{}' requires another extension '{}' to load.",
-            "ext.failed_to_build": "Failed to build extension '{}' (contact extension authors):",
+            "addon.missing_requirement.module": "Addon '{}' requires module '{}' to load.",
+            "addon.missing_requirement.ext": "Addon '{}' requires another addon '{}' to load.",
+            "addon.failed_to_build": "Failed to build addon '{}' (contact addon's authors):",
 
             "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
                     "script! This single-script launcher is still compatible with the official "
@@ -99,7 +101,8 @@ class PortableMC:
             "args.start.uuid": "Set a custom user UUID to play.",
             "args.login": "Login into your Mojang account, this will cache your tokens.",
             "args.logout": "Logout from your Mojang account.",
-            "args.listext": "List extensions.",
+            "args.addon": "Addons management subcommands.",
+            "args.addon.list": "List addons.",
 
             "abort": "=> Abort",
             "continue_using_main_dir": "Continue using this main directory? (y/N) ",
@@ -112,8 +115,8 @@ class PortableMC:
             "cmd.logout.success": "=> Logged out.",
             "cmd.logout.unknown_session": "=> This session is not cached.",
 
-            "cmd.listext.title": "Extensions list ({}):",
-            "cmd.listext.result": "=> {}, version: {}, authors: {}",
+            "cmd.addon.list.title": "Addons list ({}):",
+            "cmd.addon.list.result": "=> {}, version: {}, authors: {}",
 
             "url_error.reason": "URL error: {}",
 
@@ -168,7 +171,7 @@ class PortableMC:
 
     def start(self):
 
-        self._register_extensions()
+        self._register_addons()
 
         parser = self.register_arguments()
         args = parser.parse_args()
@@ -186,11 +189,6 @@ class PortableMC:
                     exit(0)
                 os.makedirs(self._main_dir, 0o777, True)
 
-        """self.trigger_event("subcommand", lambda: {
-            "subcommand": subcommand,
-            "args": args
-        })"""
-
         exit(self.start_subcommand(subcommand, args))
 
     def start_subcommand(self, subcommand: str, args: Namespace) -> int:
@@ -200,30 +198,30 @@ class PortableMC:
         else:
             return 0
 
-    def _register_extensions(self):
+    def _register_addons(self):
 
         # This method is not designed to be dynamically replaced, to mark this we keep the underscore.
         from importlib.machinery import SourceFileLoader
         import importlib.util
 
-        ext_dir = path.join(path.dirname(__file__), "exts")
-        if path.isdir(ext_dir):
-            for raw_ext_file in os.listdir(ext_dir):
-                ext_file = path.abspath(path.join(ext_dir, raw_ext_file))
-                if path.isfile(ext_file) and ext_file.endswith(".py"):
-                    ext_name = raw_ext_file[:-3]
-                    module_spec = importlib.util.spec_from_file_location("__ext_main__", ext_file)
+        addons_dir = path.join(path.dirname(__file__), ADDONS_DIR)
+        if path.isdir(addons_dir):
+            for raw_addon_file in os.listdir(addons_dir):
+                addon_file = path.abspath(path.join(addons_dir, raw_addon_file))
+                if path.isfile(addon_file) and addon_file.endswith(".py"):
+                    addon_name = raw_addon_file[:-3]
+                    module_spec = importlib.util.spec_from_file_location("__addon_main__", addon_file)
                     module_loader = cast(SourceFileLoader, module_spec.loader)
                     module = importlib.util.module_from_spec(module_spec)
                     module_loader.exec_module(module)
-                    if PortableExtension.is_valid(module):
-                        self._extensions[ext_name] = PortableExtension(module, ext_name)
+                    if PortableAddon.is_valid(module):
+                        self._addons[addon_name] = PortableAddon(module, addon_name)
 
-        for ext in self._extensions.values():
-            ext.build(self)
+        for addon in self._addons.values():
+            addon.build(self)
 
-        for ext in self._extensions.values():
-            ext.load()
+        for addon in self._addons.values():
+            addon.load()
 
     def register_arguments(self) -> ArgumentParser:
 
@@ -236,21 +234,7 @@ class PortableMC:
         # Main directory is placed here in order to know the path of the auth database.
         parser.add_argument("--main-dir", help=self.get_message("args.main_dir"), dest="main_dir")
 
-        self.register_subcommands(parser.add_subparsers(
-            title="subcommands",
-            dest="subcommand"
-        ))
-
-        """self.trigger_event("register_arguments", lambda: {
-            "parser": parser,
-            "sub_parsers": sub_parsers,
-            "builtins_parsers": {
-                "search": search,
-                "start": start,
-                "login": login,
-                "logout": logout
-            }
-        })"""
+        self.register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
 
         return parser
 
@@ -259,7 +243,7 @@ class PortableMC:
         self.register_start_arguments(subcommands.add_parser("start", help=self.get_message("args.start")))
         self.register_login_arguments(subcommands.add_parser("login", help=self.get_message("args.login")))
         self.register_logout_arguments(subcommands.add_parser("logout", help=self.get_message("args.logout")))
-        subcommands.add_parser("listext", help=self.get_message("args.listext"))
+        self.register_addon_arguments(subcommands.add_parser("addon", help=self.get_message("args.addon")))
 
     def register_search_arguments(self, parser: ArgumentParser):
         parser.add_argument("input")
@@ -285,6 +269,10 @@ class PortableMC:
 
     def register_logout_arguments(self, parser: ArgumentParser):
         parser.add_argument("email_or_username")
+
+    def register_addon_arguments(self, parser: ArgumentParser):
+        subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand", required=True)
+        subparsers.add_parser("list", help=self.get_message("args.addon.list"))
 
     # Builtin subcommands
 
@@ -324,10 +312,12 @@ class PortableMC:
             self.print("cmd.logout.unknown_session")
             return EXIT_LOGOUT_FAILED
 
-    def cmd_listext(self, _args: Namespace) -> int:
-        self.print("cmd.listext.title", len(self._extensions))
-        for ext in self._extensions.values():
-            self.print("cmd.listext.result", ext.name, ext.version, ", ".join(ext.authors))
+    def cmd_addon(self, args: Namespace) -> int:
+        subcommand = args.addon_subcommand
+        if subcommand == "list":
+            self.print("cmd.addon.list.title", len(self._addons))
+            for ext in self._addons.values():
+                self.print("cmd.addon.list.result", ext.name, ext.version, ", ".join(ext.authors))
         return 0
 
     def cmd_start(self, args: Namespace) -> int:
@@ -812,11 +802,11 @@ class PortableMC:
             self._download_buffer = bytearray(32768)
         return self._download_buffer
 
-    def get_extensions(self) -> Dict[str, 'PortableExtension']:
-        return self._extensions
+    def get_addons(self) -> Dict[str, 'PortableAddon']:
+        return self._addons
 
-    def get_extension(self, name: str) -> Optional['PortableExtension']:
-        return self._extensions.get(name)
+    def get_addon(self, name: str) -> Optional['PortableAddon']:
+        return self._addons.get(name)
 
     def get_messages(self) -> Dict[str, str]:
         return self._messages
@@ -848,7 +838,7 @@ class PortableMC:
             for listener in listeners:
                 listener(data)"""
 
-    # Public methods to be replaced by extensions
+    # Public methods to be replaced by addons
 
     def print(self, message_key: str, *args, traceback: bool = False, end: str = "\n"):
         print(self.get_message(message_key, *args), end=end)
@@ -1152,12 +1142,12 @@ class PortableMC:
         return not filename.startswith("META-INF") and not filename.endswith(".git") and not filename.endswith(".sha1")
 
 
-class PortableExtension:
+class PortableAddon:
 
     def __init__(self, module: Any, name: str):
 
         if not self.is_valid(module):
-            raise ValueError("Missing 'ext_build' method.")
+            raise ValueError("Missing 'addon_build' method.")
 
         self.module = module
         self.name = str(module.NAME) if hasattr(module, "NAME") else name
@@ -1176,29 +1166,29 @@ class PortableExtension:
 
     @staticmethod
     def is_valid(module: Any) -> bool:
-        return hasattr(module, "ext_build") and callable(module.ext_build)
+        return hasattr(module, "addon_build") and callable(module.addon_build)
 
     def build(self, pmc: PortableMC):
 
         from importlib import import_module
 
         for requirement in self.requires:
-            if requirement.startswith("ext:"):
+            if requirement.startswith("addon:"):
                 requirement = requirement[4:]
-                if pmc.get_extension(requirement) is None:
-                    pmc.print("ext.missing_requirement.ext", self.name, requirement)
+                if pmc.get_addon(requirement) is None:
+                    pmc.print("addon.missing_requirement.ext", self.name, requirement)
             else:
                 try:
                     import_module(requirement)
                 except ModuleNotFoundError:
-                    pmc.print("ext.missing_requirement.module", self.name, requirement)
+                    pmc.print("addon.missing_requirement.module", self.name, requirement)
                     return False
 
         try:
-            self.instance = self.module.ext_build()(pmc)
+            self.instance = self.module.addon_build()(pmc)
             self.built = True
         except (Exception,):
-            pmc.print("ext.failed_to_build", self.name, traceback=True)
+            pmc.print("addon.failed_to_build", self.name, traceback=True)
 
     def load(self):
         if self.built and hasattr(self.instance, "load") and callable(self.instance.load):
