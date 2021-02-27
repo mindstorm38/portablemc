@@ -1,5 +1,4 @@
 
-
 NAME = "Richer"
 VERSION = "0.0.1"
 AUTHORS = "Théo Rozier"
@@ -8,12 +7,13 @@ REQUIRES = "prompt_toolkit"
 
 def addon_build():
 
-    from typing import cast, Optional, TextIO
+    from typing import cast, Optional, TextIO, Callable
     from prompt_toolkit.shortcuts.progress_bar.formatters import Formatter, Label, Text, Percentage, Bar
     from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
     from prompt_toolkit.layout.containers import Window, HSplit, VSplit, Container
     from prompt_toolkit.shortcuts import ProgressBar, ProgressBarCounter
     from prompt_toolkit.key_binding.key_processor import KeyPressEvent
+    from prompt_toolkit.formatted_text import StyleAndTextTuples
     from prompt_toolkit.formatted_text import AnyFormattedText
     from prompt_toolkit.layout.dimension import Dimension
     from prompt_toolkit.application import Application
@@ -22,6 +22,8 @@ def addon_build():
     from prompt_toolkit.document import Document
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.layout import Layout
+    from prompt_toolkit.styles import Style
+    from prompt_toolkit.lexers import Lexer
     from queue import Queue, Full, Empty
     from subprocess import Popen, PIPE
     from threading import Thread
@@ -62,7 +64,7 @@ def addon_build():
                                               options.get("username", "anonymous"),
                                               options.get("uuid", "uuid"))
 
-            buffer_window = LimitedBufferWindow(100)
+            buffer_window = LimitedBufferWindow(100, ColoredLogLexer())
 
             if "args" in options:
                 buffer_window.append(self.pmc.get_message("start.run.richer.command_line", " ".join(options["args"])))
@@ -123,10 +125,10 @@ def addon_build():
 
     class LimitedBufferWindow:
 
-        def __init__(self, limit: int):
+        def __init__(self, limit: int, lexer: Lexer):
             self.buffer = Buffer(read_only=True)
             self.string_buffer = RollingStringBuffer(limit)
-            self.window = Window(content=BufferControl(buffer=self.buffer))
+            self.window = Window(content=BufferControl(buffer=self.buffer, lexer=lexer))
 
         def append(self, *texts: str):
             modified = False
@@ -135,14 +137,47 @@ def addon_build():
                     modified = True
             if modified:
                 cursor_pos = None
-                new_text = self.string_buffer.get()\
-                    .replace("\t", "    ")
+                new_text = self.string_buffer.get()
                 if self.buffer.cursor_position < len(self.buffer.text):
                     cursor_pos = self.buffer.cursor_position
                 self.buffer.set_document(Document(text=new_text, cursor_position=cursor_pos), bypass_readonly=True)
 
         def __pt_container__(self):
             return self.window
+
+    class ColoredLogLexer(Lexer):
+
+        def lex_document(self, document: Document) -> Callable[[int], StyleAndTextTuples]:
+
+            lines = document.lines
+
+            def get_line(lineno: int) -> StyleAndTextTuples:
+
+                try:
+
+                    line = lines[lineno]
+
+                    tmp_line = line
+                    tmp_lineno = lineno
+                    while tmp_line[0] == "\t" or "Exception" in tmp_line:
+                        tmp_lineno -= 1
+                        tmp_line = lines[tmp_lineno]
+                        if tmp_lineno < 0:
+                            return []
+
+                    if "WARN" in tmp_line:
+                        style = "#ffaf00"
+                    elif "ERROR" in tmp_line:
+                        style = "#ff005f"
+                    else:
+                        style = ""
+
+                    return [(style, line.replace("\t", "    "))]
+
+                except IndexError:
+                    return []
+
+            return get_line
 
     class RollingStringBuffer:
 
