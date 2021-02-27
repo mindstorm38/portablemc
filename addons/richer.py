@@ -46,7 +46,7 @@ def addon_build():
             self.pmc.add_message("start.run.richer.title", "Minecraft {} • {} • {}")
             self.pmc.add_message("start.run.richer.command_line", "Command line: {}\n")
             self.pmc.mixin("run_game", self.run_game)
-            self.pmc.mixin("download_file", self.download_file)
+            self.pmc.mixin("download_file_pretty", self.download_file_pretty)
 
         def build_application(self, container: Container, keys: KeyBindings) -> Application:
             return Application(
@@ -113,33 +113,13 @@ def addon_build():
 
             asyncio.get_event_loop().run_until_complete(_run())
 
-        def download_file(self, old, entry, *args, **kwargs):
-
-            safe_delete(kwargs, "progress_callback")
-            safe_delete(kwargs, "end_callback")
-            final_issue: Optional[str] = None
-
+        def download_file_pretty(self, old, entry, *args, **kwargs):
             with ProgressBar(formatters=self.progress_bar_formatters) as pb:
-
                 progress_task = pb(label=entry.name, total=entry.size)
-
                 def progress_callback(p_dl_size: int, _p_size: int, _p_dl_total_size: int, _p_total_size: int):
                     progress_task.items_completed = p_dl_size
                     pb.invalidate()
-
-                def end_callback(issue: Optional[str]):
-                    nonlocal final_issue
-                    final_issue = issue
-
-                ret = old(entry, *args, **kwargs, progress_callback=progress_callback, end_callback=end_callback)
-
-            if final_issue is not None:
-                if final_issue.startswith("url_error "):
-                    self.pmc.print("url_error.reason", final_issue[len("url_error "):])
-                else:
-                    self.pmc.print("download.{}".format(final_issue))
-
-            return ret
+                return self.pmc.download_file(entry, *args, **kwargs, progress_callback=progress_callback)
 
     class LimitedBufferWindow:
 

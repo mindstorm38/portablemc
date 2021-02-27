@@ -897,21 +897,11 @@ class PortableMC:
                         progress_callback(dl_size, entry.size, start_size, total_size)
 
                 if dl_size != entry.size:
-                    # issue = "invalid_size"
                     raise DownloadCorruptedError("invalid_size")
                 elif dl_sha1.hexdigest() != entry.sha1:
-                    # issue = "invalid_sha1"
                     raise DownloadCorruptedError("invalid_sha1")
                 else:
                     return start_size
-
-                # else:
-                #     issue = None
-
-                # if end_callback is not None:
-                #     end_callback(issue)
-
-        # return start_size if issue is None else None
 
     # Version meta rules interpretation
 
