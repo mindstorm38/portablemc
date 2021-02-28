@@ -120,46 +120,23 @@ public class ScriptingClient implements Runnable {
 			ByteBuffer rxBuf = this.rxBuf;
 			rxBuf.clear();
 			
-			//byte[] receivedBuffer = new byte[4096];
-			//int receivedLength = 0;
 			int readLength, rxPos;
-			
-			//this.rxBuf = ByteBuffer.wrap(receivedBuffer);
-			
-			//int nextPacketType = 0;
 			int nextPacketLength = 0;
 			
 			while (!this.socket.isClosed()) {
 				
-				/*while ((readLength = rxStream.read(receivedBuffer, receivedLength, receivedBuffer.length - receivedLength)) > 0) {
-					receivedLength += readLength;
-				}*/
-				
-				
-				/*rxPos = rxBuf.position();
-				while ((readLength = rxStream.read(rxBuf.array(), rxPos, rxBuf.remaining())) > 0) {
-					rxPos += readLength;
-					rxBuf.position(rxPos);
-					print("new buffer content: " + Arrays.toString(Arrays.copyOf(rxBuf.array(), rxPos)));
-				}*/
-				
 				rxPos = rxBuf.position();
 				
 				if (nextPacketLength == 0 && rxPos >= 3) {
-					//nextPacketType = this.rxBuf.get(0);
 					nextPacketLength = Short.toUnsignedInt(rxBuf.getShort(1)) + 3; // +3 for the header
-					print("next packet length: " + nextPacketLength);
 				}
 				
 				if (nextPacketLength != 0 && nextPacketLength >= rxPos) {
 					
-					//rxBuf.clear();
 					rxBuf.limit(nextPacketLength);
 					rxBuf.position(3);
 					
 					byte packetType = rxBuf.get(0);
-					
-					print("decoding packet: " + packetType);
 					
 					try {
 						this.decodePacket(packetType);
@@ -171,19 +148,14 @@ public class ScriptingClient implements Runnable {
 					byte[] rxData = rxBuf.array();
 					System.arraycopy(rxData, nextPacketLength, rxData, 0, rxData.length - nextPacketLength);
 					
-					//receivedLength -= nextPacketLength;
 					rxBuf.clear();
 					rxBuf.position(rxPos - nextPacketLength);
-					//nextPacketType = 0;
 					nextPacketLength = 0;
 					
 				} else {
-					
-					print("polling...");
 					if ((readLength = rxStream.read(rxBuf.array(), rxPos, rxBuf.remaining())) > 0) {
 						rxBuf.position(rxPos + readLength);
 					}
-					
 				}
 				
 			}
