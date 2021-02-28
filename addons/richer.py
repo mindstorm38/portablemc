@@ -111,12 +111,14 @@ def addon_build():
                 while True:
                     code = process.poll()
                     if code is None:
-                        done, _pending = await asyncio.wait((
+                        done, pending = await asyncio.wait((
                             stdout_reader.poll(),
                             stderr_reader.poll()
                         ), return_when=asyncio.FIRST_COMPLETED)
                         for done_task in done:
                             buffer_window.append(done_task.result())
+                        for pending_task in pending:
+                            pending_task.cancel()
                     else:
                         stdout_reader.wait_until_closed()
                         stderr_reader.wait_until_closed()
@@ -193,6 +195,8 @@ def addon_build():
                         style = "#ffaf00"
                     elif "ERROR" in tmp_line:
                         style = "#ff005f"
+                    elif "FATAL" in tmp_line:
+                        style = "#bf001d"
                     else:
                         style = ""
 
