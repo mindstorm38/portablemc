@@ -23,7 +23,9 @@ def addon_build():
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.layout import Layout
     from prompt_toolkit.lexers import Lexer
-    from queue import Queue, Full, Empty
+    from prompt_toolkit.styles import Style
+    # from queue import Queue, Full, Empty
+    from asyncio import Queue, QueueFull, QueueEmpty
     from subprocess import Popen, PIPE
     from threading import Thread
     import asyncio
@@ -31,7 +33,10 @@ def addon_build():
     class RicherAddon:
 
         def __init__(self, pmc):
+
             self.pmc = pmc
+            self.double_exit = True
+
             self.progress_bar_formatters = [
                 Label(),
                 Text(" "),
@@ -43,6 +48,8 @@ def addon_build():
                 Text("]"),
             ]
 
+            self.LimitedBufferWindow = LimitedBufferWindow
+
         def load(self):
             self.pmc.add_message("start.run.richer.title", "Minecraft {} • {} • {}")
             self.pmc.add_message("start.run.richer.command_line", "Command line: {}\n")
@@ -53,7 +60,10 @@ def addon_build():
             return Application(
                 layout=Layout(container),
                 key_bindings=keys,
-                full_screen=True
+                full_screen=True,
+                style=Style([
+                    ("header", "bg:#005fff fg:black")
+                ])
             )
 
         def run_game(self, _old, proc_args: list, proc_cwd: str, options: dict):
@@ -63,17 +73,16 @@ def addon_build():
                                               options.get("username", "anonymous"),
                                               options.get("uuid", "uuid"))
 
-            buffer_window = LimitedBufferWindow(100, ColoredLogLexer())
+            buffer_window = LimitedBufferWindow(100, lexer=ColoredLogLexer())
 
             if "args" in options:
-                buffer_window.append(self.pmc.get_message("start.run.richer.command_line", " ".join(options["args"])))
-                buffer_window.append("\n")
+                buffer_window.append(self.pmc.get_message("start.run.richer.command_line", " ".join(options["args"])), "\n")
 
             container = HSplit([
                 VSplit([
                     Window(width=2),
                     Window(FormattedTextControl(text=title_text)),
-                ], height=1, style="bg:#005fff fg:black"),
+                ], height=1, style="class:header"),
                 VSplit([
                     Window(width=1),
                     buffer_window,
@@ -82,31 +91,47 @@ def addon_build():
             ])
 
             keys = KeyBindings()
+            double_exit = self.double_exit
 
             @keys.add("c-c")
             def _exit(event: KeyPressEvent):
-                event.app.exit()
+                nonlocal process
+                if not double_exit or process is None:
+                    event.app.exit()
+                else:
+                    process.kill()
 
             application = self.build_application(container, keys)
             process = Popen(proc_args, cwd=proc_cwd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True)
 
             async def _run_process():
+                nonlocal process
                 stdout_reader = ThreadedProcessReader(cast(TextIO, process.stdout))
                 stderr_reader = ThreadedProcessReader(cast(TextIO, process.stderr))
                 while True:
                     code = process.poll()
                     if code is None:
-                        buffer_window.append(stdout_reader.poll(), stderr_reader.poll())
-                        await asyncio.sleep(0.1)
+                        done, _pending = await asyncio.wait((
+                            stdout_reader.poll(),
+                            stderr_reader.poll()
+                        ), return_when=asyncio.FIRST_COMPLETED)
+                        for done_task in done:
+                            buffer_window.append(done_task.result())
                     else:
+                        stdout_reader.wait_until_closed()
+                        stderr_reader.wait_until_closed()
+                        buffer_window.append(*stdout_reader.poll_all(), *stderr_reader.poll_all())
                         break
+                process = None
+                if double_exit:
+                    buffer_window.append("\n", "Minecraft process has terminated, Ctrl+C again to close terminal.\n")
 
             async def _run():
                 _done, _pending = await asyncio.wait((
                     _run_process(),
                     application.run_async()
-                ), return_when=asyncio.FIRST_COMPLETED)
-                if process.poll() is None:
+                ), return_when=asyncio.ALL_COMPLETED if double_exit else asyncio.FIRST_COMPLETED)
+                if process is not None:
                     process.kill()
                     process.wait(timeout=5)
                 if application.is_running:
@@ -124,10 +149,10 @@ def addon_build():
 
     class LimitedBufferWindow:
 
-        def __init__(self, limit: int, lexer: Lexer):
+        def __init__(self, limit: int, *, lexer: 'Optional[Lexer]' = None, wrap_lines: bool = False):
             self.buffer = Buffer(read_only=True)
             self.string_buffer = RollingStringBuffer(limit)
-            self.window = Window(content=BufferControl(buffer=self.buffer, lexer=lexer))
+            self.window = Window(content=BufferControl(buffer=self.buffer, lexer=lexer, focusable=True), wrap_lines=wrap_lines)
 
         def append(self, *texts: str):
             modified = False
@@ -205,18 +230,32 @@ def addon_build():
             self._thread.start()
 
         def _entry(self):
-            for line in iter(self._input.readline, b''):
-                try:
-                    self._queue.put_nowait(line)
-                except Full:
-                    pass
-            self._input.close()
-
-        def poll(self) -> Optional[str]:
             try:
-                return self._queue.get_nowait()
-            except Empty:
-                return None
+                for line in iter(self._input.readline, b''):
+                    try:
+                        self._queue.put_nowait(line)
+                    except QueueFull:
+                        pass
+                if not self._input.closed:
+                    self._input.close()
+            except ValueError:
+                pass
+
+        def wait_until_closed(self):
+            self._input.close()
+            self._thread.join()
+
+        async def poll(self) -> str:
+            return await self._queue.get()
+
+        def poll_all(self):
+            try:
+                val = self._queue.get_nowait()
+                while val is not None:
+                    yield val
+                    val = self._queue.get_nowait()
+            except QueueEmpty:
+                pass
 
     class ByteProgress(Formatter):
 

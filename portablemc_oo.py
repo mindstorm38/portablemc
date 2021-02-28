@@ -7,7 +7,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Callable, Any, Optional, Generator, Tuple, List, Union
+from typing import cast, Dict, Callable, Any, Optional, Generator, Tuple, List
 from argparse import ArgumentParser, Namespace
 from urllib.error import HTTPError, URLError
 from urllib import request as url_request
@@ -345,8 +345,8 @@ class PortableMC:
         if custom_resol is not None and len(custom_resol) != 2:
             custom_resol = None
 
-        def jvm_args_modifier(jvm_args: List[str]):
-            jvm_args.extend(args.jvm_args.split(" "))
+        def args_modifier(raw_args: List[str], main_class_idx: int):
+            raw_args[main_class_idx:main_class_idx] = args.jvm_args.split(" ")
 
         # Actual start
         try:
@@ -362,7 +362,8 @@ class PortableMC:
                 demo=args.demo,
                 jvm=args.jvm,
                 auth_entry=auth_entry,
-                jvm_args_modifier=jvm_args_modifier
+                raw_args=args,
+                args_modifier=args_modifier
             )
         except VersionNotFoundError:
             return EXIT_VERSION_NOT_FOUND
@@ -383,16 +384,15 @@ class PortableMC:
                    version: str,
                    no_better_logging: bool,
                    work_dir_bin: bool,
-                   resolution: Optional[Tuple[int, int]],
+                   resolution: 'Optional[Tuple[int, int]]',
                    demo: bool,
                    jvm: str,
-                   auth_entry: Optional["AuthEntry"],
-                   version_meta_modifier: Optional[Callable[[dict], None]] = None,
-                   libraries_modifier: Optional[Callable[[List[str], List[str]], None]] = None,
-                   jvm_args_modifier: Optional[Callable[[List[str]], None]] = None,
-                   final_args_modifier: Optional[Callable[[List[str]], None]] = None,
-                   main_class_supplier: Union[None, Callable[[], str], str] = None,
-                   args_replacement_modifier: Optional[Callable[[Dict[str, str]], None]] = None) -> None:
+                   auth_entry: 'Optional[AuthEntry]',
+                   raw_args: 'Namespace',
+                   version_meta_modifier: 'Optional[Callable[[dict], None]]' = None,
+                   libraries_modifier: 'Optional[Callable[[List[str], List[str]], None]]' = None,
+                   args_modifier: 'Optional[Callable[[List[str], int], None]]' = None,
+                   args_replacement_modifier: 'Optional[Callable[[Dict[str, str]], None]]' = None) -> None:
 
         # This method can raise these errors:
         # - VersionNotFoundError: if the given version was not found
@@ -630,19 +630,20 @@ class PortableMC:
         if main_class == "net.minecraft.launchwrapper.Launch":
             raw_args.append("-Dminecraft.client.jar={}".format(version_jar_file))
 
-        if callable(jvm_args_modifier):
+        """if callable(jvm_args_modifier):
             jvm_args_modifier(raw_args)
 
         if callable(main_class_supplier):
-            main_class = main_class_supplier()
+            main_class = main_class_supplier(main_class)
         elif isinstance(main_class_supplier, str):
-            main_class = main_class_supplier
+            main_class = main_class_supplier"""
 
+        main_class_idx = len(raw_args)
         raw_args.append(main_class)
         raw_args.extend(self.interpret_args(version_meta["arguments"]["game"], features) if legacy_args is None else legacy_args.split(" "))
 
-        if callable(final_args_modifier):
-            final_args_modifier(raw_args)
+        if callable(args_modifier):
+            args_modifier(raw_args, main_class_idx)
 
         # Arguments replacements
         start_args_replacements = {
@@ -755,11 +756,13 @@ class PortableMC:
         except IndexError:
             return msg
 
-    def mixin(self, target: str, func):
-        old_func = getattr(self, target, None)
+    def mixin(self, target: str, func, owner: Optional[object] = None):
+        if owner is None:
+            owner = self
+        old_func = getattr(owner, target, None)
         def wrapper(*args, **kwargs):
             return func(old_func, *args, **kwargs)
-        setattr(self, target, wrapper)
+        setattr(owner, target, wrapper)
 
     # Authentication
 
@@ -1056,7 +1059,7 @@ class PortableAddon:
 
         for requirement in self.requires:
             if requirement.startswith("addon:"):
-                requirement = requirement[4:]
+                requirement = requirement[6:]
                 if pmc.get_addon(requirement) is None:
                     pmc.print("addon.missing_requirement.ext", self.name, requirement)
             else:

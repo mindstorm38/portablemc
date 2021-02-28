@@ -1,5 +1,194 @@
-from typing import Optional, Union, Tuple
-from argparse import ArgumentParser
+from prompt_toolkit.completion import CompleteEvent, Completion
+from prompt_toolkit.document import Document
+
+NAME = "Scripting"
+VERSION = "0.0.1"
+AUTHORS = "Théo Rozier"
+REQUIRES = "addon:richer", "prompt_toolkit"
+
+
+def addon_build():
+
+    from prompt_toolkit.key_binding.bindings.focus import focus_next, focus_previous
+    from prompt_toolkit.layout.containers import Window, HSplit, VSplit, Container
+    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.completion import Completer, ExecutableCompleter
+    from prompt_toolkit.widgets import TextArea
+    from prompt_toolkit.buffer import Buffer
+
+    from argparse import ArgumentParser, Namespace
+    from typing import List, Callable
+    from os import path
+
+    temp_jar_file_path = path.join(path.dirname(__file__), "scripting_dev/out/artifacts/portablemc_scripting_dev_jar/portablemc_scripting_dev.jar")
+
+    class ScriptingAddon:
+
+        def __init__(self, pmc):
+
+            self.pmc = pmc
+            self.richer = None
+
+            self.server: 'Optional[ScriptingServer]' = None
+            self.active = False
+
+            self.interpreter: 'Optional[Interpreter]' = None
+            self.interpreter_window = None
+            self.interpreter_input: 'Optional[InterpreterInput]' = None
+
+        def load(self):
+
+            self.richer = self.pmc.get_addon("richer").instance
+            self.richer.double_exit = True
+
+            self.pmc.add_message("args.start.scripting", "Enable the scripting extension injection at startup.")
+            self.pmc.add_message("start.scripting.start_server", "Scripting server started on port {}.")
+            self.pmc.add_message("start.scripting.title", "Live Scripting • port: {}")
+
+            self.pmc.mixin("register_start_arguments", self.register_start_arguments)
+            self.pmc.mixin("start_game", self.start_game)
+            self.pmc.mixin("build_application", self.build_application, self.richer)
+
+        def register_start_arguments(self, old, parser: ArgumentParser):
+            parser.add_argument("--scripting", help=self.pmc.get_message("args.start.scripting"), default=False, action="store_true")
+            old(parser)
+
+        def start_game(self, old, *, raw_args: Namespace, **kwargs) -> None:
+
+            if raw_args.scripting:
+
+                self.server = ScriptingServer()
+                self.active = True
+
+                def libraries_modifier(classpath_libs: List[str], _native_libs: List[str]):
+                    classpath_libs.append(temp_jar_file_path)
+
+                def args_modifier(args: List[str], main_class_index: int):
+                    self.server.start()
+                    self.pmc.print("start.scripting.start_server", self.server.get_port())
+                    old_main_class = args[main_class_index]
+                    args[main_class_index] = "portablemc.scripting.ScriptingClient"
+                    args.insert(main_class_index, "-Dportablemc.scripting.main={}".format(old_main_class))
+                    args.insert(main_class_index, "-Dportablemc.scripting.port={}".format(self.server.get_port()))
+
+                kwargs["libraries_modifier"] = libraries_modifier
+                kwargs["args_modifier"] = args_modifier
+
+            old(raw_args=raw_args, **kwargs)
+
+        def build_application(self, old, container: Container, keys: KeyBindings) -> Application:
+
+            if self.active:
+
+                title_text = self.pmc.get_message("start.scripting.title", self.server.get_port())
+
+                def interpreter_output_callback(text: str):
+                    self.interpreter_window.append(*text.splitlines(keepends=True))
+
+                self.interpreter = Interpreter(ScriptingContext(self.server), interpreter_output_callback)
+                self.interpreter_window = self.richer.LimitedBufferWindow(100, wrap_lines=True)
+                self.interpreter_input = InterpreterInput(self.interpreter)
+
+                container = VSplit([
+                    container,
+                    Window(char=' ', width=1, style="class:header"),
+                    HSplit([
+                        VSplit([
+                            Window(width=2),
+                            Window(FormattedTextControl(text=title_text)),
+                        ], height=1, style="class:header"),
+                        VSplit([
+                            Window(width=1),
+                            HSplit([
+                                self.interpreter_window,
+                                self.interpreter_input
+                            ]),
+                            Window(width=1)
+                        ])
+                    ])
+                ])
+
+                keys.add("tab")(focus_next)
+                keys.add("s-tab")(focus_previous)
+
+            app = old(container, keys)
+
+            if self.active:
+                app.layout.focus(self.interpreter_input)
+
+            return app
+
+    class Interpreter:
+
+        def __init__(self, context: 'ScriptingContext', output_callback: Callable[[str], None]):
+
+            builtins = dict(globals()["__builtins__"])
+            builtins["print"] = self.custom_print
+            del builtins["help"]
+            del builtins["input"]
+            del builtins["breakpoint"]
+
+            self.globals = {
+                "scripting": context,
+                "get_class": context.get_class,
+                "__builtins__": builtins
+            }
+            self.locals = {}
+            self.output_callback = output_callback
+
+        def custom_print(self, *args, sep: str = " ", end: str = "\n", **_kwargs):
+            self.output_callback("{}{}".format(sep.join(str(arg) for arg in args), end))
+
+        def interpret(self, text: str):
+            if len(text):
+                try:
+                    self.output_callback(">>> {}\n".format(text))
+                    exec(text, self.globals, self.locals)
+                except (BaseException,):
+                    import traceback
+                    import sys
+                    self.output_callback(traceback.format_exc())
+            else:
+                self.output_callback(">>> \n")
+
+    class InterpreterInput:
+
+        def __init__(self, interpreter: 'Interpreter'):
+            self.input = TextArea(
+                height=1,
+                prompt=">>> ",
+                multiline=False,
+                wrap_lines=False,
+                completer=InterpreterCompleter(interpreter)
+            )
+            self.interpreter = interpreter
+            self.input.accept_handler = self._accept
+
+        def _accept(self, buffer: Buffer):
+            Thread(target=lambda: self.interpreter.interpret(buffer.text), daemon=True).start()
+
+        def __pt_container__(self):
+            return self.input
+
+    class InterpreterCompleter(Completer):
+
+        def __init__(self, interpreter: 'Interpreter'):
+            self.interpreter = interpreter
+
+        def get_completions(self, document: Document, complete_event: CompleteEvent) -> Iterable[Completion]:
+            return []
+
+    return ScriptingAddon
+
+
+
+
+
+
+
+from typing import Optional, Union, Tuple, Iterable
 from threading import Thread
 import socket
 import struct
@@ -10,9 +199,7 @@ import time
 # - 1.14.4 - 1.16 'Queue<Runnable> Minecraft.progressTasks' (or 'Minecraft.tell(Runnable)')
 
 
-NAME = "Scripting"
-VERSION = "0.0.1"
-AUTHORS = "Théo Rozier"
+
 
 
 PACKET_GET_CLASS = 1
@@ -24,7 +211,7 @@ PACKET_METHOD_INVOKE = 20
 PACKET_RESULT = 30
 
 
-TEMP_JAR_FILE_PATH = "/addons/scripting_dev/out/artifacts/portablemc_scripting_dev_jar/portablemc_scripting_dev.jar"
+"""TEMP_JAR_FILE_PATH = "/addons/scripting_dev/out/artifacts/portablemc_scripting_dev_jar/portablemc_scripting_dev.jar"
 
 
 def load(portablemc):
@@ -71,7 +258,7 @@ def _start_stop(event):
 
 
 def _process_runner(proc_args, proc_cwd):
-    pass
+    pass"""
 
 
 class ScriptingServer:
@@ -103,9 +290,7 @@ class ScriptingServer:
         self._socket.bind(('127.0.0.1', 0))
         self._port = self._socket.getsockname()[1]
 
-        print("Scripting server started (port: {})!".format(self._port))
-
-        thread = Thread(target=self._entry, name="PortableMC Scripting Server Thread")
+        thread = Thread(target=self._entry, name="PortableMC Scripting Server Thread", daemon=True)
         thread.start()
 
     def stop(self):
@@ -130,17 +315,14 @@ class ScriptingServer:
         length = self._tx_buf.pos
         self._tx_buf.put(packet_type, offset=0)
         self._tx_buf.put_short(length - 3, offset=1)
-        self._client_socket.sendall(self._tx_buf[:length])
+        self._client_socket.sendall(self._tx_buf.data[:length])
 
     def _wait_for_packet(self, expected_packet_type: int) -> 'ByteBuffer':
 
         next_packet_len = 0
+        self._rx_buf.clear()
 
         while True:
-
-            remaining = self._rx_buf.remaining()
-            read_len = self._client_socket.recv_into(self._rx_recv_buf, min(len(self._rx_recv_buf), remaining))
-            self._rx_buf.put_bytes(self._rx_recv_buf, read_len)
 
             if next_packet_len == 0 and self._rx_buf.pos >= 3:
                 next_packet_len = self._rx_buf.get_short(offset=1, signed=False) + 3
@@ -149,11 +331,16 @@ class ScriptingServer:
                 packet_type = self._rx_buf.get(offset=0)
                 self._rx_buf.limit = next_packet_len
                 self._rx_buf.pos = 3
-                self._rx_buf.lshift(next_packet_len)
                 if packet_type == expected_packet_type:
                     return self._rx_buf
                 else:
+                    self._rx_buf.lshift(next_packet_len)
+                    next_packet_len = 0
                     print("[SCRIPTING] Invalid received packet type, expected {}, got {}.".format(expected_packet_type, packet_type))
+            else:
+                remaining = self._rx_buf.remaining()
+                read_len = self._client_socket.recv_into(self._rx_recv_buf, min(len(self._rx_recv_buf), remaining))
+                self._rx_buf.put_bytes(self._rx_recv_buf, read_len)
 
     # Packets implementations #
 
@@ -270,13 +457,13 @@ class ByteBuffer:
         self.data[:(len(self.data) - count)] = self.data[count:]
 
     def ensure_len(self, length: int, offset: Optional[int] = None):
-        if offset is None:
-            offset = self.pos
-        if offset + length >= self.limit:
+        real_offset = self.pos if offset is None else offset
+        if real_offset + length > self.limit:
             raise ValueError("No more space in the buffer (pos: {}, limit: {}).".format(self.pos, self.limit))
         else:
-            self.pos += length
-            return offset
+            if offset is None:
+                self.pos += length
+            return real_offset
 
     # PUT #
 
@@ -309,7 +496,10 @@ class ByteBuffer:
 
     def put_string(self, string: str, *, offset = None):
         str_buf = string.encode()
-        struct.pack(">Hs", self.data, self.ensure_len(2 + len(str_buf), offset), len(str_buf), str_buf)
+        str_buf_len = len(str_buf)
+        offset = self.ensure_len(2 + str_buf_len, offset)
+        self.put_short(str_buf_len, offset=offset)
+        self.data[(offset + 2):(offset + 2 + str_buf_len)] = str_buf
 
     # GET #
 
@@ -344,9 +534,44 @@ class ScriptingContext:
 
     def __init__(self, server: ScriptingServer):
         self._server = server
+        self._builtins_types = {}
 
     def get_class(self, class_name: str) -> Optional['ReflectClass']:
         return self._server.send_get_class_packet(class_name)
+
+    def _ensure_builtin_type(self, name: str) -> 'ReflectClass':
+        cls = self._builtins_types.get(name)
+        if cls is None:
+            self._builtins_types[name] = cls = self.get_class(name)
+        return cls
+
+    @property
+    def byte(self) -> 'ReflectClass':
+        return self._ensure_builtin_type("byte")
+
+    @property
+    def short(self) -> 'ReflectClass':
+        return self._ensure_builtin_type("short")
+
+    @property
+    def int(self) -> 'ReflectClass':
+        return self._ensure_builtin_type("int")
+
+    @property
+    def long(self) -> 'ReflectClass':
+        return self._ensure_builtin_type("long")
+
+    @property
+    def char(self) -> 'ReflectClass':
+        return self._ensure_builtin_type("char")
+
+    @property
+    def boolean(self) -> 'ReflectClass':
+        return self._ensure_builtin_type("boolean")
+
+    @property
+    def String(self) -> 'ReflectClass':
+        return self._ensure_builtin_type("java.lang.String")
 
 
 class ReflectObject:
@@ -359,6 +584,9 @@ class ReflectObject:
 
     def get_internal_index(self) -> int:
         return self._idx
+
+    def __str__(self):
+        return "Object<#{}>".format(self._idx)
 
 
 AnyReflectType = Union[ReflectObject, int, float, bool, str, None]
@@ -383,6 +611,9 @@ class ReflectClass(ReflectObject):
 
     def is_primitive(self) -> bool:
         return self._name in ("byte", "short", "int", "long", "float", "double", "boolean", "char")
+
+    def __str__(self):
+        return "Class<{}#{}>".format(self._name, self._idx)
 
 
 class ReflectClassMember(ReflectObject):
@@ -418,6 +649,9 @@ class ReflectField(ReflectClassMember):
     def set_static(self, val: AnyReflectType):
         self.set(None, val)
 
+    def __str__(self):
+        return "Field<{} {}.{}>".format(self._type.get_name(), self._owner.get_name(), self._name)
+
 
 class ReflectMethod(ReflectClassMember):
 
@@ -426,3 +660,6 @@ class ReflectMethod(ReflectClassMember):
     def __init__(self, server: ScriptingServer, idx: int, owner: ReflectClass, name: str, parameter_types: Tuple['ReflectClass', ...]):
         super().__init__(server, idx, owner, name)
         self._parameter_types = parameter_types
+
+    def __str__(self):
+        return "Method<{}.{}({})>".format(self._owner.get_name(), self._name, ", ".format(*(typ.get_name for typ in self._parameter_types)))

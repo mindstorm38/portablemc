@@ -135,15 +135,20 @@ public class ScriptingClient implements Runnable {
 					receivedLength += readLength;
 				}*/
 				
-				rxPos = rxBuf.position();
+				
+				/*rxPos = rxBuf.position();
 				while ((readLength = rxStream.read(rxBuf.array(), rxPos, rxBuf.remaining())) > 0) {
 					rxPos += readLength;
 					rxBuf.position(rxPos);
-				}
+					print("new buffer content: " + Arrays.toString(Arrays.copyOf(rxBuf.array(), rxPos)));
+				}*/
+				
+				rxPos = rxBuf.position();
 				
 				if (nextPacketLength == 0 && rxPos >= 3) {
 					//nextPacketType = this.rxBuf.get(0);
 					nextPacketLength = Short.toUnsignedInt(rxBuf.getShort(1)) + 3; // +3 for the header
+					print("next packet length: " + nextPacketLength);
 				}
 				
 				if (nextPacketLength != 0 && nextPacketLength >= rxPos) {
@@ -153,6 +158,9 @@ public class ScriptingClient implements Runnable {
 					rxBuf.position(3);
 					
 					byte packetType = rxBuf.get(0);
+					
+					print("decoding packet: " + packetType);
+					
 					try {
 						this.decodePacket(packetType);
 					} catch (IOException e) {
@@ -168,6 +176,13 @@ public class ScriptingClient implements Runnable {
 					rxBuf.position(rxPos - nextPacketLength);
 					//nextPacketType = 0;
 					nextPacketLength = 0;
+					
+				} else {
+					
+					print("polling...");
+					if ((readLength = rxStream.read(rxBuf.array(), rxPos, rxBuf.remaining())) > 0) {
+						rxBuf.position(rxPos + readLength);
+					}
 					
 				}
 				
