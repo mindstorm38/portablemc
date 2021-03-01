@@ -62,13 +62,20 @@ public class ScriptingClient implements Runnable {
 		
 	}
 	
+	// [0:9] Classes
 	private static final byte PACKET_GET_CLASS = 1;
 	private static final byte PACKET_GET_FIELD = 2;
 	private static final byte PACKET_GET_METHOD = 3;
+	// [10:19] Fields
 	private static final byte PACKET_FIELD_GET = 10;
 	private static final byte PACKET_FIELD_SET = 11;
+	// [20:29] Methods
 	private static final byte PACKET_METHOD_INVOKE = 20;
-	private static final byte PACKET_RESULT = 30;
+	// [30:39] Various objects
+	private static final byte PACKET_OBJECT_GET_CLASS = 30;
+	// [100:109] Results
+	private static final byte PACKET_RESULT = 100;
+	private static final byte PACKET_RESULT_CLASS = 101;
 	
 	private static final HashMap<String, Class<?>> PRIMITIVE_TYPES = new HashMap<>();
 	
@@ -250,6 +257,20 @@ public class ScriptingClient implements Runnable {
 			}
 			
 			this.putValue(this.invokeCachedMethod(methodIdx, ownerObj, parameterValues));
+			
+		} else if (packetType == PACKET_OBJECT_GET_CLASS) {
+			
+			Object obj = this.getValue();
+			if (obj == null) {
+				this.putNull();
+			} else {
+				Class<?> objClass = obj.getClass();
+				this.putIndex(this.ensureCachedObject(objClass));
+				putString(this.txBuf, objClass.getName());
+			}
+			
+			this.sendPacket(PACKET_RESULT_CLASS);
+			return;
 			
 		} else {
 			print("Illegal packet type: " + packetType);
