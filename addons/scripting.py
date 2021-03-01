@@ -105,7 +105,7 @@ def addon_build():
                 def interpreter_output_callback(text: str):
                     self.interpreter_window.append(*text.splitlines(keepends=True))
 
-                self.interpreter = Interpreter(ScriptingContext(self.server), interpreter_output_callback)
+                self.interpreter = Interpreter(self.server.get_context(), interpreter_output_callback)
                 self.interpreter_window = self.richer.LimitedBufferWindow(100, wrap_lines=True)
                 self.interpreter_input = InterpreterInput(self.interpreter)
 
@@ -149,9 +149,8 @@ def addon_build():
             del builtins["breakpoint"]
 
             self.globals = {
-                "scripting": context,
-                "get_class": context.get_class,
-                "get_minecraft": context.get_minecraft,
+                "ctx": context,
+                "ty": context.types,
                 "__builtins__": builtins
             }
             self.locals = {}
@@ -160,17 +159,27 @@ def addon_build():
         def custom_print(self, *args, sep: str = " ", end: str = "\n", **_kwargs):
             self.output_callback("{}{}".format(sep.join(str(arg) for arg in args), end))
 
+        def _out_traceback(self):
+            import traceback
+            import sys
+            err_type, err, tb = sys.exc_info()
+            for line in traceback.extract_tb(tb).format()[2:]:
+                self.output_callback("{}".format(line))
+            self.output_callback("{}: {}\n".format(err_type.__name__, err))
+
         def interpret(self, text: str):
+            self.output_callback(">>> {}\n".format(text))
             if len(text):
                 try:
-                    self.output_callback(">>> {}\n".format(text))
-                    exec(text, self.globals, self.locals)
+                    ret = eval(text, self.globals, self.locals)
+                    self.output_callback("{}\n".format(ret))
+                except SyntaxError:
+                    try:
+                        exec(text, self.globals, self.locals)
+                    except (BaseException,):
+                        self._out_traceback()
                 except (BaseException,):
-                    import traceback
-                    import sys
-                    self.output_callback(traceback.format_exc())
-            else:
-                self.output_callback(">>> \n")
+                    self._out_traceback()
 
     class InterpreterInput:
 
@@ -225,7 +234,8 @@ def addon_build():
                 "char": (-8, ByteBuffer.put_char)
             }
 
-            self._builtins_types = {}
+        def get_context(self) -> 'ScriptingContext':
+            return self._context
 
         def start(self):
 
@@ -292,86 +302,42 @@ def addon_build():
             self._tx_buf.put_string(class_name)
             self._send_packet(PACKET_GET_CLASS)
             idx = self._wait_for_packet(PACKET_RESULT).get_int()
-            return None if idx == -1 else ReflectClass(self, idx, class_name)
+            return None if idx == -1 else ReflectClass(self._context, idx, class_name)
 
         def send_get_field_packet(self, owner: 'ReflectClass', field_name: str, field_type: 'ReflectClass') -> 'Optional[ReflectField]':
             self._prepare_packet()
-            self._tx_buf.put_int(owner.get_internal_index())
+            self._tx_buf.put_int(owner.internal_index)
             self._tx_buf.put_string(field_name)
-            self._tx_buf.put_int(field_type.get_internal_index())
+            self._tx_buf.put_int(field_type.internal_index)
             self._send_packet(PACKET_GET_FIELD)
             idx = self._wait_for_packet(PACKET_RESULT).get_int()
-            return None if idx == -1 else ReflectField(self, idx, owner, field_name, field_type)
+            return None if idx == -1 else ReflectField(self._context, idx, owner, field_name, field_type)
 
         def send_get_method_packet(self, owner: 'ReflectClass', method_name: str, parameter_types: Tuple['ReflectClass', ...]):
             self._prepare_packet()
-            self._tx_buf.put_int(owner.get_internal_index())
+            self._tx_buf.put_int(owner.internal_index)
             self._tx_buf.put_string(method_name)
             self._tx_buf.put(len(parameter_types))
             for ptype in parameter_types:
-                self._tx_buf.put_int(ptype.get_internal_index())
+                self._tx_buf.put_int(ptype.internal_index)
             self._send_packet(PACKET_GET_METHOD)
             idx = self._wait_for_packet(PACKET_RESULT).get_int()
-            return None if idx == -1 else ReflectMethod(self, idx, owner, method_name, parameter_types)
+            return None if idx == -1 else ReflectMethod(self._context, idx, owner, method_name, parameter_types)
 
         def send_field_get_packet(self, field: 'ReflectField', owner: Optional['ReflectObject']) -> 'AnyReflectType':
             self._prepare_packet()
-            self._tx_buf.put_int(field.get_internal_index())
-            self._tx_buf.put_int(-1 if owner is None else owner.get_internal_index())
+            self._tx_buf.put_int(field.internal_index)
+            self._tx_buf.put_int(-1 if owner is None else owner.internal_index)
             self._send_packet(PACKET_FIELD_GET)
             return self._get_value(self._wait_for_packet(PACKET_RESULT))
 
         def send_field_set_packet(self, field: 'ReflectField', owner: Optional['ReflectObject'], val: 'AnyReflectType'):
             self._prepare_packet()
-            self._tx_buf.put_int(field.get_internal_index())
-            self._tx_buf.put_int(-1 if owner is None else owner.get_internal_index())
+            self._tx_buf.put_int(field.internal_index)
+            self._tx_buf.put_int(-1 if owner is None else owner.internal_index)
             self._put_value(self._tx_buf, val, field.get_type())
             self._send_packet(PACKET_FIELD_SET)
             self._wait_for_packet(PACKET_RESULT)
-
-        # Builtin types
-
-        def _ensure_builtin_type(self, name: str) -> 'ReflectClass':
-            cls = self._builtins_types.get(name)
-            if cls is None:
-                self._builtins_types[name] = cls = self.send_get_class_packet(name)
-            return cls
-
-        @property
-        def byte(self) -> 'ReflectClass':
-            return self._ensure_builtin_type("byte")
-
-        @property
-        def short(self) -> 'ReflectClass':
-            return self._ensure_builtin_type("short")
-
-        @property
-        def int(self) -> 'ReflectClass':
-            return self._ensure_builtin_type("int")
-
-        @property
-        def long(self) -> 'ReflectClass':
-            return self._ensure_builtin_type("long")
-
-        @property
-        def float(self) -> 'ReflectClass':
-            return self._ensure_builtin_type("float")
-
-        @property
-        def double(self) -> 'ReflectClass':
-            return self._ensure_builtin_type("double")
-
-        @property
-        def char(self) -> 'ReflectClass':
-            return self._ensure_builtin_type("char")
-
-        @property
-        def boolean(self) -> 'ReflectClass':
-            return self._ensure_builtin_type("boolean")
-
-        @property
-        def String(self) -> 'ReflectClass':
-            return self._ensure_builtin_type("java.lang.String")
 
         # Decode reflect value
 
@@ -401,7 +367,7 @@ def addon_build():
                 else:
                     return None
             else:
-                return ReflectObject(self, idx)
+                return ReflectObject(self._context, idx)
 
         def _put_value(self, buf: 'ByteBuffer', val: 'AnyReflectType', target_type: 'ReflectClass'):
             if val is None:
@@ -425,7 +391,222 @@ def addon_build():
                 buf.put_int(-9)
                 buf.put_string(val)
             else:
-                buf.put_int(val.get_internal_index())
+                buf.put_int(val.internal_index)
+
+    class ScriptingContext:
+
+        def __init__(self, server: ScriptingServer):
+            self._server = server
+            self._types = TypesCache(server)
+            self._minecraft: 'Optional[Minecraft]' = None
+
+        @property
+        def server(self) -> 'ScriptingServer':
+            return self._server
+
+        @property
+        def types(self) -> 'TypesCache':
+            return self._types
+
+        @property
+        def minecraft(self) -> 'Minecraft':
+            if self._minecraft is None:
+                self._minecraft = Minecraft(self)
+            return self._minecraft
+
+        def __str__(self):
+            return "<ScriptingContext>"
+
+    class TypesCache:
+
+        def __init__(self, server: ScriptingServer):
+            self._server = server
+            self._types = {}
+
+        def _get(self, name: str) -> 'Optional[ReflectClass]':
+            typ = self._types.get(name)
+            if typ is None:
+                typ = self._types[name] = self._server.send_get_class_packet(name)
+                if typ is None:
+                    raise ClassNotFoundError("Class '{}' not found.".format(name))
+            return typ
+
+        def __getattr__(self, item: str):
+            return self._get(item)
+
+        def __getitem__(self, item: str):
+            return self._get(item)
+
+        def __str__(self):
+            return "<TypesCache>"
+
+    class ReflectObject:
+
+        __slots__ = "_ctx", "_idx"
+
+        def __init__(self, ctx: ScriptingContext, idx: int):
+            self._ctx = ctx
+            self._idx = idx
+
+        @property
+        def context(self) -> 'ScriptingContext':
+            return self._ctx
+
+        @property
+        def internal_index(self) -> int:
+            return self._idx
+
+        def __str__(self):
+            return "<Object #{}>".format(self._idx)
+
+    AnyReflectType = Union[ReflectObject, int, float, bool, str, None]
+
+    class ReflectClass(ReflectObject):
+
+        __slots__ = "_name",
+
+        def __init__(self, ctx: ScriptingContext, idx: int, name: str):
+            super().__init__(ctx, idx)
+            self._name = name
+
+        def get_name(self) -> str:
+            return self._name
+
+        def get_field(self, name: str, field_type: 'ReflectClass') -> 'Optional[ReflectField]':
+            return self._ctx.server.send_get_field_packet(self, name, field_type)
+
+        def get_method(self, name: str, parameter_types: Tuple['ReflectClass', ...]) -> 'Optional[ReflectMethod]':
+            return self._ctx.server.send_get_method_packet(self, name, parameter_types)
+
+        def is_primitive(self) -> bool:
+            return self._name in ("byte", "short", "int", "long", "float", "double", "boolean", "char")
+
+        def __str__(self):
+            return "<Class {}#{}>".format(self._name, self._idx)
+
+    class ReflectClassMember(ReflectObject):
+
+        __slots__ = "_owner", "_name"
+
+        def __init__(self, ctx: ScriptingContext, idx: int, owner: ReflectClass, name: str):
+            super().__init__(ctx, idx)
+            self._owner = owner
+            self._name = name
+
+    class ReflectField(ReflectClassMember):
+
+        __slots__ = "_type"
+
+        def __init__(self, ctx: ScriptingContext, idx: int, owner: ReflectClass, name: str, field_type: ReflectClass):
+            super().__init__(ctx, idx, owner, name)
+            self._type = field_type
+
+        def get_type(self) -> ReflectClass:
+            return self._type
+
+        def get(self, owner: Optional[ReflectObject]) -> AnyReflectType:
+            return self._ctx.server.send_field_get_packet(self, owner)
+
+        def get_static(self) -> AnyReflectType:
+            return self.get(None)
+
+        def set(self, owner: Optional[ReflectObject], val: AnyReflectType):
+            self._ctx.server.send_field_set_packet(self, owner, val)
+
+        def set_static(self, val: AnyReflectType):
+            self.set(None, val)
+
+        def __str__(self):
+            return "<Field {} {}.{}>".format(self._type.get_name(), self._owner.get_name(), self._name)
+
+    class ReflectMethod(ReflectClassMember):
+
+        __slots__ = "_parameter_types"
+
+        def __init__(self, ctx: ScriptingContext, idx: int, owner: ReflectClass, name: str, parameter_types: Tuple['ReflectClass', ...]):
+            super().__init__(ctx, idx, owner, name)
+            self._parameter_types = parameter_types
+
+        def __str__(self):
+            return "<Method {}.{}({})>".format(
+                self._owner.get_name(),
+                self._name,
+                ", ".format(*(typ.get_name for typ in self._parameter_types))
+            )
+
+    class ClassNotFoundError(Exception):
+        pass
+
+    # Advanved class wrappers
+
+    class Minecraft:
+
+        def __init__(self, ctx: ScriptingContext):
+            self._class_minecraft = ctx.types["djz"]  # Minecraft
+            field_instance = self._class_minecraft.get_field("F", self._class_minecraft)  # instance
+            self._raw = field_instance.get_static()
+            class_local_player = ctx.types[LocalPlayer.CLASS_LOCAL_PLAYER]
+            self._field_player = self._class_minecraft.get_field("s", class_local_player)  # player
+
+        @property
+        def player(self) -> 'Optional[LocalPlayer]':
+            raw = self._field_player.get(self._raw)
+            return None if raw is None else LocalPlayer(raw)
+
+        def __str__(self) -> str:
+            return "<Minecraft>"
+
+    class Entity:
+
+        CLASS_ENTITY = "aqa"  # Entity
+
+        def __init__(self, raw: ReflectObject):
+            self._raw = raw
+            self._class_entity = raw.context.types[self.CLASS_ENTITY]
+            self._field_x = self._class_entity.get_field("m", raw.context.types.double)  # xo
+            self._field_y = self._class_entity.get_field("n", raw.context.types.double)  # yo
+            self._field_z = self._class_entity.get_field("o", raw.context.types.double)  # zo
+
+        @property
+        def x(self) -> float:
+            return self._field_x.get(self._raw)
+
+        @property
+        def y(self) -> float:
+            return self._field_y.get(self._raw)
+
+        @property
+        def z(self) -> float:
+            return self._field_z.get(self._raw)
+
+        def __str__(self):
+            return "<{}>".format(self.__class__.__name__)
+
+    class LivingEntity(Entity):
+
+        CLASS_LIVING_ENTITY = "aqm"  # LivingEntity
+
+        def __init__(self, raw: ReflectObject):
+            super().__init__(raw)
+            self._class_living_entity = raw.context.types[self.CLASS_LIVING_ENTITY]
+
+    class Player(LivingEntity):
+
+        CLASS_PLAYER = "bfw"  # Player
+
+        def __init__(self, raw: ReflectObject):
+            super().__init__(raw)
+            self._class_player = raw.context.types[self.CLASS_PLAYER]
+
+    class LocalPlayer(Player):
+
+        CLASS_LOCAL_PLAYER = "dzm"  # LocalPlayer
+
+        def __init__(self, raw: ReflectObject):
+            super().__init__(raw)
+            self._class_local_player = raw.context.types[self.CLASS_LOCAL_PLAYER]
+
+    # Byte buffer utils
 
     class ByteBuffer:
 
@@ -516,181 +697,5 @@ def addon_build():
             str_len = self.get_short(offset=offset, signed=False)
             str_pos = self.ensure_len(str_len)
             return self.data[str_pos:(str_pos + str_len)].decode()
-
-    class ScriptingContext:
-
-        def __init__(self, server: ScriptingServer):
-            self._server = server
-            self._minecraft: 'Optional[Minecraft]' = None
-
-        def get_class(self, class_name: str) -> Optional['ReflectClass']:
-            return self._server.send_get_class_packet(class_name)
-
-        def get_minecraft(self) -> 'Minecraft':
-            if self._minecraft is None:
-                self._minecraft = Minecraft(self._server)
-            return self._minecraft
-
-    class ReflectObject:
-
-        __slots__ = "_server", "_idx"
-
-        def __init__(self, server: ScriptingServer, idx: int):
-            self._server = server
-            self._idx = idx
-
-        def get_server(self) -> ScriptingServer:
-            return self._server
-
-        def get_internal_index(self) -> int:
-            return self._idx
-
-        def __str__(self):
-            return "Object<#{}>".format(self._idx)
-
-    AnyReflectType = Union[ReflectObject, int, float, bool, str, None]
-
-    class ReflectClass(ReflectObject):
-
-        __slots__ = "_name",
-
-        def __init__(self, server: ScriptingServer, idx: int, name: str):
-            super().__init__(server, idx)
-            self._name = name
-
-        def get_name(self) -> str:
-            return self._name
-
-        def get_field(self, name: str, field_type: 'ReflectClass') -> 'Optional[ReflectField]':
-            return self._server.send_get_field_packet(self, name, field_type)
-
-        def get_method(self, name: str, parameter_types: Tuple['ReflectClass', ...]) -> 'Optional[ReflectMethod]':
-            return self._server.send_get_method_packet(self, name, parameter_types)
-
-        def is_primitive(self) -> bool:
-            return self._name in ("byte", "short", "int", "long", "float", "double", "boolean", "char")
-
-        def __str__(self):
-            return "Class<{}#{}>".format(self._name, self._idx)
-
-    class ReflectClassMember(ReflectObject):
-
-        __slots__ = "_owner", "_name"
-
-        def __init__(self, server: ScriptingServer, idx: int, owner: ReflectClass, name: str):
-            super().__init__(server, idx)
-            self._owner = owner
-            self._name = name
-
-    class ReflectField(ReflectClassMember):
-
-        __slots__ = "_type"
-
-        def __init__(self, server: ScriptingServer, idx: int, owner: ReflectClass, name: str, field_type: ReflectClass):
-            super().__init__(server, idx, owner, name)
-            self._type = field_type
-
-        def get_type(self) -> ReflectClass:
-            return self._type
-
-        def get(self, owner: Optional[ReflectObject]) -> AnyReflectType:
-            return self._server.send_field_get_packet(self, owner)
-
-        def get_static(self) -> AnyReflectType:
-            return self.get(None)
-
-        def set(self, owner: Optional[ReflectObject], val: AnyReflectType):
-            self._server.send_field_set_packet(self, owner, val)
-
-        def set_static(self, val: AnyReflectType):
-            self.set(None, val)
-
-        def __str__(self):
-            return "Field<{} {}.{}>".format(self._type.get_name(), self._owner.get_name(), self._name)
-
-    class ReflectMethod(ReflectClassMember):
-
-        __slots__ = "_parameter_types"
-
-        def __init__(self, server: ScriptingServer, idx: int, owner: ReflectClass, name: str, parameter_types: Tuple['ReflectClass', ...]):
-            super().__init__(server, idx, owner, name)
-            self._parameter_types = parameter_types
-
-        def __str__(self):
-            return "Method<{}.{}({})>".format(
-                self._owner.get_name(),
-                self._name,
-                ", ".format(*(typ.get_name for typ in self._parameter_types))
-            )
-
-    # Advanved class wrappers
-
-    class Minecraft:
-
-        def __init__(self, server: ScriptingServer):
-            self._class_minecraft = server.send_get_class_packet("djz")  # Minecraft
-            field_instance = self._class_minecraft.get_field("F", self._class_minecraft)  # instance
-            self._raw = field_instance.get_static()
-            class_local_player = server.send_get_class_packet(LocalPlayer.CLASS_LOCAL_PLAYER)
-            self._field_player = self._class_minecraft.get_field("s", class_local_player)  # player
-
-        @property
-        def player(self) -> 'Optional[LocalPlayer]':
-            raw = self._field_player.get(self._raw)
-            return None if raw is None else LocalPlayer(raw)
-
-        def __str__(self) -> str:
-            return "Minecraft<>"
-
-    class Entity:
-
-        CLASS_ENTITY = "aqa"  # Entity
-
-        def __init__(self, raw: ReflectObject):
-            self._raw = raw
-            server = raw.get_server()
-            self._class_entity = server.send_get_class_packet(self.CLASS_ENTITY)
-            self._field_x = self._class_entity.get_field("m", server.double)  # xo
-            self._field_y = self._class_entity.get_field("n", server.double)  # yo
-            self._field_z = self._class_entity.get_field("o", server.double)  # zo
-
-        @property
-        def x(self) -> float:
-            return self._field_x.get(self._raw)
-
-        @property
-        def y(self) -> float:
-            return self._field_y.get(self._raw)
-
-        @property
-        def z(self) -> float:
-            return self._field_z.get(self._raw)
-
-    class LivingEntity(Entity):
-
-        CLASS_LIVING_ENTITY = "aqm"  # LivingEntity
-
-        def __init__(self, raw: ReflectObject):
-            super().__init__(raw)
-            server = raw.get_server()
-            self._class_living_entity = server.send_get_class_packet(self.CLASS_LIVING_ENTITY)
-
-    class Player(LivingEntity):
-
-        CLASS_PLAYER = "bfw"  # Player
-
-        def __init__(self, raw: ReflectObject):
-            super().__init__(raw)
-            server = raw.get_server()
-            self._class_player = server.send_get_class_packet(self.CLASS_PLAYER)
-
-    class LocalPlayer(Player):
-
-        CLASS_LOCAL_PLAYER = "dzm"  # LocalPlayer
-
-        def __init__(self, raw: ReflectObject):
-            super().__init__(raw)
-            server = raw.get_server()
-            self._class_local_player = server.send_get_class_packet(self.CLASS_LOCAL_PLAYER)
 
     return ScriptingAddon
