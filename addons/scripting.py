@@ -99,7 +99,7 @@ def addon_build():
                     self.interpreter_window.append(*text.splitlines(keepends=True))
 
                 self.interpreter = Interpreter(self.server.get_context(), interpreter_output_callback)
-                self.interpreter_window = self.richer.LimitedBufferWindow(100, wrap_lines=True)
+                self.interpreter_window = self.richer.RollingLinesWindow(100, wrap_lines=True, dont_extend_height=True)
                 self.interpreter_input = InterpreterInput(self.interpreter)
 
                 container = VSplit([
@@ -113,6 +113,7 @@ def addon_build():
                         VSplit([
                             Window(width=1),
                             HSplit([
+                                Window(),
                                 self.interpreter_window,
                                 self.interpreter_input
                             ]),
@@ -133,7 +134,7 @@ def addon_build():
 
     class Interpreter:
 
-        def __init__(self, context: 'ScriptingContext', output_callback: Callable[[str], None]):
+        def __init__(self, context: 'ScriptingContext', line_callback: Callable[[str], None]):
 
             builtins = dict(globals()["__builtins__"])
             builtins["print"] = self.custom_print
@@ -147,25 +148,25 @@ def addon_build():
                 "__builtins__": builtins
             }
             self.locals = {}
-            self.output_callback = output_callback
+            self.line_callback = line_callback
 
-        def custom_print(self, *args, sep: str = " ", end: str = "\n", **_kwargs):
-            self.output_callback("{}{}".format(sep.join(str(arg) for arg in args), end))
+        def custom_print(self, *args, sep: str = " ", **_kwargs):
+            self.line_callback(sep.join(str(arg) for arg in args))
 
         def _out_traceback(self):
             import traceback
             import sys
             err_type, err, tb = sys.exc_info()
             for line in traceback.extract_tb(tb).format()[2:]:
-                self.output_callback("{}".format(line))
-            self.output_callback("{}: {}\n".format(err_type.__name__, err))
+                self.line_callback("{}".format(line))
+            self.line_callback("{}: {}".format(err_type.__name__, err))
 
         def interpret(self, text: str):
-            self.output_callback(">>> {}\n".format(text))
+            self.line_callback(">>> {}".format(text))
             if len(text):
                 try:
                     ret = eval(text, self.globals, self.locals)
-                    self.output_callback("{}\n".format(ret))
+                    self.line_callback("{}".format(ret))
                 except SyntaxError:
                     try:
                         exec(text, self.globals, self.locals)

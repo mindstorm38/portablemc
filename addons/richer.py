@@ -7,7 +7,6 @@ REQUIRES = "prompt_toolkit"
 
 def addon_build():
 
-    from typing import cast, Optional, TextIO, Callable
     from prompt_toolkit.shortcuts.progress_bar.formatters import Formatter, Label, Text, Percentage, Bar
     from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
     from prompt_toolkit.layout.containers import Window, HSplit, VSplit, Container
@@ -15,16 +14,16 @@ def addon_build():
     from prompt_toolkit.key_binding.key_processor import KeyPressEvent
     from prompt_toolkit.formatted_text import StyleAndTextTuples
     from prompt_toolkit.formatted_text import AnyFormattedText
+    from prompt_toolkit.layout import Layout, AnyDimension
     from prompt_toolkit.layout.dimension import Dimension
     from prompt_toolkit.application import Application
     from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.layout import AnyDimension
     from prompt_toolkit.document import Document
     from prompt_toolkit.buffer import Buffer
-    from prompt_toolkit.layout import Layout
     from prompt_toolkit.lexers import Lexer
     from prompt_toolkit.styles import Style
-    # from queue import Queue, Full, Empty
+
+    from typing import cast, Optional, TextIO, Callable
     from asyncio import Queue, QueueFull, QueueEmpty
     from subprocess import Popen, PIPE
     from threading import Thread
@@ -48,7 +47,7 @@ def addon_build():
                 Text("]"),
             ]
 
-            self.LimitedBufferWindow = LimitedBufferWindow
+            self.RollingLinesWindow = RollingLinesWindow
 
         def load(self):
             self.pmc.add_message("start.run.richer.title", "Minecraft {} • {} • {}")
@@ -73,7 +72,7 @@ def addon_build():
                                               options.get("username", "anonymous"),
                                               options.get("uuid", "uuid"))
 
-            buffer_window = LimitedBufferWindow(100, lexer=ColoredLogLexer())
+            buffer_window = RollingLinesWindow(100, lexer=ColoredLogLexer(), last_line_return=True)
 
             if "args" in options:
                 buffer_window.append(self.pmc.get_message("start.run.richer.command_line", " ".join(options["args"])), "\n")
@@ -116,7 +115,9 @@ def addon_build():
                             stderr_reader.poll()
                         ), return_when=asyncio.FIRST_COMPLETED)
                         for done_task in done:
-                            buffer_window.append(done_task.result())
+                            lines = done_task.result()
+                            if lines is not None:
+                                buffer_window.append(lines)
                         for pending_task in pending:
                             pending_task.cancel()
                     else:
@@ -126,7 +127,7 @@ def addon_build():
                         break
                 process = None
                 if double_exit:
-                    buffer_window.append("\n", "Minecraft process has terminated, Ctrl+C again to close terminal.\n")
+                    buffer_window.append("", "Minecraft process has terminated, Ctrl+C again to close terminal.")
 
             async def _run():
                 _done, _pending = await asyncio.wait((
@@ -149,21 +150,29 @@ def addon_build():
                     pb.invalidate()
                 return self.pmc.download_file(entry, *args, **kwargs, progress_callback=progress_callback)
 
-    class LimitedBufferWindow:
+    class RollingLinesWindow:
 
-        def __init__(self, limit: int, *, lexer: 'Optional[Lexer]' = None, wrap_lines: bool = False):
+        def __init__(self, limit: int, *,
+                     lexer: 'Optional[Lexer]' = None,
+                     wrap_lines: bool = False,
+                     dont_extend_height: bool = False,
+                     last_line_return: bool = False):
+
+            self.last_line_return = last_line_return
             self.buffer = Buffer(read_only=True)
-            self.string_buffer = RollingStringBuffer(limit)
-            self.window = Window(content=BufferControl(buffer=self.buffer, lexer=lexer, focusable=True), wrap_lines=wrap_lines)
+            self.string_buffer = RollingLinesBuffer(limit)
+            self.window = Window(
+                content=BufferControl(buffer=self.buffer, lexer=lexer, focusable=True),
+                wrap_lines=wrap_lines,
+                dont_extend_height=dont_extend_height
+            )
 
-        def append(self, *texts: str):
-            modified = False
-            for text in texts:
-                if self.string_buffer.append(text):
-                    modified = True
-            if modified:
+        def append(self, *lines: str):
+            if self.string_buffer.append(*lines):
                 cursor_pos = None
                 new_text = self.string_buffer.get()
+                if self.last_line_return:
+                    new_text += "\n"
                 if self.buffer.cursor_position < len(self.buffer.text):
                     cursor_pos = self.buffer.cursor_position
                 self.buffer.set_document(Document(text=new_text, cursor_position=cursor_pos), bypass_readonly=True)
@@ -171,10 +180,72 @@ def addon_build():
         def __pt_container__(self):
             return self.window
 
+    class RollingLinesBuffer:
+
+        def __init__(self, limit: int):
+            self._strings = []
+            self._limit = limit
+
+        def append(self, *lines: str) -> bool:
+            if not len(lines):
+                return False
+            for line in lines:
+                if not len(line):
+                    self._strings.append("")
+                else:
+                    self._strings.extend(line.splitlines())
+            while len(self._strings) > self._limit:
+                self._strings.pop(0)
+            return True
+
+        def get(self) -> str:
+            return "\n".join(self._strings)
+
+    class ThreadedProcessReader:
+
+        def __init__(self, in_stream: TextIO):
+            self._input = in_stream
+            self._queue = Queue(100)
+            self._thread = Thread(target=self._entry, daemon=True)
+            self._thread.start()
+            self._closed = False
+
+        def _entry(self):
+            try:
+                for line in iter(self._input.readline, ""):
+                    try:
+                        self._queue.put_nowait(line)
+                    except QueueFull:
+                        pass
+                self._input.close()
+            except ValueError:
+                pass
+            self._queue.put_nowait("")
+
+        def wait_until_closed(self):
+            self._input.close()
+            self._thread.join()
+
+        async def poll(self) -> Optional[str]:
+            if self._closed:
+                return None
+            val = await self._queue.get()
+            if not len(val):
+                self._closed = True
+            return None if self._closed else val
+
+        def poll_all(self):
+            try:
+                val = self._queue.get_nowait()
+                while val is not None:
+                    yield val
+                    val = self._queue.get_nowait()
+            except QueueEmpty:
+                pass
+
     class ColoredLogLexer(Lexer):
 
         def lex_document(self, document: Document) -> Callable[[int], StyleAndTextTuples]:
-
             lines = document.lines
 
             def get_line(lineno: int) -> StyleAndTextTuples:
@@ -207,60 +278,6 @@ def addon_build():
 
             return get_line
 
-    class RollingStringBuffer:
-
-        def __init__(self, limit: int):
-            self._strings = []
-            self._limit = limit
-
-        def append(self, txt: Optional[str]) -> bool:
-            if txt is not None and len(txt):
-                self._strings.append(txt)
-                while len(self._strings) > self._limit:
-                    self._strings.pop(0)
-                return True
-            else:
-                return False
-
-        def get(self) -> str:
-            return "".join(self._strings)
-
-    class ThreadedProcessReader:
-
-        def __init__(self, in_stream: TextIO):
-            self._input = in_stream
-            self._queue = Queue(100)
-            self._thread = Thread(target=self._entry, daemon=True)
-            self._thread.start()
-
-        def _entry(self):
-            try:
-                for line in iter(self._input.readline, b''):
-                    try:
-                        self._queue.put_nowait(line)
-                    except QueueFull:
-                        pass
-                if not self._input.closed:
-                    self._input.close()
-            except ValueError:
-                pass
-
-        def wait_until_closed(self):
-            self._input.close()
-            self._thread.join()
-
-        async def poll(self) -> str:
-            return await self._queue.get()
-
-        def poll_all(self):
-            try:
-                val = self._queue.get_nowait()
-                while val is not None:
-                    yield val
-                    val = self._queue.get_nowait()
-            except QueueEmpty:
-                pass
-
     class ByteProgress(Formatter):
 
         template = "<current>{current}</current>"
@@ -283,9 +300,5 @@ def addon_build():
                     width = 6
                     break
             return Dimension.exact(width)
-
-    def safe_delete(owner: dict, name: str):
-        if name in owner:
-            del owner[name]
 
     return RicherAddon
