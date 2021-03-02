@@ -194,12 +194,14 @@ def addon_build():
 
             if text_spaces % self.INDENTATION_SPACES != 0:
                 self.print_line("Unexpected identation.")
+                self._insert_identation(self.code_indent)
                 return
 
             text_indent = text_spaces // self.INDENTATION_SPACES
 
             if text_indent > self.code_indent:
                 self.print_line("Unexpected identation.")
+                self._insert_identation(self.code_indent)
                 return
 
             self.code_indent = text_indent
@@ -255,25 +257,9 @@ def addon_build():
         def __pt_container__(self):
             return self.split
 
-    """class PythonLexer(Lexer):
-
-        def lex_document(self, document: Document) -> Callable[[int], StyleAndTextTuples]:
-            lines = document.lines
-            def get_line(lineno: int) -> StyleAndTextTuples:
-                try:
-                    line = lines[lineno]
-                    return [("", line)]
-                except IndexError:
-                    return []
-            return get_line"""
-
-    """class InterpreterCompleter(Completer):
-
-        def __init__(self, interpreter: 'Interpreter'):
-            self.interpreter = interpreter
-
-        def get_completions(self, document: Document, complete_event: CompleteEvent) -> Iterable[Completion]:
-            return []"""
+    """def build_completer():
+        import keyword
+        return WordCompleter(list(keyword.kwlist), ignore_case=True)"""
 
     # TCP server and reflected objects definitions
 
