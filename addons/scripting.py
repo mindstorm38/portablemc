@@ -886,6 +886,13 @@ def addon_build():
         CLASS_NAME = "nr"
         METHOD_GET_STRING = MethodCache(lambda: (Component, "getString"))
 
+        @classmethod
+        def ensure_component(cls, ctx: ScriptingContext, comp: Any) -> 'Component':
+            if isinstance(comp, Component):
+                return comp
+            else:
+                return TextComponent.new(ctx, str(comp))
+
         def get_string(self) -> str:
             return self.METHOD_GET_STRING.get(self.context).invoke(self._raw)
 
@@ -1017,15 +1024,25 @@ def addon_build():
     class Gui(Wrapper):
 
         CLASS_NAME = "dkv"
+        METHOD_SET_OVERLAY_MESSAGE = MethodCache(lambda: (Gui, "a", Component, "boolean")) # setOverlayMessage
+        METHOD_SET_TITLES = MethodCache(lambda: (Gui, "a", Component, Component, "int", "int", "int")) # setTitles
 
-        def __init__(self, raw: ReflectObject):
-            super().__init__(raw)
-            ctx = raw.context
-            class_gui = ctx.types[Gui]
-            self._method_set_overlay_message = class_gui.get_method("a", ctx.types[Component], ctx.types.boolean)
+        def set_overlay(self, comp: Any, animate_color: bool = False):
+            comp = Component.ensure_component(self.context, comp)
+            self.METHOD_SET_OVERLAY_MESSAGE.get(self.context)(self._raw, comp.raw, animate_color)
 
-        def set_overlay_message(self, component: Component, animate_color: bool = False):
-            self._method_set_overlay_message.invoke(self._raw, component.raw, animate_color)
+        def set_title(self, *, title: Optional[Any] = None, subtitle: Optional[Any] = None, fade_in: int = -1, stay: int = -1, fade_out: int = -1):
+
+            if fade_in != -1 or stay != -1 or fade_out != -1:
+                self.METHOD_SET_TITLES.get(self.context)(self._raw, None, None, fade_in, stay, fade_out)
+
+            if title is not None:
+                title = Component.ensure_component(self.context, title)
+                self.METHOD_SET_TITLES.get(self.context)(self._raw, title.raw, None, -1, -1, -1)
+
+            if subtitle is not None:
+                subtitle = Component.ensure_component(self.context, subtitle)
+                self.METHOD_SET_TITLES.get(self.context)(self._raw, None, subtitle.raw, -1, -1, -1)
 
     # Byte buffer utils
 
