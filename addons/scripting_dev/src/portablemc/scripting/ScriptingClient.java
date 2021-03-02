@@ -3,6 +3,8 @@ package portablemc.scripting;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Executable;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -213,20 +215,12 @@ public class ScriptingClient implements Runnable {
 			
 			int classIdx = rxBuf.getInt();
 			String methodName = getString(rxBuf);
-			int paramsCount = Byte.toUnsignedInt(rxBuf.get());
-			Class<?>[] parameterTypes = new Class[paramsCount];
+			Class<?>[] parameterTypes = this.getParameterTypes();
 			
-			for (int i = 0; i < paramsCount; ++i) {
-				Class<?> clazz = this.getCachedObjectChecked(rxBuf.getInt(), Class.class);
-				if (clazz == null) {
-					classIdx = -1;
-					break;
-				}
-				parameterTypes[i] = clazz;
-			}
-			
-			if (classIdx == -1) {
+			if (parameterTypes == null) {
 				this.putNull();
+			} else if (methodName.isEmpty()) { // If the name is empty, assume that the request was for a constructor.
+				this.putIndex(this.ensureCachedConstructor(classIdx, parameterTypes));
 			} else {
 				this.putIndex(this.ensureCachedMethod(classIdx, methodName, parameterTypes));
 			}
@@ -364,6 +358,20 @@ public class ScriptingClient implements Runnable {
 		this.txBuf.putInt(-1);
 	}
 	
+	private Class<?>[] getParameterTypes() {
+		ByteBuffer rxBuf = this.rxBuf;
+		int paramsCount = Byte.toUnsignedInt(rxBuf.get());
+		Class<?>[] parameterTypes = new Class[paramsCount];
+		for (int i = 0; i < paramsCount; ++i) {
+			Class<?> clazz = this.getCachedObjectChecked(rxBuf.getInt(), Class.class);
+			if (clazz == null) {
+				return null;
+			}
+			parameterTypes[i] = clazz;
+		}
+		return parameterTypes;
+	}
+	
 	// Cached objects //
 	
 	private int ensureCachedObject(Object object) {
@@ -397,21 +405,6 @@ public class ScriptingClient implements Runnable {
 		}
 	}
 	
-	private int ensureCachedMethod(int classIdx, String methodName, Class<?>[] parameterTypes) {
-		Class<?> clazz = this.getCachedObjectChecked(classIdx, Class.class);
-		if (clazz == null) {
-			return -1;
-		}
-		try {
-			Method method = clazz.getDeclaredMethod(methodName, parameterTypes);
-			method.setAccessible(true);
-			return this.ensureCachedObject(method);
-		} catch (NoSuchMethodException e) {
-			print("Can't find method " + clazz.getSimpleName() + "." + methodName + Arrays.toString(parameterTypes));
-			return -1;
-		}
-	}
-	
 	private int ensureCachedField(int classIdx, String fieldName, Class<?> typeClass) {
 		Class<?> clazz = this.getCachedObjectChecked(classIdx, Class.class);
 		if (clazz == null) {
@@ -428,6 +421,36 @@ public class ScriptingClient implements Runnable {
 			}
 		} catch (NoSuchFieldException e) {
 			print("Can't find field " + clazz.getSimpleName() + "." + fieldName);
+			return -1;
+		}
+	}
+	
+	private int ensureCachedMethod(int classIdx, String methodName, Class<?>[] parameterTypes) {
+		Class<?> clazz = this.getCachedObjectChecked(classIdx, Class.class);
+		if (clazz == null) {
+			return -1;
+		}
+		try {
+			Method method = clazz.getDeclaredMethod(methodName, parameterTypes);
+			method.setAccessible(true);
+			return this.ensureCachedObject(method);
+		} catch (NoSuchMethodException e) {
+			print("Can't find method " + clazz.getSimpleName() + "." + methodName + Arrays.toString(parameterTypes));
+			return -1;
+		}
+	}
+	
+	private int ensureCachedConstructor(int classIdx, Class<?>[] parameterTypes) {
+		Class<?> clazz = this.getCachedObjectChecked(classIdx, Class.class);
+		if (clazz == null) {
+			return -1;
+		}
+		try {
+			Constructor<?> constructor = clazz.getDeclaredConstructor(parameterTypes);
+			constructor.setAccessible(true);
+			return this.ensureCachedObject(constructor);
+		} catch (NoSuchMethodException e) {
+			print("Can't find constructor " + clazz.getSimpleName() + Arrays.toString(parameterTypes));
 			return -1;
 		}
 	}
@@ -458,14 +481,18 @@ public class ScriptingClient implements Runnable {
 	}
 	
 	private Object invokeCachedMethod(int methodIdx, Object ownerObj, Object[] parameterValues) {
-		Method method = this.getCachedObjectChecked(methodIdx, Method.class);
-		if (method == null) {
+		Executable exec = this.getCachedObjectChecked(methodIdx, Executable.class);
+		if (exec == null) {
 			return null;
 		}
 		try {
-			return method.invoke(ownerObj, parameterValues);
-		} catch (IllegalAccessException | InvocationTargetException e) {
-			print("Can't find method " + method);
+			if (exec.getClass() == Method.class) {
+				return ((Method) exec).invoke(ownerObj, parameterValues);
+			} else {
+				return ((Constructor<?>) exec).newInstance(parameterValues);
+			}
+		} catch (IllegalAccessException | InvocationTargetException | InstantiationException e) {
+			print("Can't invoke " + exec);
 			return null;
 		}
 	}
@@ -489,7 +516,7 @@ public class ScriptingClient implements Runnable {
 	// Print output //
 	
 	private static void print(String msg) {
-		System.out.println("[SCRIPTING] " + msg);
+		System.out.println(msg);
 	}
 	
 }
