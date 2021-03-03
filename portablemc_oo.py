@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from sys import exit
 import sys
 
