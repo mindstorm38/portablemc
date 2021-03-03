@@ -9,7 +9,7 @@ REQUIRES = "addon:richer", "prompt_toolkit"
 # - 1.14.4 - 1.16 'Queue<Runnable> Minecraft.progressTasks' (or 'Minecraft.tell(Runnable)')
 
 
-def addon_build():
+def addon_build(pmc_in):
 
     from prompt_toolkit.key_binding.bindings.focus import focus_next, focus_previous
     from prompt_toolkit.layout.containers import Window, HSplit, VSplit, Container
@@ -1136,4 +1136,4 @@ def addon_build():
             str_pos = self.ensure_len(str_len)
             return self.data[str_pos:(str_pos + str_len)].decode()
 
-    return ScriptingAddon
+    return ScriptingAddon(pmc_in)

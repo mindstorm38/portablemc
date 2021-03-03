@@ -5,7 +5,7 @@ AUTHORS = "Théo Rozier"
 REQUIRES = "prompt_toolkit"
 
 
-def addon_build():
+def addon_build(pmc_in):
 
     from prompt_toolkit.shortcuts.progress_bar.formatters import Formatter, Label, Text, Percentage, Bar
     from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
@@ -301,4 +301,4 @@ def addon_build():
                     break
             return Dimension.exact(width)
 
-    return RicherAddon
+    return RicherAddon(pmc_in)
