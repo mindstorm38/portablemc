@@ -24,7 +24,7 @@ import time
 from .buffer import ByteBuffer
 
 
-TEMP_JAR_FILE_PATH = path.join(path.dirname(__file__), "scripting_dev/out/artifacts/portablemc_scripting_dev_jar/portablemc_scripting_dev.jar")
+JAR_FILE_PATH = path.join(path.dirname(__file__), "java/out/portablemc_scripting.jar")
 
 
 class ScriptingAddon:
@@ -62,7 +62,7 @@ class ScriptingAddon:
             self.active = True
 
             def libraries_modifier(classpath_libs: List[str], _native_libs: List[str]):
-                classpath_libs.append(TEMP_JAR_FILE_PATH)
+                classpath_libs.append(JAR_FILE_PATH)
 
             def args_modifier(args: List[str], main_class_index: int):
                 self.server.start()
