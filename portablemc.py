@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from urllib.request import Request as URLRequest
 from http.client import HTTPResponse
 from urllib import request as urlreq
