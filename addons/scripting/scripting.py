@@ -15,11 +15,10 @@ from pygments.lexers.python import PythonLexer
 from typing import cast, List, Callable, Optional, Union, Tuple, Any
 from argparse import ArgumentParser, Namespace
 from abc import ABCMeta, abstractmethod
-from threading import Thread
+from threading import Thread, Event
 from enum import Enum
 from os import path
 import socket
-import time
 
 from .buffer import ByteBuffer
 
@@ -76,6 +75,9 @@ class ScriptingAddon:
             kwargs["args_modifier"] = args_modifier
 
         old(raw_args=raw_args, **kwargs)
+
+        if raw_args.scripting:
+            self.server.stop()
 
     def build_application(self, old, container: Container, keys: KeyBindings) -> Application:
 
@@ -268,6 +270,7 @@ class ScriptingServer:
 
         self._context = ScriptingContext(self)
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._stop_event = Event()
         self._port: Optional[int] = None
 
         self._client_socket: Optional[socket.socket] = None
@@ -298,7 +301,7 @@ class ScriptingServer:
         thread.start()
 
     def stop(self):
-        self._socket.close()
+        self._stop_event.set()
 
     def get_port(self) -> int:
         return self._port
@@ -306,8 +309,8 @@ class ScriptingServer:
     def _entry(self):
         self._socket.listen(1)
         self._client_socket, _ = self._socket.accept()
-        while True:
-            time.sleep(1)
+        self._stop_event.wait()
+        self._socket.close()
 
     # Packets
 
