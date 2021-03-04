@@ -1,13 +1,13 @@
 from ..reflect import Wrapper, FieldCache, MethodCache
-from ..std.lang import Enum
+from ..std import Enum
 from .text import Component
-from enum import Enum
+import enum
 
 
 __all__ = ["EntityPose", "Entity", "LivingEntity", "Player", "AbstractClientPlayer", "LocalPlayer"]
 
 
-class EntityPose(Enum):
+class EntityPose(enum.Enum):
 
     STANDING = 0
     FALL_FLYING = 1

@@ -1,5 +1,6 @@
 from ..reflect import Runtime, Object, Wrapper
 from .entity import LocalPlayer
+from .level import ClientLevel
 from .gui import Gui
 
 from typing import Optional

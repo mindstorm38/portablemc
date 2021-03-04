@@ -3,6 +3,9 @@ from ..std.lang import String
 from typing import Any
 
 
+__all__ = ["Component", "TextComponent"]
+
+
 class Component(Wrapper):
 
     type_name = "nr"
