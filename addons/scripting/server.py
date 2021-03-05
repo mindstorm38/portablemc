@@ -1,4 +1,4 @@
-from typing import  Optional, Tuple
+from typing import  Optional, Tuple, Dict
 from threading import Thread, Event
 import socket
 
@@ -43,6 +43,8 @@ class ScriptingServer(Runtime):
             "double": (-7, ByteBuffer.put_double),
             "char": (-8, ByteBuffer.put_char)
         }
+
+        self._classes_cache: 'Dict[str, Class]' = {}
 
     def start(self):
 
@@ -224,10 +226,15 @@ class ScriptingServer(Runtime):
     # Runtime implementations
 
     def get_class_from_name(self, name: str) -> 'Class':
+        cached = self._classes_cache.get(name)
+        if cached is not None:
+            return cached
         ptr = self.send_get_class_packet(name)
         if ptr < 0:
             raise ClassNotFoundError(f"Class '{name}' not found.")
-        return Class(self, ptr, name)
+        cached = Class(self, ptr, name)
+        self._classes_cache[name] = cached
+        return cached
 
     def get_class_from_object(self, obj: 'Object') -> 'Class':
         res = self.send_object_get_class_packet(obj)
