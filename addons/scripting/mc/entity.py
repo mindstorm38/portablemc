@@ -20,13 +20,16 @@ class EntityPose(enum.Enum):
 
 class Entity(Wrapper):
 
-    type_name = "aqa" # Entity
+    class_name = "aqa" # Entity
     field_x = FieldCache(lambda: (Entity, "m", "double")) # xo
     field_y = FieldCache(lambda: (Entity, "n", "double")) # yo
     field_z = FieldCache(lambda: (Entity, "o", "double")) # zo
     method_get_pose = MethodCache(lambda: (Entity, "ae")) # getPose
     method_get_name = MethodCache(lambda: (Entity, "R")) # getName
     method_get_type_name = MethodCache(lambda: (Entity, "bJ")) # getTypeName
+    method_set_shared_flag = MethodCache(lambda: (Entity, "b", "int", "boolean")) # setSharedFlag
+    method_is_glowing = MethodCache(lambda: (Entity, "bE")) # isGlowing
+    method_set_glowing = MethodCache(lambda: (Entity, "i", "boolean")) # setGlowing
 
     @property
     def x(self) -> float:
@@ -52,6 +55,16 @@ class Entity(Wrapper):
                 return EntityPose.STANDING
 
     @property
+    def glowing(self) -> bool:
+        return self.method_is_glowing.invoke(self._raw)
+
+    @glowing.setter
+    def glowing(self, glowing: bool):
+        # self.method_set_glowing.invoke(self._raw, glowing)
+        self.method_set_shared_flag.invoke(self._raw, 6, glowing)
+        # This setter is not reliable for unknown reason.
+
+    @property
     def name(self) -> Component:
         return Component(self.method_get_name.invoke(self._raw))
 
@@ -64,16 +77,16 @@ class Entity(Wrapper):
 
 
 class LivingEntity(Entity):
-    type_name = "aqm"
+    class_name = "aqm"
 
 
 class Player(LivingEntity):
-    type_name = "bfw"
+    class_name = "bfw"
 
 
 class AbstractClientPlayer(Player):
-    type_name = "dzj"
+    class_name = "dzj"
 
 
 class LocalPlayer(Player):
-    type_name = "dzm"
+    class_name = "dzm"

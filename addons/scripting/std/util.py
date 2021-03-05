@@ -7,7 +7,7 @@ __all__ = ["List", "Iterator"]
 
 class List(Wrapper):
 
-    type_name = "java.util.List"
+    class_name = "java.util.List"
     method_size = MethodCache(lambda: (List, "size"))
     method_iterator = MethodCache(lambda: (List, "iterator"))
     method_get = MethodCache(lambda: (List, "get", "int"))
@@ -32,7 +32,7 @@ class List(Wrapper):
 
 class Iterator(Wrapper):
 
-    type_name = "java.util.Iterator"
+    class_name = "java.util.Iterator"
     method_has_next = MethodCache(lambda: (Iterator, "hasNext"))
     method_next = MethodCache(lambda: (Iterator, "next"))
     __slots__ = "_wrapper"

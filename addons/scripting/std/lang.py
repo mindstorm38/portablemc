@@ -6,12 +6,12 @@ __all__ = ["String", "Enum"]
 
 
 class String(Wrapper):
-    type_name = "java.lang.String"
+    class_name = "java.lang.String"
 
 
 class Enum(Wrapper):
 
-    type_name = "java.lang.Enum"
+    class_name = "java.lang.Enum"
     method_name = MethodCache(lambda ctx: (Enum, "name"))
     method_ordinal = MethodCache(lambda ctx: (Enum, "ordinal"))
     __slots__ = "_name", "_ordinal"

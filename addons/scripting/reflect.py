@@ -66,8 +66,8 @@ class Types:
         self._rt = rt
 
     def _get_class(self, item) -> 'Class':
-        if hasattr(item, "type_name"):
-            item = item.type_name
+        if hasattr(item, "class_name"):
+            item = item.class_name
         return self._rt.get_class_from_name(str(item))
 
     def __getattr__(self, item) -> 'Class':
@@ -232,7 +232,7 @@ class Wrapper:
     Common wrapper class used to interpret raw reflection objects.
     """
 
-    type_name = "java.lang.Object"
+    class_name = "java.lang.Object"
     __slots__ = "_raw"
 
     def __init__(self, raw: 'Object'):
@@ -249,7 +249,7 @@ class Wrapper:
         return self._raw.get_runtime()
 
     def __str__(self):
-        return f"<Wrapped {self.type_name}>"
+        return f"<Wrapped {self.class_name}>"
 
 
 class MemberCache:

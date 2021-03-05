@@ -7,16 +7,16 @@ __all__ = ["LevelData", "WritableLevelData", "Level", "ClientLevel"]
 
 
 class LevelData(Wrapper):
-    type_name = "cyd"
+    class_name = "cyd"
 
 
 class WritableLevelData(LevelData):
-    type_name = "cyo"
+    class_name = "cyo"
 
 
 class Level(Wrapper):
 
-    type_name = "brx"
+    class_name = "brx"
     field_level_data = FieldCache(lambda: (Level, "u", WritableLevelData)) # fieldData
     method_get_game_time = MethodCache(lambda: (LevelData, "e")) # getGameTime()
     method_get_day_time = MethodCache(lambda: (LevelData, "f")) # getDayTime()
@@ -47,7 +47,7 @@ class Level(Wrapper):
 
 class ClientLevel(Level):
 
-    type_name = "dwt"
+    class_name = "dwt"
     method_get_players = MethodCache(lambda: (ClientLevel, "x")) # players()
 
     def get_players(self) -> 'List':

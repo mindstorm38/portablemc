@@ -8,7 +8,7 @@ from typing import Optional
 
 class Minecraft(Wrapper):
 
-    type_name = "djz"
+    class_name = "djz"
     field_player = FieldCache(lambda: (Minecraft, "s", LocalPlayer)) # player
     field_level = FieldCache(lambda: (Minecraft, "r", ClientLevel)) # level
 

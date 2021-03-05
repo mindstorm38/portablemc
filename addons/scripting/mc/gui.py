@@ -9,7 +9,7 @@ __all__ = ["Gui", "Chat"]
 
 class Gui(Wrapper):
 
-    type_name = "dkv"
+    class_name = "dkv"
     method_set_overlay_message = MethodCache(lambda: (Gui, "a", Component, "boolean")) # setOverlayMessage
     method_set_titles = MethodCache(lambda: (Gui, "a", Component, Component, "int", "int", "int")) # setTitles
     method_get_chat = MethodCache(lambda: (Gui, "c"))
@@ -45,7 +45,7 @@ class Gui(Wrapper):
 
 class Chat(Wrapper):
 
-    type_name = "dlk" # ChatComponent
+    class_name = "dlk" # ChatComponent
     method_clear_messages = MethodCache(lambda: (Chat, "a", "boolean"))
     method_add_message = MethodCache(lambda: (Chat, "a", Component, "int"))
     method_remove_message = MethodCache(lambda: (Chat, "b", "int"))

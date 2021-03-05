@@ -8,7 +8,7 @@ __all__ = ["Component", "TextComponent"]
 
 class Component(Wrapper):
 
-    type_name = "nr"
+    class_name = "nr"
     method_get_string = MethodCache(lambda: (Component, "getString"))
 
     @classmethod
@@ -27,7 +27,7 @@ class Component(Wrapper):
 
 class TextComponent(Component):
 
-    type_name = "oe"
+    class_name = "oe"
     constructor = ConstructorCache(lambda: (TextComponent, String))
 
     @classmethod
