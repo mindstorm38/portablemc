@@ -10,12 +10,20 @@ from .buffer import ByteBuffer
 PACKET_GET_CLASS = 1
 PACKET_GET_FIELD = 2
 PACKET_GET_METHOD = 3
+
 PACKET_FIELD_GET = 10
 PACKET_FIELD_SET = 11
+
 PACKET_METHOD_INVOKE = 20
+
 PACKET_OBJECT_GET_CLASS = 30
+PACKET_OBJECT_IS_INSTANCE = 31
+
 PACKET_RESULT = 100
 PACKET_RESULT_CLASS = 101
+PACKET_RESULT_BYTE = 102
+
+PACKET_GENERIC_ERROR = 110
 
 
 class ScriptingServer(Runtime):
@@ -95,9 +103,12 @@ class ScriptingServer(Runtime):
                 if packet_type == expected_packet_type:
                     return self._rx_buf
                 else:
+                    if packet_type == PACKET_GENERIC_ERROR:
+                        raise ValueError(f"Server generic error: {self._rx_buf.get_string()}")
+                    else:
+                        print("[SCRIPTING] Invalid received packet type, expected {}, got {}.".format(expected_packet_type, packet_type))
                     self._rx_buf.lshift(next_packet_len)
                     next_packet_len = 0
-                    print("[SCRIPTING] Invalid received packet type, expected {}, got {}.".format(expected_packet_type, packet_type))
             else:
                 remaining = self._rx_buf.remaining()
                 read_len = self._client_socket.recv_into(self._rx_recv_buf, min(len(self._rx_recv_buf), remaining))
@@ -121,6 +132,14 @@ class ScriptingServer(Runtime):
             return None
         else:
             return buf.get_string(), idx
+
+    def send_object_is_instance_packet(self, cls: 'Class', obj: 'Object') -> bool:
+        self._prepare_packet()
+        self._tx_buf.put_int(cls.get_pointer())
+        self._tx_buf.put_int(obj.get_pointer())
+        self._send_packet(PACKET_OBJECT_IS_INSTANCE)
+        buf = self._wait_for_packet(PACKET_RESULT_BYTE)
+        return buf.get() != 0
 
     def send_get_field_packet(self, cls: 'Class', name: str, field_type: 'Class') -> int:
         self._prepare_packet()
@@ -273,3 +292,6 @@ class ScriptingServer(Runtime):
 
     def invoke_constructor(self, constructor: 'Constructor', parameters: 'Tuple[AnyType, ...]') -> 'Object':
         return self.send_method_invoke_packet(constructor, None, parameters)
+
+    def is_class_instance(self, cls: 'Class', obj: 'Object') -> bool:
+        return self.send_object_is_instance_packet(cls, obj)

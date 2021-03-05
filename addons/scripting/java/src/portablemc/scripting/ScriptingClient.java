@@ -75,9 +75,13 @@ public class ScriptingClient implements Runnable {
 	private static final byte PACKET_METHOD_INVOKE = 20;
 	// [30:39] Various objects
 	private static final byte PACKET_OBJECT_GET_CLASS = 30;
+	private static final byte PACKET_OBJECT_IS_INSTANCE = 31;
 	// [100:109] Results
 	private static final byte PACKET_RESULT = 100;
 	private static final byte PACKET_RESULT_CLASS = 101;
+	private static final byte PACKET_RESULT_BYTE = 102;
+	// [110:119] Errors
+	private static final byte PACKET_GENERIC_ERROR = 110;
 	
 	private static final HashMap<String, Class<?>> PRIMITIVE_TYPES = new HashMap<>();
 	
@@ -151,6 +155,9 @@ public class ScriptingClient implements Runnable {
 						this.decodePacket(packetType);
 					} catch (IOException e) {
 						print("Failed to decode packet " + packetType);
+						e.printStackTrace();
+					} catch (RuntimeException e) {
+						this.sendGenericError(e.getMessage());
 						e.printStackTrace();
 					}
 					
@@ -266,13 +273,29 @@ public class ScriptingClient implements Runnable {
 			this.sendPacket(PACKET_RESULT_CLASS);
 			return;
 			
+		} else if (packetType == PACKET_OBJECT_IS_INSTANCE) {
+		
+			Class<?> cls = this.getCachedObjectChecked(rxBuf.getInt(), Class.class);
+			Object obj = this.getCachedObjectChecked(rxBuf.getInt(), Object.class);
+			this.txBuf.put((byte) (cls != null && cls.isInstance(obj) ? 1 : 0));
+			this.sendPacket(PACKET_RESULT_BYTE);
+			return;
+			
 		} else {
-			print("Illegal packet type: " + packetType);
+			String errMessage = "Illegal packet type: " + packetType;
+			this.sendGenericError(errMessage);
+			print(errMessage);
 			return;
 		}
 		
 		this.sendPacket(PACKET_RESULT);
 		
+	}
+	
+	private void sendGenericError(String message) throws IOException {
+		this.preparePacket();
+		putString(this.txBuf, message);
+		this.sendPacket(PACKET_GENERIC_ERROR);
 	}
 	
 	private Object getValue() {
@@ -464,6 +487,7 @@ public class ScriptingClient implements Runnable {
 			return field.get(ownerObj);
 		} catch (IllegalAccessException e) {
 			print("Can't get field value " + field);
+			e.printStackTrace();
 			return null;
 		}
 	}
@@ -477,6 +501,7 @@ public class ScriptingClient implements Runnable {
 			field.set(ownerObj, value);
 		} catch (IllegalAccessException e) {
 			print("Can't get field value " + field);
+			e.printStackTrace();
 		}
 	}
 	
@@ -493,6 +518,7 @@ public class ScriptingClient implements Runnable {
 			}
 		} catch (IllegalAccessException | InvocationTargetException | InstantiationException e) {
 			print("Can't invoke " + exec);
+			e.printStackTrace();
 			return null;
 		}
 	}

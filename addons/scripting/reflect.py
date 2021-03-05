@@ -55,6 +55,9 @@ class Runtime:
     def invoke_constructor(self, constructor: 'Constructor', parameters: 'Tuple[AnyType, ...]') -> 'Object':
         raise NotImplementedError
 
+    def is_class_instance(self, cls: 'Class', obj: 'Object') -> bool:
+        raise NotImplementedError
+
     @property
     def types(self) -> 'Types':
         return self._types
@@ -134,6 +137,9 @@ class Class(Object):
 
     def is_primitive(self) -> bool:
         return self._name in ("byte", "short", "int", "long", "float", "double", "boolean", "char")
+
+    def is_instance(self, obj: 'Object') -> bool:
+        return self._rt.is_class_instance(self, obj)
 
     def __str__(self):
         return "<Class {}>".format(self._name)
