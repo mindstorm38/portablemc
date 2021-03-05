@@ -239,11 +239,14 @@ class Wrapper:
     """
 
     class_name = "java.lang.Object"
+    class_check = True
     __slots__ = "_raw"
 
     def __init__(self, raw: 'Object'):
         if raw is None:
-            raise ValueError("Can't wrap null object.")
+            raise ValueError(f"Can't wrap null object on {self.class_name}.")
+        if self.class_check and not raw.get_runtime().types[self.class_name].is_instance(raw):
+            raise ValueError(f"Given object is not an instance of {self.class_name}.")
         self._raw = raw
 
     @property
