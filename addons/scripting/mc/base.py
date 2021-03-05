@@ -1,4 +1,4 @@
-from ..reflect import Runtime, Object, Wrapper
+from ..reflect import Runtime, Object, Wrapper, FieldCache
 from .entity import LocalPlayer
 from .level import ClientLevel
 from .gui import Gui
@@ -9,13 +9,11 @@ from typing import Optional
 class Minecraft(Wrapper):
 
     type_name = "djz"
+    field_player = FieldCache(lambda: (Minecraft, "s", LocalPlayer)) # player
+    field_level = FieldCache(lambda: (Minecraft, "r", ClientLevel)) # level
 
     def __init__(self, raw: Object):
         super().__init__(raw)
-        rt = raw.get_runtime()
-        class_minecraft = rt.types[Minecraft]
-        self._field_player = class_minecraft.get_field("s", rt.types[LocalPlayer]) # player
-        self._field_level = class_minecraft.get_field("r", rt.types[ClientLevel]) # level
         self._gui: Optional[Gui] = None
 
     @classmethod
@@ -26,12 +24,12 @@ class Minecraft(Wrapper):
 
     @property
     def player(self) -> 'Optional[LocalPlayer]':
-        raw = self._field_player.get(self._raw)
+        raw = self.field_player.get(self._raw)
         return None if raw is None else LocalPlayer(raw)
 
     @property
     def level(self) -> 'Optional[ClientLevel]':
-        raw = self._field_level.get(self._raw)
+        raw = self.field_level.get(self._raw)
         return None if raw is None else ClientLevel(raw)
 
     @property

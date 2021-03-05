@@ -24,11 +24,11 @@ class Enum(Wrapper):
     @property
     def name(self) -> str:
         if self._name is None:
-            self._name = self.method_name.get(self.runtime)(self._raw)
+            self._name = self.method_name.invoke(self._raw)
         return self._name
 
     @property
     def ordinal(self) -> int:
         if self._ordinal is None:
-            self._ordinal = self.method_ordinal.get(self.runtime)(self._raw)
+            self._ordinal = self.method_ordinal.invoke(self._raw)
         return self._ordinal

@@ -163,14 +163,14 @@ class Field(ClassMember):
     def get(self, owner: 'Optional[Object]') -> 'AnyType':
         return self._rt.get_field_value(self, owner)
 
-    def get_static(self) -> 'AnyType':
-        return self.get(None)
-
     def set(self, owner: 'Optional[Object]', value: 'AnyType'):
         self._rt.set_field_value(self, owner, value)
 
-    def set_static(self, val: 'AnyType'):
-        self.set(None, val)
+    def get_static(self) -> 'AnyType':
+        return self.get(None)
+
+    def set_static(self, value: 'AnyType'):
+        self.set(None, value)
 
     def __str__(self):
         return "<Field {} {}.{}>".format(self._type.get_name(), self._owner.get_name(), self._name)
@@ -201,9 +201,6 @@ class Method(Executable):
     def invoke_static(self, *parameters: 'AnyType') -> 'AnyType':
         return self.invoke(None, *parameters)
 
-    def __call__(self, owner: 'Optional[Object]', *parameters: 'AnyType') -> 'AnyType':
-        return self.invoke(owner, *parameters)
-
     def __str__(self):
         return "<Method {}.{}({})>".format(
             self._owner.get_name(),
@@ -227,57 +224,7 @@ class Constructor(Executable):
         )
 
 
-# Utilities for wrappers
-
-class MemberCache:
-
-    __slots__ = "_member", "_supplier"
-
-    def __init__(self, supplier: 'Callable[[], tuple]'):
-        self._supplier = supplier
-        self._member: 'Optional[ClassMember]' = None
-
-    def get(self, rt: 'Runtime') -> Any:
-        if self._member is None or self._member.get_runtime() is not rt:
-            self._member = self._provide(rt, *self._supplier())
-        return self._member
-
-    def _provide(self, rt: 'Runtime', *args) -> 'ClassMember':
-        raise NotImplementedError
-
-
-class FieldCache(MemberCache):
-
-    def get(self, rt: 'Runtime') -> 'Field':
-        return super().get(rt)
-
-    def _provide(self, rt: 'Runtime', *args) -> 'Field':
-        class_name, field_name, field_type_name = args
-        cls = rt.types[class_name]
-        return cls.get_field(field_name, rt.types[field_type_name])
-
-
-class MethodCache(MemberCache):
-
-    def get(self, rt: 'Runtime') -> 'Method':
-        return super().get(rt)
-
-    def _provide(self, rt: 'Runtime', *args) -> 'Method':
-        class_name, method_name, *parameter_types = args
-        cls = rt.types[class_name]
-        return cls.get_method(method_name, *(rt.types[param_type] for param_type in parameter_types))
-
-
-class ConstructorCache(MemberCache):
-
-    def get(self, rt: 'Runtime') -> 'Constructor':
-        return super().get(rt)
-
-    def _provide(self, rt: 'Runtime', *args) -> 'Constructor':
-        class_name, *parameter_types = args
-        cls = rt.types[class_name]
-        return cls.get_constructor(*(rt.types[param_type] for param_type in parameter_types))
-
+# Class wrapper and utilities for it
 
 class Wrapper:
 
@@ -303,3 +250,74 @@ class Wrapper:
 
     def __str__(self):
         return f"<Wrapped {self.type_name}>"
+
+
+class MemberCache:
+
+    __slots__ = "_member", "_supplier"
+
+    def __init__(self, supplier: 'Callable[[], tuple]'):
+        self._supplier = supplier
+        self._member: 'Optional[ClassMember]' = None
+
+    def ensure(self, rt: 'Runtime') -> Any:
+        if self._member is None or self._member.get_runtime() is not rt:
+            self._member = self._provide(rt, *self._supplier())
+        return self._member
+
+    def _provide(self, rt: 'Runtime', *args) -> 'ClassMember':
+        raise NotImplementedError
+
+
+class FieldCache(MemberCache):
+
+    def ensure(self, rt: 'Runtime') -> 'Field':
+        return super().ensure(rt)
+
+    def _provide(self, rt: 'Runtime', *args) -> 'Field':
+        class_name, field_name, field_type_name = args
+        cls = rt.types[class_name]
+        return cls.get_field(field_name, rt.types[field_type_name])
+
+    def get(self, owner: 'Object') -> 'AnyType':
+        return self.ensure(owner.get_runtime()).get(owner)
+
+    def set(self, owner: 'Object', value: 'AnyType'):
+        self.ensure(owner.get_runtime()).set(owner, value)
+
+    def get_static(self, rt: 'Runtime') -> 'AnyType':
+        return self.ensure(rt).get_static()
+
+    def set_static(self, rt: 'Runtime', value: 'AnyType'):
+        self.ensure(rt).set_static(value)
+
+
+class MethodCache(MemberCache):
+
+    def ensure(self, rt: 'Runtime') -> 'Method':
+        return super().ensure(rt)
+
+    def _provide(self, rt: 'Runtime', *args) -> 'Method':
+        class_name, method_name, *parameter_types = args
+        cls = rt.types[class_name]
+        return cls.get_method(method_name, *(rt.types[param_type] for param_type in parameter_types))
+
+    def invoke(self, owner: 'Object', *parameters: 'AnyType') -> 'AnyType':
+        return self.ensure(owner.get_runtime()).invoke(owner, *parameters)
+
+    def invoke_static(self, rt: 'Runtime', *parameters: 'AnyType') -> 'AnyType':
+        return self.ensure(rt).invoke_static(*parameters)
+
+
+class ConstructorCache(MemberCache):
+
+    def ensure(self, rt: 'Runtime') -> 'Constructor':
+        return super().ensure(rt)
+
+    def _provide(self, rt: 'Runtime', *args) -> 'Constructor':
+        class_name, *parameter_types = args
+        cls = rt.types[class_name]
+        return cls.get_constructor(*(rt.types[param_type] for param_type in parameter_types))
+
+    def construct(self, rt: 'Runtime', *parameters: 'AnyType') -> 'Object':
+        return self.ensure(rt).construct(*parameters)

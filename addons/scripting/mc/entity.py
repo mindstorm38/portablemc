@@ -30,19 +30,19 @@ class Entity(Wrapper):
 
     @property
     def x(self) -> float:
-        return self.field_x.get(self.runtime).get(self._raw)
+        return self.field_x.get(self._raw)
 
     @property
     def y(self) -> float:
-        return self.field_y.get(self.runtime).get(self._raw)
+        return self.field_y.get(self._raw)
 
     @property
     def z(self) -> float:
-        return self.field_z.get(self.runtime).get(self._raw)
+        return self.field_z.get(self._raw)
 
     @property
     def pose(self) -> EntityPose:
-        raw_enum = self.method_get_pose.get(self.runtime).invoke(self._raw)
+        raw_enum = self.method_get_pose.invoke(self._raw)
         if raw_enum is None:
             return EntityPose.STANDING
         else:
@@ -53,11 +53,11 @@ class Entity(Wrapper):
 
     @property
     def name(self) -> Component:
-        return Component(self.method_get_name.get(self.runtime).invoke(self._raw))
+        return Component(self.method_get_name.invoke(self._raw))
 
     @property
     def type_name(self) -> Component:
-        return Component(self.method_get_type_name.get(self.runtime).invoke(self._raw))
+        return Component(self.method_get_type_name.invoke(self._raw))
 
     def __str__(self):
         return "<{}>".format(self.__class__.__name__)

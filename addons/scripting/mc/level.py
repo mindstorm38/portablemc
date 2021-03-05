@@ -1,6 +1,6 @@
 from ..reflect import Object, Wrapper, FieldCache, MethodCache
 from .entity import AbstractClientPlayer
-from ..std import BaseList
+from ..std import List
 
 
 __all__ = ["LevelData", "WritableLevelData", "Level", "ClientLevel"]
@@ -26,23 +26,23 @@ class Level(Wrapper):
 
     def __init__(self, raw: Object):
         super().__init__(raw)
-        self._level_data = self.field_level_data.get(self.runtime).get(raw)
+        self._level_data = self.field_level_data.get(raw)
 
     @property
     def game_time(self) -> int:
-        return self.method_get_game_time.get(self.runtime).invoke(self._level_data)
+        return self.method_get_game_time.invoke(self._level_data)
 
     @property
     def day_time(self) -> int:
-        return self.method_get_day_time.get(self.runtime)(self._level_data)
+        return self.method_get_day_time.invoke(self._level_data)
 
     @property
     def is_raining(self) -> int:
-        return self.method_is_raining.get(self.runtime)(self._level_data)
+        return self.method_is_raining.invoke(self._level_data)
 
     @property
     def is_thundering(self) -> int:
-        return self.method_is_thundering.get(self.runtime)(self._level_data)
+        return self.method_is_thundering.invoke(self._level_data)
 
 
 class ClientLevel(Level):
@@ -50,5 +50,5 @@ class ClientLevel(Level):
     type_name = "dwt"
     method_get_players = MethodCache(lambda: (ClientLevel, "x")) # players()
 
-    def get_players(self) -> 'BaseList':
-        return BaseList(self.method_get_players.get(self.runtime).invoke(self._raw), AbstractClientPlayer)
+    def get_players(self) -> 'List':
+        return List(self.method_get_players.invoke(self._raw), AbstractClientPlayer)
