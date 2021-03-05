@@ -38,9 +38,11 @@ class Gui(Wrapper):
     @property
     def chat(self) -> 'Chat':
         if self._chat is None:
-            #self._chat = Chat(self.method_get_chat.get(self.runtime))
-            pass
+            self._chat = Chat(self.method_get_chat.invoke(self._raw))
         return self._chat
+
+    def __str__(self):
+        return "<Gui>"
 
 
 class Chat(Wrapper):
@@ -59,3 +61,6 @@ class Chat(Wrapper):
 
     def remove_message(self, msg_id: int):
         self.method_remove_message.invoke(self._raw, msg_id)
+
+    def __str__(self):
+        return "<Chat>"
