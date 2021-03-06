@@ -3,13 +3,14 @@ from typing import Optional, Tuple, Union, Callable, Any
 
 __all__ = [
     "ReflectError", "ClassNotFoundError", "FieldNotFoundError", "MethodNotFoundError",
-    "Runtime", "AnyType",
+    "Runtime",
     "Object",
     "Class", "ClassMember",
     "Field",
     "Executable", "Method", "Constructor",
     "FieldCache", "MethodCache", "ConstructorCache",
-    "Wrapper"
+    "Wrapper",
+    "AnyType", "AnyTypeWrapped"
 ]
 
 
@@ -257,8 +258,17 @@ class Wrapper:
     def runtime(self) -> 'Runtime':
         return self._raw.get_runtime()
 
+    @staticmethod
+    def ensure_object(obj: 'AnyTypeWrapped') -> 'AnyType':
+        if isinstance(obj, Wrapper):
+            obj = obj.raw
+        return obj
+
     def __str__(self):
         return f"<Wrapped {self.class_name}>"
+
+
+AnyTypeWrapped = Union[AnyType, Wrapper]
 
 
 class MemberCache:
