@@ -1304,10 +1304,6 @@ class VersionNotFoundError(Exception): ...
 class DownloadCorruptedError(Exception): ...
 
 
-if __name__ == '__main__':
-    PortableMC().start()
-
-
 LEGACY_JVM_ARGUMENTS = [
     {
         "rules": [
@@ -1354,3 +1350,7 @@ LEGACY_JVM_ARGUMENTS = [
     "-cp",
     "${classpath}"
 ]
+
+
+if __name__ == '__main__':
+    PortableMC().start()
