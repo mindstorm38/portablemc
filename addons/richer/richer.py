@@ -75,7 +75,7 @@ class RicherAddon:
                                           options.get("username", "anonymous"),
                                           options.get("uuid", "uuid"))
 
-        buffer_window = RollingLinesWindow(100, lexer=ColoredLogLexer(), last_line_return=True)
+        buffer_window = RollingLinesWindow(400, lexer=ColoredLogLexer(), last_line_return=True)
         buffer_window.append(self.pmc.get_message("start.run.richer.command_line", " ".join(proc_args)), "\n")
 
         container = HSplit([
@@ -116,9 +116,9 @@ class RicherAddon:
                         stderr_reader.poll()
                     ), return_when=asyncio.FIRST_COMPLETED)
                     for done_task in done:
-                        lines = done_task.result()
-                        if lines is not None:
-                            buffer_window.append(lines)
+                        line = done_task.result()
+                        if line is not None:
+                            buffer_window.append(line)
                     for pending_task in pending:
                         pending_task.cancel()
                 else:
@@ -224,11 +224,14 @@ class ThreadedProcessReader:
             self._input.close()
         except ValueError:
             pass
-        self._queue.put_nowait("")
+        try:
+            self._queue.put_nowait("")
+        except QueueFull:
+            pass
 
     def wait_until_closed(self):
         self._input.close()
-        self._thread.join()
+        self._thread.join(5000)
 
     async def poll(self) -> Optional[str]:
         if self._closed:
@@ -261,15 +264,24 @@ class ColoredLogLexer(Lexer):
 
                 tmp_line = line
                 tmp_lineno = lineno
-                while tmp_line[0] == "\t" or "Exception" in tmp_line:
+                got_exception = False
+
+                def has_exception() -> bool:
+                    nonlocal got_exception
+                    got_exception = "Exception" in tmp_line
+                    return got_exception
+
+                while tmp_line[0] == "\t" or has_exception():
                     tmp_lineno -= 1
                     tmp_line = lines[tmp_lineno]
                     if tmp_lineno < 0:
                         return []
+                    if got_exception:
+                        break
 
                 if "WARN" in tmp_line:
                     style = "#ffaf00"
-                elif "ERROR" in tmp_line:
+                elif "ERROR" in tmp_line or got_exception:
                     style = "#ff005f"
                 elif "FATAL" in tmp_line:
                     style = "#bf001d"
