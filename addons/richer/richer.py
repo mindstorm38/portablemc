@@ -16,6 +16,7 @@ from prompt_toolkit.styles import Style
 
 from typing import cast, Optional, TextIO, Callable
 from asyncio import Queue, QueueFull, QueueEmpty
+from argparse import ArgumentParser
 from subprocess import Popen, PIPE
 from threading import Thread
 import asyncio
@@ -42,10 +43,16 @@ class RicherAddon:
         self.RollingLinesWindow = RollingLinesWindow
 
     def load(self):
+        self.pmc.add_message("args.start.not_rich", "Disable the richer extension when starting the game.")
         self.pmc.add_message("start.run.richer.title", "Minecraft {} • {} • {}")
         self.pmc.add_message("start.run.richer.command_line", "Command line: {}\n")
+        self.pmc.mixin("register_start_arguments", self.register_start_arguments)
         self.pmc.mixin("run_game", self.run_game)
         self.pmc.mixin("download_file_pretty", self.download_file_pretty)
+
+    def register_start_arguments(self, old, parser: ArgumentParser):
+        parser.add_argument("--not-rich", help=self.pmc.get_message("args.start.not_rich"), default=False, action="store_true")
+        old(parser)
 
     def build_application(self, container: Container, keys: KeyBindings) -> Application:
         return Application(
@@ -57,7 +64,11 @@ class RicherAddon:
             ])
         )
 
-    def run_game(self, _old, proc_args: list, proc_cwd: str, options: dict):
+    def run_game(self, old, proc_args: list, proc_cwd: str, options: dict):
+
+        if options["cmd_args"].not_rich:
+            old(proc_args, proc_cwd, options)
+            return
 
         title_text = self.pmc.get_message("start.run.richer.title",
                                           options.get("version", "unknown_version"),
@@ -65,9 +76,7 @@ class RicherAddon:
                                           options.get("uuid", "uuid"))
 
         buffer_window = RollingLinesWindow(100, lexer=ColoredLogLexer(), last_line_return=True)
-
-        if "args" in options:
-            buffer_window.append(self.pmc.get_message("start.run.richer.command_line", " ".join(options["args"])), "\n")
+        buffer_window.append(self.pmc.get_message("start.run.richer.command_line", " ".join(proc_args)), "\n")
 
         container = HSplit([
             VSplit([

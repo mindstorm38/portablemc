@@ -51,9 +51,9 @@ class ScriptingAddon:
         parser.add_argument("--scripting", help=self.pmc.get_message("args.start.scripting"), default=False, action="store_true")
         old(parser)
 
-    def start_game(self, old, *, raw_args: Namespace, **kwargs) -> None:
+    def start_game(self, old, *, cmd_args: Namespace, **kwargs) -> None:
 
-        if raw_args.scripting:
+        if cmd_args.scripting:
 
             self.server = ScriptingServer()
             self.active = True
@@ -72,9 +72,9 @@ class ScriptingAddon:
             kwargs["libraries_modifier"] = libraries_modifier
             kwargs["args_modifier"] = args_modifier
 
-        old(raw_args=raw_args, **kwargs)
+        old(cmd_args=cmd_args, **kwargs)
 
-        if raw_args.scripting:
+        if cmd_args.scripting:
             self.server.stop()
 
     def build_application(self, old, container: Container, keys: KeyBindings) -> Application:
