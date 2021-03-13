@@ -120,6 +120,7 @@ class PortableMC:
             "args.addon.list": "List addons.",
             "args.addon.init": "For developpers: Given an addon's name, initialize its package if it doesn't already exists.",
             "args.addon.init.single_file": "Make a single-file addon instead of a package one.",
+            "args.addon.show": "Show an addon details.",
 
             "abort": "=> Abort",
             "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
@@ -136,6 +137,12 @@ class PortableMC:
             "cmd.addon.list.result": "=> {}, version: {}, authors: {}",
             "cmd.addon.init.already_exits": "An addon '{}' already exists at '{}'.",
             "cmd.addon.init.done": "The addon '{}' was initialized at '{}'.",
+            "cmd.addon.show.unknown": "No addon named '{}' exists.",
+            "cmd.addon.show.title": "Addon {} ({}):",
+            "cmd.addon.show.version": "=> Version: {}",
+            "cmd.addon.show.authors": "=> Authors: {}",
+            "cmd.addon.show.description": "=> Description: {}",
+            "cmd.addon.show.requires": "=> Requires: {}",
 
             "url_error.reason": "URL error: {}",
 
@@ -303,11 +310,16 @@ class PortableMC:
         parser.add_argument("email_or_username")
 
     def register_addon_arguments(self, parser: ArgumentParser):
+
         subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand", required=True)
         subparsers.add_parser("list", help=self.get_message("args.addon.list"))
+
         init_parser = subparsers.add_parser("init", help=self.get_message("args.addon.init"))
         init_parser.add_argument("--single-file", help=self.get_message("args.addon.init.single_file"), default=False, action="store_true", dest="single_file")
         init_parser.add_argument("addon_name")
+
+        show_parser = subparsers.add_parser("show", help=self.get_message("args.addon.show"))
+        show_parser.add_argument("addon_name")
 
     # Builtin subcommands
 
@@ -351,8 +363,8 @@ class PortableMC:
         subcommand = args.addon_subcommand
         if subcommand == "list":
             self.print("cmd.addon.list.title", len(self._addons))
-            for ext in self._addons.values():
-                self.print("cmd.addon.list.result", ext.name, ext.version, ", ".join(ext.authors))
+            for addon in self._addons.values():
+                self.print("cmd.addon.list.result", addon.name, addon.version, ", ".join(addon.authors))
         elif subcommand == "init":
             self._prepare_addons(True)
             addon_file = path.join(self._addons_dir, args.addon_name)
@@ -368,6 +380,19 @@ class PortableMC:
             with open(addon_file, "wt") as fp:
                 fp.write(ADDONS_TPL_INIT_CONTENT.format(name=args.addon_name))
             self.print("cmd.addon.init.done", args.addon_name, addon_file)
+        elif subcommand == "show":
+            addon_name = args.addon_name
+            addon = self._addons.get(addon_name)
+            if addon is None:
+                self.print("cmd.addon.show.unknown")
+            else:
+                self.print("cmd.addon.show.title", addon.name, addon_name)
+                self.print("cmd.addon.show.version", addon.version)
+                self.print("cmd.addon.show.authors", ", ".join(addon.authors))
+                if len(addon.description):
+                    self.print("cmd.addon.show.description", addon.description)
+                if len(addon.requires):
+                    self.print("cmd.addon.show.requires", ", ".join(addon.requires))
         return 0
 
     def cmd_start(self, args: Namespace) -> int:
@@ -1082,6 +1107,7 @@ class PortableAddon:
         self.version = str(module.VERSION) if hasattr(module, "VERSION") else "unknown"
         self.authors = module.AUTHORS if hasattr(module, "AUTHORS") else tuple()
         self.requires = module.REQUIRES if hasattr(module, "REQUIRES") else tuple()
+        self.description = str(module.DESCRIPTION) if hasattr(module, "DESCRIPTION") else ""
 
         if not isinstance(self.authors, tuple):
             self.authors = (str(self.authors),)
