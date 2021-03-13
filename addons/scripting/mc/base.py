@@ -1,4 +1,6 @@
 from ..reflect import Runtime, Object, Wrapper, FieldCache
+from ..std import Queue, Runnable
+
 from .entity import LocalPlayer
 from .level import ClientLevel
 from .gui import Gui
@@ -11,10 +13,12 @@ class Minecraft(Wrapper):
     class_name = "djz"
     field_player = FieldCache(lambda: (Minecraft, "s", LocalPlayer)) # player
     field_level = FieldCache(lambda: (Minecraft, "r", ClientLevel)) # level
+    field_progress_tasks = FieldCache(lambda: (Minecraft, "aU", Queue)) # progressTasks
 
     def __init__(self, raw: Object):
         super().__init__(raw)
         self._gui: Optional[Gui] = None
+        self._progress_tasks: Optional[Queue] = None
 
     @classmethod
     def get_instance(cls, rt: 'Runtime') -> 'Minecraft':
@@ -40,6 +44,15 @@ class Minecraft(Wrapper):
             field_gui = class_minecraft.get_field("j", self.runtime.types[Gui]) # gui
             self._gui = Gui(field_gui.get(self._raw))
         return self._gui
+
+    def _get_progress_tasks(self) -> Queue:
+        # Progress tasks is a queue of Runnables, this queue can be used
+        # to synchronize critical method calls. This queue is thread-safe.
+        if self._progress_tasks is None:
+            self._progress_tasks = Queue(self.field_progress_tasks.get(self._raw), Runnable)
+        return self._progress_tasks
+
+    
 
     def __str__(self) -> str:
         return "<Minecraft>"

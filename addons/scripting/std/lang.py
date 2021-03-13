@@ -2,7 +2,7 @@ from ..reflect import Wrapper, Object, MethodCache
 from typing import Optional
 
 
-__all__ = ["String", "Enum"]
+__all__ = ["String", "Enum", "Runnable"]
 
 
 class String(Wrapper):
@@ -32,3 +32,7 @@ class Enum(Wrapper):
         if self._ordinal is None:
             self._ordinal = self.method_ordinal.invoke(self._raw)
         return self._ordinal
+
+
+class Runnable(Wrapper):
+    class_name = "java.lang.Runnable"

@@ -59,6 +59,9 @@ class Runtime:
     def is_class_instance(self, cls: 'Class', obj: 'Object') -> bool:
         raise NotImplementedError
 
+    def bind_callback(self, cls: 'Class', func: 'Callable') -> 'Object':
+        raise NotImplementedError
+
     @property
     def types(self) -> 'Types':
         return self._types

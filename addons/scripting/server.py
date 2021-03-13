@@ -1,4 +1,4 @@
-from typing import  Optional, Tuple, Dict
+from typing import  Optional, Tuple, Dict, Callable
 from threading import Thread, Event
 import socket
 
@@ -18,6 +18,8 @@ PACKET_METHOD_INVOKE = 20
 
 PACKET_OBJECT_GET_CLASS = 30
 PACKET_OBJECT_IS_INSTANCE = 31
+
+PACKET_BIND_CALLBACK = 40
 
 PACKET_RESULT = 100
 PACKET_RESULT_CLASS = 101
@@ -188,6 +190,12 @@ class ScriptingServer(Runtime):
         self._send_packet(PACKET_METHOD_INVOKE)
         return self._get_value(self._wait_for_packet(PACKET_RESULT))
 
+    def send_bind_callback_packet(self, cls: 'Class') -> 'Tuple[int, Object]':
+        self._prepare_packet()
+        self._tx_buf.put_int(cls.get_pointer())
+        self._send_packet(PACKET_BIND_CALLBACK)
+        # TODO
+
     # Decode reflect value
 
     def _get_value(self, buf: 'ByteBuffer') -> 'AnyType':
@@ -295,3 +303,7 @@ class ScriptingServer(Runtime):
 
     def is_class_instance(self, cls: 'Class', obj: 'Object') -> bool:
         return self.send_object_is_instance_packet(cls, obj)
+
+    def bind_callback(self, cls: 'Class', func: 'Callable') -> 'Object':
+
+        pass

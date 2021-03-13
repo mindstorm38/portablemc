@@ -76,6 +76,8 @@ public class ScriptingClient implements Runnable {
 	// [30:39] Various objects
 	private static final byte PACKET_OBJECT_GET_CLASS = 30;
 	private static final byte PACKET_OBJECT_IS_INSTANCE = 31;
+	// [40:49] Callbacks
+	private static final byte PACKET_BIND_CALLBACK = 40;
 	// [100:109] Results
 	private static final byte PACKET_RESULT = 100;
 	private static final byte PACKET_RESULT_CLASS = 101;
@@ -100,6 +102,7 @@ public class ScriptingClient implements Runnable {
 	private final Socket socket;
 	private final ArrayList<Object> objects = new ArrayList<>();
 	private final HashMap<Object, Integer> objectsIndices = new HashMap<>();
+	private int callbackIdCounter = 0;
 	
 	private final ByteBuffer txBuf = ByteBuffer.allocate(4096);
 	private final ByteBuffer rxBuf = ByteBuffer.allocate(4096);
@@ -274,13 +277,25 @@ public class ScriptingClient implements Runnable {
 			return;
 			
 		} else if (packetType == PACKET_OBJECT_IS_INSTANCE) {
-		
+			
 			Class<?> cls = this.getCachedObjectChecked(rxBuf.getInt(), Class.class);
 			Object obj = this.getCachedObjectChecked(rxBuf.getInt(), Object.class);
 			this.txBuf.put((byte) (cls != null && cls.isInstance(obj) ? 1 : 0));
 			this.sendPacket(PACKET_RESULT_BYTE);
 			return;
 			
+		} else if (packetType == PACKET_BIND_CALLBACK) {
+			
+			Class<?> cls = this.getCachedObjectChecked(rxBuf.getInt(), Class.class);
+			final int callbackId = ++this.callbackIdCounter;
+			Object callback = null;
+			
+			if (cls == Runnable.class) {
+				callback = (Runnable) () -> {
+					// TODO
+				};
+			}
+		
 		} else {
 			String errMessage = "Illegal packet type: " + packetType;
 			this.sendGenericError(errMessage);
