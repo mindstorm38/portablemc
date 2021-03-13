@@ -27,7 +27,6 @@ class RicherAddon:
     def __init__(self, pmc):
 
         self.pmc = pmc
-        self.double_exit = True
 
         self.progress_bar_formatters = [
             Label(),
@@ -43,15 +42,20 @@ class RicherAddon:
         self.RollingLinesWindow = RollingLinesWindow
 
     def load(self):
+
         self.pmc.add_message("args.start.not_rich", "Disable the richer extension when starting the game.")
+        self.pmc.add_message("args.start.single_exit", "For richer terminal, when Minecraft process is terminated, do "
+                                                       "not ask for Ctrl+C to effectively exit the terminal.")
         self.pmc.add_message("start.run.richer.title", "Minecraft {} • {} • {}")
         self.pmc.add_message("start.run.richer.command_line", "Command line: {}\n")
+
         self.pmc.mixin("register_start_arguments", self.register_start_arguments)
         self.pmc.mixin("run_game", self.run_game)
         self.pmc.mixin("download_file_pretty", self.download_file_pretty)
 
     def register_start_arguments(self, old, parser: ArgumentParser):
         parser.add_argument("--not-rich", help=self.pmc.get_message("args.start.not_rich"), default=False, action="store_true")
+        parser.add_argument("--single-exit", help=self.pmc.get_message("args.start.single_exit"), default=False, action="store_true")
         old(parser)
 
     def build_application(self, container: Container, keys: KeyBindings) -> Application:
@@ -91,7 +95,7 @@ class RicherAddon:
         ])
 
         keys = KeyBindings()
-        double_exit = self.double_exit
+        double_exit = not options["cmd_args"].single_exit
 
         @keys.add("c-c")
         def _exit(event: KeyPressEvent):
