@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# encoding: utf8
 from sys import exit
 import sys
 
@@ -121,7 +122,7 @@ class PortableMC:
             "args.addon.init.single_file": "Make a single-file addon instead of a package one.",
 
             "abort": "=> Abort",
-            "continue_using_main_dir": "Continue using this main directory? (y/N) ",
+            "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
 
             "cmd.search.pending": "Searching for version '{}'...",
             "cmd.search.result": "=> {:10s} {:16s} {}",
@@ -202,7 +203,7 @@ class PortableMC:
         if "ignore_main_dir" not in args or not args.ignore_main_dir:
             self._main_dir = self.get_minecraft_dir() if args.main_dir is None else path.realpath(args.main_dir)
             if not path.isdir(self._main_dir):
-                if self.prompt("continue_using_main_dir") != "y":
+                if self.prompt("continue_using_main_dir", self._main_dir) != "y":
                     self.print("abort")
                     exit(0)
                 os.makedirs(self._main_dir, 0o777, True)
@@ -412,7 +413,7 @@ class PortableMC:
                 demo=args.demo,
                 jvm=args.jvm,
                 auth_entry=auth_entry,
-                raw_args=args,
+                cmd_args=args,
                 args_modifier=args_modifier
             )
         except VersionNotFoundError:
@@ -438,7 +439,7 @@ class PortableMC:
                    demo: bool,
                    jvm: str,
                    auth_entry: 'Optional[AuthEntry]',
-                   raw_args: 'Namespace',
+                   cmd_args: 'Namespace',
                    version_meta_modifier: 'Optional[Callable[[dict], None]]' = None,
                    libraries_modifier: 'Optional[Callable[[List[str], List[str]], None]]' = None,
                    args_modifier: 'Optional[Callable[[List[str], int], None]]' = None,
@@ -671,22 +672,14 @@ class PortableMC:
 
         raw_args = []
         raw_args.extend(self.interpret_args(version_meta["arguments"]["jvm"] if legacy_args is None else LEGACY_JVM_ARGUMENTS, features))
-        #raw_args.extend(args.jvm_args.split(" "))
 
         if logging_arg is not None:
             raw_args.append(logging_arg)
 
         main_class = version_meta["mainClass"]
         if main_class == "net.minecraft.launchwrapper.Launch":
-            raw_args.append("-Dminecraft.client.jar={}".format(version_jar_file))
-
-        """if callable(jvm_args_modifier):
-            jvm_args_modifier(raw_args)
-
-        if callable(main_class_supplier):
-            main_class = main_class_supplier(main_class)
-        elif isinstance(main_class_supplier, str):
-            main_class = main_class_supplier"""
+            # raw_args.append("-Dminecraft.client.jar={}".format(version_jar_file))
+            main_class = "net.minecraft.client.Minecraft"
 
         main_class_idx = len(raw_args)
         raw_args.append(main_class)
@@ -737,7 +730,7 @@ class PortableMC:
             "username": username,
             "uuid": uuid,
             "version": version,
-            "args": start_args
+            "cmd_args": cmd_args
         })
 
         self.print("start.stopped")
@@ -745,7 +738,7 @@ class PortableMC:
     def run_game(self, proc_args: list, proc_cwd: str, options: dict):
         self.print("", "====================================================")
         self.print("start.run.session", options["username"], options["uuid"])
-        self.print("start.run.command_line", " ".join(options["args"]))
+        self.print("start.run.command_line", " ".join(proc_args))
         subprocess.run(proc_args, cwd=proc_cwd)
         self.print("", "====================================================")
 
@@ -1304,10 +1297,6 @@ class VersionNotFoundError(Exception): ...
 class DownloadCorruptedError(Exception): ...
 
 
-if __name__ == '__main__':
-    PortableMC().start()
-
-
 LEGACY_JVM_ARGUMENTS = [
     {
         "rules": [
@@ -1354,3 +1343,7 @@ LEGACY_JVM_ARGUMENTS = [
     "-cp",
     "${classpath}"
 ]
+
+
+if __name__ == '__main__':
+    PortableMC().start()

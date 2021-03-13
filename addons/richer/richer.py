@@ -16,6 +16,7 @@ from prompt_toolkit.styles import Style
 
 from typing import cast, Optional, TextIO, Callable
 from asyncio import Queue, QueueFull, QueueEmpty
+from argparse import ArgumentParser
 from subprocess import Popen, PIPE
 from threading import Thread
 import asyncio
@@ -42,10 +43,16 @@ class RicherAddon:
         self.RollingLinesWindow = RollingLinesWindow
 
     def load(self):
+        self.pmc.add_message("args.start.not_rich", "Disable the richer extension when starting the game.")
         self.pmc.add_message("start.run.richer.title", "Minecraft {} • {} • {}")
         self.pmc.add_message("start.run.richer.command_line", "Command line: {}\n")
+        self.pmc.mixin("register_start_arguments", self.register_start_arguments)
         self.pmc.mixin("run_game", self.run_game)
         self.pmc.mixin("download_file_pretty", self.download_file_pretty)
+
+    def register_start_arguments(self, old, parser: ArgumentParser):
+        parser.add_argument("--not-rich", help=self.pmc.get_message("args.start.not_rich"), default=False, action="store_true")
+        old(parser)
 
     def build_application(self, container: Container, keys: KeyBindings) -> Application:
         return Application(
@@ -57,17 +64,19 @@ class RicherAddon:
             ])
         )
 
-    def run_game(self, _old, proc_args: list, proc_cwd: str, options: dict):
+    def run_game(self, old, proc_args: list, proc_cwd: str, options: dict):
+
+        if options["cmd_args"].not_rich:
+            old(proc_args, proc_cwd, options)
+            return
 
         title_text = self.pmc.get_message("start.run.richer.title",
                                           options.get("version", "unknown_version"),
                                           options.get("username", "anonymous"),
                                           options.get("uuid", "uuid"))
 
-        buffer_window = RollingLinesWindow(100, lexer=ColoredLogLexer(), last_line_return=True)
-
-        if "args" in options:
-            buffer_window.append(self.pmc.get_message("start.run.richer.command_line", " ".join(options["args"])), "\n")
+        buffer_window = RollingLinesWindow(400, lexer=ColoredLogLexer(), last_line_return=True)
+        buffer_window.append(self.pmc.get_message("start.run.richer.command_line", " ".join(proc_args)), "\n")
 
         container = HSplit([
             VSplit([
@@ -107,9 +116,9 @@ class RicherAddon:
                         stderr_reader.poll()
                     ), return_when=asyncio.FIRST_COMPLETED)
                     for done_task in done:
-                        lines = done_task.result()
-                        if lines is not None:
-                            buffer_window.append(lines)
+                        line = done_task.result()
+                        if line is not None:
+                            buffer_window.append(line)
                     for pending_task in pending:
                         pending_task.cancel()
                 else:
@@ -215,11 +224,14 @@ class ThreadedProcessReader:
             self._input.close()
         except ValueError:
             pass
-        self._queue.put_nowait("")
+        try:
+            self._queue.put_nowait("")
+        except QueueFull:
+            pass
 
     def wait_until_closed(self):
         self._input.close()
-        self._thread.join()
+        self._thread.join(5000)
 
     async def poll(self) -> Optional[str]:
         if self._closed:
@@ -252,15 +264,24 @@ class ColoredLogLexer(Lexer):
 
                 tmp_line = line
                 tmp_lineno = lineno
-                while tmp_line[0] == "\t" or "Exception" in tmp_line:
+                got_exception = False
+
+                def has_exception() -> bool:
+                    nonlocal got_exception
+                    got_exception = "Exception" in tmp_line
+                    return got_exception
+
+                while tmp_line[0] == "\t" or has_exception():
                     tmp_lineno -= 1
                     tmp_line = lines[tmp_lineno]
                     if tmp_lineno < 0:
                         return []
+                    if got_exception:
+                        break
 
                 if "WARN" in tmp_line:
                     style = "#ffaf00"
-                elif "ERROR" in tmp_line:
+                elif "ERROR" in tmp_line or got_exception:
                     style = "#ff005f"
                 elif "FATAL" in tmp_line:
                     style = "#bf001d"
