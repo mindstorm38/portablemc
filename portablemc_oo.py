@@ -808,7 +808,7 @@ class PortableMC:
             traceback.print_exc()
 
     def prompt(self, message_key: str, *args, password: bool = False) -> str:
-        print(self.get_message(message_key, *args), end="")
+        print(self.get_message(message_key, *args), end="", flush=True)
         if password:
             import getpass
             return getpass.getpass("")
@@ -858,7 +858,7 @@ class PortableMC:
                 return auth_entry
 
         try:
-            password = self.prompt("auth.enter_your_password", password=True)
+            password = self.prompt("auth.enter_your_password", email_or_username, password=True)
             auth_entry = AuthEntry.authenticate(email_or_username, password)
             if cache_in_db:
                 self.print("auth.caching")
