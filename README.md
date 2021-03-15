@@ -43,7 +43,7 @@ You can disable the session caching using the flag argument `-t` (`--temp-login`
 if your session is nor cached or valid you will be asked for the password for every launch.
 
 **Note that** your password is not saved! Only the token is saved (the official launcher also do that)
-in the file `portablemc_tokens` in the main directory (an argument maybe change this location in the
+in the file `portablemc_tokens` in the main directory (an argument may change this location in the
 future).
 
 ### Offline mode
