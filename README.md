@@ -15,6 +15,7 @@ You can now customize the launcher with addons.
     - [Offline mode](#offline-mode)
     - [Working directory](#working-directory)
     - [Custom JVM](#custom-jvm)
+    - [Auto connect to a server](#auto-connect-to-a-server)
     - [Miscellaneous](#miscellaneous)
 
 # Arguments
