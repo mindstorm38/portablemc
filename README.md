@@ -73,6 +73,12 @@ are the following and were copied from the officiel launcher:
 
 You can change these arguments using the `--jvm-args <args>`.
 
+### Auto connect to a server
+Since Minecraft 1.6 *(at least, need further tests to confirm)* we can start the game and automatically
+connect to a server. To do that you can use `-s <addr>` (`--server`) for the server address 
+(e.g. `mc.hypixel.net`) and the `-p` (`--server-port`) to specify its port, by default to 25565.
+
+
 ### Miscellaneous
 With `--dry`, the game is prepared but not started.
 
@@ -83,4 +89,4 @@ With `--resol <width>x<height>` you can change the resolution of the game window
 With `--no-better-logging` flag you can disable the better logging configuration used by the launcher
 to avoid raw XML logging in the terminal.
 
-The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` are obvious.
+The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` are obvious *(since 1.16)*.

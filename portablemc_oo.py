@@ -10,7 +10,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
 
 
 from typing import cast, Dict, Callable, Any, Optional, Generator, Tuple, List
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser, Namespace, HelpFormatter
 from urllib.error import HTTPError, URLError
 from urllib import request as url_request
 from json.decoder import JSONDecodeError
@@ -116,6 +116,8 @@ class PortableMC:
                                 "will be asked for password, it override --username and --uuid).",
             "args.start.username": "Set a custom user name to play.",
             "args.start.uuid": "Set a custom user UUID to play.",
+            "args.start.server": "Start the game and auto-connect to this server address (since 1.6).",
+            "args.start.server_port": "Set the server address port (given with -s, --server, since 1.6).",
             "args.login": "Login into your Mojang account, this will cache your tokens.",
             "args.logout": "Logout from your Mojang account.",
             "args.addon": "Addons management subcommands.",
@@ -275,9 +277,16 @@ class PortableMC:
         # Main directory is placed here in order to know the path of the auth database.
         parser.add_argument("--main-dir", help=self.get_message("args.main_dir"), dest="main_dir")
 
-        self.register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
+        self.register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand", ))
 
         return parser
+
+    @staticmethod
+    def new_help_formatter(max_help_position: int):
+        class CustomHelpFormatter(HelpFormatter):
+            def __init__(self, prog):
+                super().__init__(prog, max_help_position=max_help_position)
+        return CustomHelpFormatter
 
     def register_subcommands(self, subcommands):
         self.register_search_arguments(subcommands.add_parser("search", help=self.get_message("args.search")))
@@ -291,6 +300,7 @@ class PortableMC:
         parser.set_defaults(ignore_main_dir=True)
 
     def register_start_arguments(self, parser: ArgumentParser):
+        parser.formatter_class = self.new_help_formatter(32)
         parser.add_argument("--dry", help=self.get_message("args.start.dry"), default=False, action="store_true")
         parser.add_argument("--disable-mp", help=self.get_message("args.start.disable_multiplayer"), default=False, action="store_true")
         parser.add_argument("--disable-chat", help=self.get_message("args.start.disable_chat"), default=False, action="store_true")
@@ -303,8 +313,10 @@ class PortableMC:
         parser.add_argument("--no-better-logging", help=self.get_message("args.start.no_better_logging"), default=False, action="store_true", dest="no_better_logging")
         parser.add_argument("-t", "--temp-login", help=self.get_message("args.start.temp_login"), default=False, action="store_true", dest="templogin")
         parser.add_argument("-l", "--login", help=self.get_message("args.start.login"))
-        parser.add_argument("-u", "--username", help=self.get_message("args.start.username"))
+        parser.add_argument("-u", "--username", help=self.get_message("args.start.username"), metavar="NAME")
         parser.add_argument("-i", "--uuid", help=self.get_message("args.start.uuid"))
+        parser.add_argument("-s", "--server", help=self.get_message("args.start.server"))
+        parser.add_argument("-p", "--server-port", type=int, help=self.get_message("args.start.server_port"), metavar="PORT")
         parser.add_argument("version", nargs="?", default="release")
 
     def register_login_arguments(self, parser: ArgumentParser):
@@ -442,6 +454,8 @@ class PortableMC:
                 demo=args.demo,
                 disable_multiplayer=args.disable_mp,
                 disable_chat=args.disable_chat,
+                server_addr=args.server,
+                server_port=args.server_port,
                 jvm=args.jvm,
                 auth_entry=auth_entry,
                 cmd_args=args,
@@ -470,6 +484,8 @@ class PortableMC:
                    demo: bool,
                    disable_multiplayer: bool,
                    disable_chat: bool,
+                   server_addr: Optional[str],
+                   server_port: Optional[int],
                    jvm: str,
                    auth_entry: 'Optional[AuthEntry]',
                    cmd_args: 'Namespace',
@@ -722,6 +738,11 @@ class PortableMC:
             raw_args.append("--disableMultiplayer")
         if disable_chat:
             raw_args.append("--disableChat")
+
+        if server_addr is not None:
+            raw_args.extend(("--server", server_addr))
+        if server_port is not None:
+            raw_args.extend(("--port", str(server_port)))
 
         if callable(args_modifier):
             args_modifier(raw_args, main_class_idx)
