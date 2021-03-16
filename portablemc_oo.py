@@ -98,6 +98,8 @@ class PortableMC:
             "args.search": "Search for official Minecraft versions.",
             "args.start": "Start a Minecraft version, default to the latest release.",
             "args.start.dry": "Simulate game starting.",
+            "args.start.disable_multiplayer": "Disable the multiplayer buttons (>= 1.16).",
+            "args.start.disable_chat": "Disable the online chat (>= 1.16).",
             "args.start.demo": "Start game in demo mode.",
             "args.start.resol": "Set a custom start resolution (<width>x<height>).",
             "args.start.jvm": "Set a custom JVM 'javaw' executable path.",
@@ -290,6 +292,8 @@ class PortableMC:
 
     def register_start_arguments(self, parser: ArgumentParser):
         parser.add_argument("--dry", help=self.get_message("args.start.dry"), default=False, action="store_true")
+        parser.add_argument("--disable-mp", help=self.get_message("args.start.disable_multiplayer"), default=False, action="store_true")
+        parser.add_argument("--disable-chat", help=self.get_message("args.start.disable_chat"), default=False, action="store_true")
         parser.add_argument("--demo", help=self.get_message("args.start.demo"), default=False, action="store_true")
         parser.add_argument("--resol", help=self.get_message("args.start.resol"), type=self._decode_resolution, dest="resolution")
         parser.add_argument("--jvm", help=self.get_message("args.start.jvm"), default=JVM_EXEC_DEFAULT)
@@ -436,6 +440,8 @@ class PortableMC:
                 work_dir_bin=args.work_dir_bin,
                 resolution=custom_resol,
                 demo=args.demo,
+                disable_multiplayer=args.disable_mp,
+                disable_chat=args.disable_chat,
                 jvm=args.jvm,
                 auth_entry=auth_entry,
                 cmd_args=args,
@@ -462,6 +468,8 @@ class PortableMC:
                    work_dir_bin: bool,
                    resolution: 'Optional[Tuple[int, int]]',
                    demo: bool,
+                   disable_multiplayer: bool,
+                   disable_chat: bool,
                    jvm: str,
                    auth_entry: 'Optional[AuthEntry]',
                    cmd_args: 'Namespace',
@@ -709,6 +717,11 @@ class PortableMC:
         main_class_idx = len(raw_args)
         raw_args.append(main_class)
         raw_args.extend(self.interpret_args(version_meta["arguments"]["game"], features) if legacy_args is None else legacy_args.split(" "))
+
+        if disable_multiplayer:
+            raw_args.append("--disableMultiplayer")
+        if disable_chat:
+            raw_args.append("--disableChat")
 
         if callable(args_modifier):
             args_modifier(raw_args, main_class_idx)
