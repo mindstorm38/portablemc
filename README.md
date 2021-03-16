@@ -23,7 +23,9 @@ Arguments are split between multiple sub-command. For example `<exec> <sub-comma
 release with default parameters. You can use `-h` argument to display help *(also work for sub-commands)*.
 
 You may need to use `--main-dir <path>` if you want to change the main directory of the game. The main
-directory stores libraries, assets, versions and this launcher's credentials.
+directory stores libraries, assets, versions and this launcher's credentials. **By default** the location
+of this directory is OS-dependent, but always in your user's home directory, 
+[check wiki for more information](https://minecraft-fr.gamepedia.com/.minecraft).
 
 **In this example**, `<exec>` must be replaced by any command that 
 launch the script, for example `python3 portablemc.py`.
