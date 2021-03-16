@@ -82,3 +82,5 @@ With `--resol <width>x<height>` you can change the resolution of the game window
 
 With `--no-better-logging` flag you can disable the better logging configuration used by the launcher
 to avoid raw XML logging in the terminal.
+
+The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` are obvious.
