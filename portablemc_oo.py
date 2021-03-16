@@ -9,7 +9,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Callable, Any, Optional, Generator, Tuple, List
+from typing import cast, Dict, Callable, Any, Optional, Generator, Tuple, List, Union
 from argparse import ArgumentParser, Namespace, HelpFormatter
 from urllib.error import HTTPError, URLError
 from urllib import request as url_request
@@ -130,7 +130,10 @@ class PortableMC:
             "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
 
             "cmd.search.pending": "Searching for version '{}'...",
-            "cmd.search.result": "=> {:10s} {:16s} {}",
+            "cmd.search.pending_local": "Searching for local version '{}'...",
+            "cmd.search.pending_all": "Searching for all versions...",
+            "cmd.search.result": "=> {:10s} {:16s} {:24s} {}",
+            "cmd.search.result.more.local": "[LOCAL]",
             "cmd.search.not_found": "=> No version found",
 
             "cmd.logout.pending": "Logging out from {}...",
@@ -211,8 +214,8 @@ class PortableMC:
             parser.print_help()
             return
 
+        self._main_dir = self.get_minecraft_dir() if args.main_dir is None else path.realpath(args.main_dir)
         if "ignore_main_dir" not in args or not args.ignore_main_dir:
-            self._main_dir = self.get_minecraft_dir() if args.main_dir is None else path.realpath(args.main_dir)
             if not path.isdir(self._main_dir):
                 if self.prompt("continue_using_main_dir", self._main_dir) != "y":
                     self.print("abort")
@@ -296,7 +299,8 @@ class PortableMC:
         self.register_addon_arguments(subcommands.add_parser("addon", help=self.get_message("args.addon")))
 
     def register_search_arguments(self, parser: ArgumentParser):
-        parser.add_argument("input")
+        parser.add_argument("-l", "--local", default=False, action="store_true")
+        parser.add_argument("input", nargs="?")
         parser.set_defaults(ignore_main_dir=True)
 
     def register_start_arguments(self, parser: ArgumentParser):
@@ -327,6 +331,8 @@ class PortableMC:
 
     def register_addon_arguments(self, parser: ArgumentParser):
 
+        parser.set_defaults(ignore_main_dir=True)
+
         subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand", required=True)
         subparsers.add_parser("list", help=self.get_message("args.addon.list"))
 
@@ -340,20 +346,44 @@ class PortableMC:
     # Builtin subcommands
 
     def cmd_search(self, args: Namespace) -> int:
-        self.print("cmd.search.pending", args.input)
-        manifest = self.get_version_manifest()
-        found = False
-        for version_data in manifest.search_versions(args.input):
-            found = True
-            self.print("cmd.search.result",
-                       version_data["type"],
-                       version_data["id"],
-                       self.format_iso_date(version_data["releaseTime"]))
-        if not found:
+
+        no_version = (args.input is None)
+        if no_version:
+            self.print("cmd.search.pending_all")
+        else:
+            self.print("cmd.search.pending_local" if args.local else "cmd.search.pending", args.input)
+
+        versions_dir = path.join(self._main_dir, "versions")
+
+        if args.local:
+            versions = []
+            for version_id in os.listdir(versions_dir):
+                if args.input in version_id:
+                    version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
+                    if path.isfile(version_jar_file):
+                        versions.append((
+                            {"type": "unknown", "id": version_id, "releaseTime": path.getmtime(version_jar_file)}, ""
+                        ))
+        else:
+            manifest = self.get_version_manifest()
+            versions = []
+            for version_data in manifest.all_versions() if no_version else manifest.search_versions(args.input):
+                version_id = version_data["id"]
+                version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
+                more_info = self.get_message("cmd.search.result.more.local") if path.isfile(version_jar_file) else ""
+                versions.append((version_data, more_info))
+
+        if len(versions):
+            for (version_data, more_info) in versions:
+                self.print("cmd.search.result",
+                           version_data["type"],
+                           version_data["id"],
+                           self.format_iso_date(version_data["releaseTime"]),
+                           more_info)
+            return 0
+        else:
             self.print("cmd.search.not_found")
             return EXIT_VERSION_SEARCH_NOT_FOUND
-        else:
-            return 0
 
     def cmd_login(self, args: Namespace) -> int:
         entry = self.promp_password_and_authenticate(args.email_or_username, True)
@@ -1098,8 +1128,11 @@ class PortableMC:
         return json.load(url_request.urlopen(url))
 
     @staticmethod
-    def format_iso_date(raw: str):
-        return datetime.strptime(raw.rsplit("+", 2)[0], "%Y-%m-%dT%H:%M:%S").strftime("%c")
+    def format_iso_date(raw: Union[str, float]) -> str:
+        if isinstance(raw, float):
+            return datetime.fromtimestamp(raw).strftime("%c")
+        else:
+            return datetime.strptime(str(raw).rsplit("+", 2)[0], "%Y-%m-%dT%H:%M:%S").strftime("%c")
 
     @classmethod
     def dict_merge(cls, dst: dict, other: dict):
@@ -1202,12 +1235,13 @@ class VersionManifest:
                 return version_data
         return None
 
+    def all_versions(self) -> list:
+        return self._data["versions"]
+
     def search_versions(self, inp: str) -> Generator[dict, None, None]:
         inp, alias = self.filter_latest(inp)
         for version_data in self._data["versions"]:
-            if alias and version_data["id"] == inp:
-                yield version_data
-            elif not alias and inp in version_data["id"]:
+            if (alias and version_data["id"] == inp) or (not alias and inp in version_data["id"]):
                 yield version_data
 
 

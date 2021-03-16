@@ -9,8 +9,8 @@ You can now customize the launcher with addons.
 *This launcher is tested for Python 3.8 & 3.6, further testing using other versions are welcome.*
 
 # Table of contents
-- [Arguments](#arguments)
-  - [Start](#start)
+- [Sub-commands](#sub-commands)
+  - [Start the game](#start-the-game)
     - [Authentication](#authentication)
     - [Offline mode](#offline-mode)
     - [Working directory](#working-directory)
@@ -18,7 +18,7 @@ You can now customize the launcher with addons.
     - [Auto connect to a server](#auto-connect-to-a-server)
     - [Miscellaneous](#miscellaneous)
 
-# Arguments
+# Sub-commands
 Arguments are split between multiple sub-command. For example `<exec> <sub-command>` will start the latest
 release with default parameters. You can use `-h` argument to display help *(also work for sub-commands)*.
 
@@ -33,7 +33,7 @@ launch the script, for example `python3 portablemc.py`.
 **Note that** this script have a *[shebang](https://fr.wikipedia.org/wiki/Shebang)*, this can be
 useful to launch the script on unix OS *(you must have executable permission)*.
 
-## Start
+## Start the game
 The `<exec> start` sub-command is used to prepare and launch the game. A lot of arguments allows you
 to control how to game will behave.
 
@@ -93,3 +93,6 @@ With `--no-better-logging` flag you can disable the better logging configuration
 to avoid raw XML logging in the terminal.
 
 The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` are obvious *(since 1.16)*.
+
+## Search
+The `<exec> search <version>` sub-command is used to search for versions 
