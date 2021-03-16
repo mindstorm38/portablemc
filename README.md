@@ -34,8 +34,10 @@ launch the script, for example `python3 portablemc.py`.
 useful to launch the script on unix OS *(you must have executable permission)*.
 
 ## Start the game
-The `<exec> start` sub-command is used to prepare and launch the game. A lot of arguments allows you
-to control how to game will behave.
+The `<exec> start [arguments...] [version]` sub-command is used to prepare and launch the game. A lot
+of arguments allows you to control how to game will behave. The only positional argument is the version,
+you can either specify a full version id (which you can get from the 'search' sub-command), or a type of
+version (`release` (default) of `snapshot`) to select the latest of this type.
 
 ### Authentication
 Online mode is supported by this launcher, use the `-l <email_or_username>` (`--login`) argument to
@@ -95,4 +97,4 @@ to avoid raw XML logging in the terminal.
 The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` are obvious *(since 1.16)*.
 
 ## Search
-The `<exec> search <version>` sub-command is used to search for versions 
+The `<exec> search [-l] [version]` sub-command is used to search for versions.
