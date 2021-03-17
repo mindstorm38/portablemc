@@ -10,7 +10,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Callable, Optional, Generator, Tuple, List
+from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Iterable
 from urllib import request as url_request
 from json.decoder import JSONDecodeError
 from urllib.error import HTTPError
@@ -36,6 +36,15 @@ ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
 AUTHSERVER_URL = "https://authserver.mojang.com/{}"
 
 LOGGING_CONSOLE_REPLACEMENT = "<PatternLayout pattern=\"%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n\"/>"
+
+JVM_EXEC_DEFAULT = "java"
+JVM_ARGS_DEFAULT = "-Xmx2G",\
+                   "-XX:+UnlockExperimentalVMOptions",\
+                   "-XX:+UseG1GC",\
+                   "-XX:G1NewSizePercent=20",\
+                   "-XX:G1ReservePercent=20",\
+                   "-XX:MaxGCPauseMillis=50",\
+                   "-XX:G1HeapRegionSize=32M"
 
 
 # This file is splitted between the Core which is the lib and the CLI launcher which extends the Core.
@@ -66,6 +75,12 @@ class CorePortableMC:
     def make_main_dir(self):
         os.makedirs(self._main_dir, 0o777, True)
 
+    def check_main_dir(self):
+        if self._main_dir is None or not path.isdir(self._main_dir):
+            raise ValueError("Before executing this function, please use 'init_main_dir' to set the main "
+                             "directory path (use None to select the default .minecraft). Also make sure "
+                             "the directory is created (using 'make_main_dir' if needed).")
+
     def core_search(self, search: Optional[str], *, local: bool = False) -> list:
 
         no_version = (search is None)
@@ -90,12 +105,13 @@ class CorePortableMC:
         return versions
 
     def core_start(self, *,
-                   work_dir: str,
-                   dry_run: bool,
-                   uuid: str,
-                   username: str,
                    version: str,
-                   jvm: str,
+                   jvm: Optional[Iterable[str]] = None,     # Default to (JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT)
+                   work_dir: Optional[str] = None,          # Default to main dir
+                   uuid: Optional[str] = None,              # Default to random UUID
+                   username: Optional[str] = None,          # Default to uuid[:8]
+                   auth: 'Optional[AuthEntry]' = None,      # This parameter will override uuid/username
+                   dry_run: bool = False,
                    no_better_logging: bool = False,
                    work_dir_bin: bool = False,
                    resolution: 'Optional[Tuple[int, int]]' = None,
@@ -104,12 +120,11 @@ class CorePortableMC:
                    disable_chat: bool = False,
                    server_addr: Optional[str] = None,
                    server_port: Optional[int] = None,
-                   auth_entry: 'Optional[AuthEntry]' = None,
                    version_meta_modifier: 'Optional[Callable[[dict], None]]' = None,
                    libraries_modifier: 'Optional[Callable[[List[str], List[str]], None]]' = None,
                    args_modifier: 'Optional[Callable[[List[str], int], None]]' = None,
                    args_replacement_modifier: 'Optional[Callable[[Dict[str, str]], None]]' = None,
-                   runner: 'Optional[Callable[[list, str], None]]' = None) -> None:
+                   runner: 'Optional[Callable[[list, str, dict], None]]' = None) -> None:
 
         # This method can raise these errors:
         # - VersionNotFoundError: if the given version was not found
@@ -117,6 +132,10 @@ class CorePortableMC:
         # - DownloadCorruptedError: if a download is corrupted
 
         self.notice("start.welcome")
+
+        self.check_main_dir()
+        if work_dir is None:
+            work_dir = self._main_dir
 
         # Resolve version metadata
         version, version_alias = self.get_version_manifest().filter_latest(version)
@@ -352,8 +371,7 @@ class CorePortableMC:
 
         main_class_idx = len(raw_args)
         raw_args.append(main_class)
-        raw_args.extend(self.interpret_args(version_meta["arguments"]["game"],
-                                            features) if legacy_args is None else legacy_args.split(" "))
+        raw_args.extend(self.interpret_args(version_meta["arguments"]["game"], features) if legacy_args is None else legacy_args.split(" "))
 
         if disable_multiplayer:
             raw_args.append("--disableMultiplayer")
@@ -368,6 +386,13 @@ class CorePortableMC:
         if callable(args_modifier):
             args_modifier(raw_args, main_class_idx)
 
+        if auth is not None:
+            uuid = auth.uuid
+            username = auth.username
+        else:
+            uuid = uuid4().hex if uuid is None else uuid.replace("-", "")
+            username = uuid[:8] if username is None else username[:16]  # Max username length is 16
+
         # Arguments replacements
         start_args_replacements = {
             # Game
@@ -377,11 +402,11 @@ class CorePortableMC:
             "assets_root": assets_dir,
             "assets_index_name": assets_index_version,
             "auth_uuid": uuid,
-            "auth_access_token": "" if auth_entry is None else auth_entry.format_token_argument(False),
+            "auth_access_token": "" if auth is None else auth.format_token_argument(False),
             "user_type": "mojang",
             "version_type": version_type,
             # Game (legacy)
-            "auth_session": "notok" if auth_entry is None else auth_entry.format_token_argument(True),
+            "auth_session": "notok" if auth is None else auth.format_token_argument(True),
             "game_assets": assets_virtual_dir,
             "user_properties": "{}",
             # JVM
@@ -398,7 +423,10 @@ class CorePortableMC:
         if callable(args_replacement_modifier):
             args_replacement_modifier(start_args_replacements)
 
-        start_args = [jvm]
+        if jvm is None:
+            jvm = (JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT)
+
+        start_args = [*jvm]
         for arg in raw_args:
             for repl_id, repl_val in start_args_replacements.items():
                 arg = arg.replace("${{{}}}".format(repl_id), repl_val)
@@ -410,7 +438,11 @@ class CorePortableMC:
         if runner is None:
             subprocess.run(start_args, cwd=work_dir)
         else:
-            runner(start_args, work_dir)
+            runner(start_args, work_dir, {
+                "version": version,
+                "username": username,
+                "uuid": uuid
+            })
 
         self.notice("start.stopped")
 
@@ -890,9 +922,6 @@ if __name__ == '__main__':
                               "def addon_build(pmc):\n" \
                               "    return None\n"
 
-    JVM_EXEC_DEFAULT = "java"
-    JVM_ARGS_DEFAULT = "-Xmx2G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M"
-
     class PortableMC(CorePortableMC):
 
         def __init__(self):
@@ -1131,7 +1160,7 @@ if __name__ == '__main__':
             parser.add_argument("--demo", help=self.get_message("args.start.demo"), default=False, action="store_true")
             parser.add_argument("--resol", help=self.get_message("args.start.resol"), type=self._decode_resolution, dest="resolution")
             parser.add_argument("--jvm", help=self.get_message("args.start.jvm"), default=JVM_EXEC_DEFAULT)
-            parser.add_argument("--jvm-args", help=self.get_message("args.start.jvm_args"), default=JVM_ARGS_DEFAULT, dest="jvm_args")
+            parser.add_argument("--jvm-args", help=self.get_message("args.start.jvm_args"), default=None, dest="jvm_args")
             parser.add_argument("--work-dir", help=self.get_message("args.start.work_dir"), dest="work_dir")
             parser.add_argument("--work-dir-bin", help=self.get_message("args.start.work_dir_bin"), default=False, action="store_true", dest="work_dir_bin")
             parser.add_argument("--no-better-logging", help=self.get_message("args.start.no_better_logging"), default=False, action="store_true", dest="no_better_logging")
@@ -1245,49 +1274,48 @@ if __name__ == '__main__':
 
             # Get all arguments
             work_dir = self._main_dir if args.main_dir is None else path.realpath(args.main_dir)
-            uuid = None if args.uuid is None else args.uuid.replace("-", "")
-            username = args.username
+            # uuid = None if args.uuid is None else args.uuid.replace("-", "")
+            # username = args.username
 
             # Login if needed
             if args.login is not None:
-                auth_entry = self.promp_password_and_authenticate(args.login, not args.templogin)
-                if auth_entry is None:
+                auth = self.promp_password_and_authenticate(args.login, not args.templogin)
+                if auth is None:
                     return EXIT_AUTHENTICATION_FAILED
-                uuid = auth_entry.uuid
-                username = auth_entry.username
+                # uuid = auth.uuid
+                # username = auth.username
             else:
-                auth_entry = None
+                auth = None
 
             # Setup defaut UUID and/or username if needed
-            if uuid is None: uuid = uuid4().hex
-            if username is None: username = uuid[:8]
+            # if uuid is None: uuid = uuid4().hex
+            # if username is None: username = uuid[:8]
 
             # Decode resolution
             custom_resol = args.resolution  # type: Optional[Tuple[int, int]]
             if custom_resol is not None and len(custom_resol) != 2:
                 custom_resol = None
 
-            def args_modifier(raw_args: List[str], main_class_idx: int):
-                raw_args[main_class_idx:main_class_idx] = args.jvm_args.split(" ")
+            # def args_modifier(raw_args: List[str], main_class_idx: int):
+            #     raw_args[main_class_idx:main_class_idx] = args.jvm_args.split(" ")
 
-            def runner(proc_args: list, proc_cwd: str):
-                self.game_runner(proc_args, proc_cwd, {
-                    "username": username,
-                    "uuid": uuid,
-                    "version": args.version,
-                    "cmd_args": args
-                })
+            def runner(proc_args: list, proc_cwd: str, options: dict):
+                options["cmd_args"] = args
+                self.game_runner(proc_args, proc_cwd, options)
+
+            jvm_args = JVM_ARGS_DEFAULT if args.jvm_args is None else args.jvm_args.split(" ")
 
             # Actual start
             try:
                 self.game_start(
                     work_dir=work_dir,
-                    dry_run=args.dry,
-                    uuid=uuid,
-                    username=username,
                     version=args.version,
-                    jvm=args.jvm,
+                    uuid=args.uuid,
+                    username=args.username,
+                    auth=auth,
+                    jvm=(args.jvm, *jvm_args),
                     cmd_args=args,
+                    dry_run=args.dry,
                     no_better_logging=args.no_better_logging,
                     work_dir_bin=args.work_dir_bin,
                     resolution=custom_resol,
@@ -1296,8 +1324,7 @@ if __name__ == '__main__':
                     disable_chat=args.disable_chat,
                     server_addr=args.server,
                     server_port=args.server_port,
-                    auth_entry=auth_entry,
-                    args_modifier=args_modifier,
+                    # args_modifier=args_modifier,
                     runner=runner
                 )
             except VersionNotFoundError:
