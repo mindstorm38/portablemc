@@ -1437,7 +1437,7 @@ if __name__ == '__main__':
                           entry: 'DownloadEntry', *,
                           start_size: int = 0,
                           total_size: int = 0,
-                          **kwargs) -> int:
+                          **kwargs) -> int:  # kwargs may contains a 'progress_callback', but we ignore kwargs
 
             start_time = time.perf_counter()
 

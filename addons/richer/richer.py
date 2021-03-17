@@ -153,7 +153,8 @@ class RicherAddon:
             def progress_callback(p_dl_size: int, _p_size: int, _p_dl_total_size: int, _p_total_size: int):
                 progress_task.items_completed = p_dl_size
                 pb.invalidate()
-            return self.pmc.download_file_base(entry, *args, **kwargs, progress_callback=progress_callback)
+            kwargs["progress_callback"] = progress_callback
+            return self.pmc.download_file_base(entry, *args, **kwargs)
 
 
 class RollingLinesWindow:
