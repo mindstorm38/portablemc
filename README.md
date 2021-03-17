@@ -19,6 +19,8 @@ You can now customize the launcher with addons.
     - [Miscellaneous](#miscellaneous)
   - [Search for versions](#search-for-versions)
   - [Authentication caching](#authentication-caching)
+  - [Addons](#addons)
+- [Addons (how to)](#addons-how-to)
 
 # Sub-commands
 Arguments are split between multiple sub-command. For example `<exec> <sub-command>`. You can use `-h` 
@@ -107,3 +109,14 @@ versions are displayed.
 Two subcommand allows you to cache or uncache sessions: `<exec> login|logout <email_or_username>`.
 These subcommand doesn't prevent you from using the `-l` (`--login`) argument when starting the game,
 these are just here to manage the session storage.
+
+## Addons
+The `<exec> addon list|init|show` sub-commands are used to list, initialize (for developpers) and show
+addons.
+
+# Addons (how to)
+Addons for PortableMC are obviously optionnals, officially supported addons can be found in the
+['addons' directory](https://github.com/mindstorm38/portablemc/tree/master/addons).
+To install addons you need to make a directory `addons` next to the script, and then put addons into it.
+
+To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons).
