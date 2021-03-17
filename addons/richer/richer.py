@@ -147,14 +147,14 @@ class RicherAddon:
 
         asyncio.get_event_loop().run_until_complete(_run())
 
-    def download_file(self, _old, entry, *args, **kwargs):
+    def download_file(self, _old, entry, **kwargs):
         with ProgressBar(formatters=self.progress_bar_formatters) as pb:
             progress_task = pb(label=entry.name, total=entry.size)
             def progress_callback(p_dl_size: int, _p_size: int, _p_dl_total_size: int, _p_total_size: int):
                 progress_task.items_completed = p_dl_size
                 pb.invalidate()
             kwargs["progress_callback"] = progress_callback
-            return self.pmc.download_file_base(entry, *args, **kwargs)
+            return self.pmc.download_file_base(entry, **kwargs)
 
 
 class RollingLinesWindow:
