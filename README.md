@@ -17,10 +17,12 @@ You can now customize the launcher with addons.
     - [Custom JVM](#custom-jvm)
     - [Auto connect to a server](#auto-connect-to-a-server)
     - [Miscellaneous](#miscellaneous)
+  - [Search for versions](#search-for-versions)
+  - [Authentication caching](#authentication-caching)
 
 # Sub-commands
-Arguments are split between multiple sub-command. For example `<exec> <sub-command>` will start the latest
-release with default parameters. You can use `-h` argument to display help *(also work for sub-commands)*.
+Arguments are split between multiple sub-command. For example `<exec> <sub-command>`. You can use `-h` 
+argument to display help *(also work for every sub-commands)*.
 
 You may need to use `--main-dir <path>` if you want to change the main directory of the game. The main
 directory stores libraries, assets, versions and this launcher's credentials. **By default** the location
@@ -36,36 +38,36 @@ useful to launch the script on unix OS *(you must have executable permission)*.
 ## Start the game
 The `<exec> start [arguments...] [version]` sub-command is used to prepare and launch the game. A lot
 of arguments allows you to control how to game will behave. The only positional argument is the version,
-you can either specify a full version id (which you can get from the 'search' sub-command), or a type of
-version (`release` (default) of `snapshot`) to select the latest of this type.
+you can either specify a full version id (which you can get from the [search](#search-for-versions) 
+sub-command), or a type of version to select the latest of this type (`release` (default) or `snapshot`).
 
 ### Authentication
 Online mode is supported by this launcher, use the `-l <email_or_username>` (`--login`) argument to
 log into your account *(login with a username is now deprecated by Mojang)*. If your session is not
 cached or no longer valid, the launcher will ask for the password.
 
-You can disable the session caching using the flag argument `-t` (`--temp-login`), using this argument,
-if your session is nor cached or valid you will be asked for the password for every launch.
+You can disable the session caching using the flag argument `-t` (`--temp-login`), if your session is 
+nor cached nor valid you will be asked for the password for every launch.
 
 **Note that** your password is not saved! Only the token is saved (the official launcher also do that)
-in the file `portablemc_tokens` in the main directory (an argument may change this location in the
-future).
+in the file `portablemc_tokens` in the main directory (an argument may allow change of this location
+in the future).
 
 ### Offline mode
 If you need fake offline accounts you can use `-u <username>` (`--username`) defines the username and/or
 `-i <uuid>` (`--uuid`) to define your player's [UUID](https://fr.wikipedia.org/wiki/Universally_unique_identifier).
 
 If you omit the UUID, a random one is choosen. If you omit the username, the first 8 characters of the UUID
-are used for it. **These two arguments are overwritten by the `-l` (`--login`) argument.
+are used for it. **These two arguments are overwritten by the `-l` (`--login`) argument**.
 
 ### Working directory
 You can use the argument `--work-dir <path>` to change the directory where your saves, resource packs and
-all "user-specific" content. This can be useful if you have a shared read-only main directory 
+all "user-specific" content are stored. This can be useful if you have a shared read-only main directory 
 (`--main-dir`) and user-specific working directory (for example in `~/.minecraft`).
 
 When starting the game, the binaries (`.DLL`, `.SO` for exemple) are temporary copied to the directory
 `<main_dir>/bin`, but you can tell the launcher to copy these binaries into your working directory using
-the `--work-dir-bin` argument. This may be useful if you don't have permissions on the main directory.
+the `--work-dir-bin` flag. This may be useful if you don't have permissions on the main directory.
 
 ### Custom JVM
 The Java Virtual Machine is used to run the game, by udefault the launcher use the `java` executable. You
@@ -83,7 +85,6 @@ Since Minecraft 1.6 *(at least, need further tests to confirm)* we can start the
 connect to a server. To do that you can use `-s <addr>` (`--server`) for the server address 
 (e.g. `mc.hypixel.net`) and the `-p` (`--server-port`) to specify its port, by default to 25565.
 
-
 ### Miscellaneous
 With `--dry`, the game is prepared but not started.
 
@@ -96,5 +97,13 @@ to avoid raw XML logging in the terminal.
 
 The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` are obvious *(since 1.16)*.
 
-## Search
-The `<exec> search [-l] [version]` sub-command is used to search for versions.
+## Search for versions
+The `<exec> search [-l] [version]` sub-command is used to search for versions. By default, this command
+will search for official versions available to download, you can instead search for local versions
+using the `-l` (`--local`) flag. The search string is optional, if not given all official or local
+versions are displayed.
+
+## Authentication caching
+Two subcommand allows you to cache or uncache sessions: `<exec> login|logout <email_or_username>`.
+These subcommand doesn't prevent you from using the `-l` (`--login`) argument when starting the game,
+these are just here to manage the session storage.

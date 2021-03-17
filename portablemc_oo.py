@@ -202,12 +202,12 @@ class PortableMC:
 
         }
 
-    def start(self):
+    def start(self, in_args):
 
         self._register_addons()
 
         parser = self.register_arguments()
-        args = parser.parse_args()
+        args = parser.parse_args(in_args)
         subcommand = args.subcommand
 
         if subcommand is None:
@@ -1440,4 +1440,4 @@ LEGACY_JVM_ARGUMENTS = [
 
 
 if __name__ == '__main__':
-    PortableMC().start()
+    PortableMC().start(sys.argv[1:])
