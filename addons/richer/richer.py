@@ -50,8 +50,8 @@ class RicherAddon:
         self.pmc.add_message("start.run.richer.command_line", "Command line: {}\n")
 
         self.pmc.mixin("register_start_arguments", self.register_start_arguments)
-        self.pmc.mixin("run_game", self.run_game)
-        self.pmc.mixin("download_file_pretty", self.download_file_pretty)
+        self.pmc.mixin("game_runner", self.game_runner)
+        self.pmc.mixin("download_file", self.download_file)
 
     def register_start_arguments(self, old, parser: ArgumentParser):
         parser.add_argument("--not-rich", help=self.pmc.get_message("args.start.not_rich"), default=False, action="store_true")
@@ -68,7 +68,7 @@ class RicherAddon:
             ])
         )
 
-    def run_game(self, old, proc_args: list, proc_cwd: str, options: dict):
+    def game_runner(self, old, proc_args: list, proc_cwd: str, options: dict):
 
         if options["cmd_args"].not_rich:
             old(proc_args, proc_cwd, options)
@@ -147,13 +147,13 @@ class RicherAddon:
 
         asyncio.get_event_loop().run_until_complete(_run())
 
-    def download_file_pretty(self, _old, entry, *args, **kwargs):
+    def download_file(self, _old, entry, *args, **kwargs):
         with ProgressBar(formatters=self.progress_bar_formatters) as pb:
             progress_task = pb(label=entry.name, total=entry.size)
             def progress_callback(p_dl_size: int, _p_size: int, _p_dl_total_size: int, _p_total_size: int):
                 progress_task.items_completed = p_dl_size
                 pb.invalidate()
-            return self.pmc.download_file(entry, *args, **kwargs, progress_callback=progress_callback)
+            return self.pmc.download_file_base(entry, *args, **kwargs, progress_callback=progress_callback)
 
 
 class RollingLinesWindow:

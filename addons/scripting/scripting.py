@@ -44,14 +44,14 @@ class ScriptingAddon:
         self.pmc.add_message("start.scripting.title", "Live Scripting • port: {}")
 
         self.pmc.mixin("register_start_arguments", self.register_start_arguments)
-        self.pmc.mixin("start_game", self.start_game)
+        self.pmc.mixin("game_start", self.game_start)
         self.pmc.mixin("build_application", self.build_application, self.richer)
 
     def register_start_arguments(self, old, parser: ArgumentParser):
         parser.add_argument("--scripting", help=self.pmc.get_message("args.start.scripting"), default=False, action="store_true")
         old(parser)
 
-    def start_game(self, old, *, cmd_args: Namespace, **kwargs) -> None:
+    def game_start(self, old, *, cmd_args: Namespace, **kwargs) -> None:
 
         if cmd_args.scripting:
 
