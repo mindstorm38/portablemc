@@ -13,7 +13,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Iterable
+from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Iterable, Union
 from urllib import request as url_request
 from json.decoder import JSONDecodeError
 from urllib.error import HTTPError
@@ -109,7 +109,7 @@ class CorePortableMC:
 
     def core_start(self, *,
                    version: str,
-                   jvm: Optional[Iterable[str]] = None,     # Default to (JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT)
+                   jvm: Optional[Union[str, Iterable[str]]] = None,     # Default to (JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT)
                    work_dir: Optional[str] = None,          # Default to main dir
                    uuid: Optional[str] = None,              # Default to random UUID
                    username: Optional[str] = None,          # Default to uuid[:8]
@@ -428,6 +428,8 @@ class CorePortableMC:
 
         if jvm is None:
             jvm = (JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT)
+        elif isinstance(jvm, str):
+            jvm = (jvm, *JVM_ARGS_DEFAULT)
 
         start_args = [*jvm]
         for arg in raw_args:
