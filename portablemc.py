@@ -47,7 +47,7 @@ JVM_ARGS_DEFAULT = "-Xmx2G",\
                    "-XX:G1HeapRegionSize=32M"
 
 
-# This file is splitted between the Core which is the lib and the CLI launcher which extends the Core.
+# This file is split between the Core which is the lib and the CLI launcher which extends the Core.
 # Check at the end of this file (in the __main__ check) for the CLI launcher.
 # Addons only apply to the CLI, the core lib may be extracted and published as a python lib in the future.
 
@@ -85,24 +85,27 @@ class CorePortableMC:
 
         no_version = (search is None)
         versions_dir = path.join(self._main_dir, "versions")
-        versions = []
+        # versions = []
 
         if local:
-            for version_id in os.listdir(versions_dir):
-                if no_version or search in version_id:
-                    version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
-                    if path.isfile(version_jar_file):
-                        versions.append((
-                            {"type": "unknown", "id": version_id, "releaseTime": path.getmtime(version_jar_file)}, False
-                        ))
+            if path.isdir(versions_dir):
+                for version_id in os.listdir(versions_dir):
+                    if no_version or search in version_id:
+                        version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
+                        if path.isfile(version_jar_file):
+                            yield "unknown", version_id, path.getmtime(version_jar_file), False
+                            """versions.append((
+                                {"type": "unknown", "id": version_id, "releaseTime": path.getmtime(version_jar_file)}, False
+                            ))"""
         else:
             manifest = self.get_version_manifest()
             for version_data in manifest.all_versions() if no_version else manifest.search_versions(search):
                 version_id = version_data["id"]
                 version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
-                versions.append((version_data, path.isfile(version_jar_file)))
+                yield version_data["type"], version_data["id"], version_data["releaseTime"], path.isfile(version_jar_file)
+                # versions.append((version_data, path.isfile(version_jar_file)))
 
-        return versions
+        # return versions
 
     def core_start(self, *,
                    version: str,
@@ -1203,18 +1206,20 @@ if __name__ == '__main__':
             else:
                 self.print("cmd.search.pending_local" if args.local else "cmd.search.pending", args.input)
 
-            versions = self.core_search(args.input, local=args.local)
-            if len(versions):
-                for (version_data, is_local) in versions:
-                    self.print("cmd.search.result",
-                               version_data["type"],
-                               version_data["id"],
-                               self.format_iso_date(version_data["releaseTime"]),
-                               self.get_message("cmd.search.result.more.local") if is_local else "")
-                return 0
-            else:
+            found = False
+            for version_type, version_id, version_date, is_local in self.core_search(args.input, local=args.local):
+                found = True
+                self.print("cmd.search.result",
+                           version_type,
+                           version_id,
+                           self.format_iso_date(version_date),
+                           self.get_message("cmd.search.result.more.local") if is_local else "")
+
+            if not found:
                 self.print("cmd.search.not_found")
                 return EXIT_VERSION_SEARCH_NOT_FOUND
+            else:
+                return 0
 
         def cmd_login(self, args: Namespace) -> int:
             entry = self.promp_password_and_authenticate(args.email_or_username, True)

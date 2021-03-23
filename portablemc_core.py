@@ -50,7 +50,7 @@ JVM_ARGS_DEFAULT = "-Xmx2G",\
                    "-XX:G1HeapRegionSize=32M"
 
 
-# This file is splitted between the Core which is the lib and the CLI launcher which extends the Core.
+# This file is split between the Core which is the lib and the CLI launcher which extends the Core.
 # Check at the end of this file (in the __main__ check) for the CLI launcher.
 # Addons only apply to the CLI, the core lib may be extracted and published as a python lib in the future.
 
@@ -88,24 +88,27 @@ class CorePortableMC:
 
         no_version = (search is None)
         versions_dir = path.join(self._main_dir, "versions")
-        versions = []
+        # versions = []
 
         if local:
-            for version_id in os.listdir(versions_dir):
-                if no_version or search in version_id:
-                    version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
-                    if path.isfile(version_jar_file):
-                        versions.append((
-                            {"type": "unknown", "id": version_id, "releaseTime": path.getmtime(version_jar_file)}, False
-                        ))
+            if path.isdir(versions_dir):
+                for version_id in os.listdir(versions_dir):
+                    if no_version or search in version_id:
+                        version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
+                        if path.isfile(version_jar_file):
+                            yield "unknown", version_id, path.getmtime(version_jar_file), False
+                            """versions.append((
+                                {"type": "unknown", "id": version_id, "releaseTime": path.getmtime(version_jar_file)}, False
+                            ))"""
         else:
             manifest = self.get_version_manifest()
             for version_data in manifest.all_versions() if no_version else manifest.search_versions(search):
                 version_id = version_data["id"]
                 version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
-                versions.append((version_data, path.isfile(version_jar_file)))
+                yield version_data["type"], version_data["id"], version_data["releaseTime"], path.isfile(version_jar_file)
+                # versions.append((version_data, path.isfile(version_jar_file)))
 
-        return versions
+        # return versions
 
     def core_start(self, *,
                    version: str,
