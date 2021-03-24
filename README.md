@@ -1,107 +1,122 @@
 # Portable Minecraft Launcher
-An easy to use portable Minecraft launcher in only one Python script !
-This single-script launcher is still compatible with the official (Mojang) Minecraft Launcher stored in `.minecraft` and use it.
-
-***[Mojang authentication now available!](#mojang-authentication)***
+An easy-to-use portable Minecraft launcher in only one Python script!
+This single-script launcher is still compatible with the official (Mojang) Minecraft Launcher stored
+in `.minecraft` and use it.
+You can now customize the launcher with addons.
 
 ![illustration](https://github.com/mindstorm38/portablemc/blob/master/illustration.png?raw=true)
 
-*This launcher is tester for Python 3.8 & 3.6, further testing using other versions are welcome.*
+*This launcher is tested for Python 3.8 & 3.6, further testing using other versions are welcome.*
 
-***[Download the script!](https://raw.githubusercontent.com/mindstorm38/portablemc/master/portablemc.py)***
+# Table of contents
+- [Sub-commands](#sub-commands)
+  - [Start the game](#start-the-game)
+    - [Authentication](#authentication)
+    - [Offline mode](#offline-mode)
+    - [Working directory](#working-directory)
+    - [Custom JVM](#custom-jvm)
+    - [Auto connect to a server](#auto-connect-to-a-server)
+    - [Miscellaneous](#miscellaneous)
+  - [Search for versions](#search-for-versions)
+  - [Authentication caching](#authentication-caching)
+  - [Addons](#addons)
+- [Addons (how to)](#addons-how-to)
 
-Once you have the script, you can launch it using python (e.g `python portablemc.py`).
+# Sub-commands
+Arguments are split between multiple sub-command. For example `<exec> <sub-command>`. You can use `-h` 
+argument to display help *(also work for every sub-commands)*.
 
-## Table of contents
+You may need to use `--main-dir <path>` if you want to change the main directory of the game. The main
+directory stores libraries, assets, versions and this launcher's credentials. **By default** the location
+of this directory is OS-dependent, but always in your user's home directory, 
+[check wiki for more information](https://minecraft-fr.gamepedia.com/.minecraft).
 
-- [Arguments](#arguments)
-  - [Mojang authentication](#mojang-authentication)
-  - [Minecraft version](#minecraft-version)
-  - [Offline mode](#username-and-uuid-manual-offline-mode)
-  - [Main & working directories](#main--working-directory)
-  - [Demo mode](#demo-mode)
-  - [Resolution](#window-resolution)
-  - [No start mode](#no-start-mode)
-  - [Customize JVM](#customize-jvm-java-virtual-machine)
-- [Usage examples](#examples)
+**In this example**, `<exec>` must be replaced by any command that 
+launch the script, for example `python3 portablemc.py`.
 
-# Arguments
-The launcher support various arguments that make it really useful and faster than the official launcher
-to test the game in offline mode *(custom username and UUID)*, or demo mode for example.
+**Note that** this script have a *[shebang](https://fr.wikipedia.org/wiki/Shebang)*, this can be
+useful to launch the script on unix OS *(you must have executable permission)*.
 
-*You can read the complete help message using `-h` argument.*
+## Start the game
+The `<exec> start [arguments...] [version]` sub-command is used to prepare and launch the game. A lot
+of arguments allows you to control how to game will behave. The only positional argument is the version,
+you can either specify a full version id (which you can get from the [search](#search-for-versions) 
+sub-command), or a type of version to select the latest of this type (`release` (default) or `snapshot`).
 
-## Mojang authentication
-Do you want to authenticate using your Mojang account ?
+### Authentication
+Online mode is supported by this launcher, use the `-l <email_or_username>` (`--login`) argument to
+log into your account *(login with a username is now deprecated by Mojang)*. If your session is not
+cached or no longer valid, the launcher will ask for the password.
 
-It's now possible using `-l` *(`--login`)* followed by your email or username (for legacy account).
-You will be asked for the password once the launcher is start. *If you don't want cache the session,
-you can use `-t` (`--temp-login`) flag.*
+You can disable the session caching using the flag argument `-t` (`--temp-login`), if your session is 
+nor cached nor valid you will be asked for the password for every launch.
 
-> Session are stored in a separated file from official launcher *(`.minecraft/portablemc_tokens`)*,
-note that no trace of your password remain in this file, so don't worry about using this !
+**Note that** your password is not saved! Only the token is saved (the official launcher also do that)
+in the file `portablemc_tokens` in the main directory (an argument may allow change of this location
+in the future).
 
-> These arguments override arguments for offline username and UUID.
+### Offline mode
+If you need fake offline accounts you can use `-u <username>` (`--username`) defines the username and/or
+`-i <uuid>` (`--uuid`) to define your player's [UUID](https://fr.wikipedia.org/wiki/Universally_unique_identifier).
 
-Your session is cached and you want to invalidate it ? Use `--logout` followed by your email or username.
-This do not start the game.
+If you omit the UUID, a random one is choosen. If you omit the username, the first 8 characters of the UUID
+are used for it. **These two arguments are overwritten by the `-l` (`--login`) argument**.
 
-## Minecraft version
-By default the launcher starts the latest release version, to change this, you can use the `-v` *(`--version`)* followed by the
-version name, or `snapshot` to target the latest snapshot, `release` does the same for latest release.
+### Working directory
+You can use the argument `--work-dir <path>` to change the directory where your saves, resource packs and
+all "user-specific" content are stored. This can be useful if you have a shared read-only main directory 
+(`--main-dir`) and user-specific working directory (for example in `~/.minecraft`).
 
-Using the `-s` *(`--search`)* flag you can tell this launcher to only search for all versions prefixed by the specified version of `-v` argument,
-this stop the application just after searching. Exit codes: `15` if no version was found, else `0`.
+When starting the game, the binaries (`.DLL`, `.SO` for exemple) are temporary copied to the directory
+`<main_dir>/bin`, but you can tell the launcher to copy these binaries into your working directory using
+the `--work-dir-bin` flag. This may be useful if you don't have permissions on the main directory.
 
-> Note that latest version of Java may not work for old versions of Minecraft.
+### Custom JVM
+The Java Virtual Machine is used to run the game, by udefault the launcher use the `java` executable. You
+can change it using `--jvm <path>` argument. By default, some JVM arguments are also passed, these arguments
+are the following and were copied from the officiel launcher:
 
-## Username and UUID (manual offline mode)
-By default, a random player [UUID](https://fr.wikipedia.org/wiki/Universally_unique_identifier) is used, and the username is
-extracted from the first part of the UUID's represention *(for a `110e8400-e29b-11d4-a716-446655440000` uuid, the username will be `110e8400`)*.
-
-You can use `-u` *(`--username`)* followed by the username and `-i` *(`--uuid`)* with your user UUID.
-
-> Note that even if you have set another UUID, the username will be the same as default (with extracted part from default UUID).
-
-## Main & working directory
-You can now configure directories used for game to work. These directories are:
-- `--main-dir`: this directory store libraries, assets, versions, binaries (at runtime) and launcher cache *(default values [here](https://minecraft-fr.gamepedia.com/.minecraft))* 
-- `--work-dir`: this directory store game files like save, resource packs or logs *(if not specified, it is the same as main directory)*.
-
-> **Shortcuts versions of previous arguments (`-md`, `-wd`) will be removed in future versions because it's not standard to have short argument with two letters.**
-
-> When using a main directory with portablemc for the first time, luncher will ask you to continue or not.
-
-## Demo mode
-Demo mode is a mostly unknown feature that allows to start the game with a restricted play duration, it is disabled by default.
-Use `--demo` to enable.
-
-## Window resolution
-You can set the default window resolution *(does not affect the game if already in fullscreen mode)* by using `--resol` followed by
-`<width>x<height>`, `width` and `height` are positive integers.
-
-## No start mode
-By using `--nostart` flag, you force the launcher to download all requirements to the game, but does not start it.
-
-## Customize JVM (Java Virtual Machine)
-By default the launcher use the `javaw` executable to launch Minecraft, if you want to
-change this executable, use the `--jvm` argument followed by the executable.
-
-You can also set JVM arguments string using the `--jvm-args`. By defaults the JVM arguments are the same as the officiel launcher:
 ```
 -Xmx2G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M
 ```
 
-> The `--java` argument is used if `--jvm` is not defined, but it will be removed in future versions.
+You can change these arguments using the `--jvm-args <args>`.
 
-# Examples
-```
-python portablemc.py                            Start latest Minecraft version using offline mode and random username and UUID
-python portablemc.py -l <email|username>        Start latest Minecraft version using mojang authentication for specific email or username (legacy)
-python portablemc.py -tl <email|username>       Same as previous command, but do not cache the session (you need to re-enter password on each launch)
-python portablemc.py --nostart                  Download all components of the latest Minecraft version but do not start the game
-python portablemc.py --logout <email|username>  Logout from a session
-python portablemc.py -u OfflineTest -v 1.15     Start 1.15 Minecraft version in offline mode with a username 'OfflineTest' and random UUID
-python portablemc.py -sv 1.7                    Search for all versions starting with "1.7"
-python portablemc.py --main-dir /tmp/mc         Start latest Minecraft version in /tmp/mc instead of .minecraft
-```
+### Auto connect to a server
+Since Minecraft 1.6 *(at least, need further tests to confirm)* we can start the game and automatically
+connect to a server. To do that you can use `-s <addr>` (`--server`) for the server address 
+(e.g. `mc.hypixel.net`) and the `-p` (`--server-port`) to specify its port, by default to 25565.
+
+### Miscellaneous
+With `--dry`, the game is prepared but not started.
+
+With `--demo` you can enable the [demo mode](https://minecraft.gamepedia.com/Demo_mode) of the game.  
+
+With `--resol <width>x<height>` you can change the resolution of the game window.
+
+With `--no-better-logging` flag you can disable the better logging configuration used by the launcher
+to avoid raw XML logging in the terminal.
+
+The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` are obvious *(since 1.16)*.
+
+## Search for versions
+The `<exec> search [-l] [version]` sub-command is used to search for versions. By default, this command
+will search for official versions available to download, you can instead search for local versions
+using the `-l` (`--local`) flag. The search string is optional, if not given all official or local
+versions are displayed.
+
+## Authentication caching
+Two subcommand allows you to cache or uncache sessions: `<exec> login|logout <email_or_username>`.
+These subcommand doesn't prevent you from using the `-l` (`--login`) argument when starting the game,
+these are just here to manage the session storage.
+
+## Addons
+The `<exec> addon list|init|show` sub-commands are used to list, initialize (for developpers) and show
+addons.
+
+# Addons (how to)
+Addons for PortableMC are obviously optionnals, officially supported addons can be found in the
+['addons' directory](https://github.com/mindstorm38/portablemc/tree/master/addons).
+To install addons you need to make a directory `addons` next to the script, and then put addons into it.
+
+To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons).
