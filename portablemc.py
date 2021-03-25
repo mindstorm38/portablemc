@@ -85,7 +85,6 @@ class CorePortableMC:
 
         no_version = (search is None)
         versions_dir = path.join(self._main_dir, "versions")
-        # versions = []
 
         if local:
             if path.isdir(versions_dir):
@@ -94,18 +93,12 @@ class CorePortableMC:
                         version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
                         if path.isfile(version_jar_file):
                             yield "unknown", version_id, path.getmtime(version_jar_file), False
-                            """versions.append((
-                                {"type": "unknown", "id": version_id, "releaseTime": path.getmtime(version_jar_file)}, False
-                            ))"""
         else:
             manifest = self.get_version_manifest()
             for version_data in manifest.all_versions() if no_version else manifest.search_versions(search):
                 version_id = version_data["id"]
                 version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
                 yield version_data["type"], version_data["id"], version_data["releaseTime"], path.isfile(version_jar_file)
-                # versions.append((version_data, path.isfile(version_jar_file)))
-
-        # return versions
 
     def core_start(self, *,
                    version: str,
@@ -360,9 +353,7 @@ class CorePortableMC:
         legacy_args = version_meta.get("minecraftArguments")
 
         raw_args = []
-        raw_args.extend(
-            self.interpret_args(version_meta["arguments"]["jvm"] if legacy_args is None else LEGACY_JVM_ARGUMENTS,
-                                features))
+        raw_args.extend(self.interpret_args(version_meta["arguments"]["jvm"] if legacy_args is None else LEGACY_JVM_ARGUMENTS, features))
 
         if logging_arg is not None:
             raw_args.append(logging_arg)
@@ -468,7 +459,7 @@ class CorePortableMC:
 
     def get_download_buffer(self) -> bytearray:
         if self._download_buffer is None:
-            self._download_buffer = bytearray(32768)
+            self._download_buffer = bytearray(65536)
         return self._download_buffer
 
     # Public methods to be replaced by addons
