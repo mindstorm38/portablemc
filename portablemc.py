@@ -1090,22 +1090,23 @@ if __name__ == '__main__':
         def _register_addons(self):
             import importlib
             self._prepare_addons(False)
-            for addon_name in os.listdir(self._addons_dir):
-                if not addon_name.endswith(".dis") and addon_name not in ("__init__.py", "__pycache__"):
-                    if addon_name.endswith(".py"):
-                        addon_name = addon_name[:-3]
-                    else:
-                        addon_path = path.join(self._addons_dir, addon_name)
-                        if path.isfile(addon_path) or not path.isfile(path.join(addon_path, "__init__.py")):
-                            # If entry was not terminated by ".py" and is a file OR
-                            # <name>/__init__.py doesn't exists (maybe not a directory).
+            if path.isdir(self._addons_dir):
+                for addon_name in os.listdir(self._addons_dir):
+                    if not addon_name.endswith(".dis") and addon_name not in ("__init__.py", "__pycache__"):
+                        if addon_name.endswith(".py"):
+                            addon_name = addon_name[:-3]
+                        else:
+                            addon_path = path.join(self._addons_dir, addon_name)
+                            if path.isfile(addon_path) or not path.isfile(path.join(addon_path, "__init__.py")):
+                                # If entry was not terminated by ".py" and is a file OR
+                                # <name>/__init__.py doesn't exists (maybe not a directory).
+                                continue
+                        if addon_name in self._addons:
+                            self.print("addon.defined_twice", addon_name)
                             continue
-                    if addon_name in self._addons:
-                        self.print("addon.defined_twice", addon_name)
-                        continue
-                    module = importlib.import_module(f"{ADDONS_DIR}.{addon_name}")
-                    if PortableAddon.is_valid(module):
-                        self._addons[addon_name] = PortableAddon(module, addon_name)
+                        module = importlib.import_module(f"{ADDONS_DIR}.{addon_name}")
+                        if PortableAddon.is_valid(module):
+                            self._addons[addon_name] = PortableAddon(module, addon_name)
             for addon in self._addons.values():
                 addon.build(self)
             for addon in self._addons.values():
