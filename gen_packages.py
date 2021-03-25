@@ -30,11 +30,12 @@ def main():
                 if is_dir:
                     file = file[:-2]
                     for root, dirs, src_files in os.walk(path.join(this_dir, file)):
-                        for src_file in src_files:
-                            src_file = path.join(root, src_file)
-                            dst_file = path.relpath(src_file, this_dir)
-                            print(f"=> Writing {src_file}")
-                            zf.write(src_file, dst_file)
+                        if not root.endswith("__pycache__"):
+                            for src_file in src_files:
+                                src_file = path.join(root, src_file)
+                                dst_file = path.relpath(src_file, this_dir)
+                                print(f"=> Writing {src_file}")
+                                zf.write(src_file, dst_file)
                 else:
                     src_file = path.join(this_dir, file)
                     print(f"=> Writing {src_file}")
