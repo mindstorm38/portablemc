@@ -1,4 +1,7 @@
 # Portable Minecraft Launcher
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/mindstorm38/portablemc)
+![GitHub all releases](https://img.shields.io/github/downloads/mindstorm38/portablemc/total)
+
 An easy-to-use portable Minecraft launcher in only one Python script!
 This single-script launcher is still compatible with the official (Mojang) Minecraft Launcher stored
 in `.minecraft` and use it.
