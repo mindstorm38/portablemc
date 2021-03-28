@@ -4,12 +4,14 @@ This single-script launcher is still compatible with the official (Mojang) Minec
 in `.minecraft` and use it.
 You can now customize the launcher with addons.
 
-![illustration](https://github.com/mindstorm38/portablemc/blob/master/illustration.png?raw=true)
-
-*This launcher is tested for Python 3.6, 3.7, 3.8, further testing using other versions are welcome.*
+### [Download now!](https://github.com/mindstorm38/portablemc/releases)
 
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/mindstorm38/portablemc)
 ![GitHub all releases](https://img.shields.io/github/downloads/mindstorm38/portablemc/total)
+
+![illustration](https://github.com/mindstorm38/portablemc/blob/master/illustration.png?raw=true)
+
+*This launcher is tested for Python 3.6, 3.7, 3.8, further testing using other versions are welcome.*
 
 # Table of contents
 - [Sub-commands](#sub-commands)
