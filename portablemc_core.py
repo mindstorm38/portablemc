@@ -207,7 +207,7 @@ class CorePortableMC:
             if not path.isfile(asset_file) or path.getsize(asset_file) != asset_size:
                 os.makedirs(asset_hash_dir, 0o777, True)
                 asset_url = ASSET_BASE_URL.format(asset_hash_prefix, asset_hash)
-                download_entry = DownloadEntry(asset_url, asset_size, asset_hash, asset_file, name=asset_id)
+                download_entry = DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id)
                 self.download_file(download_entry,
                                    start_size=assets_current_size,
                                    total_size=assets_total_size)
@@ -511,9 +511,9 @@ class CorePortableMC:
                     if progress_callback is not None:
                         progress_callback(dl_size, entry.size, start_size, total_size)
 
-                if dl_size != entry.size:
+                if entry.size is not None and dl_size != entry.size:
                     raise DownloadCorruptedError("invalid_size")
-                elif dl_sha1.hexdigest() != entry.sha1:
+                elif entry.sha1 is not None and dl_sha1.hexdigest() != entry.sha1:
                     raise DownloadCorruptedError("invalid_sha1")
                 else:
                     return start_size
@@ -825,16 +825,16 @@ class DownloadEntry:
 
     __slots__ = "url", "size", "sha1", "dst", "name"
 
-    def __init__(self, url: str, size: int, sha1: str, dst: str, *, name: Optional[str] = None):
+    def __init__(self, url: str, dst: str, *, size: 'Optional[int]' = None, sha1: 'Optional[str]' = None, name: Optional[str] = None):
         self.url = url
+        self.dst = dst
         self.size = size
         self.sha1 = sha1
-        self.dst = dst
         self.name = url if name is None else name
 
     @classmethod
     def from_version_meta_info(cls, info: dict, dst: str, *, name: Optional[str] = None) -> 'DownloadEntry':
-        return DownloadEntry(info["url"], info["size"], info["sha1"], dst, name=name)
+        return DownloadEntry(info["url"], dst, size=info["size"], sha1=info["sha1"], name=name)
 
 
 class AuthError(Exception): ...
