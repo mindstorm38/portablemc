@@ -10,7 +10,7 @@ def main():
     pmc_core_file = path.join(this_dir, "portablemc_core.py")
 
     with open(pmc_file, "rt") as src:
-        with open(pmc_core_file, "wt") as dst:
+        with open(pmc_core_file, "wt", newline="\n") as dst:
             while True:
                 line = src.readline()
                 if not len(line) or line.startswith("if __name__ == '__main__':"):

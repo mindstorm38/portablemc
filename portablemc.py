@@ -914,7 +914,8 @@ if __name__ == '__main__':
                               "NAME = \"{name}\"\n" \
                               "VERSION = \"0.0.1\"\n" \
                               "AUTHORS = ()\n" \
-                              "REQUIRES = ()\n\n" \
+                              "REQUIRES = ()\n" \
+                              "DESCRIPTION = \"\"\n\n\n" \
                               "def addon_build(pmc):\n" \
                               "    return None\n"
 
