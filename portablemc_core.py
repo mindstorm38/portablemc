@@ -257,71 +257,8 @@ class CorePortableMC:
                 logging_arg = client_logging["argument"].replace("${path}", logging_file)
 
         # Libraries and natives loading
-        self.notice("start.loading_libraries")
-        libraries_dir = path.join(self._main_dir, "libraries")
-        classpath_libs = [version_jar_file]
-        native_libs = []
-
-        for lib_obj in version_meta["libraries"]:
-
-            if "rules" in lib_obj:
-                if not self.interpret_rule(lib_obj["rules"]):
-                    continue
-
-            lib_name = lib_obj["name"]  # type: str
-            lib_type = None  # type: Optional[str]
-
-            if "downloads" in lib_obj:
-
-                lib_dl = lib_obj["downloads"]
-                lib_dl_info = None
-
-                if "natives" in lib_obj and "classifiers" in lib_dl:
-                    lib_natives = lib_obj["natives"]
-                    if self._mc_os in lib_natives:
-                        lib_native_classifier = lib_natives[self._mc_os]
-                        if self._mc_archbits is not None:
-                            lib_native_classifier = lib_native_classifier.replace("${arch}", self._mc_archbits)
-                        lib_name += ":{}".format(lib_native_classifier)
-                        lib_dl_info = lib_dl["classifiers"][lib_native_classifier]
-                        lib_type = "native"
-                elif "artifact" in lib_dl:
-                    lib_dl_info = lib_dl["artifact"]
-                    lib_type = "classpath"
-
-                if lib_dl_info is None:
-                    self.notice("start.no_download_for_library", lib_name)
-                    continue
-
-                lib_path = path.join(libraries_dir, lib_dl_info["path"])
-                lib_dir = path.dirname(lib_path)
-
-                os.makedirs(lib_dir, 0o777, True)
-                download_entry = DownloadEntry.from_version_meta_info(lib_dl_info, lib_path, name=lib_name)
-
-                if not path.isfile(lib_path) or path.getsize(lib_path) != download_entry.size:
-                    self.download_file(download_entry)
-
-            else:
-
-                # If no 'downloads' trying to parse the maven dependency string "<group>:<product>:<version>
-                # to directory path. This may be used by custom configuration that do not provide download
-                # links like Optifine.
-
-                lib_name_parts = lib_name.split(":")
-                lib_path = path.join(libraries_dir, *lib_name_parts[0].split("."), lib_name_parts[1],
-                                     lib_name_parts[2], "{}-{}.jar".format(lib_name_parts[1], lib_name_parts[2]))
-                lib_type = "classpath"
-
-                if not path.isfile(lib_path):
-                    self.notice("start.cached_library_not_found", lib_name, lib_path)
-                    continue
-
-            if lib_type == "classpath":
-                classpath_libs.append(lib_path)
-            elif lib_type == "native":
-                native_libs.append(lib_path)
-
+        classpath_libs, native_libs = self.core_ensure_libraries(version_meta)
+        classpath_libs.append(version_jar_file)
         if callable(libraries_modifier):
             libraries_modifier(classpath_libs, native_libs)
 
@@ -444,6 +381,75 @@ class CorePortableMC:
             })
 
         self.notice("start.stopped")
+
+    def core_ensure_libraries(self, version_meta: dict) -> Tuple[List[str], List[str]]:
+
+        self.notice("libraries.loading_libraries")
+        libraries_dir = path.join(self._main_dir, "libraries")
+        classpath_libs = []
+        native_libs = []
+
+        for lib_obj in version_meta["libraries"]:
+
+            if "rules" in lib_obj:
+                if not self.interpret_rule(lib_obj["rules"]):
+                    continue
+
+            lib_name = lib_obj["name"]  # type: str
+            lib_type = None  # type: Optional[str]
+
+            if "downloads" in lib_obj:
+
+                lib_dl = lib_obj["downloads"]
+                lib_dl_info = None
+
+                if "natives" in lib_obj and "classifiers" in lib_dl:
+                    lib_natives = lib_obj["natives"]
+                    if self._mc_os in lib_natives:
+                        lib_native_classifier = lib_natives[self._mc_os]
+                        if self._mc_archbits is not None:
+                            lib_native_classifier = lib_native_classifier.replace("${arch}", self._mc_archbits)
+                        lib_name += ":{}".format(lib_native_classifier)
+                        lib_dl_info = lib_dl["classifiers"][lib_native_classifier]
+                        lib_type = "native"
+                elif "artifact" in lib_dl:
+                    lib_dl_info = lib_dl["artifact"]
+                    lib_type = "classpath"
+
+                if lib_dl_info is None:
+                    self.notice("libraries.no_download_for_library", lib_name)
+                    continue
+
+                lib_path = path.realpath(path.join(libraries_dir, lib_dl_info["path"]))
+                lib_dir = path.dirname(lib_path)
+
+                os.makedirs(lib_dir, 0o777, True)
+                download_entry = DownloadEntry.from_version_meta_info(lib_dl_info, lib_path, name=lib_name)
+
+                if not path.isfile(lib_path) or path.getsize(lib_path) != download_entry.size:
+                    self.download_file(download_entry)
+
+            else:
+
+                # If no 'downloads' trying to parse the maven dependency string "<group>:<product>:<version>
+                # to directory path. This may be used by custom configuration that do not provide download
+                # links like Optifine.
+
+                lib_name_parts = lib_name.split(":")
+                lib_path = path.join(libraries_dir, *lib_name_parts[0].split("."), lib_name_parts[1],
+                                     lib_name_parts[2], "{}-{}.jar".format(lib_name_parts[1], lib_name_parts[2]))
+                lib_type = "classpath"
+
+                if not path.isfile(lib_path):
+                    self.notice("libraries.cached_library_not_found", lib_name, lib_path)
+                    continue
+
+            if lib_type == "classpath":
+                classpath_libs.append(lib_path)
+            elif lib_type == "native":
+                native_libs.append(lib_path)
+
+        return classpath_libs, native_libs
 
     # Lazy variables getters
 
