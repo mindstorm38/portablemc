@@ -51,8 +51,11 @@ class CoderPackAddon:
         self.pmc.add_message("coderpack.decompile.remapping", "Remapping jar file using SpecialSource...")
         self.pmc.add_message("coderpack.decompile.decompiling.first_pass", "Decompiling using CFR, first pass...")
         self.pmc.add_message("coderpack.decompile.done", "Done")
-        self.pmc.add_message("coderpack.decompile.nothing_done_suggest_delete", "The decompilation directory already exists: {}")
-        self.pmc.add_message("coderpack.decompile.decompilation_done", "Decompilation done in this directory: {}")
+        self.pmc.add_message("coderpack.decompile.nothing_done_suggest_delete", "The decompilation directory already exists.")
+        self.pmc.add_message("coderpack.decompile.decompilation_done", "Decompilation done in this directory.")
+        self.pmc.add_message("coderpack.decompile.fixing_classes", "Trying to fix classes...")
+        self.pmc.add_message("coderpack.decompile.fixed_classes", "Classes fixed.")
+        self.pmc.add_message("coderpack.decompile.used_fixer", "Fixed {} using {}")
 
         self.pmc.mixin("register_subcommands", self.register_subcommands)
         self.pmc.mixin("start_subcommand", self.start_subcommand)
@@ -169,23 +172,54 @@ class CoderPackAddon:
                 "--kill-lvt",
                 title="coderpack.decompile.remapping")
 
+        # Ensure libraries
+        classpath_libs, native_libs = self.pmc.core_ensure_libraries(version_meta)
+
         # Decompilation to an output directory
         decompiler_dir = path.join(out_version_dir, "{}-{}".format(version, side))
         decompiler_src = path.join(decompiler_dir, "src", "main", "java")
+
         if not path.isdir(decompiler_src):
+
             os.makedirs(decompiler_src)
+
             self.exec_jar(
                 cfr_file,
                 remapped_jar,
                 "--outputdir", decompiler_src,
                 "--caseinsensitivefs", "true",
+                "--extraclasspath", self.pmc.get_classpath_separator().join(classpath_libs),
                 title="coderpack.decompile.decompiling.first_pass")
-            self.pmc.print("coderpack.decompile.decompilation_done", decompiler_dir)
-        else:
-            self.pmc.print("coderpack.decompile.nothing_done_suggest_delete", decompiler_dir)
 
-        # Ensure libraries
-        classpath_libs, native_libs = self.pmc.core_ensure_libraries(version_meta)
+            self.pmc.print("coderpack.decompile.decompilation_done")
+            self.pmc.print("coderpack.decompile.fixing_classes")
+
+            fixers = [LambdaWildcardFixer()]
+            for dirpath, dirnames, filenames in os.walk(decompiler_src):
+                package = path.relpath(dirpath, decompiler_src).replace(path.sep, ".")
+                for filename in filenames:
+                    classname = filename[:-5] if filename.endswith(".java") else filename
+                    file_path = path.join(dirpath, filename)
+                    changed = False
+                    with open(file_path, "rb") as fp:
+                        src_buf = bytearray(fp.read())
+                        dst_buf = bytearray()
+                        for fixer in fixers:
+                            if fixer.fix(src_buf, dst_buf):
+                                self.pmc.print("coderpack.decompile.used_fixer", f"{package}.{classname}", fixer.__class__.__name__)
+                                changed = True
+                            tmp = src_buf
+                            src_buf = dst_buf
+                            dst_buf = tmp
+                            dst_buf.clear()
+                    if changed:
+                        with open(file_path, "wb") as fp:
+                            fp.write(src_buf)
+
+            self.pmc.print("coderpack.decompile.fixed_classes")
+
+        else:
+            self.pmc.print("coderpack.decompile.nothing_done_suggest_delete")
 
         settings_gradle_file = path.join(decompiler_dir, "settings.gradle")
         build_gradle_file = path.join(decompiler_dir, "build.gradle")
@@ -335,3 +369,35 @@ class ProguardToTsrgMapping:
                         dst_fp.write(self._remap_path(deobf))
 
                     dst_fp.write("\n")
+
+
+class SourceCodeFixer:
+
+    def fix(self, src: bytearray, dst: bytearray) -> bool:
+        raise NotImplementedError
+
+class LambdaWildcardFixer(SourceCodeFixer):
+
+    LAMBDA_ARROW = b") -> "
+    LAMBDA_OPENING = b"(? super "
+
+    def fix(self, src: bytearray, dst: bytearray) -> bool:
+
+        first = True
+        used = False
+        for part in src.split(self.LAMBDA_ARROW):
+
+            if first:
+                first = False
+            else:
+                dst.extend(self.LAMBDA_ARROW)
+
+            try:
+                idx = part.rindex(self.LAMBDA_OPENING)
+                dst.extend(part[:(idx + 1)])
+                dst.extend(part[(idx + len(self.LAMBDA_OPENING) + 2):])
+                used = True
+            except ValueError:
+                dst.extend(part)
+
+        return used
