@@ -55,7 +55,7 @@ class CoderPackAddon:
         self.pmc.add_message("coderpack.decompile.decompilation_done", "Decompilation done in this directory.")
         self.pmc.add_message("coderpack.decompile.fixing_classes", "Trying to fix classes...")
         self.pmc.add_message("coderpack.decompile.fixed_classes", "Classes fixed.")
-        self.pmc.add_message("coderpack.decompile.used_fixer", "Fixed {} using {}")
+        self.pmc.add_message("coderpack.decompile.used_fixer", "Used {} {} times on {}")
 
         self.pmc.mixin("register_subcommands", self.register_subcommands)
         self.pmc.mixin("start_subcommand", self.start_subcommand)
@@ -80,6 +80,7 @@ class CoderPackAddon:
 
     def register_decompile_arguments(self, parser: ArgumentParser):
         parser.add_argument("-s", "--side", help=self.pmc.get_message("args.coderpack.decompile.side"), choices=["client", "server"], default="client")
+        parser.add_argument("--fix", action="store_true", default=False)
         parser.add_argument("version")
 
     def cmd_coderpack(self, args: Namespace) -> int:
@@ -92,7 +93,7 @@ class CoderPackAddon:
         VersionNotFoundError = self.pmc.VersionNotFoundError
 
         try:
-            self.decompile(version=args.version, side=args.side)
+            self.decompile(version=args.version, side=args.side, force_fix=args.fix)
         except VersionNotFoundError:
             return EXIT_VERSION_NOT_FOUND
         except MappingsNotSupportedError:
@@ -101,7 +102,8 @@ class CoderPackAddon:
     def decompile(self,
                   version: str,
                   side: str = "client",
-                  out_dir: 'Optional[str]' = None) -> None:
+                  out_dir: 'Optional[str]' = None,
+                  force_fix: bool = False) -> None:
 
         DownloadEntry = self.pmc.DownloadEntry
 
@@ -179,6 +181,8 @@ class CoderPackAddon:
         decompiler_dir = path.join(out_version_dir, "{}-{}".format(version, side))
         decompiler_src = path.join(decompiler_dir, "src", "main", "java")
 
+        do_fixes = force_fix
+
         if not path.isdir(decompiler_src):
 
             os.makedirs(decompiler_src)
@@ -192,9 +196,20 @@ class CoderPackAddon:
                 title="coderpack.decompile.decompiling.first_pass")
 
             self.pmc.print("coderpack.decompile.decompilation_done")
+
+            do_fixes = True
+
+        else:
+            self.pmc.print("coderpack.decompile.nothing_done_suggest_delete")
+
+        if do_fixes:
+
+            fixers = [
+                LambdaWildcardFixer()
+            ]
+
             self.pmc.print("coderpack.decompile.fixing_classes")
 
-            fixers = [LambdaWildcardFixer()]
             for dirpath, dirnames, filenames in os.walk(decompiler_src):
                 package = path.relpath(dirpath, decompiler_src).replace(path.sep, ".")
                 for filename in filenames:
@@ -203,23 +218,18 @@ class CoderPackAddon:
                     changed = False
                     with open(file_path, "rb") as fp:
                         src_buf = bytearray(fp.read())
-                        dst_buf = bytearray()
                         for fixer in fixers:
-                            if fixer.fix(src_buf, dst_buf):
-                                self.pmc.print("coderpack.decompile.used_fixer", f"{package}.{classname}", fixer.__class__.__name__)
+                            # print(f"fixing {package}.{classname}")
+                            changes = fixer.fix(src_buf)
+                            if changes:
+                                self.pmc.print("coderpack.decompile.used_fixer", fixer.__class__.__name__, changes,
+                                               f"{package}.{classname}")
                                 changed = True
-                            tmp = src_buf
-                            src_buf = dst_buf
-                            dst_buf = tmp
-                            dst_buf.clear()
                     if changed:
                         with open(file_path, "wb") as fp:
                             fp.write(src_buf)
 
             self.pmc.print("coderpack.decompile.fixed_classes")
-
-        else:
-            self.pmc.print("coderpack.decompile.nothing_done_suggest_delete")
 
         settings_gradle_file = path.join(decompiler_dir, "settings.gradle")
         build_gradle_file = path.join(decompiler_dir, "build.gradle")
@@ -373,31 +383,48 @@ class ProguardToTsrgMapping:
 
 class SourceCodeFixer:
 
-    def fix(self, src: bytearray, dst: bytearray) -> bool:
+    def fix(self, src: bytearray) -> int:
         raise NotImplementedError
 
 class LambdaWildcardFixer(SourceCodeFixer):
 
     LAMBDA_ARROW = b") -> "
-    LAMBDA_OPENING = b"(? super "
+    LAMBDA_OPENING = b"("
+    LAMBDA_PARAM_SEP = b","
 
-    def fix(self, src: bytearray, dst: bytearray) -> bool:
+    def fix(self, src: bytearray) -> int:
 
-        first = True
-        used = False
-        for part in src.split(self.LAMBDA_ARROW):
+        LAMBDA_ARROW = b") -> "
+        LAMBDA_OPEN = b"("
+        LAMBDA_COMMA = b","
+        LAMBDA_SUPER = b"? super"
+        LAMBDA_SUPER_LEN = len(LAMBDA_SUPER)
+        LAMBDA_SUPER_FULL_LEN = LAMBDA_SUPER_LEN + 3
 
-            if first:
-                first = False
-            else:
-                dst.extend(self.LAMBDA_ARROW)
+        idx = len(src)
+        changes = 0
+        while True:
+            arrow_idx = src.rfind(LAMBDA_ARROW, 0, idx)
+            if arrow_idx == -1:
+                break  # No lambda
+            open_idx = src.rfind(LAMBDA_OPEN, 0, arrow_idx)
+            if open_idx == -1:
+                break  # Invalid syntax
+            idx = open_idx
+            open_idx += 1
+            in_params = True
+            while in_params:
+                comma_idx = src.find(LAMBDA_COMMA, open_idx, arrow_idx)
+                if comma_idx == -1:
+                    comma_idx = arrow_idx
+                    in_params = False
+                if comma_idx - open_idx > LAMBDA_SUPER_FULL_LEN:
+                    if src[open_idx:(open_idx + LAMBDA_SUPER_LEN)] == LAMBDA_SUPER:
+                        # print(f"param: {src[open_idx - 1:comma_idx]}")
+                        src[open_idx:(open_idx + LAMBDA_SUPER_FULL_LEN)] = ()
+                        comma_idx -= LAMBDA_SUPER_FULL_LEN
+                        changes += 1
+                        # print(f"param (modified): {src[open_idx - 1:comma_idx]}")
+                open_idx = comma_idx + 2  # Add the length of ', '
 
-            try:
-                idx = part.rindex(self.LAMBDA_OPENING)
-                dst.extend(part[:(idx + 1)])
-                dst.extend(part[(idx + len(self.LAMBDA_OPENING) + 2):])
-                used = True
-            except ValueError:
-                dst.extend(part)
-
-        return used
+        return changes
