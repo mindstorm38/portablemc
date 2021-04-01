@@ -219,7 +219,6 @@ class CoderPackAddon:
                     with open(file_path, "rb") as fp:
                         src_buf = bytearray(fp.read())
                         for fixer in fixers:
-                            # print(f"fixing {package}.{classname}")
                             changes = fixer.fix(src_buf)
                             if changes:
                                 self.pmc.print("coderpack.decompile.used_fixer", fixer.__class__.__name__, changes,
@@ -387,10 +386,6 @@ class SourceCodeFixer:
         raise NotImplementedError
 
 class LambdaWildcardFixer(SourceCodeFixer):
-
-    LAMBDA_ARROW = b") -> "
-    LAMBDA_OPENING = b"("
-    LAMBDA_PARAM_SEP = b","
 
     def fix(self, src: bytearray) -> int:
 
