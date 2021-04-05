@@ -130,8 +130,11 @@ class CorePortableMC:
         self.notice("start.welcome")
 
         self.check_main_dir()
+
         if work_dir is None:
             work_dir = self._main_dir
+        else:
+            work_dir = path.realpath(work_dir)
 
         # Resolve version metadata
         version, version_alias = self.get_version_manifest().filter_latest(version)
@@ -1287,7 +1290,7 @@ if __name__ == '__main__':
         def cmd_start(self, args: Namespace) -> int:
 
             # Get all arguments
-            work_dir = self._main_dir if args.main_dir is None else path.realpath(args.main_dir)
+            # work_dir = path.realpath(self._main_dir if args.work_dir is None else args.main_dir)
             # uuid = None if args.uuid is None else args.uuid.replace("-", "")
             # username = args.username
 
@@ -1322,7 +1325,7 @@ if __name__ == '__main__':
             # Actual start
             try:
                 self.game_start(
-                    work_dir=work_dir,
+                    work_dir=args.work_dir,
                     version=args.version,
                     uuid=args.uuid,
                     username=args.username,
