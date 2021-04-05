@@ -193,6 +193,7 @@ class CoderPackAddon:
                 "--outputdir", decompiler_src,
                 "--caseinsensitivefs", "true",
                 "--extraclasspath", self.pmc.get_classpath_separator().join(classpath_libs),
+                "--antiobf", "true",
                 title="coderpack.decompile.decompiling.first_pass")
 
             self.pmc.print("coderpack.decompile.decompilation_done")
