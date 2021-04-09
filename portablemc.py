@@ -436,13 +436,23 @@ class CorePortableMC:
                 # links like Optifine.
 
                 lib_name_parts = lib_name.split(":")
-                lib_path = path.join(libraries_dir, *lib_name_parts[0].split("."), lib_name_parts[1],
-                                     lib_name_parts[2], "{}-{}.jar".format(lib_name_parts[1], lib_name_parts[2]))
+
+                maven_vendor = lib_name_parts[0]
+                maven_vendor_split = maven_vendor.split(".")
+                maven_package = lib_name_parts[1]
+                maven_version = lib_name_parts[2]
+                maven_jar = "{}-{}.jar".format(maven_package, maven_version)
+
+                lib_path = path.join(libraries_dir, *maven_vendor_split, maven_package, maven_version, maven_jar)
                 lib_type = "classpath"
 
                 if not path.isfile(lib_path):
-                    self.notice("libraries.cached_library_not_found", lib_name, lib_path)
-                    continue
+                    if "url" in lib_obj:
+                        lib_url = "{}{}".format(lib_obj, "/".join((*maven_vendor_split, maven_package, maven_version, maven_jar)))
+                        self.download_file(DownloadEntry(lib_url, lib_path))
+                    else:
+                        self.notice("libraries.cached_library_not_found", lib_name, lib_path)
+                        continue
 
             if lib_type == "classpath":
                 classpath_libs.append(lib_path)
@@ -526,9 +536,12 @@ class CorePortableMC:
 
     # Version metadata
 
+    def get_version_dir(self, name: str) -> str:
+        return path.join(self._main_dir, "versions", name)
+
     def resolve_version_meta(self, name: str) -> Tuple[dict, str]:
 
-        version_dir = path.join(self._main_dir, "versions", name)
+        version_dir = self.get_version_dir(name)
         version_meta_file = path.join(version_dir, "{}.json".format(name))
         content = None
 
@@ -653,8 +666,15 @@ class CorePortableMC:
         return ";" if sys.platform == "win32" else ":"
 
     @staticmethod
-    def read_url_json(url: str) -> dict:
-        return json.load(url_request.urlopen(url))
+    def read_url_json(url: str, *, ignore_error: bool = False) -> dict:
+        if ignore_error:
+            try:
+                res = url_request.urlopen(url)
+            except HTTPError as err:
+                res = err
+        else:
+            res = url_request.urlopen(url)
+        return json.load(res)
 
     @classmethod
     def dict_merge(cls, dst: dict, other: dict):
@@ -957,7 +977,8 @@ if __name__ == '__main__':
                         "(Mojang) Minecraft Launcher stored in .minecraft and use it.",
                 "args.main_dir": "Set the main directory where libraries, assets, versions and binaries (at runtime) "
                                  "are stored. It also contains the launcher authentication database.",
-                "args.search": "Search for official Minecraft versions.",
+                "args.search": "Search for Minecraft versions.",
+                "args.search.local": "Search only for local installed Minecraft versions.",
                 "args.start": "Start a Minecraft version, default to the latest release.",
                 "args.start.dry": "Simulate game starting.",
                 "args.start.disable_multiplayer": "Disable the multiplayer buttons (>= 1.16).",
@@ -1163,7 +1184,7 @@ if __name__ == '__main__':
             self.register_addon_arguments(subcommands.add_parser("addon", help=self.get_message("args.addon")))
 
         def register_search_arguments(self, parser: ArgumentParser):
-            parser.add_argument("-l", "--local", default=False, action="store_true")
+            parser.add_argument("-l", "--local", help=self.get_message("args.search.local"), default=False, action="store_true")
             parser.add_argument("input", nargs="?")
             parser.set_defaults(ignore_main_dir=True)
 
@@ -1289,32 +1310,18 @@ if __name__ == '__main__':
 
         def cmd_start(self, args: Namespace) -> int:
 
-            # Get all arguments
-            # work_dir = path.realpath(self._main_dir if args.work_dir is None else args.main_dir)
-            # uuid = None if args.uuid is None else args.uuid.replace("-", "")
-            # username = args.username
-
             # Login if needed
             if args.login is not None:
                 auth = self.promp_password_and_authenticate(args.login, not args.templogin)
                 if auth is None:
                     return EXIT_AUTHENTICATION_FAILED
-                # uuid = auth.uuid
-                # username = auth.username
             else:
                 auth = None
-
-            # Setup defaut UUID and/or username if needed
-            # if uuid is None: uuid = uuid4().hex
-            # if username is None: username = uuid[:8]
 
             # Decode resolution
             custom_resol = args.resolution  # type: Optional[Tuple[int, int]]
             if custom_resol is not None and len(custom_resol) != 2:
                 custom_resol = None
-
-            # def args_modifier(raw_args: List[str], main_class_idx: int):
-            #     raw_args[main_class_idx:main_class_idx] = args.jvm_args.split(" ")
 
             def runner(proc_args: list, proc_cwd: str, options: dict):
                 options["cmd_args"] = args
@@ -1341,7 +1348,6 @@ if __name__ == '__main__':
                     disable_chat=args.disable_chat,
                     server_addr=args.server,
                     server_port=args.server_port,
-                    # args_modifier=args_modifier,
                     runner=runner
                 )
             except VersionNotFoundError:
