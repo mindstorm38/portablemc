@@ -127,7 +127,7 @@ class CorePortableMC:
         # - URLError: for any URL resolving error
         # - DownloadCorruptedError: if a download is corrupted
 
-        self.notice("start.welcome")
+        # self.notice("start.welcome")
 
         self.check_main_dir()
 
@@ -1060,7 +1060,7 @@ if __name__ == '__main__':
                 "version.parent_version": "=> Parent version: {}",
                 "version.parent_version_not_found": "=> Failed to find parent version {}",
 
-                "start.welcome": "Welcome to PortableMC, the easy to use Python Minecraft Launcher.",
+                # "start.welcome": "Welcome to PortableMC, the easy to use Python Minecraft Launcher.",
                 "start.loading_version": "Loading {} {}...",
                 "start.loading_jar_file": "Loading jar file...",
                 "start.no_client_jar_file": "=> Can't find client download in version meta",
