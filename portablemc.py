@@ -423,10 +423,10 @@ class CorePortableMC:
                 lib_path = path.realpath(path.join(libraries_dir, lib_dl_info["path"]))
                 lib_dir = path.dirname(lib_path)
 
-                os.makedirs(lib_dir, 0o777, True)
                 download_entry = DownloadEntry.from_version_meta_info(lib_dl_info, lib_path, name=lib_name)
 
                 if not path.isfile(lib_path) or path.getsize(lib_path) != download_entry.size:
+                    os.makedirs(lib_dir, 0o777, True)
                     self.download_file(download_entry)
 
             else:
@@ -443,13 +443,15 @@ class CorePortableMC:
                 maven_version = lib_name_parts[2]
                 maven_jar = "{}-{}.jar".format(maven_package, maven_version)
 
-                lib_path = path.join(libraries_dir, *maven_vendor_split, maven_package, maven_version, maven_jar)
+                lib_dir = path.join(libraries_dir, *maven_vendor_split, maven_package, maven_version)
+                lib_path = path.join(lib_dir, maven_jar)
                 lib_type = "classpath"
 
                 if not path.isfile(lib_path):
                     if "url" in lib_obj:
-                        lib_url = "{}{}".format(lib_obj, "/".join((*maven_vendor_split, maven_package, maven_version, maven_jar)))
-                        self.download_file(DownloadEntry(lib_url, lib_path))
+                        lib_url = "{}{}".format(lib_obj["url"], "/".join((*maven_vendor_split, maven_package, maven_version, maven_jar)))
+                        os.makedirs(lib_dir, 0o777, True)
+                        self.download_file(DownloadEntry(lib_url, lib_path, name=lib_name))
                     else:
                         self.notice("libraries.cached_library_not_found", lib_name, lib_path)
                         continue
