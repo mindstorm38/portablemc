@@ -1,5 +1,7 @@
+from urllib import parse as url_parse, request as url_request
 from argparse import ArgumentParser, Namespace
-from urllib import parse as url_parse
+from urllib.request import Request
+from urllib.error import HTTPError
 from typing import Optional, Union
 from datetime import datetime
 from os import path
@@ -7,9 +9,16 @@ import json
 import os
 
 
+# This addon relies on multiples APIs, this is not really safe on the long-term.
+
+
 FABRIC_META_URL = "https://meta.fabricmc.net/{}"
 FABRIC_VERSIONS_LOADER = "v2/versions/loader/{}"
 FABRIC_VERSIONS_LOADER_VERSIONED = "v2/versions/loader/{}/{}"
+
+# https://github.com/NikkyAI/CurseProxy
+# https://curse.nikky.moe/
+NIKKYAI_CURSE_URL = "https://curse.nikky.moe/graphql"
 
 FORGESVC_API_URL = "https://addons-ecs.forgesvc.net/api/{}"
 FORGESVC_GAME_ID = 432       # Minecraft
@@ -44,7 +53,7 @@ class FabricAddon:
         self.pmc.add_message("args.fabric.install", "Install mods.")
 
         self.pmc.add_message("fabric.search.pending", "Searching for Fabric mods...")
-        self.pmc.add_message("fabric.search.result", "=> {:25s} [{} DLs] (by {})")
+        self.pmc.add_message("fabric.search.result", "=> {:30s} [{}] [{}] ({})")
 
         self.pmc.add_message("fabric.install.resolving_mod", "Resolving mod '{}' for Minecraft '{}'...")
         self.pmc.add_message("fabric.install.invalid_mod", "Invalid mod '{}', please specify the version like this: '<mod_name>:<mc_version>'.")
@@ -114,13 +123,11 @@ class FabricAddon:
                 search=args.search):
 
             author = result["authors"][0]["name"] if len(result["authors"]) else "unknown"
-            # name = result["name"]
-            # name = self.elide_groups(name, "(", ")")
-            # name = self.elide_groups(name, "[", "]")
 
             self.pmc.print("fabric.search.result",
                            result["slug"],
                            self.format_downloads(result["downloadCount"]),
+                           result["id"],
                            author)
 
         return 0
@@ -154,7 +161,8 @@ class FabricAddon:
 
         self.pmc.print("fabric.install.resolving_mod", id_or_slug, mc_version)
 
-        mod_data = self.request_forge_addon(id_or_slug)
+        # mod_data = self.request_forge_addon(id_or_slug)
+        mod_data = self.request_nikkyai_addon(id_or_slug)
         if mod_data is None:
             self.pmc.print("fabric.install.mod_not_found")
             return False
@@ -274,6 +282,8 @@ class FabricAddon:
 
         old(cmd_args=cmd_args, version=version, **kwargs)
 
+    # FABRIC API #
+
     def request_meta(self, method: str) -> dict:
         return self.pmc.read_url_json(FABRIC_META_URL.format(method), ignore_error=True)
 
@@ -290,6 +300,48 @@ class FabricAddon:
                     raise GameVersionNotFoundError
                 raise LoaderVersionNotFoundError
             return ret
+
+    # NIKKYAI CURSE API #
+
+    def request_nikkyai(self, graph: str):
+
+        req = Request(NIKKYAI_CURSE_URL, json.dumps({
+            "query": graph
+        }).encode("utf-8"), headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        })
+
+        try:
+            with url_request.urlopen(req) as res:
+                return json.load(res)
+        except HTTPError as e:
+            print(json.load(e))
+
+    def request_nikkyai_addon(self, id_or_slug: Union[str, int]) -> Optional[dict]:
+
+        if isinstance(id_or_slug, str):
+            id_or_slug_param = 'slug: "{}"'.format(id_or_slug)
+        elif isinstance(id_or_slug, str):
+            id_or_slug_param = 'id: {}'.format(id_or_slug)
+        else:
+            raise ValueError
+
+        res = self.request_nikkyai('{{\n'
+                             '  addons(gameId: 432, section: "Mods", category: "Fabric", {}) {{\n'
+                             '    id\n'
+                             '    name\n'
+                             '    slug\n'
+                             '    gameVersionLatestFiles {{\n'
+                             '      gameVersion\n'
+                             '      projectFileId\n'
+                             '    }}\n'
+                             '  }}\n'
+                             '}}\n'.format(id_or_slug_param))
+
+        return res["data"]["addons"][0] if len(res["data"]["addons"]) else None
+
+    # FORGE API #
 
     def request_forge_api(self, method: str) -> Union[dict, list]:
         # print(FORGESVC_API_URL.format(method))
@@ -315,6 +367,7 @@ class FabricAddon:
 
         return self.request_forge_api(FORGESVC_MOD_SEARCH.format(url_parse.urlencode(options)))
 
+    # FIXME: Deprecated
     def request_forge_addon(self, id_or_slug: Union[str, int]) -> Optional[dict]:
         if isinstance(id_or_slug, str):
             for result in self.request_forge_search(search=id_or_slug, count=9999):
@@ -323,6 +376,8 @@ class FabricAddon:
             return None
         elif isinstance(id_or_slug, int):
             return self.request_forge_api(FORGESVC_MOD_META.format(id_or_slug))
+
+    # UTILS #
 
     @staticmethod
     def format_downloads(n: int) -> str:
@@ -334,7 +389,7 @@ class FabricAddon:
         else:
             return " {:3}".format(n)
 
-    @staticmethod
+    """@staticmethod
     def elide_groups(t: str, start: str, end: str) -> str:
         i = t.find(start)
         if i != -1:
@@ -343,7 +398,7 @@ class FabricAddon:
                 before = t[:(i + (-1 if i > 0 and t[i - 1] == " " else 0))]
                 after = t[(j + (2 if j < len(t) - 1 and t[j + 1] == " " else 1)):]
                 return "{}{}".format(before, after)
-        return t
+        return t"""
 
 
 class GameVersionNotFoundError(Exception): ...
