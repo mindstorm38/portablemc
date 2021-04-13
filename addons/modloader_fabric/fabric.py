@@ -277,8 +277,8 @@ class FabricAddon:
                 with open(version_meta_file, "wt") as fp:
                     json.dump(version_meta, fp, indent=2)
 
-        else:
-            self.pmc.print("start.fabric.found_cached")
+            else:
+                self.pmc.print("start.fabric.found_cached")
 
         old(cmd_args=cmd_args, version=version, **kwargs)
 
