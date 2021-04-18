@@ -1026,7 +1026,7 @@ if __name__ == '__main__':
                 "cmd.logout.unknown_session": "=> This session is not cached.",
 
                 "cmd.addon.list.title": "Addons list ({}):",
-                "cmd.addon.list.result": "=> {}, version: {}, authors: {}",
+                "cmd.addon.list.result": "=> {:20s} v{} by {} [{}]",
                 "cmd.addon.init.already_exits": "An addon '{}' already exists at '{}'.",
                 "cmd.addon.init.done": "The addon '{}' was initialized at '{}'.",
                 "cmd.addon.show.unknown": "No addon named '{}' exists.",
@@ -1279,7 +1279,7 @@ if __name__ == '__main__':
             if subcommand == "list":
                 self.print("cmd.addon.list.title", len(self._addons))
                 for addon in self._addons.values():
-                    self.print("cmd.addon.list.result", addon.name, addon.version, ", ".join(addon.authors))
+                    self.print("cmd.addon.list.result", addon.name, addon.version, ", ".join(addon.authors), addon.id)
             elif subcommand == "init":
                 self._prepare_addons(True)
                 addon_file = path.join(self._addons_dir, args.addon_name)
@@ -1299,7 +1299,7 @@ if __name__ == '__main__':
                 addon_name = args.addon_name
                 addon = self._addons.get(addon_name)
                 if addon is None:
-                    self.print("cmd.addon.show.unknown")
+                    self.print("cmd.addon.show.unknown", addon_name)
                 else:
                     self.print("cmd.addon.show.title", addon.name, addon_name)
                     self.print("cmd.addon.show.version", addon.version)
@@ -1476,7 +1476,7 @@ if __name__ == '__main__':
             self.print("", "")
             return res
 
-        # Miscellenaous utilities
+        # Miscellaneous utilities
 
         @staticmethod
         def _decode_resolution(raw: str):
@@ -1509,6 +1509,7 @@ if __name__ == '__main__':
                 raise ValueError("Missing 'addon_build' method.")
 
             self.module = module
+            self.id = name
             self.name = str(module.NAME) if hasattr(module, "NAME") else name
             self.version = str(module.VERSION) if hasattr(module, "VERSION") else "unknown"
             self.authors = module.AUTHORS if hasattr(module, "AUTHORS") else tuple()
