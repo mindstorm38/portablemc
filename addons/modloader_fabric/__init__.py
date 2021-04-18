@@ -1,5 +1,5 @@
 
-NAME = "Fabric mod loader Manager"
+NAME = "FabricMC Manager"
 VERSION = "0.0.1"
 AUTHORS = "Théo Rozier"
 REQUIRES = ()
