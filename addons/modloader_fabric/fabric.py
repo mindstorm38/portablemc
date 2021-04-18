@@ -16,6 +16,10 @@ FABRIC_META_URL = "https://meta.fabricmc.net/{}"
 FABRIC_VERSIONS_LOADER = "v2/versions/loader/{}"
 FABRIC_VERSIONS_LOADER_VERSIONED = "v2/versions/loader/{}/{}"
 
+# This constant is currently used to disable unstable or W.I.P. features.
+# E.g. Mods installation
+DEV = False
+
 # https://github.com/NikkyAI/CurseProxy
 # https://curse.nikky.moe/
 NIKKYAI_CURSE_URL = "https://curse.nikky.moe/graphql"
@@ -42,161 +46,172 @@ class FabricAddon:
         self.pmc.add_message("start.fabric.resolving_loader_with_version", "Resolving fabric loader {} for Minecraft {}...")
         self.pmc.add_message("start.fabric.game_version_not_found", "=> Game version not found.")
         self.pmc.add_message("start.fabric.loader_version_not_found", "=> Loader version not found.")
-        self.pmc.add_message("start.fabric.found_cached", "=> Found cached metadata, loading...")
+        self.pmc.add_message("start.fabric.found_cached", "=> Found cached fabric metadata, loading...")
         self.pmc.add_message("start.fabric.generating", "=> The version is not cached, generating...")
+        self.pmc.add_message("start.fabric.generated", "=> Generated!")
+        self.pmc.add_message("args.start.fabric_prefix", "Change the prefix of the version ID when starting with Fabric.")
 
-        self.pmc.add_message("args.fabric", "Subcommands for managing your FabricMC mods.")
-        self.pmc.add_message("args.fabric.search", "Search for Fabric mods.")
-        self.pmc.add_message("args.fabric.search.version", "Search for mods with a specific version of Minecraft.")
-        self.pmc.add_message("args.fabric.search.offset", "The offset of the first mod.")
-        self.pmc.add_message("args.fabric.search.count", "The number of displayed mods.")
-        self.pmc.add_message("args.fabric.install", "Install mods.")
+        if DEV:
 
-        self.pmc.add_message("fabric.search.pending", "Searching for Fabric mods...")
-        self.pmc.add_message("fabric.search.result", "=> {:30s} [{}] [{}] ({})")
+            self.pmc.add_message("args.fabric", "Subcommands for managing your FabricMC mods.")
+            self.pmc.add_message("args.fabric.search", "Search for Fabric mods.")
+            self.pmc.add_message("args.fabric.search.version", "Search for mods with a specific version of Minecraft.")
+            self.pmc.add_message("args.fabric.search.offset", "The offset of the first mod.")
+            self.pmc.add_message("args.fabric.search.count", "The number of displayed mods.")
+            self.pmc.add_message("args.fabric.install", "Install mods.")
 
-        self.pmc.add_message("fabric.install.resolving_mod", "Resolving mod '{}' for Minecraft '{}'...")
-        self.pmc.add_message("fabric.install.invalid_mod", "Invalid mod '{}', please specify the version like this: '<mod_name>:<mc_version>'.")
-        self.pmc.add_message("fabric.install.mod_not_found", "=> The mod was not found.")
-        self.pmc.add_message("fabric.install.version_not_found", "=> The mod was not found for Minecraft version '{}'.")
-        self.pmc.add_message("fabric.install.resolving_dependency", "=> Resolving dependencies...")
-        self.pmc.add_message("fabric.install.no_required_dependency", "=> There is no required dependency, ignoring.")
-        self.pmc.add_message("fabric.install.dependency_not_found", "=> Abording installation because of unknown dependencies.")
+            self.pmc.add_message("fabric.search.pending", "Searching for Fabric mods...")
+            self.pmc.add_message("fabric.search.result", "=> {:30s} [{}] [{}] ({})")
+
+            self.pmc.add_message("fabric.install.resolving_mod", "Resolving mod '{}' for Minecraft '{}'...")
+            self.pmc.add_message("fabric.install.invalid_mod", "Invalid mod '{}', please specify the version like this: '<mod_name>:<mc_version>'.")
+            self.pmc.add_message("fabric.install.mod_not_found", "=> The mod was not found.")
+            self.pmc.add_message("fabric.install.version_not_found", "=> The mod was not found for Minecraft version '{}'.")
+            self.pmc.add_message("fabric.install.resolving_dependency", "=> Resolving dependencies...")
+            self.pmc.add_message("fabric.install.no_required_dependency", "=> There is no required dependency, ignoring.")
+            self.pmc.add_message("fabric.install.dependency_not_found", "=> Abording installation because of unknown dependencies.")
+
+            self.pmc.mixin("register_subcommands", self.register_subcommands)
+            self.pmc.mixin("start_subcommand", self.start_subcommand)
 
         self.pmc.mixin("register_start_arguments", self.register_start_arguments)
-        self.pmc.mixin("register_subcommands", self.register_subcommands)
-        self.pmc.mixin("start_subcommand", self.start_subcommand)
         self.pmc.mixin("game_start", self.game_start)
 
     # COMMANDS #
 
-    def register_subcommands(self, old, subcommands):
-        # mixin
-        old(subcommands)
-        self.register_fabric_arguments(subcommands.add_parser("fabric", help=self.pmc.get_message("args.fabric")))
+    if DEV:
 
-    def register_fabric_arguments(self, parser: ArgumentParser):
-        self.register_fabric_subcommands(parser.add_subparsers(title="fabric subcommands", dest="fabric_subcommand", required=True))
+        def register_subcommands(self, old, subcommands):
+            # mixin
+            old(subcommands)
+            self.register_fabric_arguments(subcommands.add_parser("fabric", help=self.pmc.get_message("args.fabric")))
 
-    def register_fabric_subcommands(self, subcommands):
-        self.register_search_arguments(subcommands.add_parser("search", help=self.pmc.get_message("args.fabric.search")))
-        self.register_install_arguments(subcommands.add_parser("install", help=self.pmc.get_message("args.fabric.install")))
+        def register_fabric_arguments(self, parser: ArgumentParser):
+            self.register_fabric_subcommands(parser.add_subparsers(title="fabric subcommands", dest="fabric_subcommand", required=True))
 
-    def register_search_arguments(self, parser: ArgumentParser):
-        parser.add_argument("-v", "--version", help=self.pmc.get_message("args.fabric.search.version"))
-        parser.add_argument("-o", "--offset", help=self.pmc.get_message("args.fabric.search.offset"))
-        parser.add_argument("-c", "--count", help=self.pmc.get_message("args.fabric.search.count"), default=25)
-        parser.add_argument("search", nargs="?")
+        def register_fabric_subcommands(self, subcommands):
+            self.register_search_arguments(subcommands.add_parser("search", help=self.pmc.get_message("args.fabric.search")))
+            self.register_install_arguments(subcommands.add_parser("install", help=self.pmc.get_message("args.fabric.install")))
 
-    def register_install_arguments(self, parser: ArgumentParser):
-        parser.add_argument("mod", nargs="+")
+        def register_search_arguments(self, parser: ArgumentParser):
+            parser.add_argument("-v", "--version", help=self.pmc.get_message("args.fabric.search.version"))
+            parser.add_argument("-o", "--offset", help=self.pmc.get_message("args.fabric.search.offset"))
+            parser.add_argument("-c", "--count", help=self.pmc.get_message("args.fabric.search.count"), default=25)
+            parser.add_argument("search", nargs="?")
+
+        def register_install_arguments(self, parser: ArgumentParser):
+            parser.add_argument("mod", nargs="+")
 
     def register_start_arguments(self, old, parser: ArgumentParser):
         # mixin
-        parser.add_argument("--fabric-prefix", default="fabric")
+        parser.add_argument("--fabric-prefix", default="fabric", help=self.pmc.get_message("args.start.fabric_prefix"), metavar="PREFIX")
         old(parser)
 
-    def start_subcommand(self, old, subcommand: str, args: Namespace) -> int:
-        # mixin
-        if subcommand == "fabric":
-            return self.cmd_fabric(args)
-        else:
-            return old(subcommand, args)
+    if DEV:
 
-    def cmd_fabric(self, args: Namespace) -> int:
-        if args.fabric_subcommand == "search":
-            return self.cmd_search(args)
-        elif args.fabric_subcommand == "install":
-            return self.cmd_install(args)
-        return 0
-
-    # SEARCH #
-
-    def cmd_search(self, args: Namespace) -> int:
-
-        self.pmc.print("fabric.search.pending")
-
-        for result in self.request_forge_search(
-                game_version=args.version,
-                offset=args.offset,
-                count=args.count,
-                search=args.search):
-
-            author = result["authors"][0]["name"] if len(result["authors"]) else "unknown"
-
-            self.pmc.print("fabric.search.result",
-                           result["slug"],
-                           self.format_downloads(result["downloadCount"]),
-                           result["id"],
-                           author)
-
-        return 0
-
-    # INSTALL #
-
-    def cmd_install(self, args: Namespace) -> int:
-
-        downloads = []
-        for mod in args.mod:
-            mod_split = mod.split(":")
-            if len(mod_split) != 2 or not len(mod_split[0]) or not len(mod_split[1]):
-                self.pmc.print("fabric.install.invalid_mod", mod)
-                continue
+        def start_subcommand(self, old, subcommand: str, args: Namespace) -> int:
+            # mixin
+            if subcommand == "fabric":
+                return self.cmd_fabric(args)
             else:
-                self.cmd_install_inner(mod_split[0], mod_split[1], downloads)
+                return old(subcommand, args)
 
-        mods_dir = path.join(self.pmc.get_main_dir(), "mods")
+        def cmd_fabric(self, args: Namespace) -> int:
+            if args.fabric_subcommand == "search":
+                return self.cmd_search(args)
+            elif args.fabric_subcommand == "install":
+                return self.cmd_install(args)
+            return 0
 
-        for download in downloads:
+    if DEV:
 
-            version_mod_dir = path.join(mods_dir, download["version"])
-            os.makedirs(version_mod_dir, 0o777, True)
-            mod_file = path.join(version_mod_dir, download["name"])
+        # SEARCH #
 
-            self.pmc.download_file(self.pmc.DownloadEntry(download["url"], mod_file, size=download["size"], name=download["name"]))
+        def cmd_search(self, args: Namespace) -> int:
 
-        return 0
+            self.pmc.print("fabric.search.pending")
 
-    def cmd_install_inner(self, id_or_slug: Union[str, int], mc_version: str, downloads: list) -> bool:
+            for result in self.request_forge_search(
+                    game_version=args.version,
+                    offset=args.offset,
+                    count=args.count,
+                    search=args.search):
 
-        self.pmc.print("fabric.install.resolving_mod", id_or_slug, mc_version)
+                author = result["authors"][0]["name"] if len(result["authors"]) else "unknown"
 
-        # mod_data = self.request_forge_addon(id_or_slug)
-        mod_data = self.request_nikkyai_addon(id_or_slug)
-        if mod_data is None:
-            self.pmc.print("fabric.install.mod_not_found")
-            return False
+                self.pmc.print("fabric.search.result",
+                               result["slug"],
+                               self.format_downloads(result["downloadCount"]),
+                               result["id"],
+                               author)
 
-        for game_version_file in mod_data["gameVersionLatestFiles"]:
-            if game_version_file["gameVersion"] == mc_version:
-                file_id = game_version_file["projectFileId"]
-                break
-        else:
-            self.pmc.print("fabric.install.version_not_found", mc_version)
-            return False
+            return 0
 
-        file_data = self.request_forge_api(FORGESVC_MOD_FILE_META.format(mod_data["id"], file_id))
+        # INSTALL #
 
-        if len(file_data["dependencies"]):
-            self.pmc.print("fabric.install.resolving_dependency")
-            required_deps = False
-            for dependency in file_data["dependencies"]:
-                if dependency["type"] == FORGESVC_DEPENDENCY_REQUIRED:
-                    required_deps = True
-                    if not self.cmd_install_inner(dependency["addonId"], mc_version, downloads):
-                        self.pmc.print("fabric.install.dependency_not_found")
-                        return False
-            if not required_deps:
-                self.pmc.print("fabric.install.no_required_dependency")
+        def cmd_install(self, args: Namespace) -> int:
 
-        downloads.append({
-            "name": file_data["fileName"],
-            "url": file_data["downloadUrl"],
-            "size": file_data["fileLength"],
-            "version": mc_version
-        })
+            downloads = []
+            for mod in args.mod:
+                mod_split = mod.split(":")
+                if len(mod_split) != 2 or not len(mod_split[0]) or not len(mod_split[1]):
+                    self.pmc.print("fabric.install.invalid_mod", mod)
+                    continue
+                else:
+                    self.cmd_install_inner(mod_split[0], mod_split[1], downloads)
 
-        return True
+            mods_dir = path.join(self.pmc.get_main_dir(), "mods")
+
+            for download in downloads:
+
+                version_mod_dir = path.join(mods_dir, download["version"])
+                os.makedirs(version_mod_dir, 0o777, True)
+                mod_file = path.join(version_mod_dir, download["name"])
+
+                self.pmc.download_file(self.pmc.DownloadEntry(download["url"], mod_file, size=download["size"], name=download["name"]))
+
+            return 0
+
+        def cmd_install_inner(self, id_or_slug: Union[str, int], mc_version: str, downloads: list) -> bool:
+
+            self.pmc.print("fabric.install.resolving_mod", id_or_slug, mc_version)
+
+            # mod_data = self.request_forge_addon(id_or_slug)
+            mod_data = self.request_nikkyai_addon(id_or_slug)
+            if mod_data is None:
+                self.pmc.print("fabric.install.mod_not_found")
+                return False
+
+            for game_version_file in mod_data["gameVersionLatestFiles"]:
+                if game_version_file["gameVersion"] == mc_version:
+                    file_id = game_version_file["projectFileId"]
+                    break
+            else:
+                self.pmc.print("fabric.install.version_not_found", mc_version)
+                return False
+
+            file_data = self.request_forge_api(FORGESVC_MOD_FILE_META.format(mod_data["id"], file_id))
+
+            if len(file_data["dependencies"]):
+                self.pmc.print("fabric.install.resolving_dependency")
+                required_deps = False
+                for dependency in file_data["dependencies"]:
+                    if dependency["type"] == FORGESVC_DEPENDENCY_REQUIRED:
+                        required_deps = True
+                        if not self.cmd_install_inner(dependency["addonId"], mc_version, downloads):
+                            self.pmc.print("fabric.install.dependency_not_found")
+                            return False
+                if not required_deps:
+                    self.pmc.print("fabric.install.no_required_dependency")
+
+            downloads.append({
+                "name": file_data["fileName"],
+                "url": file_data["downloadUrl"],
+                "size": file_data["fileLength"],
+                "version": mc_version
+            })
+
+            return True
 
     # START #
 
@@ -247,6 +262,9 @@ class FabricAddon:
 
                 loader_launcher_meta = loader_meta["launcherMeta"]
 
+                # Resolving parent metadata to get the type of version
+                parent_version_meta, parent_version_dir = self.pmc.resolve_version_meta_recursive(mc_version)
+
                 iso_time = datetime.now().isoformat()
 
                 version_libraries = loader_launcher_meta["libraries"]["common"]
@@ -255,7 +273,7 @@ class FabricAddon:
                     "inheritsFrom": mc_version,
                     "releaseTime": iso_time,
                     "time": iso_time,
-                    "type": "release",
+                    "type": parent_version_meta.get("type", "release"),
                     "mainClass": loader_launcher_meta["mainClass"]["client"],
                     "arguments": {
                         "game": []
@@ -276,6 +294,8 @@ class FabricAddon:
                 os.makedirs(version_dir, exist_ok=True)
                 with open(version_meta_file, "wt") as fp:
                     json.dump(version_meta, fp, indent=2)
+
+                self.pmc.print("start.fabric.generated")
 
             else:
                 self.pmc.print("start.fabric.found_cached")
@@ -301,81 +321,83 @@ class FabricAddon:
                 raise LoaderVersionNotFoundError
             return ret
 
-    # NIKKYAI CURSE API #
+    if DEV:
 
-    def request_nikkyai(self, graph: str):
+        # NIKKYAI CURSE API #
 
-        req = Request(NIKKYAI_CURSE_URL, json.dumps({
-            "query": graph
-        }).encode("utf-8"), headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        })
+        def request_nikkyai(self, graph: str):
 
-        try:
-            with url_request.urlopen(req) as res:
-                return json.load(res)
-        except HTTPError as e:
-            print(json.load(e))
+            req = Request(NIKKYAI_CURSE_URL, json.dumps({
+                "query": graph
+            }).encode("utf-8"), headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            })
 
-    def request_nikkyai_addon(self, id_or_slug: Union[str, int]) -> Optional[dict]:
+            try:
+                with url_request.urlopen(req) as res:
+                    return json.load(res)
+            except HTTPError as e:
+                print(json.load(e))
 
-        if isinstance(id_or_slug, str):
-            id_or_slug_param = 'slug: "{}"'.format(id_or_slug)
-        elif isinstance(id_or_slug, str):
-            id_or_slug_param = 'id: {}'.format(id_or_slug)
-        else:
-            raise ValueError
+        def request_nikkyai_addon(self, id_or_slug: Union[str, int]) -> Optional[dict]:
 
-        res = self.request_nikkyai('{{\n'
-                             '  addons(gameId: 432, section: "Mods", category: "Fabric", {}) {{\n'
-                             '    id\n'
-                             '    name\n'
-                             '    slug\n'
-                             '    gameVersionLatestFiles {{\n'
-                             '      gameVersion\n'
-                             '      projectFileId\n'
-                             '    }}\n'
-                             '  }}\n'
-                             '}}\n'.format(id_or_slug_param))
+            if isinstance(id_or_slug, str):
+                id_or_slug_param = 'slug: "{}"'.format(id_or_slug)
+            elif isinstance(id_or_slug, str):
+                id_or_slug_param = 'id: {}'.format(id_or_slug)
+            else:
+                raise ValueError
 
-        return res["data"]["addons"][0] if len(res["data"]["addons"]) else None
+            res = self.request_nikkyai('{{\n'
+                                 '  addons(gameId: 432, section: "Mods", category: "Fabric", {}) {{\n'
+                                 '    id\n'
+                                 '    name\n'
+                                 '    slug\n'
+                                 '    gameVersionLatestFiles {{\n'
+                                 '      gameVersion\n'
+                                 '      projectFileId\n'
+                                 '    }}\n'
+                                 '  }}\n'
+                                 '}}\n'.format(id_or_slug_param))
 
-    # FORGE API #
+            return res["data"]["addons"][0] if len(res["data"]["addons"]) else None
 
-    def request_forge_api(self, method: str) -> Union[dict, list]:
-        # print(FORGESVC_API_URL.format(method))
-        return self.pmc.read_url_json(FORGESVC_API_URL.format(method), ignore_error=True)
+        # FORGE API #
 
-    def request_forge_search(self, *,
-                             game_version: Optional[str] = None,
-                             offset: Optional[int] = None,
-                             count: Optional[int] = None,
-                             search: Optional[str] = None) -> list:
+        def request_forge_api(self, method: str) -> Union[dict, list]:
+            # print(FORGESVC_API_URL.format(method))
+            return self.pmc.read_url_json(FORGESVC_API_URL.format(method), ignore_error=True)
 
-        options = {
-            "gameId": FORGESVC_GAME_ID,
-            "sectionId": FORGESVC_SECTION_ID,
-            "categoryId": FORGESVC_CATEGORY_ID,
-            "sort": FORGESVC_SORT_POPULARITY
-        }
+        def request_forge_search(self, *,
+                                 game_version: Optional[str] = None,
+                                 offset: Optional[int] = None,
+                                 count: Optional[int] = None,
+                                 search: Optional[str] = None) -> list:
 
-        if game_version is not None: options["gameVersion"] = game_version
-        if offset is not None: options["index"] = offset
-        if count is not None: options["pageSize"] = count
-        if search is not None: options["searchFilter"] = search
+            options = {
+                "gameId": FORGESVC_GAME_ID,
+                "sectionId": FORGESVC_SECTION_ID,
+                "categoryId": FORGESVC_CATEGORY_ID,
+                "sort": FORGESVC_SORT_POPULARITY
+            }
 
-        return self.request_forge_api(FORGESVC_MOD_SEARCH.format(url_parse.urlencode(options)))
+            if game_version is not None: options["gameVersion"] = game_version
+            if offset is not None: options["index"] = offset
+            if count is not None: options["pageSize"] = count
+            if search is not None: options["searchFilter"] = search
 
-    # FIXME: Deprecated
-    def request_forge_addon(self, id_or_slug: Union[str, int]) -> Optional[dict]:
-        if isinstance(id_or_slug, str):
-            for result in self.request_forge_search(search=id_or_slug, count=9999):
-                if result["slug"] == id_or_slug:
-                    return result
-            return None
-        elif isinstance(id_or_slug, int):
-            return self.request_forge_api(FORGESVC_MOD_META.format(id_or_slug))
+            return self.request_forge_api(FORGESVC_MOD_SEARCH.format(url_parse.urlencode(options)))
+
+        # FIXME: Deprecated
+        def request_forge_addon(self, id_or_slug: Union[str, int]) -> Optional[dict]:
+            if isinstance(id_or_slug, str):
+                for result in self.request_forge_search(search=id_or_slug, count=9999):
+                    if result["slug"] == id_or_slug:
+                        return result
+                return None
+            elif isinstance(id_or_slug, int):
+                return self.request_forge_api(FORGESVC_MOD_META.format(id_or_slug))
 
     # UTILS #
 
