@@ -31,7 +31,7 @@ import os
 
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "1.1.1"
+LAUNCHER_VERSION = "1.1.2"
 LAUNCHER_AUTHORS = "Théo Rozier"
 
 VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
@@ -130,11 +130,14 @@ class CorePortableMC:
         # - URLError: for any URL resolving error
         # - DownloadCorruptedError: if a download is corrupted
 
-        self.notice("start.welcome")
+        # self.notice("start.welcome")
 
         self.check_main_dir()
+
         if work_dir is None:
             work_dir = self._main_dir
+        else:
+            work_dir = path.realpath(work_dir)
 
         # Resolve version metadata
         version, version_alias = self.get_version_manifest().filter_latest(version)
@@ -423,10 +426,10 @@ class CorePortableMC:
                 lib_path = path.realpath(path.join(libraries_dir, lib_dl_info["path"]))
                 lib_dir = path.dirname(lib_path)
 
-                os.makedirs(lib_dir, 0o777, True)
                 download_entry = DownloadEntry.from_version_meta_info(lib_dl_info, lib_path, name=lib_name)
 
                 if not path.isfile(lib_path) or path.getsize(lib_path) != download_entry.size:
+                    os.makedirs(lib_dir, 0o777, True)
                     self.download_file(download_entry)
 
             else:
@@ -436,13 +439,25 @@ class CorePortableMC:
                 # links like Optifine.
 
                 lib_name_parts = lib_name.split(":")
-                lib_path = path.join(libraries_dir, *lib_name_parts[0].split("."), lib_name_parts[1],
-                                     lib_name_parts[2], "{}-{}.jar".format(lib_name_parts[1], lib_name_parts[2]))
+
+                maven_vendor = lib_name_parts[0]
+                maven_vendor_split = maven_vendor.split(".")
+                maven_package = lib_name_parts[1]
+                maven_version = lib_name_parts[2]
+                maven_jar = "{}-{}.jar".format(maven_package, maven_version)
+
+                lib_dir = path.join(libraries_dir, *maven_vendor_split, maven_package, maven_version)
+                lib_path = path.join(lib_dir, maven_jar)
                 lib_type = "classpath"
 
                 if not path.isfile(lib_path):
-                    self.notice("libraries.cached_library_not_found", lib_name, lib_path)
-                    continue
+                    if "url" in lib_obj:
+                        lib_url = "{}{}".format(lib_obj["url"], "/".join((*maven_vendor_split, maven_package, maven_version, maven_jar)))
+                        os.makedirs(lib_dir, 0o777, True)
+                        self.download_file(DownloadEntry(lib_url, lib_path, name=lib_name))
+                    else:
+                        self.notice("libraries.cached_library_not_found", lib_name, lib_path)
+                        continue
 
             if lib_type == "classpath":
                 classpath_libs.append(lib_path)
@@ -526,9 +541,12 @@ class CorePortableMC:
 
     # Version metadata
 
+    def get_version_dir(self, name: str) -> str:
+        return path.join(self._main_dir, "versions", name)
+
     def resolve_version_meta(self, name: str) -> Tuple[dict, str]:
 
-        version_dir = path.join(self._main_dir, "versions", name)
+        version_dir = self.get_version_dir(name)
         version_meta_file = path.join(version_dir, "{}.json".format(name))
         content = None
 
@@ -653,8 +671,15 @@ class CorePortableMC:
         return ";" if sys.platform == "win32" else ":"
 
     @staticmethod
-    def read_url_json(url: str) -> dict:
-        return json.load(url_request.urlopen(url))
+    def read_url_json(url: str, *, ignore_error: bool = False) -> dict:
+        if ignore_error:
+            try:
+                res = url_request.urlopen(url)
+            except HTTPError as err:
+                res = err
+        else:
+            res = url_request.urlopen(url)
+        return json.load(res)
 
     @classmethod
     def dict_merge(cls, dst: dict, other: dict):

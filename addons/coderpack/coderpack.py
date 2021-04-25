@@ -43,6 +43,10 @@ class CoderPackAddon:
         self.pmc.add_message("args.coderpack", "All subcommands for Minecraft developpers on latest versions like decompilation.")
         self.pmc.add_message("args.coderpack.decompile", "Remap, deobfuscate and decompile a version. Available since Minecaft 1.14.")
         self.pmc.add_message("args.coderpack.decompile.side", "Specify the game side to decompile, 'client' (default) or 'server'.")
+        self.pmc.add_message("args.coderpack.decompile.fix", "Force fixing again your sources, this is enabled by default on the first "
+                                                             "decompilation. Currently there is only one supported source fix: ["
+                                                             "Lambdas' Wildcard"
+                                                             "]")
 
         self.pmc.add_message("coderpack.decompile.not_supported", "This version is not supported for decompilation (jar or mappings unevailable).")
         self.pmc.add_message("coderpack.decompile.working_dir", "Working directory: {}")
@@ -76,15 +80,15 @@ class CoderPackAddon:
         self.register_coderpack_subcommands(parser.add_subparsers(title="coderpack subcommands", dest="coderpack_subcommand", required=True))
 
     def register_coderpack_subcommands(self, subcommands):
-        self.register_decompile_arguments(subcommands.add_parser("decompile", help=self.pmc.get_message("args.coderpack.decompile")))
+        self.register_decompile_arguments(subcommands.add_parser("decompile", help=self.pmc.get_message("args.coderpack.decompile"), aliases=["d"]))
 
     def register_decompile_arguments(self, parser: ArgumentParser):
         parser.add_argument("-s", "--side", help=self.pmc.get_message("args.coderpack.decompile.side"), choices=["client", "server"], default="client")
-        parser.add_argument("--fix", action="store_true", default=False)
+        parser.add_argument("--fix", action="store_true", default=False, help=self.pmc.get_message("args.coderpack.decompile.fix"))
         parser.add_argument("version")
 
     def cmd_coderpack(self, args: Namespace) -> int:
-        if args.coderpack_subcommand == "decompile":
+        if args.coderpack_subcommand in ("decompile", "d"):
             return self.cmd_decompile(args)
         return 0
 
