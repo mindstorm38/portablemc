@@ -136,4 +136,4 @@ For example, using the command `portablemc.py start fabric:1.16.5` will download
 
 You can also specify the loader version in addition using the following pattern: `fabric:<mc-version>:<loader-version>`.
 
-***For now, mods must be installed manually in the standard `mods` directory, and additional command to install and manage your mods was planed but this is impossible for now due to complex APIs and mods management by Fabric.***
+***For now, mods must be installed manually in the standard `mods` directory, an additional command to install and manage mods was planed but this is not possible for now due to complex APIs and mods management by Fabric.***
