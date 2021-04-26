@@ -4,7 +4,7 @@ This single-script launcher is still compatible with the official (Mojang) Minec
 in `.minecraft` and use it.
 You can now customize the launcher with addons.
 
-### [Download now!](https://github.com/mindstorm38/portablemc/releases)
+### [Download now! (Fabric is now supported)](https://github.com/mindstorm38/portablemc/releases)
 
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/mindstorm38/portablemc)
 ![GitHub all releases](https://img.shields.io/github/downloads/mindstorm38/portablemc/total)
