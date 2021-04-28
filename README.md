@@ -128,7 +128,7 @@ To install addons you need to make a directory `addons` next to the script, and 
 To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons).
 
 # FabricMC support
-FabricMC is now supported through the addon `modloader_fabric`, you can either install the package manually or download the prebuilt package (`modloaders` on the latest release post [portablemc/releases](https://github.com/mindstorm38/portablemc/releases).
+FabricMC is now supported through the addon `modloader_fabric`, you can either install the package manually or download the prebuilt package (`modloaders` on the latest release post [portablemc/releases](https://github.com/mindstorm38/portablemc/releases)).
 
 This add-on allows you to start Minecraft using FabricMC directly with the [start sub-command](#start-the-game), but instead of a standard version like `1.16.5` you must use the following pattern: `fabric:<mc-version>`.
 
