@@ -31,7 +31,7 @@ import os
 
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "1.1.2"
+LAUNCHER_VERSION = "1.1.3"
 LAUNCHER_AUTHORS = "Théo Rozier"
 
 VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
@@ -211,9 +211,7 @@ class CorePortableMC:
                 os.makedirs(asset_hash_dir, 0o777, True)
                 asset_url = ASSET_BASE_URL.format(asset_hash_prefix, asset_hash)
                 download_entry = DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id)
-                self.download_file(download_entry,
-                                   start_size=assets_current_size,
-                                   total_size=assets_total_size)
+                assets_current_size = self.download_file(download_entry, start_size=assets_current_size, total_size=assets_total_size)
             else:
                 assets_current_size += asset_size
 
