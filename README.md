@@ -9,7 +9,7 @@ You can now customize the launcher with addons.
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/mindstorm38/portablemc)
 ![GitHub all releases](https://img.shields.io/github/downloads/mindstorm38/portablemc/total)
 
-![illustration](https://github.com/mindstorm38/portablemc/blob/master/illustration.png?raw=true)
+![illustration](https://github.com/mindstorm38/portablemc/blob/master/doc/illustration.png?raw=true)
 
 *This launcher is tested for Python 3.6, 3.7, 3.8, further testing using other versions are welcome.*
 
@@ -24,9 +24,9 @@ You can now customize the launcher with addons.
     - [Miscellaneous](#miscellaneous)
   - [Search for versions](#search-for-versions)
   - [Authentication caching](#authentication-caching)
-  - [Addons](#addons)
-- [Addons (how to)](#addons-how-to)
-- [FabricMC support](#fabricmc-support)
+  - [Addon sub-command](#addon-sub-command)
+- [Addons](#addons)
+  - [FabricMC support](#fabricmc-support)
 
 # Sub-commands
 Arguments are split between multiple sub-command. For example `<exec> <sub-command>`. You can use `-h` 
@@ -116,18 +116,18 @@ Two subcommand allows you to cache or uncache sessions: `<exec> login|logout <em
 These subcommand doesn't prevent you from using the `-l` (`--login`) argument when starting the game,
 these are just here to manage the session storage.
 
-## Addons
+## Addon sub-command
 The `<exec> addon list|init|show` sub-commands are used to list, initialize (for developpers) and show
 addons.
 
-# Addons (how to)
+# Addons
 Addons for PortableMC are obviously optionnals, officially supported addons can be found in the
 ['addons' directory](https://github.com/mindstorm38/portablemc/tree/master/addons).
 To install addons you need to make a directory `addons` next to the script, and then put addons into it.
 
 To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons).
 
-# FabricMC support
+## FabricMC support
 FabricMC is now supported through the addon `modloader_fabric`, you can either install the package manually or download the prebuilt package (`modloaders` on the latest release post [portablemc/releases](https://github.com/mindstorm38/portablemc/releases)).
 
 This add-on allows you to start Minecraft using FabricMC directly with the [start sub-command](#start-the-game), but instead of a standard version like `1.16.5` you must use the following pattern: `fabric:<mc-version>`.
@@ -137,3 +137,5 @@ For example, using the command `portablemc.py start fabric:1.16.5` will download
 You can also specify the loader version in addition using the following pattern: `fabric:<mc-version>:<loader-version>`.
 
 ***For now, mods must be installed manually in the standard `mods` directory, an additional command to install and manage mods was planed but this is not possible for now due to complex APIs and mods management by Fabric.***
+
+![fabric animation](https://github.com/mindstorm38/portablemc/blob/master/doc/fabricmc.gif?raw=true)
