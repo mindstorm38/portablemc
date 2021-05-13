@@ -968,7 +968,7 @@ if __name__ == '__main__':
             self._messages = {
 
                 "addon.defined_twice": "The addon '{}' is defined twice, both single-file and package, loaded the package one.",
-                "addon.missing_requirement.module": "Addon '{}' requires module '{}' to load.",
+                "addon.missing_requirement.module": "Addon '{0}' requires module '{1}' to load. You can try to install it using 'pip install {1}' or search for it on the web.",
                 "addon.missing_requirement.ext": "Addon '{}' requires another addon '{}' to load.",
                 "addon.failed_to_build": "Failed to build addon '{}' (contact addon's authors):",
 
