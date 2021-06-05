@@ -29,7 +29,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Iterable, Union
+from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Union
 from urllib import request as url_request
 from json.decoder import JSONDecodeError
 from urllib.error import HTTPError
