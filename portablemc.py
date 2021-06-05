@@ -570,7 +570,7 @@ class CorePortableMC:
                         start_size += read_len
 
                     if progress_callback is not None:
-                        progress_callback(dl_size, entry.size, start_size, total_size)
+                        progress_callback(dl_size, 0 if entry.size else entry.size, start_size, total_size)
 
                 if entry.size is not None and dl_size != entry.size:
                     raise DownloadCorruptedError("invalid_size")
@@ -1086,6 +1086,7 @@ if __name__ == '__main__':
                 "url_error.reason": "URL error: {}",
 
                 "download.progress": "\rDownloading {}... {:6.2f}% {}/s {}",
+                "download.progress.unknown_size": "\rDownloading {}... {}/s {}",
                 "download.of_total": "{:6.2f}% of total",
                 "download.invalid_size": " => Invalid size",
                 "download.invalid_sha1": " => Invalid SHA1",
@@ -1528,7 +1529,10 @@ if __name__ == '__main__':
                 nonlocal start_time
                 of_total = self.get_message("download.of_total", p_dl_total_size / p_total_size * 100) if p_total_size != 0 else ""
                 speed = self.format_bytes(p_dl_size / (time.perf_counter() - start_time))
-                self.print("download.progress", entry.name, p_dl_size / p_size * 100, speed, of_total, end="")
+                if p_size == 0:
+                    self.print("download.progress.unknown_size", entry.name, speed, of_total, end="")
+                else:
+                    self.print("download.progress", entry.name, p_dl_size / p_size * 100, speed, of_total, end="")
 
             res = super().download_file(entry, start_size=start_size, total_size=total_size, progress_callback=progress_callback)
             self.print("", "")

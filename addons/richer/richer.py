@@ -149,7 +149,7 @@ class RicherAddon:
 
     def download_file(self, _old, entry, **kwargs):
         with ProgressBar(formatters=self.progress_bar_formatters) as pb:
-            progress_task = pb(label=entry.name, total=entry.size)
+            progress_task = pb(label=entry.name, total=None if entry.size == 0 else entry.size)
             def progress_callback(p_dl_size: int, _p_size: int, _p_dl_total_size: int, _p_total_size: int):
                 progress_task.items_completed = p_dl_size
                 pb.invalidate()
