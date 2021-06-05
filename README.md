@@ -18,7 +18,6 @@ You can now customize the launcher with addons.
   - [Start the game](#start-the-game)
     - [Authentication](#authentication)
     - [Offline mode](#offline-mode)
-    - [Working directory](#working-directory)
     - [Custom JVM](#custom-jvm)
     - [Auto connect to a server](#auto-connect-to-a-server)
     - [Miscellaneous](#miscellaneous)
@@ -33,9 +32,18 @@ Arguments are split between multiple sub-command. For example `<exec> <sub-comma
 argument to display help *(also work for every sub-commands)*.
 
 You may need to use `--main-dir <path>` if you want to change the main directory of the game. The main
-directory stores libraries, assets, versions and this launcher's credentials. **By default** the location
+directory stores libraries, assets, versions. **By default** the location
 of this directory is OS-dependent, but always in your user's home directory, 
 [check wiki for more information](https://minecraft-fr.gamepedia.com/.minecraft).
+
+You may also need `--work-dir <path>` to change the directory where your saves, resource packs and
+all "user-specific" content is stored. This can be useful if you have a shared read-only main directory 
+(`--main-dir`) and user-specific working directory (for example in `~/.minecraft`, by default it's the
+locaton of your main directory). This launcher also stores the authentication credentials in this directory
+(since launcher version 1.1.4).
+
+The two arguments `--main-dir` and `--work-dir` may or may not be used by sub commands, then you can alias
+the command and always set the main and work directory like you want.
 
 **In this example**, `<exec>` must be replaced by any command that 
 launch the script, for example `python3 portablemc.py`.
@@ -68,19 +76,11 @@ If you need fake offline accounts you can use `-u <username>` (`--username`) def
 If you omit the UUID, a random one is choosen. If you omit the username, the first 8 characters of the UUID
 are used for it. **These two arguments are overwritten by the `-l` (`--login`) argument**.
 
-### Working directory
-You can use the argument `--work-dir <path>` to change the directory where your saves, resource packs and
-all "user-specific" content are stored. This can be useful if you have a shared read-only main directory 
-(`--main-dir`) and user-specific working directory (for example in `~/.minecraft`).
-
-When starting the game, the binaries (`.DLL`, `.SO` for exemple) are temporary copied to the directory
-`<main_dir>/bin`, but you can tell the launcher to copy these binaries into your working directory using
-the `--work-dir-bin` flag. This may be useful if you don't have permissions on the main directory.
-
 ### Custom JVM
-The Java Virtual Machine is used to run the game, by udefault the launcher use the `java` executable. You
-can change it using `--jvm <path>` argument. By default, some JVM arguments are also passed, these arguments
-are the following and were copied from the officiel launcher:
+The launcher uses Java Virtual Machine to run the game, by default the launcher download and use an official JVM 
+[distributed by Mojang](https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json)
+which is adapted to the running version. You can change it using `--jvm <path>` argument. By default, the launcher
+start the JVM with default arguments, these are the following and are the same as the Mojang launcher:
 
 ```
 -Xmx2G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M
