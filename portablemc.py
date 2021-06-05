@@ -351,8 +351,8 @@ class CorePortableMC:
 
         main_class = version_meta["mainClass"]
         if main_class == "net.minecraft.launchwrapper.Launch":
-            # raw_args.append("-Dminecraft.client.jar={}".format(version_jar_file))
-            main_class = "net.minecraft.client.Minecraft"
+            raw_args.append("-Dminecraft.client.jar={}".format(version_jar_file))
+            # main_class = "net.minecraft.client.Minecraft"
 
         main_class_idx = len(raw_args)
         raw_args.append(main_class)
@@ -535,7 +535,7 @@ class CorePortableMC:
         jvm_dir = path.join(main_dir, "jvm", jvm_version_type)
         os.makedirs(jvm_dir, 0o777, True)
 
-        jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if self._mc_os == "windows" else "java")
+        jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if sys.platform == "win32" else "java")
 
         if not path.isfile(jvm_exec):
             self.notice("jvm.downloading_version", jvm_version)
