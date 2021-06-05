@@ -51,6 +51,8 @@ LAUNCHER_AUTHORS = "Théo Rozier"
 VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
 ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
 AUTHSERVER_URL = "https://authserver.mojang.com/{}"
+JVM_META_URL = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
+
 TOKENS_FILE_NAME  = "portablemc_tokens"
 
 LOGGING_CONSOLE_REPLACEMENT = "<PatternLayout pattern=\"%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n\"/>"
@@ -139,7 +141,7 @@ class CorePortableMC:
 
     def start_mc(self, *,
                    version: str,
-                   jvm: Optional[Union[str, Iterable[str]]] = None,     # Default to (JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT)
+                   jvm: Optional[Union[str, List[str]]] = None,     # Default to [JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT]
                    main_dir: Optional[str] = None,          # Default to .minecraft
                    work_dir: Optional[str] = None,          # Default to main dir
                    uuid: Optional[str] = None,              # Default to random UUID
@@ -296,6 +298,21 @@ class CorePortableMC:
         if callable(libraries_modifier):
             libraries_modifier(classpath_libs, native_libs)
 
+        # Download JVM
+        if jvm is None:
+            jvm = [None, *JVM_ARGS_DEFAULT]
+        elif isinstance(jvm, str):
+            jvm = [jvm, *JVM_ARGS_DEFAULT]
+        elif isinstance(jvm, tuple):
+            jvm = list(jvm)
+
+        if jvm[0] is None:
+            version_java_version = version_meta.get("javaVersion")
+            version_java_version_type = "jre-legacy" if version_java_version is None else version_java_version["component"]
+            jvm[0] = self.ensure_jvm(main_dir, version_java_version_type)
+            if jvm[0] is None:
+                return
+
         # Don't run if dry run
         if dry_run:
             self.notice("start.dry")
@@ -391,12 +408,7 @@ class CorePortableMC:
         if callable(args_replacement_modifier):
             args_replacement_modifier(start_args_replacements)
 
-        if jvm is None:
-            jvm = (JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT)
-        elif isinstance(jvm, str):
-            jvm = (jvm, *JVM_ARGS_DEFAULT)
-
-        start_args = [*jvm]
+        start_args = jvm[:]
         for arg in raw_args:
             for repl_id, repl_val in start_args_replacements.items():
                 arg = arg.replace("${{{}}}".format(repl_id), repl_val)
@@ -496,6 +508,51 @@ class CorePortableMC:
                 native_libs.append(lib_path)
 
         return classpath_libs, native_libs
+
+    def ensure_jvm(self, main_dir: str, jvm_version_type: str) -> Optional[str]:
+
+        jvm_arch = self.get_minecraft_jvm()
+        if jvm_arch is None:
+            self.notice("jvm.not_found")
+            return None
+
+        all_jvm_meta = self.read_url_json(JVM_META_URL)
+        jvm_arch_meta = all_jvm_meta.get(jvm_arch)
+        if jvm_arch_meta is None:
+            self.notice("jvm.unsupported_jvm_arch", jvm_arch)
+            return None
+
+        jvm_meta = jvm_arch_meta.get(jvm_version_type)
+        if jvm_meta is None:
+            self.notice("jvm.unsupported_jvm_version", jvm_version_type)
+            return None
+
+        jvm_meta = jvm_meta[0]
+        jvm_version = jvm_meta["version"]["name"]
+        jvm_manifest_url = jvm_meta["manifest"]["url"]
+        jvm_manifest = self.read_url_json(jvm_manifest_url)["files"]
+
+        jvm_dir = path.join(main_dir, "jvm", jvm_version_type)
+        os.makedirs(jvm_dir, 0o777, True)
+
+        jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if self._mc_os == "windows" else "java")
+
+        if not path.isfile(jvm_exec):
+            self.notice("jvm.downloading_version", jvm_version)
+            for jvm_file_path_suffix, jvm_file in jvm_manifest.items():
+                if jvm_file["type"] == "file":
+                    jvm_file_path = path.join(jvm_dir, jvm_file_path_suffix)
+                    os.makedirs(path.dirname(jvm_file_path), 0o777, True)
+                    jvm_download_info = jvm_file["downloads"]["raw"]
+                    jvm_download_entry = DownloadEntry.from_version_meta_info(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix)
+                    self.download_file(jvm_download_entry)
+                    if jvm_file.get("executable", False):
+                        os.chmod(jvm_file_path, 0o777)
+            self.notice("jvm.downloaded", jvm_version)
+
+        self.notice("jvm.using", jvm_version)
+
+        return jvm_exec
 
     # For retro-compat
 
@@ -687,7 +744,7 @@ class CorePortableMC:
             return path.join(home, "Library", "Application Support", "minecraft")
 
     @staticmethod
-    def get_minecraft_os() -> str:
+    def get_minecraft_os() -> Optional[str]:
         pf = sys.platform
         if pf.startswith("freebsd") or pf.startswith("linux") or pf.startswith("aix") or pf.startswith("cygwin"):
             return "linux"
@@ -699,12 +756,28 @@ class CorePortableMC:
     @staticmethod
     def get_minecraft_arch() -> str:
         machine = platform.machine().lower()
-        return "x86" if machine == "i386" else "x86_64" if machine in ("x86_64", "amd64") else "unknown"
+        return "x86" if machine in ("i386", "i686") else "x86_64" if machine in ("x86_64", "amd64", "ia64") else "unknown"
 
     @staticmethod
     def get_minecraft_archbits() -> Optional[str]:
         raw_bits = platform.architecture()[0]
         return "64" if raw_bits == "64bit" else "32" if raw_bits == "32bit" else None
+
+    @staticmethod
+    def get_minecraft_jvm() -> Optional[str]:
+        mc_os = CorePortableMC.get_minecraft_os()
+        if mc_os is None:
+            return None
+        if mc_os == "osx":
+            return "mac-os"
+        mc_arch = CorePortableMC.get_minecraft_arch()
+        if mc_os == "linux":
+            arch_jvm = ["linux-i386", "linux"]
+        elif mc_os == "windows":
+            arch_jvm = ["windows-x86", "windows-x64"]
+        else:
+            return None
+        return arch_jvm[0] if mc_arch == "x86" else arch_jvm[1] if mc_arch == "x86_64" else None
 
     @staticmethod
     def get_classpath_separator() -> str:
@@ -1034,7 +1107,7 @@ if __name__ == '__main__':
                 "args.start.disable_chat": "Disable the online chat (>= 1.16).",
                 "args.start.demo": "Start game in demo mode.",
                 "args.start.resol": "Set a custom start resolution (<width>x<height>).",
-                "args.start.jvm": "Set a custom JVM 'javaw' executable path.",
+                "args.start.jvm": "Set a custom JVM 'javaw' executable path. If this argument is omitted a public build of a JVM is downloaded from Mojang services.",
                 "args.start.jvm_args": "Change the default JVM arguments.",
                 # "args.start.work_dir": "Set the working directory where the game run and place for examples the "
                 #                        "saves (and resources for legacy versions).",
@@ -1122,16 +1195,24 @@ if __name__ == '__main__':
                 "start.verifying_assets": "=> Verifying assets...",
                 "start.loading_logger": "Loading logger config...",
                 "start.generating_better_logging_config": "=> Generating better logging configuration...",
-                "libraries.loading_libraries": "Loading libraries and natives...",
-                "libraries.no_download_for_library": "=> Can't found any download for library {}",
-                "libraries.cached_library_not_found": "=> Can't found cached library {} at {}",
                 "start.dry": "Dry run, stopping.",
                 "start.starting": "Starting game...",
                 "start.extracting_natives": "=> Extracting natives...",
                 "start.running": "Running...",
                 "start.stopped": "Game stopped, clearing natives.",
                 "start.run.session": "=> Username: {}, UUID: {}",
-                "start.run.command_line": "=> Command line: {}"
+                "start.run.command_line": "=> Command line: {}",
+
+                "libraries.loading_libraries": "Loading libraries and natives...",
+                "libraries.no_download_for_library": "=> Can't found any download for library {}",
+                "libraries.cached_library_not_found": "=> Can't found cached library {} at {}",
+
+                "jvm.not_found": "No JVM was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
+                "jvm.unsupported_jvm_arch": "No JVM download was found for your platform architecture '{}', use --jvm argument to set the JVM executable of path to it.",
+                "jvm.unsupported_jvm_version": "No JVM download was found for version '{}', use --jvm argument to set the JVM executable of path to it.",
+                "jvm.downloading_version": "Download Java Virtual Machine version {}...",
+                "jvm.downloaded": "=> Java Virtual Machine is fully downloaded.",
+                "jvm.using": "Using Mojang Java Virtual Machine version {}"
 
             }
 
@@ -1241,7 +1322,7 @@ if __name__ == '__main__':
             parser.add_argument("--disable-chat", help=self.get_message("args.start.disable_chat"), default=False, action="store_true")
             parser.add_argument("--demo", help=self.get_message("args.start.demo"), default=False, action="store_true")
             parser.add_argument("--resol", help=self.get_message("args.start.resol"), type=self._decode_resolution, dest="resolution")
-            parser.add_argument("--jvm", help=self.get_message("args.start.jvm"), default=JVM_EXEC_DEFAULT)
+            parser.add_argument("--jvm", help=self.get_message("args.start.jvm"), default=None)  # default=JVM_EXEC_DEFAULT
             parser.add_argument("--jvm-args", help=self.get_message("args.start.jvm_args"), default=None, dest="jvm_args")
             # parser.add_argument("--work-dir", help=self.get_message("args.start.work_dir"), dest="work_dir")
             # parser.add_argument("--work-dir-bin", help=self.get_message("args.start.work_dir_bin"), default=False, action="store_true", dest="work_dir_bin")
@@ -1398,7 +1479,7 @@ if __name__ == '__main__':
                     uuid=args.uuid,
                     username=args.username,
                     auth=auth,
-                    jvm=(args.jvm, *jvm_args),
+                    jvm=[args.jvm, *jvm_args],
                     dry_run=args.dry,
                     no_better_logging=args.no_better_logging,
                     # work_dir_bin=args.work_dir_bin,
