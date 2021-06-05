@@ -75,7 +75,7 @@ class FabricAddon:
             self.pmc.mixin("start_subcommand", self.start_subcommand)
 
         self.pmc.mixin("register_start_arguments", self.register_start_arguments)
-        self.pmc.mixin("game_start", self.game_start)
+        self.pmc.mixin("start_mc_from_cmd", self.start_mc_from_cmd)
 
     # COMMANDS #
 
@@ -160,7 +160,7 @@ class FabricAddon:
                 else:
                     self.cmd_install_inner(mod_split[0], mod_split[1], downloads)
 
-            mods_dir = path.join(self.pmc.get_main_dir(), "mods")
+            mods_dir = path.join(self.pmc.get_arg_main_dir(), "mods")
 
             for download in downloads:
 
@@ -215,7 +215,7 @@ class FabricAddon:
 
     # START #
 
-    def game_start(self, old, *, version: str, cmd_args: Namespace, **kwargs) -> None:
+    def start_mc_from_cmd(self, old, *, version: str, cmd_args: Namespace, main_dir: Optional[str] = None, **kwargs) -> None:
 
         if version.startswith("fabric:"):
 
@@ -250,7 +250,7 @@ class FabricAddon:
                 return
 
             version = "{}-{}-{}".format(cmd_args.fabric_prefix, mc_version, loader_version)
-            version_dir = self.pmc.get_version_dir(version)
+            version_dir = self.pmc.get_version_dir(main_dir, version)
             version_meta_file = path.join(version_dir, "{}.json".format(version))
 
             if not path.isdir(version_dir) or not path.isfile(version_meta_file):
@@ -263,7 +263,7 @@ class FabricAddon:
                 loader_launcher_meta = loader_meta["launcherMeta"]
 
                 # Resolving parent metadata to get the type of version
-                parent_version_meta, parent_version_dir = self.pmc.resolve_version_meta_recursive(mc_version)
+                parent_version_meta, parent_version_dir = self.pmc.resolve_version_meta_recursive(main_dir, mc_version)
 
                 iso_time = datetime.now().isoformat()
 
@@ -300,7 +300,7 @@ class FabricAddon:
             else:
                 self.pmc.print("start.fabric.found_cached")
 
-        old(cmd_args=cmd_args, version=version, **kwargs)
+        old(cmd_args=cmd_args, version=version, main_dir=main_dir, **kwargs)
 
     # FABRIC API #
 

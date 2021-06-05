@@ -45,12 +45,13 @@ import os
 
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "1.1.3"
+LAUNCHER_VERSION = "1.1.4-snapshot"
 LAUNCHER_AUTHORS = "Théo Rozier"
 
 VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
 ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
 AUTHSERVER_URL = "https://authserver.mojang.com/{}"
+TOKENS_FILE_NAME  = "portablemc_tokens"
 
 LOGGING_CONSOLE_REPLACEMENT = "<PatternLayout pattern=\"%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n\"/>"
 
@@ -73,35 +74,54 @@ class CorePortableMC:
 
     def __init__(self):
 
-        self._main_dir: Optional[str] = None
+        # self._main_dir: Optional[str] = None
+        # self._work_dir: Optional[str] = None
 
         self._mc_os = self.get_minecraft_os()
         self._mc_arch = self.get_minecraft_arch()
         self._mc_archbits = self.get_minecraft_archbits()
 
         self._version_manifest: Optional[VersionManifest] = None
-        self._auth_database: Optional[AuthDatabase] = None
+        # self._auth_database: Optional[AuthDatabase] = None
         self._download_buffer: Optional[bytearray] = None
 
     # Generic methods
 
-    def init_main_dir(self, main_dir: Optional[str]) -> bool:
-        self._main_dir = self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
-        return path.isdir(self._main_dir)
+    # def init_dirs(self, main_dir: Optional[str], work_dir: Optional[str]) -> bool:
+    #     self._main_dir = self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
+    #     self._work_dir = self._main_dir if work_dir is None else work_dir
+    # return path.isdir(self._main_dir)
 
-    def make_main_dir(self):
-        os.makedirs(self._main_dir, 0o777, True)
+    # def init_main_dir(self, main_dir: Optional[str]) -> bool:
+    #     raise Exception("You should now use init_dirs(main_dir, work_dir) instead of init_main_dir(main_dir)")
+        # self._main_dir = self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
+        # return path.isdir(self._main_dir)
 
-    def check_main_dir(self):
-        if self._main_dir is None or not path.isdir(self._main_dir):
-            raise ValueError("Before executing this function, please use 'init_main_dir' to set the main "
-                             "directory path (use None to select the default .minecraft). Also make sure "
-                             "the directory is created (using 'make_main_dir' if needed).")
+    # def make_main_dir(self):
+    #     os.makedirs(self._main_dir, 0o777, True)
+    #     pass
 
-    def core_search(self, search: Optional[str], *, local: bool = False) -> list:
+    # def check_main_dir(self):
+    #     if self._main_dir is None or not path.isdir(self._main_dir):
+    #         raise ValueError("Before executing this function, please use 'init_main_dir' to set the main "
+    #                          "directory path (use None to select the default .minecraft). Also make sure "
+    #                          "the directory is created (using 'make_main_dir' if needed).")
+    #     pass
+
+    def compute_main_dir(self, main_dir: Optional[str]) -> str:
+        return self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
+
+    def compute_work_dir(self, main_dir: Optional[str], work_dir: Optional[str]) -> str:
+        if main_dir is None:
+            main_dir = self.get_minecraft_dir()
+        else:
+            main_dir = path.realpath(main_dir)
+        return main_dir if work_dir is None else path.realpath(work_dir)
+
+    def search_mc(self, main_dir: Optional[str], search: Optional[str], *, local: bool = False) -> list:
 
         no_version = (search is None)
-        versions_dir = path.join(self._main_dir, "versions")
+        versions_dir = path.join(self.compute_main_dir(main_dir), "versions")
 
         if local:
             if path.isdir(versions_dir):
@@ -117,16 +137,17 @@ class CorePortableMC:
                 version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
                 yield version_data["type"], version_data["id"], version_data["releaseTime"], path.isfile(version_jar_file)
 
-    def core_start(self, *,
+    def start_mc(self, *,
                    version: str,
                    jvm: Optional[Union[str, Iterable[str]]] = None,     # Default to (JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT)
+                   main_dir: Optional[str] = None,          # Default to .minecraft
                    work_dir: Optional[str] = None,          # Default to main dir
                    uuid: Optional[str] = None,              # Default to random UUID
                    username: Optional[str] = None,          # Default to uuid[:8]
                    auth: 'Optional[AuthEntry]' = None,      # This parameter will override uuid/username
                    dry_run: bool = False,
                    no_better_logging: bool = False,
-                   work_dir_bin: bool = False,
+                   # work_dir_bin: bool = False,
                    resolution: 'Optional[Tuple[int, int]]' = None,
                    demo: bool = False,
                    disable_multiplayer: bool = False,
@@ -146,16 +167,14 @@ class CorePortableMC:
 
         # self.notice("start.welcome")
 
-        self.check_main_dir()
+        # self.check_main_dir()
 
-        if work_dir is None:
-            work_dir = self._main_dir
-        else:
-            work_dir = path.realpath(work_dir)
+        main_dir = self.compute_main_dir(main_dir)
+        work_dir = self.compute_work_dir(main_dir, work_dir)
 
         # Resolve version metadata
         version, version_alias = self.get_version_manifest().filter_latest(version)
-        version_meta, version_dir = self.resolve_version_meta_recursive(version)
+        version_meta, version_dir = self.resolve_version_meta_recursive(main_dir, version)
 
         # Starting version dependencies resolving
         version_type = version_meta["type"]
@@ -177,7 +196,7 @@ class CorePortableMC:
 
         # Assets loading
         self.notice("start.loading_assets")
-        assets_dir = path.join(self._main_dir, "assets")
+        assets_dir = path.join(main_dir, "assets")
         assets_indexes_dir = path.join(assets_dir, "indexes")
         assets_index_version = version_meta["assets"]
         assets_index_file = path.join(assets_indexes_dir, "{}.json".format(assets_index_version))
@@ -272,7 +291,7 @@ class CorePortableMC:
                 logging_arg = client_logging["argument"].replace("${path}", logging_file)
 
         # Libraries and natives loading
-        classpath_libs, native_libs = self.core_ensure_libraries(version_meta)
+        classpath_libs, native_libs = self.ensure_libraries(main_dir, version_meta)
         classpath_libs.append(version_jar_file)
         if callable(libraries_modifier):
             libraries_modifier(classpath_libs, native_libs)
@@ -286,7 +305,7 @@ class CorePortableMC:
         self.notice("start.starting")
 
         # Extracting binaries
-        bin_dir = path.join(work_dir if work_dir_bin else self._main_dir, "bin", str(uuid4()))
+        bin_dir = path.join(work_dir, "bin", str(uuid4()))
 
         @atexit.register
         def _bin_dir_cleanup():
@@ -397,10 +416,10 @@ class CorePortableMC:
 
         self.notice("start.stopped")
 
-    def core_ensure_libraries(self, version_meta: dict) -> Tuple[List[str], List[str]]:
+    def ensure_libraries(self, main_dir: str, version_meta: dict) -> Tuple[List[str], List[str]]:
 
         self.notice("libraries.loading_libraries")
-        libraries_dir = path.join(self._main_dir, "libraries")
+        libraries_dir = path.join(main_dir, "libraries")
         classpath_libs = []
         native_libs = []
 
@@ -478,25 +497,34 @@ class CorePortableMC:
 
         return classpath_libs, native_libs
 
+    # For retro-compat
+
+    # core_search = search_mc
+    # core_start = start_mc
+    # core_ensure_libraries = ensure_libraries
+
     # Lazy variables getters
 
-    def get_main_dir(self) -> str:
-        return self._main_dir
+    # def get_main_dir(self) -> str:
+    #     return self._main_dir
 
     def get_version_manifest(self) -> 'VersionManifest':
         if self._version_manifest is None:
             self._version_manifest = VersionManifest.load_from_url()
         return self._version_manifest
 
-    def get_auth_database(self) -> 'AuthDatabase':
-        if self._auth_database is None:
-            self._auth_database = AuthDatabase(path.join(self._main_dir, "portablemc_tokens"))
-        return self._auth_database
+    # def get_auth_database(self) -> 'AuthDatabase':
+    #     if self._auth_database is None:
+    #         self._auth_database = AuthDatabase(path.join(self._main_dir, "portablemc_tokens"))
+    #     return self._auth_database
 
     def get_download_buffer(self) -> bytearray:
         if self._download_buffer is None:
             self._download_buffer = bytearray(65536)
         return self._download_buffer
+
+    def new_auth_database(self, work_dir: Optional[str]) -> 'AuthDatabase':
+        return AuthDatabase(path.join(work_dir, TOKENS_FILE_NAME))
 
     # Public methods to be replaced by addons
 
@@ -553,12 +581,12 @@ class CorePortableMC:
 
     # Version metadata
 
-    def get_version_dir(self, name: str) -> str:
-        return path.join(self._main_dir, "versions", name)
+    def get_version_dir(self, main_dir: str, name: str) -> str:
+        return path.join(main_dir, "versions", name)
 
-    def resolve_version_meta(self, name: str) -> Tuple[dict, str]:
+    def resolve_version_meta(self, main_dir: str, name: str) -> Tuple[dict, str]:
 
-        version_dir = self.get_version_dir(name)
+        version_dir = self.get_version_dir(main_dir, name)
         version_meta_file = path.join(version_dir, "{}.json".format(name))
         content = None
 
@@ -588,11 +616,11 @@ class CorePortableMC:
 
         return content, version_dir
 
-    def resolve_version_meta_recursive(self, name: str) -> Tuple[dict, str]:
-        version_meta, version_dir = self.resolve_version_meta(name)
+    def resolve_version_meta_recursive(self, main_dir: str, name: str) -> Tuple[dict, str]:
+        version_meta, version_dir = self.resolve_version_meta(main_dir, name)
         while "inheritsFrom" in version_meta:
             self.notice("version.parent_version", version_meta["inheritsFrom"])
-            parent_meta, _ = self.resolve_version_meta(version_meta["inheritsFrom"])
+            parent_meta, _ = self.resolve_version_meta(main_dir, version_meta["inheritsFrom"])
             if parent_meta is None:
                 self.notice("version.parent_version_not_found", version_meta["inheritsFrom"])
                 raise VersionNotFoundError(version_meta["inheritsFrom"])
@@ -992,8 +1020,12 @@ if __name__ == '__main__':
                 "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
                         "script! This single-script launcher is still compatible with the official "
                         "(Mojang) Minecraft Launcher stored in .minecraft and use it.",
-                "args.main_dir": "Set the main directory where libraries, assets, versions and binaries (at runtime) "
-                                 "are stored. It also contains the launcher authentication database.",
+                "args.main_dir": "Set the main directory where libraries, assets and versions. "
+                                 "This argument can be used or not by subcommand.",
+                "args.work_dir": "Set the working directory where the game run and place for examples "
+                                 "saves, screenshots (and resources for legacy versions), it also store "
+                                 "runtime binaries and authentication. "
+                                 "This argument can be used or not by subcommand.",
                 "args.search": "Search for Minecraft versions.",
                 "args.search.local": "Search only for local installed Minecraft versions.",
                 "args.start": "Start a Minecraft version, default to the latest release.",
@@ -1004,10 +1036,10 @@ if __name__ == '__main__':
                 "args.start.resol": "Set a custom start resolution (<width>x<height>).",
                 "args.start.jvm": "Set a custom JVM 'javaw' executable path.",
                 "args.start.jvm_args": "Change the default JVM arguments.",
-                "args.start.work_dir": "Set the working directory where the game run and place for examples the "
-                                       "saves (and resources for legacy versions).",
-                "args.start.work_dir_bin": "Flag to force temporary binaries to be copied inside working directory, "
-                                           "by default they are copied into main directory.",
+                # "args.start.work_dir": "Set the working directory where the game run and place for examples the "
+                #                        "saves (and resources for legacy versions).",
+                # "args.start.work_dir_bin": "Flag to force temporary binaries to be copied inside working directory, "
+                #                            "by default they are copied into main directory.",
                 "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
                                                 "order to improve the log readability in the console.",
                 "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
@@ -1114,13 +1146,13 @@ if __name__ == '__main__':
                 parser.print_help()
                 return
 
-            main_dir_exists = self.init_main_dir(args.main_dir)
-            if "ignore_main_dir" not in args or not args.ignore_main_dir:
-                if not main_dir_exists:
-                    if self.prompt("continue_using_main_dir", self._main_dir) != "y":
-                        self.print("abort")
-                        exit(0)
-                    self.make_main_dir()
+            # main_dir_exists = self.init_main_dir(args.main_dir)
+            # if "ignore_main_dir" not in args or not args.ignore_main_dir:
+            #     if not main_dir_exists:
+            #         if self.prompt("continue_using_main_dir", self._main_dir) != "y":
+            #             self.print("abort")
+            #             exit(0)
+            #         self.make_main_dir()
 
             exit(self.start_subcommand(subcommand, args))
 
@@ -1171,27 +1203,23 @@ if __name__ == '__main__':
         # Arguments
 
         def register_arguments(self) -> ArgumentParser:
-
-            parser = ArgumentParser(
-                allow_abbrev=False,
-                prog="portablemc",
-                description=self.get_message("args")
-            )
-
-            # Main directory is placed here in order to know the path of the auth database.
+            parser = ArgumentParser(allow_abbrev=False, prog="portablemc", description=self.get_message("args"))
             parser.add_argument("--main-dir", help=self.get_message("args.main_dir"), dest="main_dir")
-
-            self.register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand", ))
-
+            parser.add_argument("--work-dir", help=self.get_message("args.work_dir"), dest="work_dir")
+            self.register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
             return parser
 
-        @staticmethod
-        def new_help_formatter(max_help_position: int):
-            class CustomHelpFormatter(HelpFormatter):
-                def __init__(self, prog):
-                    super().__init__(prog, max_help_position=max_help_position)
+        def get_arg_main_dir(self, args: Namespace) -> str:
+            return self.compute_main_dir(args.main_dir)
 
-            return CustomHelpFormatter
+        def get_arg_work_dir(self, args: Namespace) -> str:
+            return self.compute_work_dir(args.main_dir, args.work_dir)
+
+        # def register_dirs_arguments(self, parser: ArgumentParser, main_dir: bool, work_dir: bool):
+        #     if main_dir:
+        #         parser.add_argument("--main-dir", help=self.get_message("args.main_dir"), dest="main_dir")
+        #      if work_dir:
+        #         parser.add_argument("--work-dir", help=self.get_message("args.work_dir"), dest="work_dir")
 
         def register_subcommands(self, subcommands):
             self.register_search_arguments(subcommands.add_parser("search", help=self.get_message("args.search")))
@@ -1203,7 +1231,7 @@ if __name__ == '__main__':
         def register_search_arguments(self, parser: ArgumentParser):
             parser.add_argument("-l", "--local", help=self.get_message("args.search.local"), default=False, action="store_true")
             parser.add_argument("input", nargs="?")
-            parser.set_defaults(ignore_main_dir=True)
+            # parser.set_defaults(ignore_main_dir=True)
 
         def register_start_arguments(self, parser: ArgumentParser):
             parser.formatter_class = self.new_help_formatter(32)
@@ -1214,8 +1242,8 @@ if __name__ == '__main__':
             parser.add_argument("--resol", help=self.get_message("args.start.resol"), type=self._decode_resolution, dest="resolution")
             parser.add_argument("--jvm", help=self.get_message("args.start.jvm"), default=JVM_EXEC_DEFAULT)
             parser.add_argument("--jvm-args", help=self.get_message("args.start.jvm_args"), default=None, dest="jvm_args")
-            parser.add_argument("--work-dir", help=self.get_message("args.start.work_dir"), dest="work_dir")
-            parser.add_argument("--work-dir-bin", help=self.get_message("args.start.work_dir_bin"), default=False, action="store_true", dest="work_dir_bin")
+            # parser.add_argument("--work-dir", help=self.get_message("args.start.work_dir"), dest="work_dir")
+            # parser.add_argument("--work-dir-bin", help=self.get_message("args.start.work_dir_bin"), default=False, action="store_true", dest="work_dir_bin")
             parser.add_argument("--no-better-logging", help=self.get_message("args.start.no_better_logging"), default=False, action="store_true", dest="no_better_logging")
             parser.add_argument("-t", "--temp-login", help=self.get_message("args.start.temp_login"), default=False, action="store_true", dest="templogin")
             parser.add_argument("-l", "--login", help=self.get_message("args.start.login"))
@@ -1233,7 +1261,7 @@ if __name__ == '__main__':
 
         def register_addon_arguments(self, parser: ArgumentParser):
 
-            parser.set_defaults(ignore_main_dir=True)
+            # parser.set_defaults(ignore_main_dir=True)
 
             subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand", required=True)
             subparsers.add_parser("list", help=self.get_message("args.addon.list"))
@@ -1245,6 +1273,15 @@ if __name__ == '__main__':
             show_parser = subparsers.add_parser("show", help=self.get_message("args.addon.show"))
             show_parser.add_argument("addon_name")
 
+        @staticmethod
+        def new_help_formatter(max_help_position: int):
+
+            class CustomHelpFormatter(HelpFormatter):
+                def __init__(self, prog):
+                    super().__init__(prog, max_help_position=max_help_position)
+
+            return CustomHelpFormatter
+
         # Builtin subcommands
 
         def cmd_search(self, args: Namespace) -> int:
@@ -1255,7 +1292,7 @@ if __name__ == '__main__':
                 self.print("cmd.search.pending_local" if args.local else "cmd.search.pending", args.input)
 
             found = False
-            for version_type, version_id, version_date, is_local in self.core_search(args.input, local=args.local):
+            for version_type, version_id, version_date, is_local in self.search_mc(self.get_arg_main_dir(args), args.input, local=args.local):
                 found = True
                 self.print("cmd.search.result",
                            version_type,
@@ -1270,13 +1307,14 @@ if __name__ == '__main__':
                 return 0
 
         def cmd_login(self, args: Namespace) -> int:
-            entry = self.promp_password_and_authenticate(args.email_or_username, True)
+            entry = self.promp_password_and_authenticate(self.get_arg_work_dir(args), args.email_or_username, True)
             return EXIT_AUTHENTICATION_FAILED if entry is None else 0
 
         def cmd_logout(self, args: Namespace) -> int:
             email_or_username = args.email_or_username
             self.print("cmd.logout.pending", email_or_username)
-            auth_db = self.get_auth_database()
+            # auth_db = self.get_auth_database()
+            auth_db = self.new_auth_database(self.get_arg_work_dir(args))
             auth_db.load()
             entry = auth_db.get_entry(email_or_username)
             if entry is not None:
@@ -1327,9 +1365,12 @@ if __name__ == '__main__':
 
         def cmd_start(self, args: Namespace) -> int:
 
+            main_dir = self.get_arg_main_dir(args)
+            work_dir = self.get_arg_work_dir(args)
+
             # Login if needed
             if args.login is not None:
-                auth = self.promp_password_and_authenticate(args.login, not args.templogin)
+                auth = self.promp_password_and_authenticate(work_dir, args.login, not args.templogin)
                 if auth is None:
                     return EXIT_AUTHENTICATION_FAILED
             else:
@@ -1348,17 +1389,18 @@ if __name__ == '__main__':
 
             # Actual start
             try:
-                self.game_start(
-                    work_dir=args.work_dir,
+                self.start_mc_from_cmd(
+                    cmd_args=args,
+                    main_dir=main_dir,
+                    work_dir=work_dir,
                     version=args.version,
                     uuid=args.uuid,
                     username=args.username,
                     auth=auth,
                     jvm=(args.jvm, *jvm_args),
-                    cmd_args=args,
                     dry_run=args.dry,
                     no_better_logging=args.no_better_logging,
-                    work_dir_bin=args.work_dir_bin,
+                    # work_dir_bin=args.work_dir_bin,
                     resolution=custom_resol,
                     demo=args.demo,
                     disable_multiplayer=args.disable_mp,
@@ -1420,9 +1462,9 @@ if __name__ == '__main__':
 
         # Start mixin
 
-        def game_start(self, *, cmd_args: Namespace, **kwargs) -> None:
+        def start_mc_from_cmd(self, *, cmd_args: Namespace, **kwargs) -> None:
             # Define this method to accept "cmd_args"
-            super().core_start(**kwargs)
+            super().start_mc(**kwargs)
 
         def game_runner(self, proc_args: list, proc_cwd: str, options: dict):
             self.print("", "====================================================")
@@ -1433,11 +1475,12 @@ if __name__ == '__main__':
 
         # Authentication
 
-        def promp_password_and_authenticate(self, email_or_username: str, cache_in_db: bool) -> 'Optional[AuthEntry]':
+        def promp_password_and_authenticate(self, work_dir: str, email_or_username: str, cache_in_db: bool) -> 'Optional[AuthEntry]':
 
             self.print("auth.pending", email_or_username)
 
-            auth_db = self.get_auth_database()
+            # auth_db = self.get_auth_database()
+            auth_db = self.new_auth_database(work_dir)
             auth_db.load()
 
             auth_entry = auth_db.get_entry(email_or_username)

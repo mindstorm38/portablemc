@@ -47,12 +47,13 @@ import os
 
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "1.1.3"
+LAUNCHER_VERSION = "1.1.4-snapshot"
 LAUNCHER_AUTHORS = "Théo Rozier"
 
 VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
 ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
 AUTHSERVER_URL = "https://authserver.mojang.com/{}"
+TOKENS_FILE_NAME  = "portablemc_tokens"
 
 LOGGING_CONSOLE_REPLACEMENT = "<PatternLayout pattern=\"%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n\"/>"
 
@@ -75,35 +76,54 @@ class CorePortableMC:
 
     def __init__(self):
 
-        self._main_dir: Optional[str] = None
+        # self._main_dir: Optional[str] = None
+        # self._work_dir: Optional[str] = None
 
         self._mc_os = self.get_minecraft_os()
         self._mc_arch = self.get_minecraft_arch()
         self._mc_archbits = self.get_minecraft_archbits()
 
         self._version_manifest: Optional[VersionManifest] = None
-        self._auth_database: Optional[AuthDatabase] = None
+        # self._auth_database: Optional[AuthDatabase] = None
         self._download_buffer: Optional[bytearray] = None
 
     # Generic methods
 
-    def init_main_dir(self, main_dir: Optional[str]) -> bool:
-        self._main_dir = self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
-        return path.isdir(self._main_dir)
+    # def init_dirs(self, main_dir: Optional[str], work_dir: Optional[str]) -> bool:
+    #     self._main_dir = self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
+    #     self._work_dir = self._main_dir if work_dir is None else work_dir
+    # return path.isdir(self._main_dir)
 
-    def make_main_dir(self):
-        os.makedirs(self._main_dir, 0o777, True)
+    # def init_main_dir(self, main_dir: Optional[str]) -> bool:
+    #     raise Exception("You should now use init_dirs(main_dir, work_dir) instead of init_main_dir(main_dir)")
+        # self._main_dir = self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
+        # return path.isdir(self._main_dir)
 
-    def check_main_dir(self):
-        if self._main_dir is None or not path.isdir(self._main_dir):
-            raise ValueError("Before executing this function, please use 'init_main_dir' to set the main "
-                             "directory path (use None to select the default .minecraft). Also make sure "
-                             "the directory is created (using 'make_main_dir' if needed).")
+    # def make_main_dir(self):
+    #     os.makedirs(self._main_dir, 0o777, True)
+    #     pass
 
-    def core_search(self, search: Optional[str], *, local: bool = False) -> list:
+    # def check_main_dir(self):
+    #     if self._main_dir is None or not path.isdir(self._main_dir):
+    #         raise ValueError("Before executing this function, please use 'init_main_dir' to set the main "
+    #                          "directory path (use None to select the default .minecraft). Also make sure "
+    #                          "the directory is created (using 'make_main_dir' if needed).")
+    #     pass
+
+    def compute_main_dir(self, main_dir: Optional[str]) -> str:
+        return self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
+
+    def compute_work_dir(self, main_dir: Optional[str], work_dir: Optional[str]) -> str:
+        if main_dir is None:
+            main_dir = self.get_minecraft_dir()
+        else:
+            main_dir = path.realpath(main_dir)
+        return main_dir if work_dir is None else path.realpath(work_dir)
+
+    def search_mc(self, main_dir: Optional[str], search: Optional[str], *, local: bool = False) -> list:
 
         no_version = (search is None)
-        versions_dir = path.join(self._main_dir, "versions")
+        versions_dir = path.join(self.compute_main_dir(main_dir), "versions")
 
         if local:
             if path.isdir(versions_dir):
@@ -119,16 +139,17 @@ class CorePortableMC:
                 version_jar_file = path.join(versions_dir, version_id, f"{version_id}.jar")
                 yield version_data["type"], version_data["id"], version_data["releaseTime"], path.isfile(version_jar_file)
 
-    def core_start(self, *,
+    def start_mc(self, *,
                    version: str,
                    jvm: Optional[Union[str, Iterable[str]]] = None,     # Default to (JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT)
+                   main_dir: Optional[str] = None,          # Default to .minecraft
                    work_dir: Optional[str] = None,          # Default to main dir
                    uuid: Optional[str] = None,              # Default to random UUID
                    username: Optional[str] = None,          # Default to uuid[:8]
                    auth: 'Optional[AuthEntry]' = None,      # This parameter will override uuid/username
                    dry_run: bool = False,
                    no_better_logging: bool = False,
-                   work_dir_bin: bool = False,
+                   # work_dir_bin: bool = False,
                    resolution: 'Optional[Tuple[int, int]]' = None,
                    demo: bool = False,
                    disable_multiplayer: bool = False,
@@ -148,16 +169,14 @@ class CorePortableMC:
 
         # self.notice("start.welcome")
 
-        self.check_main_dir()
+        # self.check_main_dir()
 
-        if work_dir is None:
-            work_dir = self._main_dir
-        else:
-            work_dir = path.realpath(work_dir)
+        main_dir = self.compute_main_dir(main_dir)
+        work_dir = self.compute_work_dir(main_dir, work_dir)
 
         # Resolve version metadata
         version, version_alias = self.get_version_manifest().filter_latest(version)
-        version_meta, version_dir = self.resolve_version_meta_recursive(version)
+        version_meta, version_dir = self.resolve_version_meta_recursive(main_dir, version)
 
         # Starting version dependencies resolving
         version_type = version_meta["type"]
@@ -179,7 +198,7 @@ class CorePortableMC:
 
         # Assets loading
         self.notice("start.loading_assets")
-        assets_dir = path.join(self._main_dir, "assets")
+        assets_dir = path.join(main_dir, "assets")
         assets_indexes_dir = path.join(assets_dir, "indexes")
         assets_index_version = version_meta["assets"]
         assets_index_file = path.join(assets_indexes_dir, "{}.json".format(assets_index_version))
@@ -274,7 +293,7 @@ class CorePortableMC:
                 logging_arg = client_logging["argument"].replace("${path}", logging_file)
 
         # Libraries and natives loading
-        classpath_libs, native_libs = self.core_ensure_libraries(version_meta)
+        classpath_libs, native_libs = self.ensure_libraries(main_dir, version_meta)
         classpath_libs.append(version_jar_file)
         if callable(libraries_modifier):
             libraries_modifier(classpath_libs, native_libs)
@@ -288,7 +307,7 @@ class CorePortableMC:
         self.notice("start.starting")
 
         # Extracting binaries
-        bin_dir = path.join(work_dir if work_dir_bin else self._main_dir, "bin", str(uuid4()))
+        bin_dir = path.join(work_dir, "bin", str(uuid4()))
 
         @atexit.register
         def _bin_dir_cleanup():
@@ -399,10 +418,10 @@ class CorePortableMC:
 
         self.notice("start.stopped")
 
-    def core_ensure_libraries(self, version_meta: dict) -> Tuple[List[str], List[str]]:
+    def ensure_libraries(self, main_dir: str, version_meta: dict) -> Tuple[List[str], List[str]]:
 
         self.notice("libraries.loading_libraries")
-        libraries_dir = path.join(self._main_dir, "libraries")
+        libraries_dir = path.join(main_dir, "libraries")
         classpath_libs = []
         native_libs = []
 
@@ -480,25 +499,34 @@ class CorePortableMC:
 
         return classpath_libs, native_libs
 
+    # For retro-compat
+
+    # core_search = search_mc
+    # core_start = start_mc
+    # core_ensure_libraries = ensure_libraries
+
     # Lazy variables getters
 
-    def get_main_dir(self) -> str:
-        return self._main_dir
+    # def get_main_dir(self) -> str:
+    #     return self._main_dir
 
     def get_version_manifest(self) -> 'VersionManifest':
         if self._version_manifest is None:
             self._version_manifest = VersionManifest.load_from_url()
         return self._version_manifest
 
-    def get_auth_database(self) -> 'AuthDatabase':
-        if self._auth_database is None:
-            self._auth_database = AuthDatabase(path.join(self._main_dir, "portablemc_tokens"))
-        return self._auth_database
+    # def get_auth_database(self) -> 'AuthDatabase':
+    #     if self._auth_database is None:
+    #         self._auth_database = AuthDatabase(path.join(self._main_dir, "portablemc_tokens"))
+    #     return self._auth_database
 
     def get_download_buffer(self) -> bytearray:
         if self._download_buffer is None:
             self._download_buffer = bytearray(65536)
         return self._download_buffer
+
+    def new_auth_database(self, work_dir: Optional[str]) -> 'AuthDatabase':
+        return AuthDatabase(path.join(work_dir, TOKENS_FILE_NAME))
 
     # Public methods to be replaced by addons
 
@@ -555,12 +583,12 @@ class CorePortableMC:
 
     # Version metadata
 
-    def get_version_dir(self, name: str) -> str:
-        return path.join(self._main_dir, "versions", name)
+    def get_version_dir(self, main_dir: str, name: str) -> str:
+        return path.join(main_dir, "versions", name)
 
-    def resolve_version_meta(self, name: str) -> Tuple[dict, str]:
+    def resolve_version_meta(self, main_dir: str, name: str) -> Tuple[dict, str]:
 
-        version_dir = self.get_version_dir(name)
+        version_dir = self.get_version_dir(main_dir, name)
         version_meta_file = path.join(version_dir, "{}.json".format(name))
         content = None
 
@@ -590,11 +618,11 @@ class CorePortableMC:
 
         return content, version_dir
 
-    def resolve_version_meta_recursive(self, name: str) -> Tuple[dict, str]:
-        version_meta, version_dir = self.resolve_version_meta(name)
+    def resolve_version_meta_recursive(self, main_dir: str, name: str) -> Tuple[dict, str]:
+        version_meta, version_dir = self.resolve_version_meta(main_dir, name)
         while "inheritsFrom" in version_meta:
             self.notice("version.parent_version", version_meta["inheritsFrom"])
-            parent_meta, _ = self.resolve_version_meta(version_meta["inheritsFrom"])
+            parent_meta, _ = self.resolve_version_meta(main_dir, version_meta["inheritsFrom"])
             if parent_meta is None:
                 self.notice("version.parent_version_not_found", version_meta["inheritsFrom"])
                 raise VersionNotFoundError(version_meta["inheritsFrom"])

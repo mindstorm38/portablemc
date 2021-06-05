@@ -97,13 +97,21 @@ class CoderPackAddon:
         VersionNotFoundError = self.pmc.VersionNotFoundError
 
         try:
-            self.decompile(version=args.version, side=args.side, force_fix=args.fix)
+            self.decompile(
+                main_dir=self.pmc.get_arg_main_dir(args),
+                work_dir=self.pmc.get_arg_work_dir(args),
+                version=args.version,
+                side=args.side,
+                force_fix=args.fix
+            )
         except VersionNotFoundError:
             return EXIT_VERSION_NOT_FOUND
         except MappingsNotSupportedError:
             return EXIT_MAPPINGS_NOT_SUPPORTED
 
     def decompile(self,
+                  main_dir: str,
+                  work_dir: str,
                   version: str,
                   side: str = "client",
                   out_dir: 'Optional[str]' = None,
@@ -111,13 +119,13 @@ class CoderPackAddon:
 
         DownloadEntry = self.pmc.DownloadEntry
 
-        self.pmc.check_main_dir()
+        # self.pmc.check_main_dir()
         if out_dir is None:
-            out_dir = path.join(self.pmc.get_main_dir(), "coderpack")
+            out_dir = path.join(work_dir, "coderpack")
 
         # Resolve version metadata
         version, version_alias = self.pmc.get_version_manifest().filter_latest(version)
-        version_meta, version_dir = self.pmc.resolve_version_meta_recursive(version)
+        version_meta, version_dir = self.pmc.resolve_version_meta_recursive(main_dir, version)
 
         version_meta_downloads = version_meta["downloads"]
         proguard_download = version_meta_downloads.get("{}_mappings".format(side))
@@ -179,7 +187,7 @@ class CoderPackAddon:
                 title="coderpack.decompile.remapping")
 
         # Ensure libraries
-        classpath_libs, native_libs = self.pmc.core_ensure_libraries(version_meta)
+        classpath_libs, native_libs = self.pmc.ensure_libraries(main_dir, version_meta)
 
         # Decompilation to an output directory
         decompiler_dir = path.join(out_version_dir, "{}-{}".format(version, side))
