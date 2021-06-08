@@ -317,9 +317,4 @@ class ByteProgress(Formatter):
             return "{:4.0f}GB".format(n // 1000000000)
 
     def get_width(self, progress_bar: "ProgressBar") -> AnyDimension:
-        width = 5
-        for counter in progress_bar.counters:
-            if counter.items_completed >= 1000:
-                width = 6
-                break
-        return Dimension.exact(width)
+        return Dimension.exact(6)
