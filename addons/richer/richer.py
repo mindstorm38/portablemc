@@ -308,7 +308,7 @@ class ByteProgress(Formatter):
     def format(self, progress_bar: "ProgressBar", progress: "ProgressBarCounter[object]", width: int) -> AnyFormattedText:
         n = progress.items_completed
         if n < 1000:
-            return "{:4.0f}B".format(n)
+            return "{:5.0f}B".format(n)
         elif n < 1000000:
             return "{:4.0f}kB".format(n // 1000)
         elif n < 1000000000:
