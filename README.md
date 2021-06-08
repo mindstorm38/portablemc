@@ -118,7 +118,7 @@ These subcommand doesn't prevent you from using the `-l` (`--login`) argument wh
 these are just here to manage the session storage.
 
 ## Addon sub-command
-The `<exec> addon list|init|show` sub-commands are used to list, initialize (for developpers) and show
+The `<exec> addon list|init|show` sub-commands are used to list, initialize (for developers) and show
 addons.
 
 # Addons
