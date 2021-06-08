@@ -1210,9 +1210,9 @@ if __name__ == '__main__':
                 "jvm.not_found": "No JVM was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
                 "jvm.unsupported_jvm_arch": "No JVM download was found for your platform architecture '{}', use --jvm argument to set the JVM executable of path to it.",
                 "jvm.unsupported_jvm_version": "No JVM download was found for version '{}', use --jvm argument to set the JVM executable of path to it.",
-                "jvm.downloading_version": "Download Java Virtual Machine version {}...",
-                "jvm.downloaded": "=> Java Virtual Machine is fully downloaded.",
-                "jvm.using": "Using Mojang Java Virtual Machine version {}"
+                "jvm.downloading_version": "Download Java {}...",
+                "jvm.downloaded": "=> Java is fully downloaded.",
+                "jvm.using": "Using Mojang Java {}"
 
             }
 
