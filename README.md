@@ -134,6 +134,8 @@ or download the prebuilt package (`modloaders` on the latest release post [porta
 
 This add-on allows you to start Minecraft using FabricMC directly with the [start sub-command](#start-the-game), 
 but instead of a standard version like `1.16.5` you must use the following pattern: `fabric:<mc-version>`.
+Use `fabric:` to start fabric for latest release, `<mc-version>` can be a version type (`release` or `snapshot`), 
+in this case the latest version of this type is selected.
 
 For example, using the command `portablemc.py start fabric:1.16.5` will download and start the latest FabricMC mod loader for `1.16.5`.
 
