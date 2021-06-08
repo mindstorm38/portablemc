@@ -29,7 +29,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Iterable, Union
+from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Union
 from urllib import request as url_request
 from json.decoder import JSONDecodeError
 from urllib.error import HTTPError
@@ -53,6 +53,8 @@ LAUNCHER_AUTHORS = "Théo Rozier"
 VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
 ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
 AUTHSERVER_URL = "https://authserver.mojang.com/{}"
+JVM_META_URL = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
+
 TOKENS_FILE_NAME  = "portablemc_tokens"
 
 LOGGING_CONSOLE_REPLACEMENT = "<PatternLayout pattern=\"%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n\"/>"
@@ -141,7 +143,7 @@ class CorePortableMC:
 
     def start_mc(self, *,
                    version: str,
-                   jvm: Optional[Union[str, Iterable[str]]] = None,     # Default to (JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT)
+                   jvm: Optional[Union[str, List[str]]] = None,     # Default to [JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT]
                    main_dir: Optional[str] = None,          # Default to .minecraft
                    work_dir: Optional[str] = None,          # Default to main dir
                    uuid: Optional[str] = None,              # Default to random UUID
@@ -298,6 +300,21 @@ class CorePortableMC:
         if callable(libraries_modifier):
             libraries_modifier(classpath_libs, native_libs)
 
+        # Download JVM
+        if jvm is None:
+            jvm = [None, *JVM_ARGS_DEFAULT]
+        elif isinstance(jvm, str):
+            jvm = [jvm, *JVM_ARGS_DEFAULT]
+        elif isinstance(jvm, tuple):
+            jvm = list(jvm)
+
+        if jvm[0] is None:
+            version_java_version = version_meta.get("javaVersion")
+            version_java_version_type = "jre-legacy" if version_java_version is None else version_java_version["component"]
+            jvm[0] = self.ensure_jvm(main_dir, version_java_version_type)
+            if jvm[0] is None:
+                return
+
         # Don't run if dry run
         if dry_run:
             self.notice("start.dry")
@@ -336,8 +353,8 @@ class CorePortableMC:
 
         main_class = version_meta["mainClass"]
         if main_class == "net.minecraft.launchwrapper.Launch":
-            # raw_args.append("-Dminecraft.client.jar={}".format(version_jar_file))
-            main_class = "net.minecraft.client.Minecraft"
+            raw_args.append("-Dminecraft.client.jar={}".format(version_jar_file))
+            # main_class = "net.minecraft.client.Minecraft"
 
         main_class_idx = len(raw_args)
         raw_args.append(main_class)
@@ -393,12 +410,7 @@ class CorePortableMC:
         if callable(args_replacement_modifier):
             args_replacement_modifier(start_args_replacements)
 
-        if jvm is None:
-            jvm = (JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT)
-        elif isinstance(jvm, str):
-            jvm = (jvm, *JVM_ARGS_DEFAULT)
-
-        start_args = [*jvm]
+        start_args = jvm[:]
         for arg in raw_args:
             for repl_id, repl_val in start_args_replacements.items():
                 arg = arg.replace("${{{}}}".format(repl_id), repl_val)
@@ -498,6 +510,51 @@ class CorePortableMC:
                 native_libs.append(lib_path)
 
         return classpath_libs, native_libs
+
+    def ensure_jvm(self, main_dir: str, jvm_version_type: str) -> Optional[str]:
+
+        jvm_arch = self.get_minecraft_jvm()
+        if jvm_arch is None:
+            self.notice("jvm.not_found")
+            return None
+
+        all_jvm_meta = self.read_url_json(JVM_META_URL)
+        jvm_arch_meta = all_jvm_meta.get(jvm_arch)
+        if jvm_arch_meta is None:
+            self.notice("jvm.unsupported_jvm_arch", jvm_arch)
+            return None
+
+        jvm_meta = jvm_arch_meta.get(jvm_version_type)
+        if jvm_meta is None:
+            self.notice("jvm.unsupported_jvm_version", jvm_version_type)
+            return None
+
+        jvm_meta = jvm_meta[0]
+        jvm_version = jvm_meta["version"]["name"]
+        jvm_manifest_url = jvm_meta["manifest"]["url"]
+        jvm_manifest = self.read_url_json(jvm_manifest_url)["files"]
+
+        jvm_dir = path.join(main_dir, "jvm", jvm_version_type)
+        os.makedirs(jvm_dir, 0o777, True)
+
+        jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if sys.platform == "win32" else "java")
+
+        if not path.isfile(jvm_exec):
+            self.notice("jvm.downloading_version", jvm_version)
+            for jvm_file_path_suffix, jvm_file in jvm_manifest.items():
+                if jvm_file["type"] == "file":
+                    jvm_file_path = path.join(jvm_dir, jvm_file_path_suffix)
+                    os.makedirs(path.dirname(jvm_file_path), 0o777, True)
+                    jvm_download_info = jvm_file["downloads"]["raw"]
+                    jvm_download_entry = DownloadEntry.from_version_meta_info(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix)
+                    self.download_file(jvm_download_entry)
+                    if jvm_file.get("executable", False):
+                        os.chmod(jvm_file_path, 0o777)
+            self.notice("jvm.downloaded", jvm_version)
+
+        self.notice("jvm.using", jvm_version)
+
+        return jvm_exec
 
     # For retro-compat
 
@@ -689,7 +746,7 @@ class CorePortableMC:
             return path.join(home, "Library", "Application Support", "minecraft")
 
     @staticmethod
-    def get_minecraft_os() -> str:
+    def get_minecraft_os() -> Optional[str]:
         pf = sys.platform
         if pf.startswith("freebsd") or pf.startswith("linux") or pf.startswith("aix") or pf.startswith("cygwin"):
             return "linux"
@@ -701,12 +758,28 @@ class CorePortableMC:
     @staticmethod
     def get_minecraft_arch() -> str:
         machine = platform.machine().lower()
-        return "x86" if machine == "i386" else "x86_64" if machine in ("x86_64", "amd64") else "unknown"
+        return "x86" if machine in ("i386", "i686") else "x86_64" if machine in ("x86_64", "amd64", "ia64") else "unknown"
 
     @staticmethod
     def get_minecraft_archbits() -> Optional[str]:
         raw_bits = platform.architecture()[0]
         return "64" if raw_bits == "64bit" else "32" if raw_bits == "32bit" else None
+
+    @staticmethod
+    def get_minecraft_jvm() -> Optional[str]:
+        mc_os = CorePortableMC.get_minecraft_os()
+        if mc_os is None:
+            return None
+        if mc_os == "osx":
+            return "mac-os"
+        mc_arch = CorePortableMC.get_minecraft_arch()
+        if mc_os == "linux":
+            arch_jvm = ["linux-i386", "linux"]
+        elif mc_os == "windows":
+            arch_jvm = ["windows-x86", "windows-x64"]
+        else:
+            return None
+        return arch_jvm[0] if mc_arch == "x86" else arch_jvm[1] if mc_arch == "x86_64" else None
 
     @staticmethod
     def get_classpath_separator() -> str:
