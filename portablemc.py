@@ -53,6 +53,10 @@ ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
 AUTHSERVER_URL = "https://authserver.mojang.com/{}"
 JVM_META_URL = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
 
+MS_AZURE_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
+MS_OAUTH_CODE = "https://login.live.com/oauth20_authorize.srf?client_id={client_id}&response_type=code&redirect_uri={redirect_uri}&scope=XboxLive.signin%20offline_access"
+MS_OAUTH_TOKEN = "https://login.live.com/oauth20_token.srf?client_id={client_id}"
+
 TOKENS_FILE_NAME  = "portablemc_tokens"
 
 LOGGING_CONSOLE_REPLACEMENT = "<PatternLayout pattern=\"%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n\"/>"
@@ -65,6 +69,7 @@ JVM_ARGS_DEFAULT = "-Xmx2G",\
                    "-XX:G1ReservePercent=20",\
                    "-XX:MaxGCPauseMillis=50",\
                    "-XX:G1HeapRegionSize=32M"
+
 
 
 # This file is split between the Core which is the lib and the CLI launcher which extends the Core.
@@ -923,6 +928,10 @@ class AuthEntry:
 
         return res.status, res_data
 
+    @classmethod
+    def ms_authenticate(cls) -> str:
+        return MS_OAUTH_CODE.format(client_id=MS_AZURE_APP_ID)
+
 
 class AuthDatabase:
 
@@ -1389,7 +1398,7 @@ if __name__ == '__main__':
                 return 0
 
         def cmd_login(self, args: Namespace) -> int:
-            entry = self.promp_password_and_authenticate(self.get_arg_work_dir(args), args.email_or_username, True)
+            entry = self.prompt_password_and_authenticate(self.get_arg_work_dir(args), args.email_or_username, True)
             return EXIT_AUTHENTICATION_FAILED if entry is None else 0
 
         def cmd_logout(self, args: Namespace) -> int:
@@ -1452,7 +1461,7 @@ if __name__ == '__main__':
 
             # Login if needed
             if args.login is not None:
-                auth = self.promp_password_and_authenticate(work_dir, args.login, not args.templogin)
+                auth = self.prompt_password_and_authenticate(work_dir, args.login, not args.templogin)
                 if auth is None:
                     return EXIT_AUTHENTICATION_FAILED
             else:
@@ -1557,7 +1566,7 @@ if __name__ == '__main__':
 
         # Authentication
 
-        def promp_password_and_authenticate(self, work_dir: str, email_or_username: str, cache_in_db: bool) -> 'Optional[AuthEntry]':
+        def prompt_password_and_authenticate(self, work_dir: str, email_or_username: str, cache_in_db: bool) -> 'Optional[AuthEntry]':
 
             self.print("auth.pending", email_or_username)
 
