@@ -1267,8 +1267,8 @@ if __name__ == '__main__':
                 "download.invalid_sha1": " => Invalid SHA1",
 
                 "auth.pending": "Authenticating {}...",
-                "auth.already_cached": "=> Session already cached, validating...",
-                "auth.refreshing": "=> Session failed to valid, refreshing...",
+                "auth.already_cached": "=> Session already cached, checking...",
+                "auth.refreshing": "=> Invalid session, refreshing...",
                 "auth.refreshed": "=> Session refreshed.",
                 "auth.error": "=> {}",
                 "auth.validated": "=> Session validated.",
@@ -1278,7 +1278,7 @@ if __name__ == '__main__':
                 "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser is supported.",
                 "auth.microsoft.opening_browser_and_listening": "Opened Microsoft login page in browser...",
                 "auth.microsoft.failed_to_authenticate": "=> Failed to authenticate.",
-                "auth.microsoft.token_request": "Requesting token from authentication code...",
+                "auth.microsoft.processing": "Processing authentication code...",
 
                 "version.resolving": "Resolving version {}",
                 "version.found_cached": "=> Found cached metadata, loading...",
@@ -1668,14 +1668,14 @@ if __name__ == '__main__':
 
         # Authentication
 
-        def prompt_authenticate_base(self, work_dir: str):
-            pass  # TODO
-
-        def prompt_mojang_authenticate(self, work_dir: str, email_or_username: str, cache_in_db: bool) -> 'Optional[AuthEntry]':
+        def prompt_authenticate_base(self,
+                                     work_dir: str,
+                                     email_or_username: str,
+                                     cache_in_db: bool,
+                                     microsoft: bool) -> 'Optional[AuthEntry]':
 
             self.print("auth.pending", email_or_username)
 
-            # auth_db = self.get_auth_database()
             auth_db = self.new_auth_database(work_dir)
             auth_db.load()
 
@@ -1696,8 +1696,9 @@ if __name__ == '__main__':
                     return auth_entry
 
             try:
-                password = self.prompt("auth.enter_your_password", email_or_username, password=True)
-                auth_entry = AuthEntry.mojang_authenticate(email_or_username, password)
+                auth_entry = self.prompt_microsoft_authenticate() if microsoft else self.prompt_mojang_authenticate(email_or_username)
+                if auth_entry is None:
+                    return None
                 if cache_in_db:
                     self.print("auth.caching")
                     auth_db.add_entry(email_or_username, auth_entry)
@@ -1708,7 +1709,11 @@ if __name__ == '__main__':
                 self.print("auth.error", auth_err)
                 return None
 
-        def prompt_microsoft_authenticate(self, work_dir: str) -> 'Optional[AuthEntry]':
+        def prompt_mojang_authenticate(self, email_or_username: str) -> 'Optional[AuthEntry]':
+            password = self.prompt("auth.enter_your_password", email_or_username, password=True)
+            return AuthEntry.mojang_authenticate(email_or_username, password)
+
+        def prompt_microsoft_authenticate(self) -> 'Optional[AuthEntry]':
 
             from http.server import HTTPServer, BaseHTTPRequestHandler
             import webbrowser
@@ -1771,12 +1776,8 @@ if __name__ == '__main__':
                 self.print("auth.microsoft.failed_to_authenticate")
                 return None
             else:
-                self.print("auth.microsoft.token_request")
-                auth_entry = AuthEntry.microsoft_authenticate(MS_AZURE_APP_ID, server.ms_auth_code, redirect_uri)
-                # TODO: Cache
-                return auth_entry
-
-
+                self.print("auth.microsoft.processing")
+                return AuthEntry.microsoft_authenticate(MS_AZURE_APP_ID, server.ms_auth_code, redirect_uri)
 
         # Downloading
 
