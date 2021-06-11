@@ -52,7 +52,7 @@ ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
 AUTHSERVER_URL = "https://authserver.mojang.com/{}"
 JVM_META_URL = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
 
-MS_OAUTH_CODE_URL = "https://login.live.com/oauth20_authorize.srf?client_id={client_id}&response_type=code&redirect_uri={redirect_uri}&scope=XboxLive.signin%20offline_access"
+MS_OAUTH_CODE_URL = "https://login.live.com/oauth20_authorize.srf"
 MS_OAUTH_TOKEN_URL = "https://login.live.com/oauth20_token.srf"
 MS_XBL_AUTH_DOMAIN = "user.auth.xboxlive.com"
 MS_XBL_AUTH_URL = "https://user.auth.xboxlive.com/user/authenticate"
@@ -869,13 +869,12 @@ class AuthEntry:
         }, False)[0] == 204
 
     def refresh(self):
-
         _, res = self.mojang_request("refresh", {
             "accessToken": self.access_token,
             "clientToken": self.client_token
         })
-
         self.access_token = res["accessToken"]
+        self.username = res["selectedProfile"]["name"]  # Refresh username if renamed (does it works? to check.).
 
     def invalidate(self):
         self.mojang_request("invalidate", {
@@ -902,6 +901,15 @@ class AuthEntry:
             res["selectedProfile"]["id"],
             res["accessToken"]
         )
+
+    @staticmethod
+    def get_microsoft_authentication_page(app_client_id: str, redirect_uri: str):
+        return "{}?{}".format(MS_OAUTH_CODE_URL, url_parse.urlencode({
+            "client_id": app_client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "XboxLive.signin offline_access"
+        }))
 
     @classmethod
     def microsoft_authenticate(cls, app_client_id: str, code: str, redirect_uri: str) -> 'AuthEntry':
@@ -949,9 +957,11 @@ class AuthEntry:
 
         mc_access_token = res["access_token"]
 
-        _, res = cls.microsoft_mc_request(MC_PROFILE_URL, mc_access_token)
+        code, res = cls.microsoft_mc_request(MC_PROFILE_URL, mc_access_token)
 
-        if "error" in res:
+        if code == 404:
+            raise AuthError("This account does not own Minecraft.")
+        elif "error" in res:
             raise AuthError(res.get("errorMessage", res["error"]))
 
         return AuthEntry("", res["name"], res["id"], mc_access_token)
@@ -1658,6 +1668,9 @@ if __name__ == '__main__':
 
         # Authentication
 
+        def prompt_authenticate_base(self, work_dir: str):
+            pass  # TODO
+
         def prompt_mojang_authenticate(self, work_dir: str, email_or_username: str, cache_in_db: bool) -> 'Optional[AuthEntry]':
 
             self.print("auth.pending", email_or_username)
@@ -1703,7 +1716,7 @@ if __name__ == '__main__':
             server_port = 12782
             redirect_uri = "http://localhost:{}/code".format(server_port)
 
-            if not webbrowser.open(MS_OAUTH_CODE_URL.format(client_id=MS_AZURE_APP_ID, redirect_uri=redirect_uri)):
+            if not webbrowser.open(AuthEntry.get_microsoft_authentication_page(MS_AZURE_APP_ID, redirect_uri)):
                 self.print("auth.microsoft.no_browser")
                 return None
 
