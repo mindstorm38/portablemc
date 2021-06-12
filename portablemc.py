@@ -53,10 +53,13 @@ AUTHSERVER_URL = "https://authserver.mojang.com/{}"
 JVM_META_URL = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
 
 MS_OAUTH_CODE_URL = "https://login.live.com/oauth20_authorize.srf"
+MS_OAUTH_SCOPE = "xboxlive.signin offline_access"
+MS_OAUTH_LOGOUT_URL = "https://login.live.com/oauth20_logout.srf"
 MS_OAUTH_TOKEN_URL = "https://login.live.com/oauth20_token.srf"
 MS_XBL_AUTH_DOMAIN = "user.auth.xboxlive.com"
 MS_XBL_AUTH_URL = "https://user.auth.xboxlive.com/user/authenticate"
 MS_XSTS_AUTH_URL = "https://xsts.auth.xboxlive.com/xsts/authorize"
+MS_GRAPH_UPN_REQUEST_URL = "https://graph.microsoft.com/v1.0/me?$select=userPrincipalName"
 MC_AUTH_URL = "https://api.minecraftservices.com/authentication/login_with_xbox"
 MC_PROFILE_URL = "https://api.minecraftservices.com/minecraft/profile"
 
@@ -882,6 +885,8 @@ class AuthEntry:
             "clientToken": self.client_token
         }, False)
 
+    # MOJANG #
+
     @classmethod
     def mojang_authenticate(cls, email_or_username: str, password: str) -> 'AuthEntry':
 
@@ -902,27 +907,54 @@ class AuthEntry:
             res["accessToken"]
         )
 
+    @classmethod
+    def mojang_request(cls, req: str, payload: dict, error: bool = True) -> Tuple[int, dict]:
+        code, res = cls.base_request(AUTHSERVER_URL.format(req), json.dumps(payload).encode("ascii"), "application/json")
+        if error and code != 200:
+            raise AuthError(res["errorMessage"])
+        return code, res
+
+    # MICROSOFT #
+
     @staticmethod
-    def get_microsoft_authentication_page(app_client_id: str, redirect_uri: str):
+    def get_microsoft_authentication_url(app_client_id: str, redirect_uri: str, upn: str):
         return "{}?{}".format(MS_OAUTH_CODE_URL, url_parse.urlencode({
             "client_id": app_client_id,
             "redirect_uri": redirect_uri,
             "response_type": "code",
-            "scope": "XboxLive.signin offline_access"
+            "scope": MS_OAUTH_SCOPE,
+            "login_hint": upn
+        }))
+
+    @staticmethod
+    def get_microsoft_logout_url(app_client_id: str, redirect_uri: str):
+        return "{}?{}".format(MS_OAUTH_LOGOUT_URL, url_parse.urlencode({
+            "client_id": app_client_id,
+            "redirect_uri": redirect_uri
         }))
 
     @classmethod
-    def microsoft_authenticate(cls, app_client_id: str, code: str, redirect_uri: str) -> 'AuthEntry':
+    def microsoft_authenticate(cls, app_client_id: str, code: str, redirect_uri: str, upn: str) -> 'AuthEntry':
 
         _, res = cls.microsoft_request(MS_OAUTH_TOKEN_URL, {
             "client_id": app_client_id,
             "code": code,
             "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri
+            "redirect_uri": redirect_uri,
+            "scope": MS_OAUTH_SCOPE
         }, payload_url_encoded=True)
 
         ms_token = res["access_token"]
-        # ms_refresh_token = res["refresh_token"]
+        ms_refresh_token = res["refresh_token"]
+
+        # This is used to check if the UPN of the authenticated account is expected.
+        # _, res = cls.base_request(MS_GRAPH_UPN_REQUEST_URL, None, "application/json", headers={
+        #     "Authorization": "Bearer {}".format(ms_token)
+        # }, method="GET")
+        # TODO: Find another API that is compatible with the scope "xboxlive.signin".
+
+        if upn != res["userPrincipalName"]:
+            raise AuthError("Inconsistent user principal name")
 
         _, res = cls.microsoft_request(MS_XBL_AUTH_URL, {
             "Properties": {
@@ -964,14 +996,7 @@ class AuthEntry:
         elif "error" in res:
             raise AuthError(res.get("errorMessage", res["error"]))
 
-        return AuthEntry("", res["name"], res["id"], mc_access_token)
-
-    @classmethod
-    def mojang_request(cls, req: str, payload: dict, error: bool = True) -> Tuple[int, dict]:
-        code, res_data = cls.base_request(AUTHSERVER_URL.format(req), json.dumps(payload).encode("ascii"), "application/json")
-        if error and code != 200:
-            raise AuthError(res_data["errorMessage"])
-        return code, res_data
+        return AuthEntry("microsoft:{}".format(ms_refresh_token), res["name"], res["id"], mc_access_token)
 
     @classmethod
     def microsoft_request(cls, url: str, payload: dict, *, payload_url_encoded: bool = False) -> Tuple[int, dict]:
@@ -981,6 +1006,8 @@ class AuthEntry:
     @classmethod
     def microsoft_mc_request(cls, url: str, bearer: str) -> Tuple[int, dict]:
         return cls.base_request(url, None, None, headers={"Authorization": "Bearer {}".format(bearer)}, method="GET")
+
+    # COMMON #
 
     @classmethod
     def base_request(cls,
@@ -1167,6 +1194,7 @@ if __name__ == '__main__':
                               "    return None\n"
 
     MS_AZURE_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
+    # MS_AZURE_APP_ID = "00000000402b5328"  # Official Minecraft launcher
 
     class PortableMC(CorePortableMC):
 
@@ -1211,21 +1239,19 @@ if __name__ == '__main__':
                 "args.start.resol": "Set a custom start resolution (<width>x<height>).",
                 "args.start.jvm": "Set a custom JVM 'javaw' executable path. If this argument is omitted a public build of a JVM is downloaded from Mojang services.",
                 "args.start.jvm_args": "Change the default JVM arguments.",
-                # "args.start.work_dir": "Set the working directory where the game run and place for examples the "
-                #                        "saves (and resources for legacy versions).",
-                # "args.start.work_dir_bin": "Flag to force temporary binaries to be copied inside working directory, "
-                #                            "by default they are copied into main directory.",
                 "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
                                                 "order to improve the log readability in the console.",
                 "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
                                          "not already cached, deactivated by default.",
                 "args.start.login": "Use a email or username (legacy) to authenticate using mojang servers (you "
                                     "will be asked for password, it override --username and --uuid).",
+                "args.start.microsoft": "Log-in using Microsoft account, to use with -l (--login).",
                 "args.start.username": "Set a custom user name to play.",
                 "args.start.uuid": "Set a custom user UUID to play.",
                 "args.start.server": "Start the game and auto-connect to this server address (since 1.6).",
                 "args.start.server_port": "Set the server address port (given with -s, --server, since 1.6).",
                 "args.login": "Login into your Mojang account, this will cache your tokens.",
+                "args.login.microsoft": "Log-in using Microsoft account.",
                 "args.logout": "Logout from your Mojang account.",
                 "args.addon": "Addons management subcommands.",
                 "args.addon.list": "List addons.",
@@ -1277,6 +1303,7 @@ if __name__ == '__main__':
                 "auth.logged_in": "=> Logged in",
                 "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser is supported.",
                 "auth.microsoft.opening_browser_and_listening": "Opened Microsoft login page in browser...",
+                "auth.microsoft.timeout": "=> Authentication timed out, close the browser's tab and retry.",
                 "auth.microsoft.failed_to_authenticate": "=> Failed to authenticate.",
                 "auth.microsoft.processing": "Processing authentication code...",
 
@@ -1289,7 +1316,6 @@ if __name__ == '__main__':
                 "version.parent_version": "=> Parent version: {}",
                 "version.parent_version_not_found": "=> Failed to find parent version {}",
 
-                # "start.welcome": "Welcome to PortableMC, the easy to use Python Minecraft Launcher.",
                 "start.loading_version": "Loading {} {}...",
                 "start.loading_jar_file": "Loading jar file...",
                 "start.no_client_jar_file": "=> Can't find client download in version meta",
@@ -1333,14 +1359,6 @@ if __name__ == '__main__':
             if subcommand is None:
                 parser.print_help()
                 return
-
-            # main_dir_exists = self.init_main_dir(args.main_dir)
-            # if "ignore_main_dir" not in args or not args.ignore_main_dir:
-            #     if not main_dir_exists:
-            #         if self.prompt("continue_using_main_dir", self._main_dir) != "y":
-            #             self.print("abort")
-            #             exit(0)
-            #         self.make_main_dir()
 
             exit(self.start_subcommand(subcommand, args))
 
@@ -1403,12 +1421,6 @@ if __name__ == '__main__':
         def get_arg_work_dir(self, args: Namespace) -> str:
             return self.compute_work_dir(args.main_dir, args.work_dir)
 
-        # def register_dirs_arguments(self, parser: ArgumentParser, main_dir: bool, work_dir: bool):
-        #     if main_dir:
-        #         parser.add_argument("--main-dir", help=self.get_message("args.main_dir"), dest="main_dir")
-        #      if work_dir:
-        #         parser.add_argument("--work-dir", help=self.get_message("args.work_dir"), dest="work_dir")
-
         def register_subcommands(self, subcommands):
             self.register_search_arguments(subcommands.add_parser("search", help=self.get_message("args.search")))
             self.register_start_arguments(subcommands.add_parser("start", help=self.get_message("args.start")))
@@ -1428,13 +1440,12 @@ if __name__ == '__main__':
             parser.add_argument("--disable-chat", help=self.get_message("args.start.disable_chat"), default=False, action="store_true")
             parser.add_argument("--demo", help=self.get_message("args.start.demo"), default=False, action="store_true")
             parser.add_argument("--resol", help=self.get_message("args.start.resol"), type=self._decode_resolution, dest="resolution")
-            parser.add_argument("--jvm", help=self.get_message("args.start.jvm"), default=None)  # default=JVM_EXEC_DEFAULT
+            parser.add_argument("--jvm", help=self.get_message("args.start.jvm"), default=None)
             parser.add_argument("--jvm-args", help=self.get_message("args.start.jvm_args"), default=None, dest="jvm_args")
-            # parser.add_argument("--work-dir", help=self.get_message("args.start.work_dir"), dest="work_dir")
-            # parser.add_argument("--work-dir-bin", help=self.get_message("args.start.work_dir_bin"), default=False, action="store_true", dest="work_dir_bin")
             parser.add_argument("--no-better-logging", help=self.get_message("args.start.no_better_logging"), default=False, action="store_true", dest="no_better_logging")
             parser.add_argument("-t", "--temp-login", help=self.get_message("args.start.temp_login"), default=False, action="store_true", dest="templogin")
             parser.add_argument("-l", "--login", help=self.get_message("args.start.login"))
+            parser.add_argument("-m", "--microsoft", help=self.get_message("args.start.microsoft"), default=False, action="store_true")
             parser.add_argument("-u", "--username", help=self.get_message("args.start.username"), metavar="NAME")
             parser.add_argument("-i", "--uuid", help=self.get_message("args.start.uuid"))
             parser.add_argument("-s", "--server", help=self.get_message("args.start.server"))
@@ -1442,14 +1453,13 @@ if __name__ == '__main__':
             parser.add_argument("version", nargs="?", default="release")
 
         def register_login_arguments(self, parser: ArgumentParser):
-            parser.add_argument("email_or_username", nargs="?")
+            parser.add_argument("-m", "--microsoft", help=self.get_message("args.login.microsoft"), default=False, action="store_true")
+            parser.add_argument("email_or_username")
 
         def register_logout_arguments(self, parser: ArgumentParser):
             parser.add_argument("email_or_username")
 
         def register_addon_arguments(self, parser: ArgumentParser):
-
-            # parser.set_defaults(ignore_main_dir=True)
 
             subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand", required=True)
             subparsers.add_parser("list", help=self.get_message("args.addon.list"))
@@ -1497,16 +1507,12 @@ if __name__ == '__main__':
         def cmd_login(self, args: Namespace) -> int:
             email_or_username = args.email_or_username
             work_dir = self.get_arg_work_dir(args)
-            if email_or_username is None:
-                entry = self.prompt_microsoft_authenticate(work_dir)
-            else:
-                entry = self.prompt_mojang_authenticate(work_dir, email_or_username, True)
+            entry = self.prompt_authenticate(work_dir, email_or_username, True, args.microsoft)
             return EXIT_AUTHENTICATION_FAILED if entry is None else 0
 
         def cmd_logout(self, args: Namespace) -> int:
             email_or_username = args.email_or_username
             self.print("cmd.logout.pending", email_or_username)
-            # auth_db = self.get_auth_database()
             auth_db = self.new_auth_database(self.get_arg_work_dir(args))
             auth_db.load()
             entry = auth_db.get_entry(email_or_username)
@@ -1563,7 +1569,7 @@ if __name__ == '__main__':
 
             # Login if needed
             if args.login is not None:
-                auth = self.prompt_mojang_authenticate(work_dir, args.login, not args.templogin)
+                auth = self.prompt_authenticate(work_dir, args.login, not args.templogin, args.microsoft)
                 if auth is None:
                     return EXIT_AUTHENTICATION_FAILED
             else:
@@ -1625,13 +1631,16 @@ if __name__ == '__main__':
                 import traceback
                 traceback.print_exc()
 
-        def prompt(self, message_key: str, *args, password: bool = False) -> str:
+        def prompt(self, message_key: str, *args, password: bool = False) -> Optional[str]:
             print(self.get_message(message_key, *args), end="", flush=True)
-            if password:
-                import getpass
-                return getpass.getpass("")
-            else:
-                return input("")
+            try:
+                if password:
+                    import getpass
+                    return getpass.getpass("")
+                else:
+                    return input("")
+            except KeyboardInterrupt:
+                return None
 
         def get_message(self, message_key: str, *args) -> str:
             if not len(message_key):
@@ -1668,11 +1677,11 @@ if __name__ == '__main__':
 
         # Authentication
 
-        def prompt_authenticate_base(self,
-                                     work_dir: str,
-                                     email_or_username: str,
-                                     cache_in_db: bool,
-                                     microsoft: bool) -> 'Optional[AuthEntry]':
+        def prompt_authenticate(self,
+                                work_dir: str,
+                                email_or_username: str,
+                                cache_in_db: bool,
+                                microsoft: bool) -> 'Optional[AuthEntry]':
 
             self.print("auth.pending", email_or_username)
 
@@ -1696,7 +1705,7 @@ if __name__ == '__main__':
                     return auth_entry
 
             try:
-                auth_entry = self.prompt_microsoft_authenticate() if microsoft else self.prompt_mojang_authenticate(email_or_username)
+                auth_entry = self.prompt_microsoft_authenticate(email_or_username) if microsoft else self.prompt_mojang_authenticate(email_or_username)
                 if auth_entry is None:
                     return None
                 if cache_in_db:
@@ -1711,25 +1720,35 @@ if __name__ == '__main__':
 
         def prompt_mojang_authenticate(self, email_or_username: str) -> 'Optional[AuthEntry]':
             password = self.prompt("auth.enter_your_password", email_or_username, password=True)
-            return AuthEntry.mojang_authenticate(email_or_username, password)
+            return None if password is None else AuthEntry.mojang_authenticate(email_or_username, password)
 
-        def prompt_microsoft_authenticate(self) -> 'Optional[AuthEntry]':
+        def prompt_microsoft_authenticate(self, upn: str) -> 'Optional[AuthEntry]':
 
             from http.server import HTTPServer, BaseHTTPRequestHandler
             import webbrowser
 
             server_port = 12782
-            redirect_uri = "http://localhost:{}/code".format(server_port)
+            client_id = MS_AZURE_APP_ID
+            redirect_auth = "http://localhost:{}".format(server_port)
+            code_redirect_uri = "{}/code".format(redirect_auth)
+            exit_redirect_uri = "{}/exit".format(redirect_auth)
 
-            if not webbrowser.open(AuthEntry.get_microsoft_authentication_page(MS_AZURE_APP_ID, redirect_uri)):
+            if not webbrowser.open(AuthEntry.get_microsoft_authentication_url(client_id, code_redirect_uri, upn)):
                 self.print("auth.microsoft.no_browser")
                 return None
 
             class AuthServer(HTTPServer):
+
                 def __init__(self):
                     super().__init__(("", server_port), RequestHandler)
+                    self.timeout = 180
                     self.ms_auth_done = False
                     self.ms_auth_code = None  # type: Optional[str]
+                    self.ms_auth_timeout = False
+
+                def handle_timeout(self):
+                    self.ms_auth_done = True
+                    self.ms_auth_timeout = True
 
             class RequestHandler(BaseHTTPRequestHandler):
 
@@ -1743,14 +1762,17 @@ if __name__ == '__main__':
 
                 def do_GET(self):
 
+                    auth_server = cast(AuthServer, self.server)
+
                     if self.path.startswith("/code?"):
                         qs = url_parse.parse_qs(self.path[6:])
-                        auth_server = cast(AuthServer, self.server)
                         if "code" in qs:
-                            self.send_response(200)
+                            self.send_response(307)
+                            # We logout the user directly after authorization, this just clear the browser cache to allow
+                            # another user to authenticate with another email after. This doesn't invalide the access token.
+                            self.send_header("Location", AuthEntry.get_microsoft_logout_url(client_id, exit_redirect_uri))
                             auth_server.ms_auth_code = qs["code"][0]
-                            auth_server.ms_auth_done = True
-                            msg = "Logged in."
+                            msg = "Redirecting..."
                         elif "error" in qs:
                             self.send_response(400)
                             auth_server.ms_auth_done = True
@@ -1758,12 +1780,16 @@ if __name__ == '__main__':
                         else:
                             self.send_response(404)
                             msg = "Missing parameters."
+                    elif self.path.startswith("/exit"):
+                        self.send_response(200)
+                        auth_server.ms_auth_done = True
+                        msg = "Logged in."
                     else:
                         self.send_response(404)
                         msg = "Unexpected page."
 
                     self.end_headers()
-                    self.wfile.write("{} Close this tab and return to the application.".format(msg).encode())
+                    self.wfile.write("{}{}".format(msg, "\n\nClose this tab and return to the application." if auth_server.ms_auth_done else "").encode())
                     self.wfile.flush()
 
             self.print("auth.microsoft.opening_browser_and_listening")
@@ -1773,11 +1799,11 @@ if __name__ == '__main__':
                     server.handle_request()
 
             if server.ms_auth_code is None:
-                self.print("auth.microsoft.failed_to_authenticate")
+                self.print("auth.microsoft.timeout" if server.ms_auth_timeout else "auth.microsoft.failed_to_authenticate")
                 return None
             else:
                 self.print("auth.microsoft.processing")
-                return AuthEntry.microsoft_authenticate(MS_AZURE_APP_ID, server.ms_auth_code, redirect_uri)
+                return AuthEntry.microsoft_authenticate(client_id, server.ms_auth_code, code_redirect_uri, upn)
 
         # Downloading
 
