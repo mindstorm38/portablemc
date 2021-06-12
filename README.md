@@ -28,13 +28,13 @@ You can now customize the launcher with addons.
   - [FabricMC support](#fabricmc-support)
 
 # Sub-commands
-Arguments are split between multiple sub-command. For example `<exec> <sub-command>`. You can use `-h` 
-argument to display help *(also work for every sub-commands)*.
+Arguments are split between multiple sub-commands. For example `<exec> <sub-command>`. You can use `-h` 
+argument to display help *(also works for every sub-commands)*.
 
 You may need to use `--main-dir <path>` if you want to change the main directory of the game. The main
 directory stores libraries, assets, versions. **By default** the location
 of this directory is OS-dependent, but always in your user's home directory, 
-[check wiki for more information](https://minecraft-fr.gamepedia.com/.minecraft).
+[check wiki for more information](https://minecraft.gamepedia.com/.minecraft).
 
 You may also need `--work-dir <path>` to change the directory where your saves, resource packs and
 all "user-specific" content is stored. This can be useful if you have a shared read-only main directory 
@@ -46,41 +46,41 @@ The two arguments `--main-dir` and `--work-dir` may or may not be used by sub co
 the command and always set the main and work directory like you want.
 
 **In this example**, `<exec>` must be replaced by any command that 
-launch the script, for example `python3 portablemc.py`.
+launches the script, for example `python3 portablemc.py`.
 
-**Note that** this script have a *[shebang](https://fr.wikipedia.org/wiki/Shebang)*, this can be
+**Note that** this script has a *[shebang](https://wikipedia.org/wiki/Shebang)*. This can be
 useful to launch the script on unix OS *(you must have executable permission)*.
 
 ## Start the game
 The `<exec> start [arguments...] [version]` sub-command is used to prepare and launch the game. A lot
-of arguments allows you to control how to game will behave. The only positional argument is the version,
+of arguments allow you to control how to game will behave. The only positional argument is the version - 
 you can either specify a full version id (which you can get from the [search](#search-for-versions) 
 sub-command), or a type of version to select the latest of this type (`release` (default) or `snapshot`).
 
 ### Authentication
-Online mode is supported by this launcher, use the `-l <email_or_username>` (`--login`) argument to
+Online mode is supported by this launcher - use the `-l <email_or_username>` (`--login`) argument to
 log into your account *(login with a username is now deprecated by Mojang)*. If your session is not
 cached or no longer valid, the launcher will ask for the password.
 
-You can disable the session caching using the flag argument `-t` (`--temp-login`), if your session is 
-nor cached nor valid you will be asked for the password for every launch.
+You can disable session caching using the argument `-t` (`--temp-login`). If your session is 
+not cached nor valid, you will be asked for the password on every launch.
 
-**Note that** your password is not saved! Only the token is saved (the official launcher also do that)
+**Note that** your password is not saved! Only the token is saved (the official launcher also does that)
 in the file `portablemc_tokens` in the main directory (an argument may allow change of this location
 in the future).
 
 ### Offline mode
-If you need fake offline accounts you can use `-u <username>` (`--username`) defines the username and/or
-`-i <uuid>` (`--uuid`) to define your player's [UUID](https://fr.wikipedia.org/wiki/Universally_unique_identifier).
+If you need fake offline accounts you can use `-u <username>` (`--username`) to define the username and/or
+`-i <uuid>` (`--uuid`) to define your player's [UUID](https://wikipedia.org/wiki/Universally_unique_identifier).
 
 If you omit the UUID, a random one is chosen. If you omit the username, the first 8 characters of the UUID
 are used for it. **These two arguments are overwritten by the `-l` (`--login`) argument**.
 
 ### Custom JVM
-The launcher uses Java Virtual Machine to run the game, by default the launcher download and use an official JVM 
+The launcher uses Java Virtual Machine to run the game, by default the launcher downloads and uses the official JVM 
 [distributed by Mojang](https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json)
-which is adapted to the running version, the JVM is installed in a sub-directory `jvm` into the main directory. 
-You can change it using `--jvm <path>` argument. By default, the launcher start the JVM with default arguments, 
+which is adapted to the running version. The JVM is installed in a sub-directory called `jvm` inside the main directory. 
+You can change it by providing a path to the `java` binary with the `--jvm <path_to/bin/java>` argument. By default, the launcher starts the JVM with default arguments, 
 these are the following and are the same as the Mojang launcher:
 
 ```
@@ -113,8 +113,8 @@ using the `-l` (`--local`) flag. The search string is optional, if not given all
 versions are displayed.
 
 ## Authentication caching
-Two subcommand allows you to cache or uncache sessions: `<exec> login|logout <email_or_username>`.
-These subcommand doesn't prevent you from using the `-l` (`--login`) argument when starting the game,
+Two subcommands allow you to cache or uncache sessions: `<exec> login|logout <email_or_username>`.
+These subcommands don't prevent you from using the `-l` (`--login`) argument when starting the game,
 these are just here to manage the session storage.
 
 ## Addon sub-command
@@ -122,7 +122,7 @@ The `<exec> addon list|init|show` sub-commands are used to list, initialize (for
 addons.
 
 # Addons
-Addons for PortableMC are obviously optionals, officially supported addons can be found in the
+Addons for PortableMC are obviously optional, officially supported addons can be found in the
 ['addons' directory](https://github.com/mindstorm38/portablemc/tree/master/addons).
 To install addons you need to make a directory `addons` next to the script, and then put addons into it.
 
