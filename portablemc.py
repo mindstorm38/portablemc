@@ -38,6 +38,7 @@ import platform
 import hashlib
 import atexit
 import shutil
+import base64
 import json
 import re
 import os
@@ -53,7 +54,6 @@ AUTHSERVER_URL = "https://authserver.mojang.com/{}"
 JVM_META_URL = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
 
 MS_OAUTH_CODE_URL = "https://login.live.com/oauth20_authorize.srf"
-MS_OAUTH_SCOPE = "xboxlive.signin offline_access"
 MS_OAUTH_LOGOUT_URL = "https://login.live.com/oauth20_logout.srf"
 MS_OAUTH_TOKEN_URL = "https://login.live.com/oauth20_token.srf"
 MS_XBL_AUTH_DOMAIN = "user.auth.xboxlive.com"
@@ -87,39 +87,14 @@ class CorePortableMC:
 
     def __init__(self):
 
-        # self._main_dir: Optional[str] = None
-        # self._work_dir: Optional[str] = None
-
         self._mc_os = self.get_minecraft_os()
         self._mc_arch = self.get_minecraft_arch()
         self._mc_archbits = self.get_minecraft_archbits()
 
         self._version_manifest: Optional[VersionManifest] = None
-        # self._auth_database: Optional[AuthDatabase] = None
         self._download_buffer: Optional[bytearray] = None
 
     # Generic methods
-
-    # def init_dirs(self, main_dir: Optional[str], work_dir: Optional[str]) -> bool:
-    #     self._main_dir = self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
-    #     self._work_dir = self._main_dir if work_dir is None else work_dir
-    # return path.isdir(self._main_dir)
-
-    # def init_main_dir(self, main_dir: Optional[str]) -> bool:
-    #     raise Exception("You should now use init_dirs(main_dir, work_dir) instead of init_main_dir(main_dir)")
-        # self._main_dir = self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
-        # return path.isdir(self._main_dir)
-
-    # def make_main_dir(self):
-    #     os.makedirs(self._main_dir, 0o777, True)
-    #     pass
-
-    # def check_main_dir(self):
-    #     if self._main_dir is None or not path.isdir(self._main_dir):
-    #         raise ValueError("Before executing this function, please use 'init_main_dir' to set the main "
-    #                          "directory path (use None to select the default .minecraft). Also make sure "
-    #                          "the directory is created (using 'make_main_dir' if needed).")
-    #     pass
 
     def compute_main_dir(self, main_dir: Optional[str]) -> str:
         return self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
@@ -177,10 +152,6 @@ class CorePortableMC:
         # - VersionNotFoundError: if the given version was not found
         # - URLError: for any URL resolving error
         # - DownloadCorruptedError: if a download is corrupted
-
-        # self.notice("start.welcome")
-
-        # self.check_main_dir()
 
         main_dir = self.compute_main_dir(main_dir)
         work_dir = self.compute_work_dir(main_dir, work_dir)
@@ -573,18 +544,10 @@ class CorePortableMC:
 
     # Lazy variables getters
 
-    # def get_main_dir(self) -> str:
-    #     return self._main_dir
-
     def get_version_manifest(self) -> 'VersionManifest':
         if self._version_manifest is None:
             self._version_manifest = VersionManifest.load_from_url()
         return self._version_manifest
-
-    # def get_auth_database(self) -> 'AuthDatabase':
-    #     if self._auth_database is None:
-    #         self._auth_database = AuthDatabase(path.join(self._main_dir, "portablemc_tokens"))
-    #     return self._auth_database
 
     def get_download_buffer(self) -> bytearray:
         if self._download_buffer is None:
@@ -854,6 +817,7 @@ class VersionManifest:
 class AuthEntry:
 
     def __init__(self, client_token: str, username: str, uuid: str, access_token: str):
+        self.microsoft = client_token.startswith("microsoft:")
         self.client_token = client_token
         self.username = username
         self.uuid = uuid  # No dashes
@@ -866,24 +830,30 @@ class AuthEntry:
             return self.access_token
 
     def validate(self) -> bool:
+        if self.microsoft:
+            return False
         return self.mojang_request("validate", {
             "accessToken": self.access_token,
             "clientToken": self.client_token
         }, False)[0] == 204
 
     def refresh(self):
-        _, res = self.mojang_request("refresh", {
-            "accessToken": self.access_token,
-            "clientToken": self.client_token
-        })
-        self.access_token = res["accessToken"]
-        self.username = res["selectedProfile"]["name"]  # Refresh username if renamed (does it works? to check.).
+        if self.microsoft:
+            pass  # TODO
+        else:
+            _, res = self.mojang_request("refresh", {
+                "accessToken": self.access_token,
+                "clientToken": self.client_token
+            })
+            self.access_token = res["accessToken"]
+            self.username = res["selectedProfile"]["name"]  # Refresh username if renamed (does it works? to check.).
 
     def invalidate(self):
-        self.mojang_request("invalidate", {
-            "accessToken": self.access_token,
-            "clientToken": self.client_token
-        }, False)
+        if not self.microsoft:
+            self.mojang_request("invalidate", {
+                "accessToken": self.access_token,
+                "clientToken": self.client_token
+            }, False)
 
     # MOJANG #
 
@@ -917,13 +887,15 @@ class AuthEntry:
     # MICROSOFT #
 
     @staticmethod
-    def get_microsoft_authentication_url(app_client_id: str, redirect_uri: str, upn: str):
+    def get_microsoft_authentication_url(app_client_id: str, redirect_uri: str, email: str, nonce: str):
         return "{}?{}".format(MS_OAUTH_CODE_URL, url_parse.urlencode({
             "client_id": app_client_id,
             "redirect_uri": redirect_uri,
-            "response_type": "code",
-            "scope": MS_OAUTH_SCOPE,
-            "login_hint": upn
+            "response_type": "code id_token",
+            "scope": "xboxlive.signin offline_access openid email",
+            "login_hint": email,
+            "nonce": nonce,
+            "response_mode": "form_post"
         }))
 
     @staticmethod
@@ -934,27 +906,23 @@ class AuthEntry:
         }))
 
     @classmethod
-    def microsoft_authenticate(cls, app_client_id: str, code: str, redirect_uri: str, upn: str) -> 'AuthEntry':
+    def check_microsoft_token_id(cls, token_id: str, email: str, nonce: str) -> bool:
+        id_token_payload = json.loads(cls.base64url_decode(token_id.split(".")[1]))
+        return id_token_payload["nonce"] == nonce and id_token_payload["email"] == email
+
+    @classmethod
+    def microsoft_authenticate(cls, app_client_id: str, code: str, redirect_uri: str) -> 'AuthEntry':
 
         _, res = cls.microsoft_request(MS_OAUTH_TOKEN_URL, {
             "client_id": app_client_id,
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": redirect_uri,
-            "scope": MS_OAUTH_SCOPE
+            "scope": "xboxlive.signin"
         }, payload_url_encoded=True)
 
         ms_token = res["access_token"]
         ms_refresh_token = res["refresh_token"]
-
-        # This is used to check if the UPN of the authenticated account is expected.
-        # _, res = cls.base_request(MS_GRAPH_UPN_REQUEST_URL, None, "application/json", headers={
-        #     "Authorization": "Bearer {}".format(ms_token)
-        # }, method="GET")
-        # TODO: Find another API that is compatible with the scope "xboxlive.signin".
-
-        if upn != res["userPrincipalName"]:
-            raise AuthError("Inconsistent user principal name")
 
         _, res = cls.microsoft_request(MS_XBL_AUTH_URL, {
             "Properties": {
@@ -1029,10 +997,10 @@ class AuthEntry:
 
         headers["Accept"] = "application/json"
 
-        print("==========================")
-        print(f"Request to {url}")
-        print(f"- Headers: {headers}")
-        print(f"- Data: {data}")
+        # print("==========================")
+        # print(f"Request to {url}")
+        # print(f"- Headers: {headers}")
+        # print(f"- Data: {data}")
 
         req = Request(url, data, headers=headers, method=method)
 
@@ -1046,9 +1014,17 @@ class AuthEntry:
         except JSONDecodeError:
             data = {}
 
-        print(f"- Response: ({res.status}) {data}")
-        print("==========================")
+        # print(f"- Response: ({res.status}) {data}")
+        # print("==========================")
+
         return res.status, data
+
+    @classmethod
+    def base64url_decode(cls, s: str) -> bytes:
+        rem = len(s) % 4
+        if rem > 0:
+            s += "=" * (4 - rem)
+        return base64.urlsafe_b64decode(s)
 
 
 class AuthDatabase:
@@ -1164,9 +1140,11 @@ LEGACY_JVM_ARGUMENTS = [
 if __name__ == '__main__':
 
     from argparse import ArgumentParser, Namespace, HelpFormatter
+    from http.server import HTTPServer, BaseHTTPRequestHandler
     from urllib.error import URLError
     from datetime import datetime
     from typing import Any
+    import webbrowser
     import time
 
     EXIT_VERSION_NOT_FOUND = 10
@@ -1301,11 +1279,12 @@ if __name__ == '__main__':
                 "auth.caching": "=> Caching your session...",
                 "auth.enter_your_password": "=> Enter {} password: ",
                 "auth.logged_in": "=> Logged in",
+                "auth.microsoft.pending": "Authenticating {} (Microsoft)...",
                 "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser is supported.",
-                "auth.microsoft.opening_browser_and_listening": "Opened Microsoft login page in browser...",
-                "auth.microsoft.timeout": "=> Authentication timed out, close the browser's tab and retry.",
+                "auth.microsoft.opening_browser_and_listening": "Opened authentication page in browser...",
                 "auth.microsoft.failed_to_authenticate": "=> Failed to authenticate.",
-                "auth.microsoft.processing": "Processing authentication code...",
+                "auth.microsoft.processing": "Processing authentication against Minecraft services...",
+                "auth.microsoft.incoherent_data": "=> Incoherent authentication data, please retry.",
 
                 "version.resolving": "Resolving version {}",
                 "version.found_cached": "=> Found cached metadata, loading...",
@@ -1683,7 +1662,7 @@ if __name__ == '__main__':
                                 cache_in_db: bool,
                                 microsoft: bool) -> 'Optional[AuthEntry]':
 
-            self.print("auth.pending", email_or_username)
+            self.print("auth.microsoft.pending" if microsoft else "auth.pending", email_or_username)
 
             auth_db = self.new_auth_database(work_dir)
             auth_db.load()
@@ -1722,10 +1701,7 @@ if __name__ == '__main__':
             password = self.prompt("auth.enter_your_password", email_or_username, password=True)
             return None if password is None else AuthEntry.mojang_authenticate(email_or_username, password)
 
-        def prompt_microsoft_authenticate(self, upn: str) -> 'Optional[AuthEntry]':
-
-            from http.server import HTTPServer, BaseHTTPRequestHandler
-            import webbrowser
+        def prompt_microsoft_authenticate(self, email: str) -> 'Optional[AuthEntry]':
 
             server_port = 12782
             client_id = MS_AZURE_APP_ID
@@ -1733,7 +1709,9 @@ if __name__ == '__main__':
             code_redirect_uri = "{}/code".format(redirect_auth)
             exit_redirect_uri = "{}/exit".format(redirect_auth)
 
-            if not webbrowser.open(AuthEntry.get_microsoft_authentication_url(client_id, code_redirect_uri, upn)):
+            nonce = uuid4().hex
+
+            if not webbrowser.open(AuthEntry.get_microsoft_authentication_url(client_id, code_redirect_uri, email, nonce)):
                 self.print("auth.microsoft.no_browser")
                 return None
 
@@ -1741,14 +1719,10 @@ if __name__ == '__main__':
 
                 def __init__(self):
                     super().__init__(("", server_port), RequestHandler)
-                    self.timeout = 180
+                    self.timeout = 0.5
                     self.ms_auth_done = False
-                    self.ms_auth_code = None  # type: Optional[str]
-                    self.ms_auth_timeout = False
-
-                def handle_timeout(self):
-                    self.ms_auth_done = True
-                    self.ms_auth_timeout = True
+                    self.ms_auth_id_token = None  # type: Optional[str]
+                    self.ms_auth_code = None      # type: Optional[str]
 
             class RequestHandler(BaseHTTPRequestHandler):
 
@@ -1760,50 +1734,64 @@ if __name__ == '__main__':
                 def log_message(self, _format: str, *args: Any):
                     return
 
-                def do_GET(self):
+                def send_auth_response(self, msg: str):
+                    self.end_headers()
+                    self.wfile.write("{}{}".format(msg, "\n\nClose this tab and return to the application." if cast(AuthServer, self.server).ms_auth_done else "").encode())
+                    self.wfile.flush()
 
-                    auth_server = cast(AuthServer, self.server)
-
-                    if self.path.startswith("/code?"):
-                        qs = url_parse.parse_qs(self.path[6:])
-                        if "code" in qs:
+                def do_POST(self):
+                    if self.path.startswith("/code") and self.headers.get_content_type() == "application/x-www-form-urlencoded":
+                        content_length = int(self.headers.get("Content-Length"))
+                        qs = url_parse.parse_qs(self.rfile.read(content_length).decode())
+                        auth_server = cast(AuthServer, self.server)
+                        if "code" in qs and "id_token" in qs:
                             self.send_response(307)
                             # We logout the user directly after authorization, this just clear the browser cache to allow
                             # another user to authenticate with another email after. This doesn't invalide the access token.
                             self.send_header("Location", AuthEntry.get_microsoft_logout_url(client_id, exit_redirect_uri))
+                            auth_server.ms_auth_id_token = qs["id_token"][0]
                             auth_server.ms_auth_code = qs["code"][0]
-                            msg = "Redirecting..."
+                            self.send_auth_response("Redirecting...")
                         elif "error" in qs:
                             self.send_response(400)
                             auth_server.ms_auth_done = True
-                            msg = "Error: {} ({}).".format(qs["error_description"][0], qs["error"][0])
+                            self.send_auth_response("Error: {} ({}).".format(qs["error_description"][0], qs["error"][0]))
                         else:
                             self.send_response(404)
-                            msg = "Missing parameters."
-                    elif self.path.startswith("/exit"):
-                        self.send_response(200)
-                        auth_server.ms_auth_done = True
-                        msg = "Logged in."
+                            self.send_auth_response("Missing parameters.")
                     else:
                         self.send_response(404)
-                        msg = "Unexpected page."
+                        self.send_auth_response("Unexpected page.")
 
-                    self.end_headers()
-                    self.wfile.write("{}{}".format(msg, "\n\nClose this tab and return to the application." if auth_server.ms_auth_done else "").encode())
-                    self.wfile.flush()
+                def do_GET(self):
+                    auth_server = cast(AuthServer, self.server)
+                    if self.path.startswith("/exit"):
+                        self.send_response(200)
+                        auth_server.ms_auth_done = True
+                        self.send_auth_response("Logged in.")
+                    else:
+                        self.send_response(404)
+                        self.send_auth_response("Unexpected page.")
 
             self.print("auth.microsoft.opening_browser_and_listening")
 
-            with AuthServer() as server:
-                while not server.ms_auth_done:
-                    server.handle_request()
+            try:
+                with AuthServer() as server:
+                    while not server.ms_auth_done:
+                        server.handle_request()
+            except KeyboardInterrupt:
+                pass
 
             if server.ms_auth_code is None:
-                self.print("auth.microsoft.timeout" if server.ms_auth_timeout else "auth.microsoft.failed_to_authenticate")
+                self.print("auth.microsoft.failed_to_authenticate")
                 return None
             else:
                 self.print("auth.microsoft.processing")
-                return AuthEntry.microsoft_authenticate(client_id, server.ms_auth_code, code_redirect_uri, upn)
+                if AuthEntry.check_microsoft_token_id(server.ms_auth_id_token, email, nonce):
+                    return AuthEntry.microsoft_authenticate(client_id, server.ms_auth_code, code_redirect_uri)
+                else:
+                    self.print("auth.microsoft.incoherent_data")
+                    return None
 
         # Downloading
 

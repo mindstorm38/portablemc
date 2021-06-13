@@ -19,7 +19,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
 from sys import exit
 import sys
 
@@ -30,7 +29,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
 
 
 from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Union
-from urllib import request as url_request
+from urllib import request as url_request, parse as url_parse
 from json.decoder import JSONDecodeError
 from urllib.error import HTTPError
 from zipfile import ZipFile
@@ -41,6 +40,7 @@ import platform
 import hashlib
 import atexit
 import shutil
+import base64
 import json
 import re
 import os
@@ -54,6 +54,16 @@ VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest
 ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
 AUTHSERVER_URL = "https://authserver.mojang.com/{}"
 JVM_META_URL = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
+
+MS_OAUTH_CODE_URL = "https://login.live.com/oauth20_authorize.srf"
+MS_OAUTH_LOGOUT_URL = "https://login.live.com/oauth20_logout.srf"
+MS_OAUTH_TOKEN_URL = "https://login.live.com/oauth20_token.srf"
+MS_XBL_AUTH_DOMAIN = "user.auth.xboxlive.com"
+MS_XBL_AUTH_URL = "https://user.auth.xboxlive.com/user/authenticate"
+MS_XSTS_AUTH_URL = "https://xsts.auth.xboxlive.com/xsts/authorize"
+MS_GRAPH_UPN_REQUEST_URL = "https://graph.microsoft.com/v1.0/me?$select=userPrincipalName"
+MC_AUTH_URL = "https://api.minecraftservices.com/authentication/login_with_xbox"
+MC_PROFILE_URL = "https://api.minecraftservices.com/minecraft/profile"
 
 TOKENS_FILE_NAME  = "portablemc_tokens"
 
@@ -69,6 +79,7 @@ JVM_ARGS_DEFAULT = "-Xmx2G",\
                    "-XX:G1HeapRegionSize=32M"
 
 
+
 # This file is split between the Core which is the lib and the CLI launcher which extends the Core.
 # Check at the end of this file (in the __main__ check) for the CLI launcher.
 # Addons only apply to the CLI, the core lib may be extracted and published as a python lib in the future.
@@ -78,39 +89,14 @@ class CorePortableMC:
 
     def __init__(self):
 
-        # self._main_dir: Optional[str] = None
-        # self._work_dir: Optional[str] = None
-
         self._mc_os = self.get_minecraft_os()
         self._mc_arch = self.get_minecraft_arch()
         self._mc_archbits = self.get_minecraft_archbits()
 
         self._version_manifest: Optional[VersionManifest] = None
-        # self._auth_database: Optional[AuthDatabase] = None
         self._download_buffer: Optional[bytearray] = None
 
     # Generic methods
-
-    # def init_dirs(self, main_dir: Optional[str], work_dir: Optional[str]) -> bool:
-    #     self._main_dir = self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
-    #     self._work_dir = self._main_dir if work_dir is None else work_dir
-    # return path.isdir(self._main_dir)
-
-    # def init_main_dir(self, main_dir: Optional[str]) -> bool:
-    #     raise Exception("You should now use init_dirs(main_dir, work_dir) instead of init_main_dir(main_dir)")
-        # self._main_dir = self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
-        # return path.isdir(self._main_dir)
-
-    # def make_main_dir(self):
-    #     os.makedirs(self._main_dir, 0o777, True)
-    #     pass
-
-    # def check_main_dir(self):
-    #     if self._main_dir is None or not path.isdir(self._main_dir):
-    #         raise ValueError("Before executing this function, please use 'init_main_dir' to set the main "
-    #                          "directory path (use None to select the default .minecraft). Also make sure "
-    #                          "the directory is created (using 'make_main_dir' if needed).")
-    #     pass
 
     def compute_main_dir(self, main_dir: Optional[str]) -> str:
         return self.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
@@ -168,10 +154,6 @@ class CorePortableMC:
         # - VersionNotFoundError: if the given version was not found
         # - URLError: for any URL resolving error
         # - DownloadCorruptedError: if a download is corrupted
-
-        # self.notice("start.welcome")
-
-        # self.check_main_dir()
 
         main_dir = self.compute_main_dir(main_dir)
         work_dir = self.compute_work_dir(main_dir, work_dir)
@@ -564,18 +546,10 @@ class CorePortableMC:
 
     # Lazy variables getters
 
-    # def get_main_dir(self) -> str:
-    #     return self._main_dir
-
     def get_version_manifest(self) -> 'VersionManifest':
         if self._version_manifest is None:
             self._version_manifest = VersionManifest.load_from_url()
         return self._version_manifest
-
-    # def get_auth_database(self) -> 'AuthDatabase':
-    #     if self._auth_database is None:
-    #         self._auth_database = AuthDatabase(path.join(self._main_dir, "portablemc_tokens"))
-    #     return self._auth_database
 
     def get_download_buffer(self) -> bytearray:
         if self._download_buffer is None:
@@ -845,6 +819,7 @@ class VersionManifest:
 class AuthEntry:
 
     def __init__(self, client_token: str, username: str, uuid: str, access_token: str):
+        self.microsoft = client_token.startswith("microsoft:")
         self.client_token = client_token
         self.username = username
         self.uuid = uuid  # No dashes
@@ -857,30 +832,37 @@ class AuthEntry:
             return self.access_token
 
     def validate(self) -> bool:
-        return self.auth_request("validate", {
+        if self.microsoft:
+            return False
+        return self.mojang_request("validate", {
             "accessToken": self.access_token,
             "clientToken": self.client_token
         }, False)[0] == 204
 
     def refresh(self):
-
-        _, res = self.auth_request("refresh", {
-            "accessToken": self.access_token,
-            "clientToken": self.client_token
-        })
-
-        self.access_token = res["accessToken"]
+        if self.microsoft:
+            pass  # TODO
+        else:
+            _, res = self.mojang_request("refresh", {
+                "accessToken": self.access_token,
+                "clientToken": self.client_token
+            })
+            self.access_token = res["accessToken"]
+            self.username = res["selectedProfile"]["name"]  # Refresh username if renamed (does it works? to check.).
 
     def invalidate(self):
-        self.auth_request("invalidate", {
-            "accessToken": self.access_token,
-            "clientToken": self.client_token
-        }, False)
+        if not self.microsoft:
+            self.mojang_request("invalidate", {
+                "accessToken": self.access_token,
+                "clientToken": self.client_token
+            }, False)
+
+    # MOJANG #
 
     @classmethod
-    def authenticate(cls, email_or_username: str, password: str) -> 'AuthEntry':
+    def mojang_authenticate(cls, email_or_username: str, password: str) -> 'AuthEntry':
 
-        _, res = cls.auth_request("authenticate", {
+        _, res = cls.mojang_request("authenticate", {
             "agent": {
                 "name": "Minecraft",
                 "version": 1
@@ -897,33 +879,154 @@ class AuthEntry:
             res["accessToken"]
         )
 
+    @classmethod
+    def mojang_request(cls, req: str, payload: dict, error: bool = True) -> Tuple[int, dict]:
+        code, res = cls.base_request(AUTHSERVER_URL.format(req), json.dumps(payload).encode("ascii"), "application/json")
+        if error and code != 200:
+            raise AuthError(res["errorMessage"])
+        return code, res
+
+    # MICROSOFT #
+
     @staticmethod
-    def auth_request(req: str, payload: dict, error: bool = True) -> (int, dict):
+    def get_microsoft_authentication_url(app_client_id: str, redirect_uri: str, email: str, nonce: str):
+        return "{}?{}".format(MS_OAUTH_CODE_URL, url_parse.urlencode({
+            "client_id": app_client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code id_token",
+            "scope": "xboxlive.signin offline_access openid email",
+            "login_hint": email,
+            "nonce": nonce,
+            "response_mode": "form_post"
+        }))
+
+    @staticmethod
+    def get_microsoft_logout_url(app_client_id: str, redirect_uri: str):
+        return "{}?{}".format(MS_OAUTH_LOGOUT_URL, url_parse.urlencode({
+            "client_id": app_client_id,
+            "redirect_uri": redirect_uri
+        }))
+
+    @classmethod
+    def check_microsoft_token_id(cls, token_id: str, email: str, nonce: str) -> bool:
+        id_token_payload = json.loads(cls.base64url_decode(token_id.split(".")[1]))
+        return id_token_payload["nonce"] == nonce and id_token_payload["email"] == email
+
+    @classmethod
+    def microsoft_authenticate(cls, app_client_id: str, code: str, redirect_uri: str) -> 'AuthEntry':
+
+        _, res = cls.microsoft_request(MS_OAUTH_TOKEN_URL, {
+            "client_id": app_client_id,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+            "scope": "xboxlive.signin"
+        }, payload_url_encoded=True)
+
+        ms_token = res["access_token"]
+        ms_refresh_token = res["refresh_token"]
+
+        _, res = cls.microsoft_request(MS_XBL_AUTH_URL, {
+            "Properties": {
+                "AuthMethod": "RPS",
+                "SiteName": MS_XBL_AUTH_DOMAIN,
+                "RpsTicket": "d={}".format(ms_token)
+            },
+            "RelyingParty": "http://auth.xboxlive.com",
+            "TokenType": "JWT"
+        })
+
+        xbl_token = res["Token"]
+        xbl_user_hash = res["DisplayClaims"]["xui"][0]["uhs"]
+
+        _, res = cls.microsoft_request(MS_XSTS_AUTH_URL, {
+            "Properties": {
+                "SandboxId": "RETAIL",
+                "UserTokens": [xbl_token]
+            },
+            "RelyingParty": "rp://api.minecraftservices.com/",
+            "TokenType": "JWT"
+        })
+
+        xsts_token = res["Token"]
+
+        if xbl_user_hash != res["DisplayClaims"]["xui"][0]["uhs"]:
+            raise AuthError("Inconsistent user hash.")
+
+        _, res = cls.microsoft_request(MC_AUTH_URL, {
+            "identityToken": "XBL3.0 x={};{}".format(xbl_user_hash, xsts_token)
+        })
+
+        mc_access_token = res["access_token"]
+
+        code, res = cls.microsoft_mc_request(MC_PROFILE_URL, mc_access_token)
+
+        if code == 404:
+            raise AuthError("This account does not own Minecraft.")
+        elif "error" in res:
+            raise AuthError(res.get("errorMessage", res["error"]))
+
+        return AuthEntry("microsoft:{}".format(ms_refresh_token), res["name"], res["id"], mc_access_token)
+
+    @classmethod
+    def microsoft_request(cls, url: str, payload: dict, *, payload_url_encoded: bool = False) -> Tuple[int, dict]:
+        data = (url_parse.urlencode(payload) if payload_url_encoded else json.dumps(payload)).encode("ascii")
+        return cls.base_request(url, data, "application/x-www-form-urlencoded" if payload_url_encoded else "application/json")
+
+    @classmethod
+    def microsoft_mc_request(cls, url: str, bearer: str) -> Tuple[int, dict]:
+        return cls.base_request(url, None, None, headers={"Authorization": "Bearer {}".format(bearer)}, method="GET")
+
+    # COMMON #
+
+    @classmethod
+    def base_request(cls,
+                     url: str,
+                     data: Optional[bytes],
+                     content_type: Optional[str], *,
+                     headers: Optional[dict] = None,
+                     method: str = "POST") -> Tuple[int, dict]:
 
         from http.client import HTTPResponse
         from urllib.request import Request
 
-        req_url = AUTHSERVER_URL.format(req)
-        data = json.dumps(payload).encode("ascii")
-        req = Request(req_url, data, headers={
-            "Content-Type": "application/json",
-            "Content-Length": len(data)
-        }, method="POST")
+        if headers is None:
+            headers = {}
+        if content_type is not None:
+            headers["Content-Type"] = content_type
+        if data is not None:
+            headers["Content-Length"] = len(data)
+
+        headers["Accept"] = "application/json"
+
+        # print("==========================")
+        # print(f"Request to {url}")
+        # print(f"- Headers: {headers}")
+        # print(f"- Data: {data}")
+
+        req = Request(url, data, headers=headers, method=method)
 
         try:
-            res = url_request.urlopen(req)  # type: HTTPResponse
+            res = cast(HTTPResponse, url_request.urlopen(req))
         except HTTPError as err:
             res = cast(HTTPResponse, err.fp)
 
         try:
-            res_data = json.load(res)
+            data = json.load(res)
         except JSONDecodeError:
-            res_data = {}
+            data = {}
 
-        if error and res.status != 200:
-            raise AuthError(res_data["errorMessage"])
+        # print(f"- Response: ({res.status}) {data}")
+        # print("==========================")
 
-        return res.status, res_data
+        return res.status, data
+
+    @classmethod
+    def base64url_decode(cls, s: str) -> bytes:
+        rem = len(s) % 4
+        if rem > 0:
+            s += "=" * (4 - rem)
+        return base64.urlsafe_b64decode(s)
 
 
 class AuthDatabase:
