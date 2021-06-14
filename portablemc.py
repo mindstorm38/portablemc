@@ -1051,8 +1051,10 @@ class MicrosoftAuthSession(BaseAuthSession):
 
         if code == 404:
             raise AuthError("This account does not own Minecraft.")
-        elif "error" in res:
-            raise AuthError(res.get("errorMessage", res["error"]))
+        elif code == 401:
+            raise AuthError("The token is no longer valid.")
+        elif "error" in res or code != 200:
+            raise AuthError(res.get("errorMessage", res.get("error", "Unknown error")))
 
         return {
             "refresh_token": ms_refresh_token,
