@@ -28,7 +28,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Union
+from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Union, Type
 from urllib import request as url_request, parse as url_parse
 from json.decoder import JSONDecodeError
 from urllib.error import HTTPError
@@ -65,7 +65,8 @@ MS_GRAPH_UPN_REQUEST_URL = "https://graph.microsoft.com/v1.0/me?$select=userPrin
 MC_AUTH_URL = "https://api.minecraftservices.com/authentication/login_with_xbox"
 MC_PROFILE_URL = "https://api.minecraftservices.com/minecraft/profile"
 
-TOKENS_FILE_NAME  = "portablemc_tokens"
+LEGACY_AUTH_FILE_NAME  = "portablemc_tokens"
+AUTH_FILE_NAME  = "portablemc_auth.json"
 
 LOGGING_CONSOLE_REPLACEMENT = "<PatternLayout pattern=\"%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n\"/>"
 
@@ -130,11 +131,11 @@ class CorePortableMC:
     def start_mc(self, *,
                    version: str,
                    jvm: Optional[Union[str, List[str]]] = None,     # Default to [JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT]
-                   main_dir: Optional[str] = None,          # Default to .minecraft
-                   work_dir: Optional[str] = None,          # Default to main dir
-                   uuid: Optional[str] = None,              # Default to random UUID
-                   username: Optional[str] = None,          # Default to uuid[:8]
-                   auth: 'Optional[AuthEntry]' = None,      # This parameter will override uuid/username
+                   main_dir: Optional[str] = None,           # Default to .minecraft
+                   work_dir: Optional[str] = None,           # Default to main dir
+                   uuid: Optional[str] = None,               # Default to random UUID
+                   username: Optional[str] = None,           # Default to uuid[:8]
+                   auth: 'Optional[BaseAuthSession]' = None, # This parameter will override uuid/username
                    dry_run: bool = False,
                    no_better_logging: bool = False,
                    # work_dir_bin: bool = False,
@@ -557,7 +558,7 @@ class CorePortableMC:
         return self._download_buffer
 
     def new_auth_database(self, work_dir: Optional[str]) -> 'AuthDatabase':
-        return AuthDatabase(path.join(work_dir, TOKENS_FILE_NAME))
+        return AuthDatabase(path.join(work_dir, AUTH_FILE_NAME), path.join(work_dir, LEGACY_AUTH_FILE_NAME))
 
     # Public methods to be replaced by addons
 
@@ -816,176 +817,35 @@ class VersionManifest:
                 yield version_data
 
 
-class AuthEntry:
+class BaseAuthSession:
 
-    def __init__(self, client_token: str, username: str, uuid: str, access_token: str):
-        self.microsoft = client_token.startswith("microsoft:")
-        self.client_token = client_token
-        self.username = username
-        self.uuid = uuid  # No dashes
+    TYPE = "raw"
+    FIELDS = "access_token", "username", "uuid"
+
+    def __init__(self, access_token: str, username: str, uuid: str):
         self.access_token = access_token
+        self.username = username
+        self.uuid = uuid
 
     def format_token_argument(self, legacy: bool) -> str:
-        if legacy:
-            return "token:{}:{}".format(self.access_token, self.uuid)
-        else:
-            return self.access_token
+        return "token:{}:{}".format(self.access_token, self.uuid) if legacy else self.access_token
 
     def validate(self) -> bool:
-        if self.microsoft:
-            return False
-        return self.mojang_request("validate", {
-            "accessToken": self.access_token,
-            "clientToken": self.client_token
-        }, False)[0] == 204
+        return True
 
     def refresh(self):
-        if self.microsoft:
-            pass  # TODO
-        else:
-            _, res = self.mojang_request("refresh", {
-                "accessToken": self.access_token,
-                "clientToken": self.client_token
-            })
-            self.access_token = res["accessToken"]
-            self.username = res["selectedProfile"]["name"]  # Refresh username if renamed (does it works? to check.).
+        pass
 
     def invalidate(self):
-        if not self.microsoft:
-            self.mojang_request("invalidate", {
-                "accessToken": self.access_token,
-                "clientToken": self.client_token
-            }, False)
-
-    # MOJANG #
-
-    @classmethod
-    def mojang_authenticate(cls, email_or_username: str, password: str) -> 'AuthEntry':
-
-        _, res = cls.mojang_request("authenticate", {
-            "agent": {
-                "name": "Minecraft",
-                "version": 1
-            },
-            "username": email_or_username,
-            "password": password,
-            "clientToken": uuid4().hex
-        })
-
-        return AuthEntry(
-            res["clientToken"],
-            res["selectedProfile"]["name"],
-            res["selectedProfile"]["id"],
-            res["accessToken"]
-        )
-
-    @classmethod
-    def mojang_request(cls, req: str, payload: dict, error: bool = True) -> Tuple[int, dict]:
-        code, res = cls.base_request(AUTHSERVER_URL.format(req), json.dumps(payload).encode("ascii"), "application/json")
-        if error and code != 200:
-            raise AuthError(res["errorMessage"])
-        return code, res
-
-    # MICROSOFT #
-
-    @staticmethod
-    def get_microsoft_authentication_url(app_client_id: str, redirect_uri: str, email: str, nonce: str):
-        return "{}?{}".format(MS_OAUTH_CODE_URL, url_parse.urlencode({
-            "client_id": app_client_id,
-            "redirect_uri": redirect_uri,
-            "response_type": "code id_token",
-            "scope": "xboxlive.signin offline_access openid email",
-            "login_hint": email,
-            "nonce": nonce,
-            "response_mode": "form_post"
-        }))
-
-    @staticmethod
-    def get_microsoft_logout_url(app_client_id: str, redirect_uri: str):
-        return "{}?{}".format(MS_OAUTH_LOGOUT_URL, url_parse.urlencode({
-            "client_id": app_client_id,
-            "redirect_uri": redirect_uri
-        }))
-
-    @classmethod
-    def check_microsoft_token_id(cls, token_id: str, email: str, nonce: str) -> bool:
-        id_token_payload = json.loads(cls.base64url_decode(token_id.split(".")[1]))
-        return id_token_payload["nonce"] == nonce and id_token_payload["email"] == email
-
-    @classmethod
-    def microsoft_authenticate(cls, app_client_id: str, code: str, redirect_uri: str) -> 'AuthEntry':
-
-        _, res = cls.microsoft_request(MS_OAUTH_TOKEN_URL, {
-            "client_id": app_client_id,
-            "code": code,
-            "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri,
-            "scope": "xboxlive.signin"
-        }, payload_url_encoded=True)
-
-        ms_token = res["access_token"]
-        ms_refresh_token = res["refresh_token"]
-
-        _, res = cls.microsoft_request(MS_XBL_AUTH_URL, {
-            "Properties": {
-                "AuthMethod": "RPS",
-                "SiteName": MS_XBL_AUTH_DOMAIN,
-                "RpsTicket": "d={}".format(ms_token)
-            },
-            "RelyingParty": "http://auth.xboxlive.com",
-            "TokenType": "JWT"
-        })
-
-        xbl_token = res["Token"]
-        xbl_user_hash = res["DisplayClaims"]["xui"][0]["uhs"]
-
-        _, res = cls.microsoft_request(MS_XSTS_AUTH_URL, {
-            "Properties": {
-                "SandboxId": "RETAIL",
-                "UserTokens": [xbl_token]
-            },
-            "RelyingParty": "rp://api.minecraftservices.com/",
-            "TokenType": "JWT"
-        })
-
-        xsts_token = res["Token"]
-
-        if xbl_user_hash != res["DisplayClaims"]["xui"][0]["uhs"]:
-            raise AuthError("Inconsistent user hash.")
-
-        _, res = cls.microsoft_request(MC_AUTH_URL, {
-            "identityToken": "XBL3.0 x={};{}".format(xbl_user_hash, xsts_token)
-        })
-
-        mc_access_token = res["access_token"]
-
-        code, res = cls.microsoft_mc_request(MC_PROFILE_URL, mc_access_token)
-
-        if code == 404:
-            raise AuthError("This account does not own Minecraft.")
-        elif "error" in res:
-            raise AuthError(res.get("errorMessage", res["error"]))
-
-        return AuthEntry("microsoft:{}".format(ms_refresh_token), res["name"], res["id"], mc_access_token)
-
-    @classmethod
-    def microsoft_request(cls, url: str, payload: dict, *, payload_url_encoded: bool = False) -> Tuple[int, dict]:
-        data = (url_parse.urlencode(payload) if payload_url_encoded else json.dumps(payload)).encode("ascii")
-        return cls.base_request(url, data, "application/x-www-form-urlencoded" if payload_url_encoded else "application/json")
-
-    @classmethod
-    def microsoft_mc_request(cls, url: str, bearer: str) -> Tuple[int, dict]:
-        return cls.base_request(url, None, None, headers={"Authorization": "Bearer {}".format(bearer)}, method="GET")
-
-    # COMMON #
+        pass
 
     @classmethod
     def base_request(cls,
                      url: str,
-                     data: Optional[bytes],
-                     content_type: Optional[str], *,
-                     headers: Optional[dict] = None,
-                     method: str = "POST") -> Tuple[int, dict]:
+                     method: str, *,
+                     data: Optional[bytes] = None,
+                     content_type: Optional[str] = None,
+                     headers: Optional[dict] = None) -> Tuple[int, dict]:
 
         from http.client import HTTPResponse
         from urllib.request import Request
@@ -999,10 +859,10 @@ class AuthEntry:
 
         headers["Accept"] = "application/json"
 
-        # print("==========================")
-        # print(f"Request to {url}")
-        # print(f"- Headers: {headers}")
-        # print(f"- Data: {data}")
+        print("==========================")
+        print(f"Request to {url}")
+        print(f"- Headers: {headers}")
+        print(f"- Data: {data}")
 
         req = Request(url, data, headers=headers, method=method)
 
@@ -1016,10 +876,201 @@ class AuthEntry:
         except JSONDecodeError:
             data = {}
 
-        # print(f"- Response: ({res.status}) {data}")
-        # print("==========================")
+        print(f"- Response: ({res.status}) {data}")
+        print("==========================")
 
         return res.status, data
+
+
+class YggdrasilAuthSession(BaseAuthSession):
+
+    TYPE = "yggdrasil"
+    FIELDS = "access_token", "username", "uuid", "client_token"
+
+    def __init__(self, access_token: str, username: str, uuid: str, client_token: str):
+        super().__init__(access_token, username, uuid)
+        self.client_token = client_token
+
+    def validate(self) -> bool:
+        return self.request("validate", {
+            "accessToken": self.access_token,
+            "clientToken": self.client_token
+        }, False)[0] == 204
+
+    def refresh(self):
+        _, res = self.request("refresh", {
+            "accessToken": self.access_token,
+            "clientToken": self.client_token
+        })
+        self.access_token = res["accessToken"]
+        self.username = res["selectedProfile"]["name"]  # Refresh username if renamed (does it works? to check.).
+
+    def invalidate(self):
+        self.request("invalidate", {
+            "accessToken": self.access_token,
+            "clientToken": self.client_token
+        }, False)
+
+    @classmethod
+    def authenticate(cls, email_or_username: str, password: str) -> 'YggdrasilAuthSession':
+        _, res = cls.request("authenticate", {
+            "agent": {
+                "name": "Minecraft",
+                "version": 1
+            },
+            "username": email_or_username,
+            "password": password,
+            "clientToken": uuid4().hex
+        })
+        return cls(res["accessToken"], res["selectedProfile"]["name"], res["selectedProfile"]["id"], res["clientToken"])
+
+    @classmethod
+    def request(cls, req: str, payload: dict, error: bool = True) -> Tuple[int, dict]:
+        code, res = cls.base_request(AUTHSERVER_URL.format(req), "POST", data=json.dumps(payload).encode("ascii"), content_type="application/json")
+        if error and code != 200:
+            raise AuthError(res["errorMessage"])
+        return code, res
+
+
+class MicrosoftAuthSession(BaseAuthSession):
+
+    TYPE = "microsoft"
+    FIELDS = "access_token", "username", "uuid", "refresh_token", "client_id", "redirect_uri"
+
+    def __init__(self, access_token: str, username: str, uuid: str, refresh_token: str, client_id: str, redirect_uri: str):
+        super().__init__(access_token, username, uuid)
+        self.refresh_token = refresh_token
+        self.client_id = client_id
+        self.redirect_uri = redirect_uri
+        self._new_username = None  # type: Optional[str]
+
+    def validate(self) -> bool:
+        self._new_username = None
+        code, res = self.mc_request(MC_PROFILE_URL, self.access_token)
+        if code == 200:
+            username = res["name"]
+            if self.username != username:
+                self._new_username = username
+                return False
+            return True
+        return False
+
+    def refresh(self):
+        if self._new_username is not None:
+            self.username = self._new_username
+            self._new_username = None
+        else:
+            res = self.authenticate_base({
+                "client_id": self.client_id,
+                "redirect_uri": self.redirect_uri,
+                "refresh_token": self.refresh_token,
+                "grant_type": "refresh_token",
+                "scope": "xboxlive.signin"
+            })
+            self.access_token = res["access_token"]
+            self.username = res["username"]
+            self.uuid = res["uuid"]
+            self.refresh_token = res["refresh_token"]
+
+    @staticmethod
+    def get_authentication_url(app_client_id: str, redirect_uri: str, email: str, nonce: str):
+        return "{}?{}".format(MS_OAUTH_CODE_URL, url_parse.urlencode({
+            "client_id": app_client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code id_token",
+            "scope": "xboxlive.signin offline_access openid email",
+            "login_hint": email,
+            "nonce": nonce,
+            "response_mode": "form_post"
+        }))
+
+    @staticmethod
+    def get_logout_url(app_client_id: str, redirect_uri: str):
+        return "{}?{}".format(MS_OAUTH_LOGOUT_URL, url_parse.urlencode({
+            "client_id": app_client_id,
+            "redirect_uri": redirect_uri
+        }))
+
+    @classmethod
+    def check_token_id(cls, token_id: str, email: str, nonce: str) -> bool:
+        id_token_payload = json.loads(cls.base64url_decode(token_id.split(".")[1]))
+        return id_token_payload["nonce"] == nonce and id_token_payload["email"] == email
+
+    @classmethod
+    def authenticate(cls, app_client_id: str, code: str, redirect_uri: str) -> 'MicrosoftAuthSession':
+        res = cls.authenticate_base({
+            "client_id": app_client_id,
+            "redirect_uri": redirect_uri,
+            "code": code,
+            "grant_type": "authorization_code",
+            "scope": "xboxlive.signin"
+        })
+        return cls(res["access_token"], res["username"], res["uuid"], res["refresh_token"], app_client_id, redirect_uri)
+
+    @classmethod
+    def authenticate_base(cls, request_token_payload: dict) -> dict:
+
+        # Microsoft OAuth
+        _, res = cls.ms_request(MS_OAUTH_TOKEN_URL, request_token_payload, payload_url_encoded=True)
+        ms_refresh_token = res["refresh_token"]
+
+        # Xbox Live Token
+        _, res = cls.ms_request(MS_XBL_AUTH_URL, {
+            "Properties": {
+                "AuthMethod": "RPS",
+                "SiteName": MS_XBL_AUTH_DOMAIN,
+                "RpsTicket": "d={}".format(res["access_token"])
+            },
+            "RelyingParty": "http://auth.xboxlive.com",
+            "TokenType": "JWT"
+        })
+
+        xbl_token = res["Token"]
+        xbl_user_hash = res["DisplayClaims"]["xui"][0]["uhs"]
+
+        # Xbox Live XSTS Token
+        _, res = cls.ms_request(MS_XSTS_AUTH_URL, {
+            "Properties": {
+                "SandboxId": "RETAIL",
+                "UserTokens": [xbl_token]
+            },
+            "RelyingParty": "rp://api.minecraftservices.com/",
+            "TokenType": "JWT"
+        })
+        xsts_token = res["Token"]
+
+        if xbl_user_hash != res["DisplayClaims"]["xui"][0]["uhs"]:
+            raise AuthError("Inconsistent user hash.")
+
+        # MC Services Auth
+        _, res = cls.ms_request(MC_AUTH_URL, {
+            "identityToken": "XBL3.0 x={};{}".format(xbl_user_hash, xsts_token)
+        })
+        mc_access_token = res["access_token"]
+
+        # MC Services Profile
+        code, res = cls.mc_request(MC_PROFILE_URL, mc_access_token)
+
+        if code == 404:
+            raise AuthError("This account does not own Minecraft.")
+        elif "error" in res:
+            raise AuthError(res.get("errorMessage", res["error"]))
+
+        return {
+            "refresh_token": ms_refresh_token,
+            "access_token": mc_access_token,
+            "username": res["name"],
+            "uuid": res["id"]
+        }
+
+    @classmethod
+    def ms_request(cls, url: str, payload: dict, *, payload_url_encoded: bool = False) -> Tuple[int, dict]:
+        data = (url_parse.urlencode(payload) if payload_url_encoded else json.dumps(payload)).encode("ascii")
+        return cls.base_request(url, "POST", data=data, content_type="application/x-www-form-urlencoded" if payload_url_encoded else "application/json")
+
+    @classmethod
+    def mc_request(cls, url: str, bearer: str) -> Tuple[int, dict]:
+        return cls.base_request(url, "GET", headers={"Authorization": "Bearer {}".format(bearer)})
 
     @classmethod
     def base64url_decode(cls, s: str) -> bytes:
@@ -1031,43 +1082,82 @@ class AuthEntry:
 
 class AuthDatabase:
 
-    def __init__(self, filename: str):
+    TYPES = {
+        YggdrasilAuthSession.TYPE: YggdrasilAuthSession,
+        MicrosoftAuthSession.TYPE: MicrosoftAuthSession
+    }
+
+    def __init__(self, filename: str, legacy_filename: str):
         self._filename = filename
-        self._entries = {}  # type: Dict[str, AuthEntry]
+        self._legacy_filename = legacy_filename
+        self._sessions = {}  # type: Dict[str, Dict[str, BaseAuthSession]]
 
     def load(self):
-        self._entries.clear()
-        if path.isfile(self._filename):
-            with open(self._filename, "rt") as fp:
+        self._sessions.clear()
+        if not path.isfile(self._filename):
+            self._load_legacy_and_delete()
+        try:
+            with open(self._filename, "rb") as fp:
+                data = json.load(fp)
+                for typ, typ_data in data.items():
+                    if typ not in self.TYPES:
+                        continue
+                    sess_type = self.TYPES[typ]
+                    sessions = self._sessions[typ] = {}
+                    sessions_data = typ_data["sessions"]
+                    for email, sess_data in sessions_data.items():
+                        sess_params = []
+                        for field in sess_type.FIELDS:
+                            sess_params.append(sess_data.get(field, ""))
+                        sessions[email] = sess_type(*sess_params)
+        except (OSError, KeyError, TypeError, JSONDecodeError):
+            pass
+
+    def _load_legacy_and_delete(self):
+        try:
+            with open(self._legacy_filename, "rt") as fp:
                 for line in fp.readlines():
                     parts = line.split(" ")
                     if len(parts) == 5:
-                        self._entries[parts[0]] = AuthEntry(
-                            parts[1],
-                            parts[2],
-                            parts[3],
-                            parts[4]
-                        )
+                        self.put(parts[0], YggdrasilAuthSession(parts[4], parts[2], parts[3], parts[1]))
+            os.remove(self._legacy_filename)
+        except OSError:
+            pass
 
     def save(self):
         with open(self._filename, "wt") as fp:
-            fp.writelines(("{} {} {} {} {}".format(
-                email_or_username,
-                entry.client_token,
-                entry.username,
-                entry.uuid,
-                entry.access_token
-            ) for email_or_username, entry in self._entries.items()))
+            data = {}
+            for typ, sessions in self._sessions.items():
+                if typ not in self.TYPES:
+                    continue
+                sess_type = self.TYPES[typ]
+                sessions_data = {}
+                data[typ] = {"sessions": sessions_data}
+                for email, sess in sessions.items():
+                    sess_data = sessions_data[email] = {}
+                    for field in sess_type.FIELDS:
+                        sess_data[field] = getattr(sess, field)
+            json.dump(data, fp, indent=2)
 
-    def get_entry(self, email_or_username: str) -> Optional[AuthEntry]:
-        return self._entries.get(email_or_username, None)
+    def get(self, email_or_username: str, sess_type: Type[BaseAuthSession]) -> Optional[BaseAuthSession]:
+        sessions = self._sessions.get(sess_type.TYPE)
+        return None if sessions is None else sessions.get(email_or_username)
 
-    def add_entry(self, email_or_username: str, entry: AuthEntry):
-        self._entries[email_or_username] = entry
+    def put(self, email_or_username: str, sess: BaseAuthSession):
+        sessions = self._sessions.get(sess.TYPE)
+        if sessions is None:
+            if sess.TYPE not in self.TYPES:
+                raise ValueError("Given session's type is not supported.")
+            sessions = self._sessions[sess.TYPE] = {}
+        sessions[email_or_username] = sess
 
-    def remove_entry(self, email_or_username: str):
-        if email_or_username in self._entries:
-            del self._entries[email_or_username]
+    def remove(self, email_or_username: str, sess_type: Type[BaseAuthSession]) -> Optional[BaseAuthSession]:
+        sessions = self._sessions.get(sess_type.TYPE)
+        if sessions is not None:
+            session = sessions.get(email_or_username)
+            if session is not None:
+                del sessions[email_or_username]
+                return session
 
 
 class DownloadEntry:
@@ -1093,43 +1183,16 @@ class DownloadCorruptedError(Exception): ...
 
 LEGACY_JVM_ARGUMENTS = [
     {
-        "rules": [
-            {
-                "action": "allow",
-                "os": {
-                    "name": "osx"
-                }
-            }
-        ],
-        "value": [
-            "-XstartOnFirstThread"
-        ]
+        "rules": [{"action": "allow", "os": {"name": "osx"}}],
+        "value": ["-XstartOnFirstThread"]
     },
     {
-        "rules": [
-            {
-                "action": "allow",
-                "os": {
-                    "name": "windows"
-                }
-            }
-        ],
+        "rules": [{"action": "allow", "os": {"name": "windows"}}],
         "value": "-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump"
     },
     {
-        "rules": [
-            {
-                "action": "allow",
-                "os": {
-                    "name": "windows",
-                    "version": "^10\\."
-                }
-            }
-        ],
-        "value": [
-            "-Dos.name=Windows 10",
-            "-Dos.version=10.0"
-        ]
+        "rules": [{"action": "allow", "os": {"name": "windows", "version": "^10\\."}}],
+        "value": ["-Dos.name=Windows 10", "-Dos.version=10.0"]
     },
     "-Djava.library.path=${natives_directory}",
     "-Dminecraft.launcher.brand=${launcher_name}",
