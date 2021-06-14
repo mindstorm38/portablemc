@@ -1,7 +1,9 @@
 # Portable Minecraft Launcher
 An easy-to-use portable Minecraft launcher in only one Python script!
 This single-script launcher is still compatible with the official (Mojang) Minecraft Launcher stored
-in `.minecraft` and use it.
+in `.minecraft` and use it. The goals are speed and reliability for all Minecraft versions in a 
+stateless manner.
+
 You can now customize the launcher with addons.
 
 ### [Download now!](https://github.com/mindstorm38/portablemc/releases) *[Fabric is now supported!](#fabricmc-support)*
@@ -22,7 +24,7 @@ You can now customize the launcher with addons.
     - [Auto connect to a server](#auto-connect-to-a-server)
     - [Miscellaneous](#miscellaneous)
   - [Search for versions](#search-for-versions)
-  - [Authentication caching](#authentication-caching)
+  - [Authentication sessions](#authentication-sessions)
   - [Addon sub-command](#addon-sub-command)
 - [Addons](#addons)
   - [FabricMC support](#fabricmc-support)
@@ -58,16 +60,18 @@ you can either specify a full version id (which you can get from the [search](#s
 sub-command), or a type of version to select the latest of this type (`release` (default) or `snapshot`).
 
 ### Authentication
-Online mode is supported by this launcher - use the `-l <email_or_username>` (`--login`) argument to
-log into your account *(login with a username is now deprecated by Mojang)*. If your session is not
-cached or no longer valid, the launcher will ask for the password.
+Online mode is supported by this launcher, use the `-l <email_or_username>` (`--login`) argument to
+log into your account *(login with a username is deprecated by Mojang)*. If your session is not
+cached nor valid, the launcher will ask for the password.
+
+You can now use the the `-m` (`--microsoft`) to authenticate a Microsoft account if you already had
+migrated your account. In this case the launcher will open a page in your web browser with the
+Microsoft login page.
 
 You can disable session caching using the argument `-t` (`--temp-login`). If your session is 
 not cached nor valid, you will be asked for the password on every launch.
 
-**Note that** your password is not saved! Only the token is saved (the official launcher also does that)
-in the file `portablemc_tokens` in the main directory (an argument may allow change of this location
-in the future).
+**[Check below](#authentication-sessions) for more information about authentication sessions.**
 
 ### Offline mode
 If you need fake offline accounts you can use `-u <username>` (`--username`) to define the username and/or
@@ -112,10 +116,20 @@ will search for official versions available to download, you can instead search 
 using the `-l` (`--local`) flag. The search string is optional, if not given all official or local
 versions are displayed.
 
-## Authentication caching
-Two subcommands allow you to cache or uncache sessions: `<exec> login|logout <email_or_username>`.
+## Authentication sessions
+Two subcommands allow you to store or logout of sessions: `<exec> login|logout <email_or_username>`.
 These subcommands don't prevent you from using the `-l` (`--login`) argument when starting the game,
 these are just here to manage the session storage.
+
+A new argument `-m` (`--microsoft`) is available for both subcommands since `1.1.4` for migrated 
+Microsoft accounts.
+The launcher will open the Microsoft login page (with your email pre-typed in) in your web browser 
+and wait until validated. 
+
+**Your password is not saved!** Only a token is saved (the official launcher also does that)
+in the file `portablemc_auth.json` in the working directory. In older version of the launcher
+(`< 1.1.4`), this file was `portablemc_tokens` in the main directory, the migration from the old
+file is automatic and irreversible (the old file is deleted).
 
 ## Addon sub-command
 The `<exec> addon list|init|show` sub-commands are used to list, initialize (for developers) and show
