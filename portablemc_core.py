@@ -604,7 +604,7 @@ class CorePortableMC:
                         start_size += read_len
 
                     if progress_callback is not None:
-                        progress_callback(dl_size, 0 if entry.size else entry.size, start_size, total_size)
+                        progress_callback(dl_size, 0 if entry.size is None else entry.size, start_size, total_size)
 
                 if entry.size is not None and dl_size != entry.size:
                     raise DownloadCorruptedError("invalid_size")
