@@ -7,7 +7,7 @@ import os
 PACKAGES = {
     "standard": ("portablemc.py",),
     "richer": ("portablemc.py", "addons/richer/*"),
-    "scripting": ("portablemc.py", "addons/richer/*", "addons/scripting/*"),
+    # "scripting": ("portablemc.py", "addons/richer/*", "addons/scripting/*"),
     "modloaders": ("portablemc.py", "addons/richer/*", "addons/modloader_fabric/*")
 }
 
