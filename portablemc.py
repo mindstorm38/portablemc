@@ -857,10 +857,10 @@ class BaseAuthSession:
 
         headers["Accept"] = "application/json"
 
-        print("==========================")
-        print(f"Request to {url}")
-        print(f"- Headers: {headers}")
-        print(f"- Data: {data}")
+        # print("==========================")
+        # print(f"Request to {url}")
+        # print(f"- Headers: {headers}")
+        # print(f"- Data: {data}")
 
         req = Request(url, data, headers=headers, method=method)
 
@@ -874,8 +874,8 @@ class BaseAuthSession:
         except JSONDecodeError:
             data = {}
 
-        print(f"- Response: ({res.status}) {data}")
-        print("==========================")
+        # print(f"- Response: ({res.status}) {data}")
+        # print("==========================")
 
         return res.status, data
 
