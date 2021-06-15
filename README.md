@@ -8,6 +8,8 @@ You can now customize the launcher with addons.
 
 ### [Download now!](https://github.com/mindstorm38/portablemc/releases) *[Fabric is now supported!](#fabricmc-support)*
 
+#### [Check out the latest pre-release and contribute to this launcher!](https://github.com/mindstorm38/portablemc/releases/tag/v1.1.4-pre1)
+
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/mindstorm38/portablemc)
 ![GitHub all releases](https://img.shields.io/github/downloads/mindstorm38/portablemc/total)
 
