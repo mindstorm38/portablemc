@@ -28,8 +28,8 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
 
 from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Union, Type
 from urllib import request as url_request, parse as url_parse
+from http.client import HTTPConnection, HTTPSConnection
 from json.decoder import JSONDecodeError
-from urllib.error import HTTPError
 from zipfile import ZipFile
 from uuid import uuid4
 from os import path
@@ -198,7 +198,7 @@ class CorePortableMC:
             asset_index_info = version_meta["assetIndex"]
             asset_index_url = asset_index_info["url"]
             self.notice("start.found_asset_index", asset_index_url)
-            assets_index = self.read_url_json(asset_index_url)
+            assets_index = self.json_simple_request(asset_index_url)
             if not path.isdir(assets_indexes_dir):
                 os.makedirs(assets_indexes_dir, 0o777, True)
             with open(assets_index_file, "wt") as assets_index_fp:
@@ -499,7 +499,7 @@ class CorePortableMC:
             self.notice("jvm.not_found")
             return None
 
-        all_jvm_meta = self.read_url_json(JVM_META_URL)
+        all_jvm_meta = self.json_simple_request(JVM_META_URL)
         jvm_arch_meta = all_jvm_meta.get(jvm_arch)
         if jvm_arch_meta is None:
             self.notice("jvm.unsupported_jvm_arch", jvm_arch)
@@ -513,7 +513,7 @@ class CorePortableMC:
         jvm_meta = jvm_meta[0]
         jvm_version = jvm_meta["version"]["name"]
         jvm_manifest_url = jvm_meta["manifest"]["url"]
-        jvm_manifest = self.read_url_json(jvm_manifest_url)["files"]
+        jvm_manifest = self.json_simple_request(jvm_manifest_url)["files"]
 
         jvm_dir = path.join(main_dir, "jvm", jvm_version_type)
         os.makedirs(jvm_dir, 0o777, True)
@@ -638,7 +638,7 @@ class CorePortableMC:
             if version_data is not None:
                 version_url = version_data["url"]
                 self.notice("version.found_in_manifest")
-                content = self.read_url_json(version_url)
+                content = self.json_simple_request(version_url)
                 os.makedirs(version_dir, 0o777, True)
                 with open(version_meta_file, "wt") as version_meta_fp:
                     json.dump(content, version_meta_fp, indent=2)
@@ -759,15 +759,44 @@ class CorePortableMC:
         return ";" if sys.platform == "win32" else ":"
 
     @staticmethod
-    def read_url_json(url: str, *, ignore_error: bool = False) -> dict:
-        if ignore_error:
+    def json_request(url: str, method: str, *,
+                     data: Optional[bytes] = None,
+                     headers: Optional[dict] = None,
+                     ignore_error: bool = False,
+                     timeout: Optional[int] = None) -> Tuple[int, dict]:
+
+        url_parsed = url_parse.urlparse(url)
+        conn_types = {"http": HTTPConnection, "https": HTTPSConnection}
+        conn_type = conn_types.get(url_parsed.scheme)
+        if conn_type is None:
+            raise JsonRequestError("Invalid URL scheme '{}'".format(url_parsed.scheme))
+        conn = conn_type(url_parsed.netloc, timeout=timeout)
+        if data is not None:
+            headers["Content-Length"] = len(data)
+        if headers is None:
+            headers = {}
+        if "Accept" not in headers:
+            headers["Accept"] = "application/json"
+        headers["Connection"] = "close"
+
+        try:
+            conn.request(method, url, data, headers)
+            res = conn.getresponse()
             try:
-                res = url_request.urlopen(url)
-            except HTTPError as err:
-                res = err
-        else:
-            res = url_request.urlopen(url)
-        return json.load(res)
+                return res.status, json.load(res)
+            except JSONDecodeError:
+                if ignore_error:
+                    return res.status, {}
+                else:
+                    raise JsonRequestError("The request response is not JSON")
+        except OSError:
+            raise JsonRequestError("Invalid host or other socket error")
+        finally:
+            conn.close()
+
+    @classmethod
+    def json_simple_request(cls, url: str) -> dict:
+        return cls.json_request(url, "GET")[1]
 
     @classmethod
     def dict_merge(cls, dst: dict, other: dict):
@@ -793,7 +822,7 @@ class VersionManifest:
 
     @classmethod
     def load_from_url(cls):
-        return cls(CorePortableMC.read_url_json(VERSION_MANIFEST_URL))
+        return cls(CorePortableMC.json_simple_request(VERSION_MANIFEST_URL))
 
     def filter_latest(self, version: str) -> Tuple[Optional[str], bool]:
         return (self._data["latest"][version], True) if version in self._data["latest"] else (version, False)
@@ -836,48 +865,6 @@ class BaseAuthSession:
 
     def invalidate(self):
         pass
-
-    @classmethod
-    def base_request(cls,
-                     url: str,
-                     method: str, *,
-                     data: Optional[bytes] = None,
-                     content_type: Optional[str] = None,
-                     headers: Optional[dict] = None) -> Tuple[int, dict]:
-
-        from http.client import HTTPResponse
-        from urllib.request import Request
-
-        if headers is None:
-            headers = {}
-        if content_type is not None:
-            headers["Content-Type"] = content_type
-        if data is not None:
-            headers["Content-Length"] = len(data)
-
-        headers["Accept"] = "application/json"
-
-        # print("==========================")
-        # print(f"Request to {url}")
-        # print(f"- Headers: {headers}")
-        # print(f"- Data: {data}")
-
-        req = Request(url, data, headers=headers, method=method)
-
-        try:
-            res = cast(HTTPResponse, url_request.urlopen(req))
-        except HTTPError as err:
-            res = cast(HTTPResponse, err.fp)
-
-        try:
-            data = json.load(res)
-        except JSONDecodeError:
-            data = {}
-
-        # print(f"- Response: ({res.status}) {data}")
-        # print("==========================")
-
-        return res.status, data
 
 
 class YggdrasilAuthSession(BaseAuthSession):
@@ -924,7 +911,7 @@ class YggdrasilAuthSession(BaseAuthSession):
 
     @classmethod
     def request(cls, req: str, payload: dict, error: bool = True) -> Tuple[int, dict]:
-        code, res = cls.base_request(AUTHSERVER_URL.format(req), "POST", data=json.dumps(payload).encode("ascii"), content_type="application/json")
+        code, res = CorePortableMC.json_request(AUTHSERVER_URL.format(req), "POST", data=json.dumps(payload).encode("ascii"), headers={"Content-Type": "application/json"})
         if error and code != 200:
             raise AuthError(res["errorMessage"])
         return code, res
@@ -1066,11 +1053,12 @@ class MicrosoftAuthSession(BaseAuthSession):
     @classmethod
     def ms_request(cls, url: str, payload: dict, *, payload_url_encoded: bool = False) -> Tuple[int, dict]:
         data = (url_parse.urlencode(payload) if payload_url_encoded else json.dumps(payload)).encode("ascii")
-        return cls.base_request(url, "POST", data=data, content_type="application/x-www-form-urlencoded" if payload_url_encoded else "application/json")
+        content_type = "application/x-www-form-urlencoded" if payload_url_encoded else "application/json"
+        return CorePortableMC.json_request(url, "POST", data=data, headers={"Content-Type": content_type})
 
     @classmethod
     def mc_request(cls, url: str, bearer: str) -> Tuple[int, dict]:
-        return cls.base_request(url, "GET", headers={"Authorization": "Bearer {}".format(bearer)})
+        return CorePortableMC.json_request(url, "GET", headers={"Authorization": "Bearer {}".format(bearer)})
 
     @classmethod
     def base64url_decode(cls, s: str) -> bytes:
@@ -1179,6 +1167,7 @@ class DownloadEntry:
 class AuthError(Exception): ...
 class VersionNotFoundError(Exception): ...
 class DownloadCorruptedError(Exception): ...
+class JsonRequestError(Exception): ...
 
 
 LEGACY_JVM_ARGUMENTS = [
@@ -1206,7 +1195,6 @@ if __name__ == '__main__':
 
     from argparse import ArgumentParser, Namespace, HelpFormatter
     from http.server import HTTPServer, BaseHTTPRequestHandler
-    from urllib.error import URLError
     from datetime import datetime
     from typing import Any
     import webbrowser
@@ -1220,7 +1208,7 @@ if __name__ == '__main__':
     EXIT_VERSION_SEARCH_NOT_FOUND = 15
     EXIT_DEPRECATED_ARGUMENT = 16
     EXIT_LOGOUT_FAILED = 17
-    EXIT_URL_ERROR = 18
+    EXIT_HTTP_ERROR = 18
 
     ADDONS_DIR = "addons"
     ADDONS_PKG_INIT_CONTENT = "# This file was generated by PortableMC.\n" \
@@ -1332,7 +1320,7 @@ if __name__ == '__main__':
                 "cmd.addon.show.description": "=> Description: {}",
                 "cmd.addon.show.requires": "=> Requires: {}",
 
-                "url_error.reason": "URL error: {}",
+                "http_request_error": "HTTP request error: {}",
 
                 "download.progress": "\rDownloading {}... {:6.2f}% {}/s {}",
                 "download.progress.unknown_size": "\rDownloading {}... {}/s {}",
@@ -1658,9 +1646,9 @@ if __name__ == '__main__':
                 )
             except VersionNotFoundError:
                 return EXIT_VERSION_NOT_FOUND
-            except URLError as err:
-                self.print("url_error.reason", err.reason)
-                return EXIT_URL_ERROR
+            except JsonRequestError as err:
+                self.print("http_request_error", err.args[0])
+                return EXIT_HTTP_ERROR
             except DownloadCorruptedError as err:
                 self.print("download.{}".format(err.args[0]))
                 return EXIT_DOWNLOAD_FILE_CORRUPTED
