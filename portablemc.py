@@ -1238,6 +1238,8 @@ if __name__ == '__main__':
 
     MS_AZURE_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
 
+    GH_LATEST_RELEASE_URL = "https://api.github.com/repos/mindstorm38/portablemc/releases/latest"
+
     class PortableMC(CorePortableMC):
 
         VersionManifest = VersionManifest
