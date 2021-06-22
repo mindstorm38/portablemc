@@ -782,15 +782,15 @@ class CorePortableMC:
                 if ignore_error:
                     return res.status, {}
                 else:
-                    raise JsonRequestError("The request response is not JSON")
+                    raise JsonRequestError("The request response is not JSON (status: {})".format(res.status))
         except OSError:
             raise JsonRequestError("Invalid host or other socket error")
         finally:
             conn.close()
 
     @classmethod
-    def json_simple_request(cls, url: str) -> dict:
-        return cls.json_request(url, "GET")[1]
+    def json_simple_request(cls, url: str, *, ignore_error: bool = False, timeout: Optional[int] = None) -> dict:
+        return cls.json_request(url, "GET", ignore_error=ignore_error, timeout=timeout)[1]
 
     @classmethod
     def dict_merge(cls, dst: dict, other: dict):
@@ -905,7 +905,10 @@ class YggdrasilAuthSession(BaseAuthSession):
 
     @classmethod
     def request(cls, req: str, payload: dict, error: bool = True) -> Tuple[int, dict]:
-        code, res = CorePortableMC.json_request(AUTHSERVER_URL.format(req), "POST", data=json.dumps(payload).encode("ascii"), headers={"Content-Type": "application/json"})
+        code, res = CorePortableMC.json_request(AUTHSERVER_URL.format(req), "POST",
+                                                data=json.dumps(payload).encode("ascii"),
+                                                headers={"Content-Type": "application/json"},
+                                                ignore_error=True)
         if error and code != 200:
             raise AuthError(res["errorMessage"])
         return code, res

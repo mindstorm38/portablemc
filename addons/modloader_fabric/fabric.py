@@ -147,7 +147,7 @@ class FabricAddon:
     # FABRIC API #
 
     def request_meta(self, method: str) -> dict:
-        return self.pmc.read_url_json(FABRIC_META_URL.format(method), ignore_error=True)
+        return self.pmc.json_simple_request(FABRIC_META_URL.format(method), ignore_error=True)
 
     def request_version_loader(self, mc_version: str, loader_version: Optional[str]) -> Optional[dict]:
         if loader_version is None:
