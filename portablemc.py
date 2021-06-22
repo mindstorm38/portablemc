@@ -1296,6 +1296,10 @@ if __name__ == '__main__':
 
                 "abort": "=> Abort",
                 "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
+                "http_request_error": "HTTP request error: {}",
+
+                "update_available.title": "Latest version of PortableMC ({}) is available on Github...",
+                "update_available.link": "=> Check {}",
 
                 "cmd.search.pending": "Searching for version '{}'...",
                 "cmd.search.pending_local": "Searching for local version '{}'...",
@@ -1319,8 +1323,6 @@ if __name__ == '__main__':
                 "cmd.addon.show.authors": "=> Authors: {}",
                 "cmd.addon.show.description": "=> Description: {}",
                 "cmd.addon.show.requires": "=> Requires: {}",
-
-                "http_request_error": "HTTP request error: {}",
 
                 "download.progress": "\rDownloading {}... {:6.2f}% {}/s {}",
                 "download.progress.unknown_size": "\rDownloading {}... {}/s {}",
@@ -1397,6 +1399,7 @@ if __name__ == '__main__':
                 parser.print_help()
                 return
 
+            self._check_github_update()
             exit(self.start_subcommand(subcommand, args))
 
         def start_subcommand(self, subcommand: str, args: Namespace) -> int:
@@ -1405,6 +1408,18 @@ if __name__ == '__main__':
                 return getattr(self, builtin_func_name)(args)
             else:
                 return 0
+
+        def _check_github_update(self):
+            _code, data = CorePortableMC.json_request(GH_LATEST_RELEASE_URL, "GET", headers={
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "PortableMC/{}".format(LAUNCHER_VERSION)
+            }, ignore_error=True)
+            expected_tag_name = "v{}".format(LAUNCHER_VERSION)
+            tag_name = data["tag_name"]
+            if tag_name[0] == "v" and tag_name != expected_tag_name:
+                latest_version = tag_name[1:]
+                self.print("update_available.title", latest_version)
+                self.print("update_available.link", data["html_url"])
 
         # Addons management
 
