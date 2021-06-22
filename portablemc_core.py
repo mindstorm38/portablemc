@@ -28,7 +28,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Union, Type
+from typing import Dict, Callable, Optional, Generator, Tuple, List, Union, Type
 from urllib import request as url_request, parse as url_parse
 from http.client import HTTPConnection, HTTPSConnection
 from json.decoder import JSONDecodeError
@@ -538,12 +538,6 @@ class CorePortableMC:
         self.notice("jvm.using", jvm_version)
 
         return jvm_exec
-
-    # For retro-compat
-
-    # core_search = search_mc
-    # core_start = start_mc
-    # core_ensure_libraries = ensure_libraries
 
     # Lazy variables getters
 

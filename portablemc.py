@@ -26,7 +26,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
     exit(1)
 
 
-from typing import cast, Dict, Callable, Optional, Generator, Tuple, List, Union, Type
+from typing import Dict, Callable, Optional, Generator, Tuple, List, Union, Type
 from urllib import request as url_request, parse as url_parse
 from http.client import HTTPConnection, HTTPSConnection
 from json.decoder import JSONDecodeError
@@ -536,12 +536,6 @@ class CorePortableMC:
         self.notice("jvm.using", jvm_version)
 
         return jvm_exec
-
-    # For retro-compat
-
-    # core_search = search_mc
-    # core_start = start_mc
-    # core_ensure_libraries = ensure_libraries
 
     # Lazy variables getters
 
@@ -1196,7 +1190,7 @@ if __name__ == '__main__':
     from argparse import ArgumentParser, Namespace, HelpFormatter
     from http.server import HTTPServer, BaseHTTPRequestHandler
     from datetime import datetime
-    from typing import Any
+    from typing import cast, Any
     import webbrowser
     import time
 
@@ -1298,9 +1292,6 @@ if __name__ == '__main__':
                 "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
                 "http_request_error": "HTTP request error: {}",
 
-                "update_available.title": "Latest version of PortableMC ({}) is available on Github...",
-                "update_available.link": "=> Check {}",
-
                 "cmd.search.pending": "Searching for version '{}'...",
                 "cmd.search.pending_local": "Searching for local version '{}'...",
                 "cmd.search.pending_all": "Searching for all versions...",
@@ -1399,7 +1390,6 @@ if __name__ == '__main__':
                 parser.print_help()
                 return
 
-            self._check_github_update()
             exit(self.start_subcommand(subcommand, args))
 
         def start_subcommand(self, subcommand: str, args: Namespace) -> int:
@@ -1408,18 +1398,6 @@ if __name__ == '__main__':
                 return getattr(self, builtin_func_name)(args)
             else:
                 return 0
-
-        def _check_github_update(self):
-            _code, data = CorePortableMC.json_request(GH_LATEST_RELEASE_URL, "GET", headers={
-                "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "PortableMC/{}".format(LAUNCHER_VERSION)
-            }, ignore_error=True)
-            expected_tag_name = "v{}".format(LAUNCHER_VERSION)
-            tag_name = data["tag_name"]
-            if tag_name[0] == "v" and tag_name != expected_tag_name:
-                latest_version = tag_name[1:]
-                self.print("update_available.title", latest_version)
-                self.print("update_available.link", data["html_url"])
 
         # Addons management
 
