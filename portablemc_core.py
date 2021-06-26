@@ -569,6 +569,72 @@ class CorePortableMC:
 
     # General utilities
 
+    def download_files(self, lst: 'DownloadList', *, progress_callback: Optional[Callable[[int, int, int, int], None]] = None):
+
+        headers = {}
+        buffer = bytearray(65536)
+        total_size = 0
+        fails = {}
+        max_try_count = 3
+
+        for host, entries in lst.entries.items():
+
+            conn_type = HTTPSConnection if (host[0] == "1") else HTTPConnection
+            conn = conn_type(host[1:])
+            max_entry_idx = len(entries) - 1
+            headers["Connection"] = "keep-alive"
+
+            for i, entry in enumerate(entries):
+
+                last_entry = (i == max_entry_idx)
+                if last_entry:
+                    headers["Connection"] = "close"
+
+                conn.request("GET", entry.url, None, headers)
+                res = conn.getresponse()
+                error = None
+
+                for _ in range(max_try_count):
+
+                    if res.status != 200:
+                        error = "not_found"
+                        continue
+
+                    sha1 = hashlib.sha1()
+                    size = 0
+                    size_target = 0 if entry.size is None else entry.size
+
+                    with open(entry.dst, "wb") as dst_fp:
+                        while True:
+                            read_len = res.readinto(buffer)
+                            if not read_len:
+                                break
+                            buffer_view = buffer[:read_len]
+                            size += read_len
+                            total_size += read_len
+                            sha1.update(buffer_view)
+                            dst_fp.write(buffer_view)
+                            if progress_callback is not None:
+                                progress_callback(size, size_target, total_size, lst.size)
+
+                    if entry.size is not None and size != entry.size:
+                        error = "invalid_size"
+                    elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
+                        error = "invalid_sha1"
+                    else:
+                        break
+
+                    total_size -= size  # When re-trying, reset the total size to the previous state
+
+                else:
+                    # If the break was not triggered, an error is set.
+                    fails[entry.url] = error
+
+            conn.close()
+
+        if len(fails):
+            raise DownloadCorruptedError(fails)
+
     def download_file(self,
                       entry: 'DownloadEntry', *,
                       start_size: int = 0,
@@ -754,23 +820,22 @@ class CorePortableMC:
     def get_classpath_separator() -> str:
         return ";" if sys.platform == "win32" else ":"
 
-    @staticmethod
-    def json_request(url: str, method: str, *,
+    @classmethod
+    def json_request(cls, url: str, method: str, *,
                      data: Optional[bytes] = None,
                      headers: Optional[dict] = None,
                      ignore_error: bool = False,
                      timeout: Optional[int] = None) -> Tuple[int, dict]:
 
         url_parsed = url_parse.urlparse(url)
-        conn_types = {"http": HTTPConnection, "https": HTTPSConnection}
-        conn_type = conn_types.get(url_parsed.scheme)
+        conn_type = {"http": HTTPConnection, "https": HTTPSConnection}.get(url_parsed.scheme)
         if conn_type is None:
             raise JsonRequestError("Invalid URL scheme '{}'".format(url_parsed.scheme))
         conn = conn_type(url_parsed.netloc, timeout=timeout)
-        if data is not None:
-            headers["Content-Length"] = len(data)
         if headers is None:
             headers = {}
+        if data is not None:
+            headers["Content-Length"] = len(data)  # Can be removed according to the spec of ".request"
         if "Accept" not in headers:
             headers["Accept"] = "application/json"
         headers["Connection"] = "close"
@@ -1161,6 +1226,28 @@ class DownloadEntry:
     @classmethod
     def from_version_meta_info(cls, info: dict, dst: str, *, name: Optional[str] = None) -> 'DownloadEntry':
         return DownloadEntry(info["url"], dst, size=info["size"], sha1=info["sha1"], name=name)
+
+
+class DownloadList:
+
+    __slots__ = "entries", "count", "size"
+
+    def __init__(self):
+        self.entries = {}  # type: Dict[str, List[DownloadEntry]]
+        self.count = 0
+        self.size = 0
+
+    def append(self, entry: DownloadEntry):
+        url_parsed = url_parse.urlparse(entry.url)
+        if url_parsed.scheme not in ("http", "https"):
+            raise ValueError("Illegal URL scheme for HTTP connection.")
+        host_key = "{}{}".format(int(url_parsed.scheme == "https"), url_parsed.netloc)
+        entries = self.entries.get(host_key)
+        if entries is None:
+            self.entries[host_key] = entries = []
+        entries.append(entry)
+        self.count += 1
+        self.size += entry.size
 
 
 class AuthError(Exception): ...
