@@ -818,8 +818,8 @@ class CorePortableMC:
     def get_classpath_separator() -> str:
         return ";" if sys.platform == "win32" else ":"
 
-    @classmethod
-    def json_request(cls, url: str, method: str, *,
+    @staticmethod
+    def json_request(url: str, method: str, *,
                      data: Optional[bytes] = None,
                      headers: Optional[dict] = None,
                      ignore_error: bool = False,
