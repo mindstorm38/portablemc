@@ -131,14 +131,13 @@ class CorePortableMC:
     def start_mc(self, *,
                    version: str,
                    jvm: Optional[Union[str, List[str]]] = None,     # Default to [JVM_EXEC_DEFAULT, *JVM_ARGS_DEFAULT]
-                   main_dir: Optional[str] = None,           # Default to .minecraft
-                   work_dir: Optional[str] = None,           # Default to main dir
-                   uuid: Optional[str] = None,               # Default to random UUID
-                   username: Optional[str] = None,           # Default to uuid[:8]
-                   auth: 'Optional[BaseAuthSession]' = None, # This parameter will override uuid/username
+                   main_dir: Optional[str] = None,                  # Default to .minecraft
+                   work_dir: Optional[str] = None,                  # Default to main dir
+                   uuid: Optional[str] = None,                      # Default to random UUID
+                   username: Optional[str] = None,                  # Default to uuid[:8]
+                   auth: 'Optional[BaseAuthSession]' = None,        # This parameter will override uuid/username
                    dry_run: bool = False,
                    no_better_logging: bool = False,
-                   # work_dir_bin: bool = False,
                    resolution: 'Optional[Tuple[int, int]]' = None,
                    demo: bool = False,
                    disable_multiplayer: bool = False,
@@ -158,6 +157,7 @@ class CorePortableMC:
 
         main_dir = self.compute_main_dir(main_dir)
         work_dir = self.compute_work_dir(main_dir, work_dir)
+        assets_dir = path.join(main_dir, "assets")
 
         # Resolve version metadata
         version, version_alias = self.get_version_manifest().filter_latest(version)
@@ -170,6 +170,9 @@ class CorePortableMC:
         if callable(version_meta_modifier):
             version_meta_modifier(version_meta)
 
+        # Download list
+        dl_list = DownloadList()
+
         # JAR file loading
         self.notice("start.loading_jar_file")
         version_jar_file = path.join(version_dir, "{}.jar".format(version))
@@ -179,106 +182,14 @@ class CorePortableMC:
                 self.notice("start.no_client_jar_file")
                 raise VersionNotFoundError()
             download_entry = DownloadEntry.from_version_meta_info(version_downloads["client"], version_jar_file, name="{}.jar".format(version))
-            self.download_file(download_entry)
+            dl_list.append(download_entry)
 
-        # Assets loading
-        self.notice("start.loading_assets")
-        assets_dir = path.join(main_dir, "assets")
-        assets_indexes_dir = path.join(assets_dir, "indexes")
-        assets_index_version = version_meta["assets"]
-        assets_index_file = path.join(assets_indexes_dir, "{}.json".format(assets_index_version))
-        assets_index = None
-
-        if path.isfile(assets_index_file):
-            with open(assets_index_file, "rb") as assets_index_fp:
-                try:
-                    assets_index = json.load(assets_index_fp)
-                except JSONDecodeError:
-                    self.notice("start.failed_to_decode_asset_index")
-
-        if assets_index is None:
-            asset_index_info = version_meta["assetIndex"]
-            asset_index_url = asset_index_info["url"]
-            self.notice("start.found_asset_index", asset_index_url)
-            assets_index = self.json_simple_request(asset_index_url)
-            if not path.isdir(assets_indexes_dir):
-                os.makedirs(assets_indexes_dir, 0o777, True)
-            with open(assets_index_file, "wt") as assets_index_fp:
-                json.dump(assets_index, assets_index_fp)
-
-        assets_objects_dir = path.join(assets_dir, "objects")
-        assets_total_size = version_meta["assetIndex"]["totalSize"]
-        assets_current_size = 0
-        assets_virtual_dir = path.join(assets_dir, "virtual", assets_index_version)
-        assets_mapped_to_resources = assets_index.get("map_to_resources", False)  # For version <= 13w23b
-        assets_virtual = assets_index.get("virtual", False)  # For 13w23b < version <= 13w48b (1.7.2)
-
-        if assets_mapped_to_resources:
-            self.notice("start.legacy_assets", path.join(work_dir, "resources"))
-        if assets_virtual:
-            self.notice("start.virtual_assets", assets_virtual_dir)
-
-        self.notice("start.verifying_assets")
-        for asset_id, asset_obj in assets_index["objects"].items():
-
-            asset_hash = asset_obj["hash"]
-            asset_hash_prefix = asset_hash[:2]
-            asset_size = asset_obj["size"]
-            asset_hash_dir = path.join(assets_objects_dir, asset_hash_prefix)
-            asset_file = path.join(asset_hash_dir, asset_hash)
-
-            if not path.isfile(asset_file) or path.getsize(asset_file) != asset_size:
-                os.makedirs(asset_hash_dir, 0o777, True)
-                asset_url = ASSET_BASE_URL.format(asset_hash_prefix, asset_hash)
-                download_entry = DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id)
-                assets_current_size = self.download_file(download_entry, start_size=assets_current_size, total_size=assets_total_size)
-            else:
-                assets_current_size += asset_size
-
-            if assets_mapped_to_resources:
-                resources_asset_file = path.join(work_dir, "resources", asset_id)
-                if not path.isfile(resources_asset_file):
-                    os.makedirs(path.dirname(resources_asset_file), 0o777, True)
-                    shutil.copyfile(asset_file, resources_asset_file)
-
-            if assets_virtual:
-                virtual_asset_file = path.join(assets_virtual_dir, asset_id)
-                if not path.isfile(virtual_asset_file):
-                    os.makedirs(path.dirname(virtual_asset_file), 0o777, True)
-                    shutil.copyfile(asset_file, virtual_asset_file)
-
-        # Logging configuration
-        self.notice("start.loading_logger")
-        logging_arg = None
-        if "logging" in version_meta:
-            version_logging = version_meta["logging"]
-            if "client" in version_logging:
-                log_config_dir = path.join(assets_dir, "log_configs")
-                os.makedirs(log_config_dir, 0o777, True)
-                client_logging = version_logging["client"]
-                logging_file_info = client_logging["file"]
-                logging_file = path.join(log_config_dir, logging_file_info["id"])
-                logging_dirty = False
-                download_entry = DownloadEntry.from_version_meta_info(logging_file_info, logging_file,
-                                                                      name=logging_file_info["id"])
-                if not path.isfile(logging_file) or path.getsize(logging_file) != download_entry.size:
-                    self.download_file(download_entry)
-                    logging_dirty = True
-                if not no_better_logging:
-                    better_logging_file = path.join(log_config_dir, "portablemc-{}".format(logging_file_info["id"]))
-                    if logging_dirty or not path.isfile(better_logging_file):
-                        self.notice("start.generating_better_logging_config")
-                        with open(logging_file, "rt") as logging_fp:
-                            with open(better_logging_file, "wt") as custom_logging_fp:
-                                raw = logging_fp.read() \
-                                    .replace("<XMLLayout />", LOGGING_CONSOLE_REPLACEMENT) \
-                                    .replace("<LegacyXMLLayout />", LOGGING_CONSOLE_REPLACEMENT)
-                                custom_logging_fp.write(raw)
-                    logging_file = better_logging_file
-                logging_arg = client_logging["argument"].replace("${path}", logging_file)
+        # Assets loading and Logging configuration
+        assets_index_version, assets_virtual_dir = self.ensure_assets(assets_dir, work_dir, version_meta, dl_list)
+        logging_arg = self.ensure_logger(assets_dir, version_meta, dl_list, no_better_logging)
 
         # Libraries and natives loading
-        classpath_libs, native_libs = self.ensure_libraries(main_dir, version_meta)
+        classpath_libs, native_libs = self.ensure_libraries(main_dir, version_meta, dl_list)
         classpath_libs.append(version_jar_file)
         if callable(libraries_modifier):
             libraries_modifier(classpath_libs, native_libs)
@@ -294,9 +205,12 @@ class CorePortableMC:
         if jvm[0] is None:
             version_java_version = version_meta.get("javaVersion")
             version_java_version_type = "jre-legacy" if version_java_version is None else version_java_version["component"]
-            jvm[0] = self.ensure_jvm(main_dir, version_java_version_type)
+            jvm[0] = self.ensure_jvm(main_dir, version_java_version_type, dl_list)
             if jvm[0] is None:
                 return
+
+        # Start download list
+        self.download_files(dl_list)
 
         # Don't run if dry run
         if dry_run:
@@ -321,11 +235,13 @@ class CorePortableMC:
                     if self.can_extract_native(native_zip_info.filename):
                         native_zip.extract(native_zip_info, bin_dir)
 
+        # Computing features
         features = {
             "is_demo_user": demo,
             "has_custom_resolution": resolution is not None
         }
 
+        # Computing arguments
         legacy_args = version_meta.get("minecraftArguments")
 
         raw_args = []
@@ -337,7 +253,6 @@ class CorePortableMC:
         main_class = version_meta["mainClass"]
         if main_class == "net.minecraft.launchwrapper.Launch":
             raw_args.append("-Dminecraft.client.jar={}".format(version_jar_file))
-            # main_class = "net.minecraft.client.Minecraft"
 
         main_class_idx = len(raw_args)
         raw_args.append(main_class)
@@ -356,6 +271,7 @@ class CorePortableMC:
         if callable(args_modifier):
             args_modifier(raw_args, main_class_idx)
 
+        # Computing username and uuid
         if auth is not None:
             uuid = auth.uuid
             username = auth.username
@@ -413,7 +329,110 @@ class CorePortableMC:
 
         self.notice("start.stopped")
 
-    def ensure_libraries(self, main_dir: str, version_meta: dict) -> Tuple[List[str], List[str]]:
+    def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str]':
+        """ Return (index_version, virtual_dir). """
+
+        self.notice("start.loading_assets")
+        assets_indexes_dir = path.join(assets_dir, "indexes")
+        assets_index_version = version_meta["assets"]
+        assets_index_file = path.join(assets_indexes_dir, "{}.json".format(assets_index_version))
+        assets_index = None
+
+        if path.isfile(assets_index_file):
+            with open(assets_index_file, "rb") as assets_index_fp:
+                try:
+                    assets_index = json.load(assets_index_fp)
+                except JSONDecodeError:
+                    self.notice("start.failed_to_decode_asset_index")
+
+        if assets_index is None:
+            asset_index_info = version_meta["assetIndex"]
+            asset_index_url = asset_index_info["url"]
+            self.notice("start.found_asset_index", asset_index_url)
+            assets_index = self.json_simple_request(asset_index_url)
+            if not path.isdir(assets_indexes_dir):
+                os.makedirs(assets_indexes_dir, 0o777, True)
+            with open(assets_index_file, "wt") as assets_index_fp:
+                json.dump(assets_index, assets_index_fp)
+
+        assets_objects_dir = path.join(assets_dir, "objects")
+        assets_virtual_dir = path.join(assets_dir, "virtual", assets_index_version)
+        assets_mapped_to_resources = assets_index.get("map_to_resources", False)  # For version <= 13w23b
+        assets_virtual = assets_index.get("virtual", False)  # For 13w23b < version <= 13w48b (1.7.2)
+
+        if assets_mapped_to_resources:
+            self.notice("start.legacy_assets", path.join(work_dir, "resources"))
+        if assets_virtual:
+            self.notice("start.virtual_assets", assets_virtual_dir)
+
+        self.notice("start.verifying_assets")
+        for asset_id, asset_obj in assets_index["objects"].items():
+            asset_hash = asset_obj["hash"]
+            asset_hash_prefix = asset_hash[:2]
+            asset_size = asset_obj["size"]
+            asset_file = path.join(assets_objects_dir, asset_hash_prefix, asset_hash)
+            if not path.isfile(asset_file) or path.getsize(asset_file) != asset_size:
+                asset_url = ASSET_BASE_URL.format(asset_hash_prefix, asset_hash)
+                dl_list.append(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id))
+
+        def finalize():
+            if assets_mapped_to_resources or assets_virtual:
+                for asset_id_to_cpy in assets_index["objects"].keys():
+                    if assets_mapped_to_resources:
+                        resources_asset_file = path.join(work_dir, "resources", asset_id_to_cpy)
+                        if not path.isfile(resources_asset_file):
+                            os.makedirs(path.dirname(resources_asset_file), 0o777, True)
+                            shutil.copyfile(asset_file, resources_asset_file)
+                    if assets_virtual:
+                        virtual_asset_file = path.join(assets_virtual_dir, asset_id_to_cpy)
+                        if not path.isfile(virtual_asset_file):
+                            os.makedirs(path.dirname(virtual_asset_file), 0o777, True)
+                            shutil.copyfile(asset_file, virtual_asset_file)
+
+        dl_list.add_callback(finalize)
+        return assets_index_version, assets_virtual_dir
+
+    def ensure_logger(self, assets_dir: str, version_meta: dict, dl_list: 'DownloadList', no_better_logging: bool) -> 'Optional[str]':
+        """ Return the logging argument if any. """
+
+        self.notice("start.loading_logger")
+        if "logging" in version_meta:
+            version_logging = version_meta["logging"]
+            if "client" in version_logging:
+
+                log_config_dir = path.join(assets_dir, "log_configs")
+                client_logging = version_logging["client"]
+                logging_file_info = client_logging["file"]
+                logging_file = path.join(log_config_dir, logging_file_info["id"])
+                logging_dirty = False
+
+                download_entry = DownloadEntry.from_version_meta_info(logging_file_info, logging_file, name=logging_file_info["id"])
+                if not path.isfile(logging_file) or path.getsize(logging_file) != download_entry.size:
+                    dl_list.append(download_entry)
+                    logging_dirty = True
+
+                if no_better_logging:
+                    real_logging_file = logging_dirty
+                else:
+                    real_logging_file = path.join(log_config_dir, "portablemc-{}".format(logging_file_info["id"]))
+
+                def finalize():
+                    if not no_better_logging:
+                        if logging_dirty or not path.isfile(real_logging_file):
+                            self.notice("start.generating_better_logging_config")
+                            with open(logging_file, "rt") as logging_fp:
+                                with open(real_logging_file, "wt") as custom_logging_fp:
+                                    raw = logging_fp.read() \
+                                        .replace("<XMLLayout />", LOGGING_CONSOLE_REPLACEMENT) \
+                                        .replace("<LegacyXMLLayout />", LOGGING_CONSOLE_REPLACEMENT)
+                                    custom_logging_fp.write(raw)
+
+                dl_list.add_callback(finalize)
+                return client_logging["argument"].replace("${path}", real_logging_file)
+
+        return None
+
+    def ensure_libraries(self, main_dir: str, version_meta: dict, dl_list: 'DownloadList') -> Tuple[List[str], List[str]]:
 
         self.notice("libraries.loading_libraries")
         libraries_dir = path.join(main_dir, "libraries")
@@ -452,13 +471,14 @@ class CorePortableMC:
                     continue
 
                 lib_path = path.realpath(path.join(libraries_dir, lib_dl_info["path"]))
-                lib_dir = path.dirname(lib_path)
+                # lib_dir = path.dirname(lib_path)
 
                 download_entry = DownloadEntry.from_version_meta_info(lib_dl_info, lib_path, name=lib_name)
 
                 if not path.isfile(lib_path) or path.getsize(lib_path) != download_entry.size:
-                    os.makedirs(lib_dir, 0o777, True)
-                    self.download_file(download_entry)
+                    # os.makedirs(lib_dir, 0o777, True)
+                    # self.download_file(download_entry)
+                    dl_list.append(download_entry)
 
             else:
 
@@ -474,15 +494,17 @@ class CorePortableMC:
                 maven_version = lib_name_parts[2]
                 maven_jar = "{}-{}.jar".format(maven_package, maven_version)
 
-                lib_dir = path.join(libraries_dir, *maven_vendor_split, maven_package, maven_version)
-                lib_path = path.join(lib_dir, maven_jar)
+                # lib_dir = path.join(libraries_dir, *maven_vendor_split, maven_package, maven_version)
+                # lib_path = path.join(lib_dir, maven_jar)
+                lib_path = path.join(libraries_dir, *maven_vendor_split, maven_package, maven_version, maven_jar)
                 lib_type = "classpath"
 
                 if not path.isfile(lib_path):
                     if "url" in lib_obj:
                         lib_url = "{}{}".format(lib_obj["url"], "/".join((*maven_vendor_split, maven_package, maven_version, maven_jar)))
-                        os.makedirs(lib_dir, 0o777, True)
-                        self.download_file(DownloadEntry(lib_url, lib_path, name=lib_name))
+                        # os.makedirs(lib_dir, 0o777, True)
+                        # self.download_file(DownloadEntry(lib_url, lib_path, name=lib_name))
+                        dl_list.append(DownloadEntry(lib_url, lib_path, name=lib_name))
                     else:
                         self.notice("libraries.cached_library_not_found", lib_name, lib_path)
                         continue
@@ -494,7 +516,8 @@ class CorePortableMC:
 
         return classpath_libs, native_libs
 
-    def ensure_jvm(self, main_dir: str, jvm_version_type: str) -> Optional[str]:
+    def ensure_jvm(self, main_dir: str, jvm_version_type: str, dl_list: 'DownloadList') -> 'Optional[str]':
+        """ Return the JVM executable to use if supported. """
 
         jvm_arch = self.get_minecraft_jvm()
         if jvm_arch is None:
@@ -521,22 +544,29 @@ class CorePortableMC:
         os.makedirs(jvm_dir, 0o777, True)
 
         jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if sys.platform == "win32" else "java")
+        jvm_exec_files = []
 
         if not path.isfile(jvm_exec):
             self.notice("jvm.downloading_version", jvm_version)
             for jvm_file_path_suffix, jvm_file in jvm_manifest.items():
                 if jvm_file["type"] == "file":
                     jvm_file_path = path.join(jvm_dir, jvm_file_path_suffix)
-                    os.makedirs(path.dirname(jvm_file_path), 0o777, True)
+                    # os.makedirs(path.dirname(jvm_file_path), 0o777, True)
                     jvm_download_info = jvm_file["downloads"]["raw"]
-                    jvm_download_entry = DownloadEntry.from_version_meta_info(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix)
-                    self.download_file(jvm_download_entry)
+                    # jvm_download_entry = DownloadEntry.from_version_meta_info(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix)
+                    # self.download_file(jvm_download_entry)
+                    dl_list.append(DownloadEntry.from_version_meta_info(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix))
                     if jvm_file.get("executable", False):
-                        os.chmod(jvm_file_path, 0o777)
+                        jvm_exec_files.append(jvm_file_path)
             self.notice("jvm.downloaded", jvm_version)
 
         self.notice("jvm.using", jvm_version)
 
+        def finalize():
+            for exec_file in jvm_exec_files:
+                os.chmod(exec_file, 0o777)
+
+        dl_list.add_callback(finalize)
         return jvm_exec
 
     # Lazy variables getters
@@ -569,71 +599,96 @@ class CorePortableMC:
 
     # General utilities
 
-    def download_files(self, lst: 'DownloadList', *, progress_callback: Optional[Callable[[int, int, int, int], None]] = None):
+    def download_files(self, lst: 'DownloadList', *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
 
-        headers = {}
-        buffer = bytearray(65536)
-        total_size = 0
-        fails = {}
-        max_try_count = 3
+        if len(lst.entries):
 
-        for host, entries in lst.entries.items():
+            headers = {}
+            buffer = bytearray(65536)
+            total_size = 0
+            fails = {}
+            max_try_count = 3
 
-            conn_type = HTTPSConnection if (host[0] == "1") else HTTPConnection
-            conn = conn_type(host[1:])
-            max_entry_idx = len(entries) - 1
-            headers["Connection"] = "keep-alive"
+            if progress_callback is not None:
+                progress = DownloadProgress(lst.size)
+                entry_progress = DownloadEntryProgress()
+                progress.entries.append(entry_progress)
+            else:
+                progress = None
+                entry_progress = None
 
-            for i, entry in enumerate(entries):
+            for host, entries in lst.entries.items():
 
-                last_entry = (i == max_entry_idx)
-                if last_entry:
-                    headers["Connection"] = "close"
+                conn_type = HTTPSConnection if (host[0] == "1") else HTTPConnection
+                conn = conn_type(host[1:])
+                max_entry_idx = len(entries) - 1
+                headers["Connection"] = "keep-alive"
 
-                conn.request("GET", entry.url, None, headers)
-                res = conn.getresponse()
-                error = None
+                for i, entry in enumerate(entries):
 
-                for _ in range(max_try_count):
+                    last_entry = (i == max_entry_idx)
+                    if last_entry:
+                        headers["Connection"] = "close"
 
-                    if res.status != 200:
-                        error = "not_found"
-                        continue
+                    conn.request("GET", entry.url, None, headers)
+                    res = conn.getresponse()
+                    error = None
 
-                    sha1 = hashlib.sha1()
-                    size = 0
                     size_target = 0 if entry.size is None else entry.size
+                    known_size = (size_target != 0)
 
-                    with open(entry.dst, "wb") as dst_fp:
-                        while True:
-                            read_len = res.readinto(buffer)
-                            if not read_len:
-                                break
-                            buffer_view = buffer[:read_len]
-                            size += read_len
-                            total_size += read_len
-                            sha1.update(buffer_view)
-                            dst_fp.write(buffer_view)
-                            if progress_callback is not None:
-                                progress_callback(size, size_target, total_size, lst.size)
+                    for _ in range(max_try_count):
 
-                    if entry.size is not None and size != entry.size:
-                        error = "invalid_size"
-                    elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
-                        error = "invalid_sha1"
+                        if res.status != 200:
+                            error = "not_found"
+                            continue
+
+                        sha1 = hashlib.sha1()
+                        size = 0
+
+                        os.makedirs(path.dirname(entry.dst), exist_ok=True)
+                        with open(entry.dst, "wb") as dst_fp:
+                            while True:
+                                read_len = res.readinto(buffer)
+                                if not read_len:
+                                    break
+                                buffer_view = buffer[:read_len]
+                                size += read_len
+                                if known_size:
+                                    # Only adding to total size if the size is known.
+                                    total_size += read_len
+                                sha1.update(buffer_view)
+                                dst_fp.write(buffer_view)
+                                if progress_callback is not None:
+                                    progress.size = total_size
+                                    entry_progress.name = entry.name
+                                    entry_progress.total = size_target
+                                    entry_progress.size = size
+                                    progress_callback(progress)
+
+                        if entry.size is not None and size != entry.size:
+                            error = "invalid_size"
+                        elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
+                            error = "invalid_sha1"
+                        else:
+                            break
+
+                        if known_size:
+                            # When re-trying, reset the total size to the previous state.
+                            total_size -= size
+
                     else:
-                        break
+                        # If the break was not triggered, an error is set.
+                        fails[entry.url] = error
 
-                    total_size -= size  # When re-trying, reset the total size to the previous state
+                conn.close()
 
-                else:
-                    # If the break was not triggered, an error is set.
-                    fails[entry.url] = error
+            if len(fails):
+                raise DownloadCorruptedError(fails)
 
-            conn.close()
+        for callback in lst.callbacks:
+            callback()
 
-        if len(fails):
-            raise DownloadCorruptedError(fails)
 
     def download_file(self,
                       entry: 'DownloadEntry', *,
@@ -1230,10 +1285,11 @@ class DownloadEntry:
 
 class DownloadList:
 
-    __slots__ = "entries", "count", "size"
+    __slots__ = "entries", "callbacks", "count", "size"
 
     def __init__(self):
-        self.entries = {}  # type: Dict[str, List[DownloadEntry]]
+        self.entries = {}    # type: Dict[str, List[DownloadEntry]]
+        self.callbacks = []  # type: List[Callable[[], None]]
         self.count = 0
         self.size = 0
 
@@ -1247,7 +1303,27 @@ class DownloadList:
             self.entries[host_key] = entries = []
         entries.append(entry)
         self.count += 1
-        self.size += entry.size
+        if entry.size is not None:
+            self.size += entry.size
+
+    def add_callback(self, callback: 'Callable[[], None]'):
+        self.callbacks.append(callback)
+
+
+class DownloadEntryProgress:
+    __slots__ = "name", "size", "total"
+    def __init__(self):
+        self.name = ""
+        self.size = 0
+        self.total = 0
+
+
+class DownloadProgress:
+    __slots__ = "entries", "size", "total"
+    def __init__(self, total: int):
+        self.entries = []  # type: List[DownloadEntryProgress]
+        self.size = 0
+        self.total = total
 
 
 class AuthError(Exception): ...
