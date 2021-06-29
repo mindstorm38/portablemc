@@ -27,9 +27,9 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
 
 
 from typing import Dict, Callable, Optional, Generator, Tuple, List, Union, Type
-from urllib import request as url_request, parse as url_parse
 from http.client import HTTPConnection, HTTPSConnection
 from json.decoder import JSONDecodeError
+from urllib import parse as url_parse
 from zipfile import ZipFile
 from uuid import uuid4
 from os import path
@@ -469,13 +469,8 @@ class CorePortableMC:
                     continue
 
                 lib_path = path.realpath(path.join(libraries_dir, lib_dl_info["path"]))
-                # lib_dir = path.dirname(lib_path)
-
                 download_entry = DownloadEntry.from_version_meta_info(lib_dl_info, lib_path, name=lib_name)
-
                 if not path.isfile(lib_path) or path.getsize(lib_path) != download_entry.size:
-                    # os.makedirs(lib_dir, 0o777, True)
-                    # self.download_file(download_entry)
                     dl_list.append(download_entry)
 
             else:
@@ -492,16 +487,12 @@ class CorePortableMC:
                 maven_version = lib_name_parts[2]
                 maven_jar = "{}-{}.jar".format(maven_package, maven_version)
 
-                # lib_dir = path.join(libraries_dir, *maven_vendor_split, maven_package, maven_version)
-                # lib_path = path.join(lib_dir, maven_jar)
                 lib_path = path.join(libraries_dir, *maven_vendor_split, maven_package, maven_version, maven_jar)
                 lib_type = "classpath"
 
                 if not path.isfile(lib_path):
                     if "url" in lib_obj:
                         lib_url = "{}{}".format(lib_obj["url"], "/".join((*maven_vendor_split, maven_package, maven_version, maven_jar)))
-                        # os.makedirs(lib_dir, 0o777, True)
-                        # self.download_file(DownloadEntry(lib_url, lib_path, name=lib_name))
                         dl_list.append(DownloadEntry(lib_url, lib_path, name=lib_name))
                     else:
                         self.notice("libraries.cached_library_not_found", lib_name, lib_path)
@@ -549,10 +540,7 @@ class CorePortableMC:
             for jvm_file_path_suffix, jvm_file in jvm_manifest.items():
                 if jvm_file["type"] == "file":
                     jvm_file_path = path.join(jvm_dir, jvm_file_path_suffix)
-                    # os.makedirs(path.dirname(jvm_file_path), 0o777, True)
                     jvm_download_info = jvm_file["downloads"]["raw"]
-                    # jvm_download_entry = DownloadEntry.from_version_meta_info(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix)
-                    # self.download_file(jvm_download_entry)
                     dl_list.append(DownloadEntry.from_version_meta_info(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix))
                     if jvm_file.get("executable", False):
                         jvm_exec_files.append(jvm_file_path)
@@ -687,8 +675,7 @@ class CorePortableMC:
         for callback in lst.callbacks:
             callback()
 
-
-    def download_file(self,
+    """def download_file(self,
                       entry: 'DownloadEntry', *,
                       start_size: int = 0,
                       total_size: int = 0,
@@ -724,7 +711,7 @@ class CorePortableMC:
                 elif entry.sha1 is not None and dl_sha1.hexdigest() != entry.sha1:
                     raise DownloadCorruptedError("invalid_sha1")
                 else:
-                    return start_size
+                    return start_size"""
 
     # Version metadata
 
@@ -2029,7 +2016,7 @@ if __name__ == '__main__':
             if called_once:
                 self.print("", "")
 
-        download_file_base = CorePortableMC.download_file
+        """download_file_base = CorePortableMC.download_file
 
         def download_file(self,
                           entry: 'DownloadEntry', *,
@@ -2050,7 +2037,7 @@ if __name__ == '__main__':
 
             res = super().download_file(entry, start_size=start_size, total_size=total_size, progress_callback=progress_callback)
             self.print("", "")
-            return res
+            return res"""
 
         # Miscellaneous utilities
 
