@@ -1,12 +1,12 @@
-from prompt_toolkit.shortcuts.progress_bar.formatters import Formatter, Label, Text, Percentage, Bar
+# from prompt_toolkit.shortcuts.progress_bar.formatters import Formatter, Label, Text, Percentage, Bar
 from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
 from prompt_toolkit.layout.containers import Window, HSplit, VSplit, Container
-from prompt_toolkit.shortcuts import ProgressBar, ProgressBarCounter
+# from prompt_toolkit.shortcuts import ProgressBar, ProgressBarCounter
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.formatted_text import StyleAndTextTuples
-from prompt_toolkit.formatted_text import AnyFormattedText
-from prompt_toolkit.layout import Layout, AnyDimension
-from prompt_toolkit.layout.dimension import Dimension
+# from prompt_toolkit.formatted_text import AnyFormattedText
+from prompt_toolkit.layout import Layout # , AnyDimension
+# from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.document import Document
@@ -28,7 +28,7 @@ class RicherAddon:
 
         self.pmc = pmc
 
-        self.progress_bar_formatters = [
+        """self.progress_bar_formatters = [
             Label(),
             Text(" "),
             Bar(sym_a="#", sym_b="#", sym_c="."),
@@ -37,7 +37,7 @@ class RicherAddon:
             Text("] ["),
             Percentage(),
             Text("]"),
-        ]
+        ]"""
 
         self.RollingLinesWindow = RollingLinesWindow
 
@@ -51,7 +51,7 @@ class RicherAddon:
 
         self.pmc.mixin("register_start_arguments", self.register_start_arguments)
         self.pmc.mixin("game_runner", self.game_runner)
-        self.pmc.mixin("download_file", self.download_file)
+        # self.pmc.mixin("download_file", self.download_file)
 
     def register_start_arguments(self, old, parser: ArgumentParser):
         parser.add_argument("--not-rich", help=self.pmc.get_message("args.start.not_rich"), default=False, action="store_true")
@@ -147,14 +147,14 @@ class RicherAddon:
 
         asyncio.get_event_loop().run_until_complete(_run())
 
-    def download_file(self, _old, entry, **kwargs):
+    """def download_file(self, _old, entry, **kwargs):
         with ProgressBar(formatters=self.progress_bar_formatters) as pb:
             progress_task = pb(label=entry.name, total=None if entry.size == 0 else entry.size)
             def progress_callback(p_dl_size: int, _p_size: int, _p_dl_total_size: int, _p_total_size: int):
                 progress_task.items_completed = p_dl_size
                 pb.invalidate()
             kwargs["progress_callback"] = progress_callback
-            return self.pmc.download_file_base(entry, **kwargs)
+            return self.pmc.download_file_base(entry, **kwargs)"""
 
 
 class RollingLinesWindow:
@@ -301,7 +301,7 @@ class ColoredLogLexer(Lexer):
         return get_line
 
 
-class ByteProgress(Formatter):
+"""class ByteProgress(Formatter):
 
     template = "<current>{current}</current>"
 
@@ -317,4 +317,4 @@ class ByteProgress(Formatter):
             return "{:4.0f}GB".format(n // 1000000000)
 
     def get_width(self, progress_bar: "ProgressBar") -> AnyDimension:
-        return Dimension.exact(6)
+        return Dimension.exact(6)"""

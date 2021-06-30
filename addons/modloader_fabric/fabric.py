@@ -31,14 +31,17 @@ class FabricAddon:
 
         self.pmc = pmc
 
-        self.pmc.add_message("start.fabric.invalid_format", "To launch fabric, use 'fabric:<mc-version>[:<loader-version>]'.")
-        self.pmc.add_message("start.fabric.resolving_loader", "Resolving latest version of fabric loader for {}...")
-        self.pmc.add_message("start.fabric.resolving_loader_with_version", "Resolving fabric loader {} for {}...")
-        self.pmc.add_message("start.fabric.game_version_not_found", "=> Game version not found.")
-        self.pmc.add_message("start.fabric.loader_version_not_found", "=> Loader version not found.")
-        self.pmc.add_message("start.fabric.found_cached", "=> Found cached fabric metadata, loading...")
-        self.pmc.add_message("start.fabric.generating", "=> The version is not cached, generating...")
-        self.pmc.add_message("start.fabric.generated", "=> Generated!")
+        self.pmc.add_message("start.fabric.invalid_format", "To launch fabric, use 'fabric:[<mc-version>[:<loader-version>]]'.")
+        self.pmc.add_message("start.fabric.resolving_loader", "Resolving fabric loader for {}... ")
+        self.pmc.add_message("start.fabric.resolving_loader_with_version", "Resolving fabric loader {} for {}... ")
+        self.pmc.add_message("start.fabric.resolved_loader", "Ok.")
+        self.pmc.add_message("start.fabric.game_version_not_found", "Game version not found.")
+        self.pmc.add_message("start.fabric.loader_version_not_found", "Loader version not found.")
+
+        # self.pmc.add_message("start.fabric.found_cached", "=> Found cached fabric metadata, loading...")
+        # self.pmc.add_message("start.fabric.generating", "=> The version is not cached, generating...")
+        # self.pmc.add_message("start.fabric.generated", "=> Generated!")
+
         self.pmc.add_message("args.start.fabric_prefix", "Change the prefix of the version ID when starting with Fabric.")
 
         self.pmc.mixin("register_start_arguments", self.register_start_arguments)
@@ -54,6 +57,7 @@ class FabricAddon:
     # START #
 
     def start_mc_from_cmd(self, old, *, version: str, cmd_args: Namespace, main_dir: Optional[str] = None, **kwargs) -> None:
+        # mixin
 
         if version.startswith("fabric:"):
 
@@ -78,12 +82,12 @@ class FabricAddon:
             try:
 
                 if loader_version is None:
-                    self.pmc.print("start.fabric.resolving_loader", mc_version)
+                    self.pmc.print("start.fabric.resolving_loader", mc_version, end="")
                     loader_meta = self.request_version_loader(mc_version, None)
                     loader_version = loader_meta["loader"]["version"]
                 else:
                     loader_meta = None
-                    self.pmc.print("start.fabric.resolving_loader_with_version", loader_version, mc_version)
+                    self.pmc.print("start.fabric.resolving_loader_with_version", loader_version, mc_version, end="")
 
                 version = "{}-{}-{}".format(cmd_args.fabric_prefix, mc_version, loader_version)
                 version_dir = self.pmc.get_version_dir(main_dir, version)
@@ -96,7 +100,7 @@ class FabricAddon:
                         # needed to check if the directory already exists.
                         loader_meta = self.request_version_loader(mc_version, loader_version)
 
-                    self.pmc.print("start.fabric.generating")
+                    # self.pmc.print("start.fabric.generating")
 
                     loader_launcher_meta = loader_meta["launcherMeta"]
 
@@ -130,10 +134,13 @@ class FabricAddon:
                     with open(version_meta_file, "wt") as fp:
                         json.dump(version_meta, fp, indent=2)
 
-                    self.pmc.print("start.fabric.generated")
+                    # self.pmc.print("start.fabric.generated")
 
                 else:
-                    self.pmc.print("start.fabric.found_cached")
+                    # self.pmc.print("start.fabric.found_cached")
+                    pass
+
+                self.pmc.print("start.fabric.resolved_loader")
 
             except GameVersionNotFoundError:
                 self.pmc.print("start.fabric.game_version_not_found")

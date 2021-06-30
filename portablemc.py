@@ -157,21 +157,17 @@ class CorePortableMC:
         work_dir = self.compute_work_dir(main_dir, work_dir)
         assets_dir = path.join(main_dir, "assets")
 
-        # Resolve version metadata
-        # version, version_alias = self.get_version_manifest().filter_latest(version)
-        # version_meta, version_dir = self.resolve_version_meta_recursive(main_dir, version)
-
-        # Starting version dependencies resolving
-        # version_type = version_meta["type"]
-        # self.notice("start.loading_version", version_type, version)
-
         # Download list
         dl_list = DownloadList()
 
-        # Ensure version
-        version, version_alias, version_meta, version_dir, version_jar_file = self.ensure_version(main_dir, version, dl_list)
+        # Resolve version metadata
+        version, version_alias = self.get_version_manifest().filter_latest(version)
+        version_meta, version_dir = self.resolve_version_meta_recursive(main_dir, version)
         if callable(version_meta_modifier):
             version_meta_modifier(version_meta)
+
+        # Ensure version JAR file
+        version_jar_file = self.ensure_version_jar(version_dir, version, version_meta, dl_list)
 
         # Assets loading and Logging configuration
         assets_index_version, assets_virtual_dir, _assets_count = self.ensure_assets(assets_dir, work_dir, version_meta, dl_list)
@@ -304,7 +300,7 @@ class CorePortableMC:
             start_args.append(arg)
 
         # self.notice("start.running")
-        os.makedirs(work_dir, 0o777, True)
+        os.makedirs(work_dir, exist_ok=True)
 
         if runner is None:
             subprocess.run(start_args, cwd=work_dir)
@@ -317,27 +313,21 @@ class CorePortableMC:
 
         # self.notice("start.stopped")
 
-    def ensure_version(self, main_dir: str, version: str, dl_list: 'DownloadList') -> 'Tuple[str, bool, dict, str, str]':
-        """ Compute version if it's an alias, and download all required version metas.
-        This returns (version, version_alias, version_meta, version_dir, version_jar_file). """
-
-        # Resolve version metadata
-        version, version_alias = self.get_version_manifest().filter_latest(version)
-        version_meta, version_dir = self.resolve_version_meta_recursive(main_dir, version)
+    def ensure_version_jar(self, version_dir: str, version: str, version_meta: dict, dl_list: 'DownloadList') -> 'str':
+        """ Returns version JAR file path. """
 
         version_jar_file = path.join(version_dir, "{}.jar".format(version))
         if not path.isfile(version_jar_file):
             version_downloads = version_meta["downloads"]
             if "client" not in version_downloads:
-                # self.notice("start.no_client_jar_file")
-                raise VersionNotFoundError()
+                raise VersionNotFoundError(version)
             dl_list.append(DownloadEntry.from_version_meta_info(version_downloads["client"], version_jar_file, name="{}.jar".format(version)))
 
-        return version,  version_alias, version_meta, version_dir, version_jar_file
+        return version_jar_file
 
 
     def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
-        """ Return (index_version, virtual_dir, assets_count). """
+        """ Returns (index_version, virtual_dir, assets_count). """
 
         # self.notice("start.loading_assets")
         assets_indexes_dir = path.join(assets_dir, "indexes")
@@ -359,7 +349,7 @@ class CorePortableMC:
             # self.notice("start.found_asset_index", asset_index_url)
             assets_index = self.json_simple_request(asset_index_url)
             if not path.isdir(assets_indexes_dir):
-                os.makedirs(assets_indexes_dir, 0o777, True)
+                os.makedirs(assets_indexes_dir, exist_ok=True)
             with open(assets_index_file, "wt") as assets_index_fp:
                 json.dump(assets_index, assets_index_fp)
 
@@ -389,12 +379,12 @@ class CorePortableMC:
                     if assets_mapped_to_resources:
                         resources_asset_file = path.join(work_dir, "resources", asset_id_to_cpy)
                         if not path.isfile(resources_asset_file):
-                            os.makedirs(path.dirname(resources_asset_file), 0o777, True)
+                            os.makedirs(path.dirname(resources_asset_file), exist_ok=True)
                             shutil.copyfile(asset_file, resources_asset_file)
                     if assets_virtual:
                         virtual_asset_file = path.join(assets_virtual_dir, asset_id_to_cpy)
                         if not path.isfile(virtual_asset_file):
-                            os.makedirs(path.dirname(virtual_asset_file), 0o777, True)
+                            os.makedirs(path.dirname(virtual_asset_file), exist_ok=True)
                             shutil.copyfile(asset_file, virtual_asset_file)
 
         dl_list.add_callback(finalize)
@@ -538,13 +528,12 @@ class CorePortableMC:
         jvm_manifest = self.json_simple_request(jvm_manifest_url)["files"]
 
         jvm_dir = path.join(main_dir, "jvm", jvm_version_type)
-        os.makedirs(jvm_dir, 0o777, True)
+        os.makedirs(jvm_dir, exist_ok=True)
 
         jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if sys.platform == "win32" else "java")
         jvm_exec_files = []
 
         if not path.isfile(jvm_exec):
-            # self.notice("jvm.downloading_version", jvm_version)
             for jvm_file_path_suffix, jvm_file in jvm_manifest.items():
                 if jvm_file["type"] == "file":
                     jvm_file_path = path.join(jvm_dir, jvm_file_path_suffix)
@@ -552,9 +541,6 @@ class CorePortableMC:
                     dl_list.append(DownloadEntry.from_version_meta_info(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix))
                     if jvm_file.get("executable", False):
                         jvm_exec_files.append(jvm_file_path)
-            # self.notice("jvm.downloaded", jvm_version)
-
-        # self.notice("jvm.using", jvm_version)
 
         def finalize():
             for exec_file in jvm_exec_files:
@@ -579,9 +565,6 @@ class CorePortableMC:
         return AuthDatabase(path.join(work_dir, AUTH_FILE_NAME), path.join(work_dir, LEGACY_AUTH_FILE_NAME))
 
     # Public methods to be replaced by addons
-
-    def notice(self, key: str, *args):
-        pass
 
     def mixin(self, target: str, func, owner: Optional[object] = None):
         if owner is None:
@@ -683,50 +666,13 @@ class CorePortableMC:
         for callback in lst.callbacks:
             callback()
 
-    """def download_file(self,
-                      entry: 'DownloadEntry', *,
-                      start_size: int = 0,
-                      total_size: int = 0,
-                      progress_callback: Optional[Callable[[int, int, int, int], None]] = None) -> int:
-
-        with url_request.urlopen(entry.url) as req:
-            with open(entry.dst, "wb") as dst_fp:
-
-                dl_sha1 = hashlib.sha1()
-                dl_size = 0
-
-                buffer = self.get_download_buffer()
-
-                while True:
-
-                    read_len = req.readinto(buffer)
-                    if not read_len:
-                        break
-
-                    buffer_view = buffer[:read_len]
-                    dl_size += read_len
-                    dl_sha1.update(buffer_view)
-                    dst_fp.write(buffer_view)
-
-                    if total_size != 0:
-                        start_size += read_len
-
-                    if progress_callback is not None:
-                        progress_callback(dl_size, 0 if entry.size is None else entry.size, start_size, total_size)
-
-                if entry.size is not None and dl_size != entry.size:
-                    raise DownloadCorruptedError("invalid_size")
-                elif entry.sha1 is not None and dl_sha1.hexdigest() != entry.sha1:
-                    raise DownloadCorruptedError("invalid_sha1")
-                else:
-                    return start_size"""
-
     # Version metadata
 
     def get_version_dir(self, main_dir: str, name: str) -> str:
         return path.join(main_dir, "versions", name)
 
     def resolve_version_meta(self, main_dir: str, name: str) -> Tuple[dict, str]:
+        """ Return (version_meta, version_dir). Raise VersionNotFoundError(name) if fails. """
 
         version_dir = self.get_version_dir(main_dir, name)
         version_meta_file = path.join(version_dir, "{}.json".format(name))
@@ -750,7 +696,7 @@ class CorePortableMC:
                 version_url = version_data["url"]
                 # self.notice("version.found_in_manifest")
                 content = self.json_simple_request(version_url)
-                os.makedirs(version_dir, 0o777, True)
+                os.makedirs(version_dir, exist_ok=True)
                 with open(version_meta_file, "wt") as version_meta_fp:
                     json.dump(content, version_meta_fp, indent=2)
             else:
@@ -764,9 +710,10 @@ class CorePortableMC:
         while "inheritsFrom" in version_meta:
             # self.notice("version.parent_version", version_meta["inheritsFrom"])
             parent_meta, _ = self.resolve_version_meta(main_dir, version_meta["inheritsFrom"])
-            if parent_meta is None:
+            # FIXME: The following condition can't be True, if parent metadata can't be fetched, and exception is raised.
+            # if parent_meta is None:
                 # self.notice("version.parent_version_not_found", version_meta["inheritsFrom"])
-                raise VersionNotFoundError(version_meta["inheritsFrom"])
+                # raise VersionNotFoundError(version_meta["inheritsFrom"])
             del version_meta["inheritsFrom"]
             self.dict_merge(parent_meta, version_meta)
             version_meta = parent_meta
@@ -1455,7 +1402,6 @@ if __name__ == '__main__':
                 "abort": "=> Abort",
                 "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
                 "http_request_error": "HTTP request error: {}",
-                "ok": "Ok.",
 
                 "cmd.search.pending": "Searching for version '{}'...",
                 "cmd.search.pending_local": "Searching for local version '{}'...",
@@ -1511,8 +1457,13 @@ if __name__ == '__main__':
                 # "version.parent_version": "=> Parent version: {}",
                 # "version.parent_version_not_found": "=> Failed to find parent version {}",
 
-                "version.loading": "Loading... ",
-                "version.loaded": "Loaded {} {}.",
+                # "version.loading": "Loading... ",
+                # "version.loaded": "Loaded {} {}.",
+                "version.resolving": "Resolving version {}... ",
+                "version.resolved": "Ok.",
+                "version.jar.loading": "Loading version JAR... ",
+                "version.jar.loaded": "Loaded.",
+                "version.error.not_found": "Not found.",
                 "assets.checking": "Checking assets... ",
                 "assets.checked": "Checked {} assets.",
                 "logger.loading": "Loading logger... ",
@@ -1545,13 +1496,6 @@ if __name__ == '__main__':
                 # "libraries.loading_libraries": "Loading libraries and natives...",
                 # "libraries.no_download_for_library": "=> Can't found any download for library {}",
                 # "libraries.cached_library_not_found": "=> Can't found cached library {} at {}",
-
-                # "jvm.not_found": "No JVM was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
-                # "jvm.unsupported_jvm_arch": "No JVM download was found for your platform architecture '{}', use --jvm argument to set the JVM executable of path to it.",
-                # "jvm.unsupported_jvm_version": "No JVM download was found for version '{}', use --jvm argument to set the JVM executable of path to it.",
-                # "jvm.downloading_version": "Download Java {}...",
-                # "jvm.downloaded": "=> Java is fully downloaded.",
-                # "jvm.using": "Using Mojang Java {}"
 
             }
 
@@ -1859,9 +1803,6 @@ if __name__ == '__main__':
             except IndexError:
                 return msg
 
-        # def notice(self, key: str, *args):
-        #     self.print(key, *args)
-
         # Addons
 
         def get_addons(self) -> 'Dict[str, PortableAddon]':
@@ -1876,11 +1817,35 @@ if __name__ == '__main__':
             # Define this method to accept "cmd_args"
             super().start_mc(**kwargs)
 
-        def ensure_version(self, main_dir: str, version: str, dl_list: 'DownloadList') -> 'Tuple[str, bool, dict, str, str]':
-            self.print("version.loading", end="")
-            ret = super().ensure_version(main_dir, version, dl_list)
-            self.print("version.loaded", ret[2]["type"], ret[0])
-            return ret
+        def resolve_version_meta(self, main_dir: str, name: str) -> Tuple[dict, str]:
+            self.print("version.resolving", name, end="")
+            try:
+                ret = super().resolve_version_meta(main_dir, name)
+                self.print("version.resolved")
+                return ret
+            except VersionNotFoundError:
+                self.print("version.error.not_found")
+                raise
+
+        def ensure_version_jar(self, version_dir: str, version: str, version_meta: dict, dl_list: 'DownloadList') -> 'str':
+            self.print("version.jar.loading", end="")
+            try:
+                ret = super().ensure_version_jar(version_dir, version, version_meta, dl_list)
+                self.print("version.jar.loaded")
+                return ret
+            except VersionNotFoundError:
+                self.print("version.error.not_found")
+                raise
+
+        """def ensure_version_jar(self, main_dir: str, version: str, dl_list: 'DownloadList') -> 'Tuple[str, bool, dict, str, str]':
+            # self.print("version.loading", end="")
+            try:
+                ret = super().ensure_version(main_dir, version, dl_list)
+            except VersionNotFoundError as e:
+                self.print("version.error.not_found", e.args[0])
+                raise
+            # self.print("version.loaded", ret[2]["type"], ret[0])
+            return ret"""
 
         def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
             self.print("assets.checking", end="")
@@ -2076,29 +2041,6 @@ if __name__ == '__main__':
             lst.callbacks.insert(0, _line_break)
             super().download_files(lst, progress_callback=_progress_callback)
             lst.callbacks.pop(0)
-
-        """download_file_base = CorePortableMC.download_file
-
-        def download_file(self,
-                          entry: 'DownloadEntry', *,
-                          start_size: int = 0,
-                          total_size: int = 0,
-                          **kwargs) -> int:  # kwargs may contains a 'progress_callback', but we ignore kwargs
-
-            start_time = time.perf_counter()
-
-            def progress_callback(p_dl_size: int, p_size: int, p_dl_total_size: int, p_total_size: int):
-                nonlocal start_time
-                of_total = self.get_message("download.of_total", p_dl_total_size / p_total_size * 100) if p_total_size != 0 else ""
-                speed = self.format_bytes(p_dl_size / (time.perf_counter() - start_time))
-                if p_size == 0:
-                    self.print("download.progress.unknown_size", entry.name, speed, of_total, end="")
-                else:
-                    self.print("download.progress", entry.name, p_dl_size / p_size * 100, speed, of_total, end="")
-
-            res = super().download_file(entry, start_size=start_size, total_size=total_size, progress_callback=progress_callback)
-            self.print("", "")
-            return res"""
 
         # Miscellaneous utilities
 
