@@ -200,11 +200,7 @@ class CorePortableMC:
 
         # Don't run if dry run
         if dry_run:
-            # self.notice("start.dry")
             return
-
-        # Start game
-        # self.notice("start.starting")
 
         # Extracting binaries
         bin_dir = path.join(work_dir, "bin", str(uuid4()))
@@ -301,7 +297,6 @@ class CorePortableMC:
                 arg = arg.replace("${{{}}}".format(repl_id), repl_val)
             start_args.append(arg)
 
-        # self.notice("start.running")
         os.makedirs(work_dir, exist_ok=True)
 
         if runner is None:
@@ -312,8 +307,6 @@ class CorePortableMC:
                 "username": username,
                 "uuid": uuid
             })
-
-        # self.notice("start.stopped")
 
     def ensure_version_jar(self, version_dir: str, version: str, version_meta: dict, dl_list: 'DownloadList') -> 'str':
         """ Returns version JAR file path. """
@@ -331,7 +324,6 @@ class CorePortableMC:
     def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
         """ Returns (index_version, virtual_dir, assets_count). """
 
-        # self.notice("start.loading_assets")
         assets_indexes_dir = path.join(assets_dir, "indexes")
         assets_index_version = version_meta["assets"]
         assets_index_file = path.join(assets_indexes_dir, "{}.json".format(assets_index_version))
@@ -342,13 +334,11 @@ class CorePortableMC:
                 try:
                     assets_index = json.load(assets_index_fp)
                 except JSONDecodeError:
-                    # self.notice("start.failed_to_decode_asset_index")
                     pass
 
         if assets_index is None:
             asset_index_info = version_meta["assetIndex"]
             asset_index_url = asset_index_info["url"]
-            # self.notice("start.found_asset_index", asset_index_url)
             assets_index = self.json_simple_request(asset_index_url)
             if not path.isdir(assets_indexes_dir):
                 os.makedirs(assets_indexes_dir, exist_ok=True)
@@ -360,12 +350,6 @@ class CorePortableMC:
         assets_mapped_to_resources = assets_index.get("map_to_resources", False)  # For version <= 13w23b
         assets_virtual = assets_index.get("virtual", False)  # For 13w23b < version <= 13w48b (1.7.2)
 
-        # if assets_mapped_to_resources:
-        #     self.notice("start.legacy_assets", path.join(work_dir, "resources"))
-        # if assets_virtual:
-        #     self.notice("start.virtual_assets", assets_virtual_dir)
-
-        # self.notice("start.verifying_assets")
         for asset_id, asset_obj in assets_index["objects"].items():
             asset_hash = asset_obj["hash"]
             asset_hash_prefix = asset_hash[:2]
@@ -395,7 +379,6 @@ class CorePortableMC:
     def ensure_logger(self, assets_dir: str, version_meta: dict, dl_list: 'DownloadList', better_logging: bool) -> 'Optional[str]':
         """ Return the logging argument if any. """
 
-        # self.notice("start.loading_logger")
         if "logging" in version_meta:
             version_logging = version_meta["logging"]
             if "client" in version_logging:
@@ -419,7 +402,6 @@ class CorePortableMC:
                 def finalize():
                     if better_logging:
                         if logging_dirty or not path.isfile(real_logging_file):
-                            # self.notice("start.generating_better_logging_config")
                             with open(logging_file, "rt") as logging_fp:
                                 with open(real_logging_file, "wt") as custom_logging_fp:
                                     raw = logging_fp.read() \
@@ -435,7 +417,6 @@ class CorePortableMC:
     def ensure_libraries(self, main_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[List[str], List[str]]':
         """ Returns (classpath_libs, native_libs) """
 
-        # self.notice("libraries.loading_libraries")
         libraries_dir = path.join(main_dir, "libraries")
         classpath_libs = []
         native_libs = []
@@ -468,7 +449,6 @@ class CorePortableMC:
                     lib_type = "classpath"
 
                 if lib_dl_info is None:
-                    # self.notice("libraries.no_download_for_library", lib_name)
                     continue
 
                 lib_path = path.realpath(path.join(libraries_dir, lib_dl_info["path"]))
@@ -498,7 +478,6 @@ class CorePortableMC:
                         lib_url = "{}{}".format(lib_obj["url"], "/".join((*maven_vendor_split, maven_package, maven_version, maven_jar)))
                         dl_list.append(DownloadEntry(lib_url, lib_path, name=lib_name))
                     else:
-                        # self.notice("libraries.cached_library_not_found", lib_name, lib_path)
                         continue
 
             if lib_type == "classpath":
@@ -680,29 +659,22 @@ class CorePortableMC:
         version_meta_file = path.join(version_dir, "{}.json".format(name))
         content = None
 
-        # self.notice("version.resolving", name)
-
         if path.isfile(version_meta_file):
-            # self.notice("version.found_cached")
             with open(version_meta_file, "rb") as version_meta_fp:
                 try:
                     content = json.load(version_meta_fp)
-                    # self.notice("version.loaded")
                 except JSONDecodeError:
-                    # self.notice("version.failed_to_decode_cached")
                     pass
 
         if content is None:
             version_data = self.get_version_manifest().get_version(name)
             if version_data is not None:
                 version_url = version_data["url"]
-                # self.notice("version.found_in_manifest")
                 content = self.json_simple_request(version_url)
                 os.makedirs(version_dir, exist_ok=True)
                 with open(version_meta_file, "wt") as version_meta_fp:
                     json.dump(content, version_meta_fp, indent=2)
             else:
-                # self.notice("version.not_found_in_manifest")
                 raise VersionNotFoundError(name)
 
         return content, version_dir
@@ -710,12 +682,7 @@ class CorePortableMC:
     def resolve_version_meta_recursive(self, main_dir: str, name: str) -> Tuple[dict, str]:
         version_meta, version_dir = self.resolve_version_meta(main_dir, name)
         while "inheritsFrom" in version_meta:
-            # self.notice("version.parent_version", version_meta["inheritsFrom"])
             parent_meta, _ = self.resolve_version_meta(main_dir, version_meta["inheritsFrom"])
-            # FIXME: The following condition can't be True, if parent metadata can't be fetched, and exception is raised.
-            # if parent_meta is None:
-                # self.notice("version.parent_version_not_found", version_meta["inheritsFrom"])
-                # raise VersionNotFoundError(version_meta["inheritsFrom"])
             del version_meta["inheritsFrom"]
             self.dict_merge(parent_meta, version_meta)
             version_meta = parent_meta
