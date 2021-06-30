@@ -678,6 +678,7 @@ class CorePortableMC:
         return content, version_dir
 
     def resolve_version_meta_recursive(self, main_dir: str, name: str) -> Tuple[dict, str]:
+        """ Return (version_meta, version_dir). Raise VersionNotFoundError(name) if fails. """
         version_meta, version_dir = self.resolve_version_meta(main_dir, name)
         while "inheritsFrom" in version_meta:
             parent_meta, _ = self.resolve_version_meta(main_dir, version_meta["inheritsFrom"])
