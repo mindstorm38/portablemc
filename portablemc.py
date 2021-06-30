@@ -135,7 +135,7 @@ class CorePortableMC:
                    username: Optional[str] = None,                  # Default to uuid[:8]
                    auth: 'Optional[BaseAuthSession]' = None,        # This parameter will override uuid/username
                    dry_run: bool = False,
-                   no_better_logging: bool = False,
+                   better_logging: bool = True,
                    resolution: 'Optional[Tuple[int, int]]' = None,
                    demo: bool = False,
                    disable_multiplayer: bool = False,
@@ -158,33 +158,24 @@ class CorePortableMC:
         assets_dir = path.join(main_dir, "assets")
 
         # Resolve version metadata
-        version, version_alias = self.get_version_manifest().filter_latest(version)
-        version_meta, version_dir = self.resolve_version_meta_recursive(main_dir, version)
+        # version, version_alias = self.get_version_manifest().filter_latest(version)
+        # version_meta, version_dir = self.resolve_version_meta_recursive(main_dir, version)
 
         # Starting version dependencies resolving
-        version_type = version_meta["type"]
-        self.notice("start.loading_version", version_type, version)
-
-        if callable(version_meta_modifier):
-            version_meta_modifier(version_meta)
+        # version_type = version_meta["type"]
+        # self.notice("start.loading_version", version_type, version)
 
         # Download list
         dl_list = DownloadList()
 
-        # JAR file loading
-        self.notice("start.loading_jar_file")
-        version_jar_file = path.join(version_dir, "{}.jar".format(version))
-        if not path.isfile(version_jar_file):
-            version_downloads = version_meta["downloads"]
-            if "client" not in version_downloads:
-                self.notice("start.no_client_jar_file")
-                raise VersionNotFoundError()
-            download_entry = DownloadEntry.from_version_meta_info(version_downloads["client"], version_jar_file, name="{}.jar".format(version))
-            dl_list.append(download_entry)
+        # Ensure version
+        version, version_alias, version_meta, version_dir, version_jar_file = self.ensure_version(main_dir, version, dl_list)
+        if callable(version_meta_modifier):
+            version_meta_modifier(version_meta)
 
         # Assets loading and Logging configuration
-        assets_index_version, assets_virtual_dir = self.ensure_assets(assets_dir, work_dir, version_meta, dl_list)
-        logging_arg = self.ensure_logger(assets_dir, version_meta, dl_list, no_better_logging)
+        assets_index_version, assets_virtual_dir, _assets_count = self.ensure_assets(assets_dir, work_dir, version_meta, dl_list)
+        logging_arg = self.ensure_logger(assets_dir, version_meta, dl_list, better_logging)
 
         # Libraries and natives loading
         classpath_libs, native_libs = self.ensure_libraries(main_dir, version_meta, dl_list)
@@ -203,20 +194,19 @@ class CorePortableMC:
         if jvm[0] is None:
             version_java_version = version_meta.get("javaVersion")
             version_java_version_type = "jre-legacy" if version_java_version is None else version_java_version["component"]
-            jvm[0] = self.ensure_jvm(main_dir, version_java_version_type, dl_list)
-            if jvm[0] is None:
-                return
+            _jvm_version, jvm_exec_path = self.ensure_jvm(main_dir, version_java_version_type, dl_list)
+            jvm[0] = jvm_exec_path
 
         # Start download list
         self.download_files(dl_list)
 
         # Don't run if dry run
         if dry_run:
-            self.notice("start.dry")
+            # self.notice("start.dry")
             return
 
         # Start game
-        self.notice("start.starting")
+        # self.notice("start.starting")
 
         # Extracting binaries
         bin_dir = path.join(work_dir, "bin", str(uuid4()))
@@ -226,7 +216,7 @@ class CorePortableMC:
             if path.isdir(bin_dir):
                 shutil.rmtree(bin_dir)
 
-        self.notice("start.extracting_natives")
+        # self.notice("start.extracting_natives")
         for native_lib in native_libs:
             with ZipFile(native_lib, 'r') as native_zip:
                 for native_zip_info in native_zip.infolist():
@@ -288,7 +278,7 @@ class CorePortableMC:
             "auth_uuid": uuid,
             "auth_access_token": "" if auth is None else auth.format_token_argument(False),
             "user_type": "mojang",
-            "version_type": version_type,
+            "version_type": version_meta["type"],
             # Game (legacy)
             "auth_session": "notok" if auth is None else auth.format_token_argument(True),
             "game_assets": assets_virtual_dir,
@@ -313,7 +303,7 @@ class CorePortableMC:
                 arg = arg.replace("${{{}}}".format(repl_id), repl_val)
             start_args.append(arg)
 
-        self.notice("start.running")
+        # self.notice("start.running")
         os.makedirs(work_dir, 0o777, True)
 
         if runner is None:
@@ -325,12 +315,31 @@ class CorePortableMC:
                 "uuid": uuid
             })
 
-        self.notice("start.stopped")
+        # self.notice("start.stopped")
 
-    def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str]':
-        """ Return (index_version, virtual_dir). """
+    def ensure_version(self, main_dir: str, version: str, dl_list: 'DownloadList') -> 'Tuple[str, bool, dict, str, str]':
+        """ Compute version if it's an alias, and download all required version metas.
+        This returns (version, version_alias, version_meta, version_dir, version_jar_file). """
 
-        self.notice("start.loading_assets")
+        # Resolve version metadata
+        version, version_alias = self.get_version_manifest().filter_latest(version)
+        version_meta, version_dir = self.resolve_version_meta_recursive(main_dir, version)
+
+        version_jar_file = path.join(version_dir, "{}.jar".format(version))
+        if not path.isfile(version_jar_file):
+            version_downloads = version_meta["downloads"]
+            if "client" not in version_downloads:
+                # self.notice("start.no_client_jar_file")
+                raise VersionNotFoundError()
+            dl_list.append(DownloadEntry.from_version_meta_info(version_downloads["client"], version_jar_file, name="{}.jar".format(version)))
+
+        return version,  version_alias, version_meta, version_dir, version_jar_file
+
+
+    def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
+        """ Return (index_version, virtual_dir, assets_count). """
+
+        # self.notice("start.loading_assets")
         assets_indexes_dir = path.join(assets_dir, "indexes")
         assets_index_version = version_meta["assets"]
         assets_index_file = path.join(assets_indexes_dir, "{}.json".format(assets_index_version))
@@ -341,12 +350,13 @@ class CorePortableMC:
                 try:
                     assets_index = json.load(assets_index_fp)
                 except JSONDecodeError:
-                    self.notice("start.failed_to_decode_asset_index")
+                    # self.notice("start.failed_to_decode_asset_index")
+                    pass
 
         if assets_index is None:
             asset_index_info = version_meta["assetIndex"]
             asset_index_url = asset_index_info["url"]
-            self.notice("start.found_asset_index", asset_index_url)
+            # self.notice("start.found_asset_index", asset_index_url)
             assets_index = self.json_simple_request(asset_index_url)
             if not path.isdir(assets_indexes_dir):
                 os.makedirs(assets_indexes_dir, 0o777, True)
@@ -358,12 +368,12 @@ class CorePortableMC:
         assets_mapped_to_resources = assets_index.get("map_to_resources", False)  # For version <= 13w23b
         assets_virtual = assets_index.get("virtual", False)  # For 13w23b < version <= 13w48b (1.7.2)
 
-        if assets_mapped_to_resources:
-            self.notice("start.legacy_assets", path.join(work_dir, "resources"))
-        if assets_virtual:
-            self.notice("start.virtual_assets", assets_virtual_dir)
+        # if assets_mapped_to_resources:
+        #     self.notice("start.legacy_assets", path.join(work_dir, "resources"))
+        # if assets_virtual:
+        #     self.notice("start.virtual_assets", assets_virtual_dir)
 
-        self.notice("start.verifying_assets")
+        # self.notice("start.verifying_assets")
         for asset_id, asset_obj in assets_index["objects"].items():
             asset_hash = asset_obj["hash"]
             asset_hash_prefix = asset_hash[:2]
@@ -388,12 +398,12 @@ class CorePortableMC:
                             shutil.copyfile(asset_file, virtual_asset_file)
 
         dl_list.add_callback(finalize)
-        return assets_index_version, assets_virtual_dir
+        return assets_index_version, assets_virtual_dir, len(assets_index["objects"])
 
-    def ensure_logger(self, assets_dir: str, version_meta: dict, dl_list: 'DownloadList', no_better_logging: bool) -> 'Optional[str]':
+    def ensure_logger(self, assets_dir: str, version_meta: dict, dl_list: 'DownloadList', better_logging: bool) -> 'Optional[str]':
         """ Return the logging argument if any. """
 
-        self.notice("start.loading_logger")
+        # self.notice("start.loading_logger")
         if "logging" in version_meta:
             version_logging = version_meta["logging"]
             if "client" in version_logging:
@@ -409,15 +419,15 @@ class CorePortableMC:
                     dl_list.append(download_entry)
                     logging_dirty = True
 
-                if no_better_logging:
-                    real_logging_file = logging_dirty
-                else:
+                if better_logging:
                     real_logging_file = path.join(log_config_dir, "portablemc-{}".format(logging_file_info["id"]))
+                else:
+                    real_logging_file = logging_dirty
 
                 def finalize():
-                    if not no_better_logging:
+                    if better_logging:
                         if logging_dirty or not path.isfile(real_logging_file):
-                            self.notice("start.generating_better_logging_config")
+                            # self.notice("start.generating_better_logging_config")
                             with open(logging_file, "rt") as logging_fp:
                                 with open(real_logging_file, "wt") as custom_logging_fp:
                                     raw = logging_fp.read() \
@@ -430,9 +440,10 @@ class CorePortableMC:
 
         return None
 
-    def ensure_libraries(self, main_dir: str, version_meta: dict, dl_list: 'DownloadList') -> Tuple[List[str], List[str]]:
+    def ensure_libraries(self, main_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[List[str], List[str]]':
+        """ Returns (classpath_libs, native_libs) """
 
-        self.notice("libraries.loading_libraries")
+        # self.notice("libraries.loading_libraries")
         libraries_dir = path.join(main_dir, "libraries")
         classpath_libs = []
         native_libs = []
@@ -465,7 +476,7 @@ class CorePortableMC:
                     lib_type = "classpath"
 
                 if lib_dl_info is None:
-                    self.notice("libraries.no_download_for_library", lib_name)
+                    # self.notice("libraries.no_download_for_library", lib_name)
                     continue
 
                 lib_path = path.realpath(path.join(libraries_dir, lib_dl_info["path"]))
@@ -495,7 +506,7 @@ class CorePortableMC:
                         lib_url = "{}{}".format(lib_obj["url"], "/".join((*maven_vendor_split, maven_package, maven_version, maven_jar)))
                         dl_list.append(DownloadEntry(lib_url, lib_path, name=lib_name))
                     else:
-                        self.notice("libraries.cached_library_not_found", lib_name, lib_path)
+                        # self.notice("libraries.cached_library_not_found", lib_name, lib_path)
                         continue
 
             if lib_type == "classpath":
@@ -505,24 +516,21 @@ class CorePortableMC:
 
         return classpath_libs, native_libs
 
-    def ensure_jvm(self, main_dir: str, jvm_version_type: str, dl_list: 'DownloadList') -> 'Optional[str]':
-        """ Return the JVM executable to use if supported. """
+    def ensure_jvm(self, main_dir: str, jvm_version_type: str, dl_list: 'DownloadList') -> 'Tuple[str, str]':
+        """ Return (jvm_version, jvm_exec_path). """
 
         jvm_arch = self.get_minecraft_jvm()
         if jvm_arch is None:
-            self.notice("jvm.not_found")
-            return None
+            raise JvmLoadingError("not_found")
 
         all_jvm_meta = self.json_simple_request(JVM_META_URL)
         jvm_arch_meta = all_jvm_meta.get(jvm_arch)
         if jvm_arch_meta is None:
-            self.notice("jvm.unsupported_jvm_arch", jvm_arch)
-            return None
+            raise JvmLoadingError("unsupported_jvm_arch")
 
         jvm_meta = jvm_arch_meta.get(jvm_version_type)
         if jvm_meta is None:
-            self.notice("jvm.unsupported_jvm_version", jvm_version_type)
-            return None
+            raise JvmLoadingError("unsupported_jvm_version")
 
         jvm_meta = jvm_meta[0]
         jvm_version = jvm_meta["version"]["name"]
@@ -536,7 +544,7 @@ class CorePortableMC:
         jvm_exec_files = []
 
         if not path.isfile(jvm_exec):
-            self.notice("jvm.downloading_version", jvm_version)
+            # self.notice("jvm.downloading_version", jvm_version)
             for jvm_file_path_suffix, jvm_file in jvm_manifest.items():
                 if jvm_file["type"] == "file":
                     jvm_file_path = path.join(jvm_dir, jvm_file_path_suffix)
@@ -544,16 +552,16 @@ class CorePortableMC:
                     dl_list.append(DownloadEntry.from_version_meta_info(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix))
                     if jvm_file.get("executable", False):
                         jvm_exec_files.append(jvm_file_path)
-            self.notice("jvm.downloaded", jvm_version)
+            # self.notice("jvm.downloaded", jvm_version)
 
-        self.notice("jvm.using", jvm_version)
+        # self.notice("jvm.using", jvm_version)
 
         def finalize():
             for exec_file in jvm_exec_files:
                 os.chmod(exec_file, 0o777)
 
         dl_list.add_callback(finalize)
-        return jvm_exec
+        return jvm_version, jvm_exec
 
     # Lazy variables getters
 
@@ -724,28 +732,29 @@ class CorePortableMC:
         version_meta_file = path.join(version_dir, "{}.json".format(name))
         content = None
 
-        self.notice("version.resolving", name)
+        # self.notice("version.resolving", name)
 
         if path.isfile(version_meta_file):
-            self.notice("version.found_cached")
+            # self.notice("version.found_cached")
             with open(version_meta_file, "rb") as version_meta_fp:
                 try:
                     content = json.load(version_meta_fp)
-                    self.notice("version.loaded")
+                    # self.notice("version.loaded")
                 except JSONDecodeError:
-                    self.notice("version.failed_to_decode_cached")
+                    # self.notice("version.failed_to_decode_cached")
+                    pass
 
         if content is None:
             version_data = self.get_version_manifest().get_version(name)
             if version_data is not None:
                 version_url = version_data["url"]
-                self.notice("version.found_in_manifest")
+                # self.notice("version.found_in_manifest")
                 content = self.json_simple_request(version_url)
                 os.makedirs(version_dir, 0o777, True)
                 with open(version_meta_file, "wt") as version_meta_fp:
                     json.dump(content, version_meta_fp, indent=2)
             else:
-                self.notice("version.not_found_in_manifest")
+                # self.notice("version.not_found_in_manifest")
                 raise VersionNotFoundError(name)
 
         return content, version_dir
@@ -753,10 +762,10 @@ class CorePortableMC:
     def resolve_version_meta_recursive(self, main_dir: str, name: str) -> Tuple[dict, str]:
         version_meta, version_dir = self.resolve_version_meta(main_dir, name)
         while "inheritsFrom" in version_meta:
-            self.notice("version.parent_version", version_meta["inheritsFrom"])
+            # self.notice("version.parent_version", version_meta["inheritsFrom"])
             parent_meta, _ = self.resolve_version_meta(main_dir, version_meta["inheritsFrom"])
             if parent_meta is None:
-                self.notice("version.parent_version_not_found", version_meta["inheritsFrom"])
+                # self.notice("version.parent_version_not_found", version_meta["inheritsFrom"])
                 raise VersionNotFoundError(version_meta["inheritsFrom"])
             del version_meta["inheritsFrom"]
             self.dict_merge(parent_meta, version_meta)
@@ -1315,6 +1324,7 @@ class AuthError(Exception): ...
 class VersionNotFoundError(Exception): ...
 class DownloadCorruptedError(Exception): ...
 class JsonRequestError(Exception): ...
+class JvmLoadingError(Exception): ...
 
 
 LEGACY_JVM_ARGUMENTS = [
@@ -1348,14 +1358,15 @@ if __name__ == '__main__':
     import time
 
     EXIT_VERSION_NOT_FOUND = 10
-    EXIT_CLIENT_JAR_NOT_FOUND = 11
-    EXIT_NATIVES_DIR_ALREADY_EXITS = 12
-    EXIT_DOWNLOAD_FILE_CORRUPTED = 13
+    # EXIT_CLIENT_JAR_NOT_FOUND = 11
+    # EXIT_NATIVES_DIR_ALREADY_EXITS = 12
+    EXIT_DOWNLOAD_CORRUPTED = 13
     EXIT_AUTHENTICATION_FAILED = 14
     EXIT_VERSION_SEARCH_NOT_FOUND = 15
     EXIT_DEPRECATED_ARGUMENT = 16
     EXIT_LOGOUT_FAILED = 17
     EXIT_HTTP_ERROR = 18
+    EXIT_JVM_LOADING_ERROR = 19
 
     ADDONS_DIR = "addons"
     ADDONS_PKG_INIT_CONTENT = "# This file was generated by PortableMC.\n" \
@@ -1444,6 +1455,7 @@ if __name__ == '__main__':
                 "abort": "=> Abort",
                 "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
                 "http_request_error": "HTTP request error: {}",
+                "ok": "Ok.",
 
                 "cmd.search.pending": "Searching for version '{}'...",
                 "cmd.search.pending_local": "Searching for local version '{}'...",
@@ -1490,26 +1502,38 @@ if __name__ == '__main__':
                 "auth.microsoft.processing": "Processing authentication against Minecraft services...",
                 "auth.microsoft.incoherent_data": "=> Incoherent authentication data, please retry.",
 
-                "version.resolving": "Resolving version {}",
-                "version.found_cached": "=> Found cached metadata, loading...",
-                "version.loaded": "=> Version loaded.",
-                "version.failed_to_decode_cached": "=> Failed to decode cached metadata, try updating...",
-                "version.found_in_manifest": "=> Found metadata in manifest, caching...",
-                "version.not_found_in_manifest": "=> Not found in manifest.",
-                "version.parent_version": "=> Parent version: {}",
-                "version.parent_version_not_found": "=> Failed to find parent version {}",
+                # "version.resolving": "Resolving version {}",
+                # "version.found_cached": "=> Found cached metadata, loading...",
+                # "version.loaded": "=> Version loaded.",
+                # "version.failed_to_decode_cached": "=> Failed to decode cached metadata, try updating...",
+                # "version.found_in_manifest": "=> Found metadata in manifest, caching...",
+                # "version.not_found_in_manifest": "=> Not found in manifest.",
+                # "version.parent_version": "=> Parent version: {}",
+                # "version.parent_version_not_found": "=> Failed to find parent version {}",
 
-                "start.loading_version": "Loading {} {}...",
-                "start.loading_jar_file": "Loading jar file...",
-                "start.no_client_jar_file": "=> Can't find client download in version meta",
-                "start.loading_assets": "Loading assets...",
-                "start.failed_to_decode_asset_index": "=> Failed to decode assets index, try updating...",
-                "start.found_asset_index": "=> Found asset index in metadata: {}",
-                "start.legacy_assets": "=> This version use lagacy assets, put in {}",
-                "start.virtual_assets": "=> This version use virtual assets, put in {}",
-                "start.verifying_assets": "=> Verifying assets...",
-                "start.loading_logger": "Loading logger config...",
-                "start.generating_better_logging_config": "=> Generating better logging configuration...",
+                "version.loading": "Loading... ",
+                "version.loaded": "Loaded {} {}.",
+                "assets.checking": "Checking assets... ",
+                "assets.checked": "Checked {} assets.",
+                "logger.loading": "Loading logger... ",
+                "logger.loaded": "Loaded.",
+                "logger.loaded_pretty": "Loaded pretty logger.",
+                "libraries.loading": "Loading libraries... ",
+                "libraries.loaded": "Loaded {} libraries.",
+                "jvm.loading": "Loading java... ",
+                "jvm.loaded": "Loaded Mojang Java {}.",
+                "jvm.error.not_found": "No JVM was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
+                "jvm.error.unsupported_jvm_arch": "No JVM download was found for your platform architecture '{}', use --jvm argument to set the JVM executable of path to it.",
+                "jvm.error.unsupported_jvm_version": "No JVM download was found for version '{}', use --jvm argument to set the JVM executable of path to it.",
+
+                # "start.loading_jar_file": "Loading jar file...",
+                # "start.no_client_jar_file": "=> Can't find client download in version meta",
+                # "start.failed_to_decode_asset_index": "=> Failed to decode assets index, try updating...",
+                # "start.found_asset_index": "=> Found asset index in metadata: {}",
+                # "start.legacy_assets": "=> This version use lagacy assets, put in {}",
+                # "start.virtual_assets": "=> This version use virtual assets, put in {}",
+                # "start.verifying_assets": "=> Verifying assets...",
+                # "start.generating_better_logging_config": "=> Generating better logging configuration...",
                 "start.dry": "Dry run, stopping.",
                 "start.starting": "Starting game...",
                 "start.extracting_natives": "=> Extracting natives...",
@@ -1518,16 +1542,16 @@ if __name__ == '__main__':
                 "start.run.session": "=> Username: {}, UUID: {}",
                 "start.run.command_line": "=> Command line: {}",
 
-                "libraries.loading_libraries": "Loading libraries and natives...",
-                "libraries.no_download_for_library": "=> Can't found any download for library {}",
-                "libraries.cached_library_not_found": "=> Can't found cached library {} at {}",
+                # "libraries.loading_libraries": "Loading libraries and natives...",
+                # "libraries.no_download_for_library": "=> Can't found any download for library {}",
+                # "libraries.cached_library_not_found": "=> Can't found cached library {} at {}",
 
-                "jvm.not_found": "No JVM was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
-                "jvm.unsupported_jvm_arch": "No JVM download was found for your platform architecture '{}', use --jvm argument to set the JVM executable of path to it.",
-                "jvm.unsupported_jvm_version": "No JVM download was found for version '{}', use --jvm argument to set the JVM executable of path to it.",
-                "jvm.downloading_version": "Download Java {}...",
-                "jvm.downloaded": "=> Java is fully downloaded.",
-                "jvm.using": "Using Mojang Java {}"
+                # "jvm.not_found": "No JVM was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
+                # "jvm.unsupported_jvm_arch": "No JVM download was found for your platform architecture '{}', use --jvm argument to set the JVM executable of path to it.",
+                # "jvm.unsupported_jvm_version": "No JVM download was found for version '{}', use --jvm argument to set the JVM executable of path to it.",
+                # "jvm.downloading_version": "Download Java {}...",
+                # "jvm.downloaded": "=> Java is fully downloaded.",
+                # "jvm.using": "Using Mojang Java {}"
 
             }
 
@@ -1780,8 +1804,7 @@ if __name__ == '__main__':
                     auth=auth,
                     jvm=[args.jvm, *jvm_args],
                     dry_run=args.dry,
-                    no_better_logging=args.no_better_logging,
-                    # work_dir_bin=args.work_dir_bin,
+                    better_logging=not args.no_better_logging,
                     resolution=custom_resol,
                     demo=args.demo,
                     disable_multiplayer=args.disable_mp,
@@ -1797,7 +1820,10 @@ if __name__ == '__main__':
                 return EXIT_HTTP_ERROR
             except DownloadCorruptedError as err:
                 self.print("download.{}".format(err.args[0]))
-                return EXIT_DOWNLOAD_FILE_CORRUPTED
+                return EXIT_DOWNLOAD_CORRUPTED
+            except JvmLoadingError as err:
+                self.print("jvm.error.{}".format(err.args[0]))
+                return EXIT_JVM_LOADING_ERROR
 
         # Messages
 
@@ -1833,8 +1859,8 @@ if __name__ == '__main__':
             except IndexError:
                 return msg
 
-        def notice(self, key: str, *args):
-            self.print(key, *args)
+        # def notice(self, key: str, *args):
+        #     self.print(key, *args)
 
         # Addons
 
@@ -1849,6 +1875,36 @@ if __name__ == '__main__':
         def start_mc_from_cmd(self, *, cmd_args: Namespace, **kwargs) -> None:
             # Define this method to accept "cmd_args"
             super().start_mc(**kwargs)
+
+        def ensure_version(self, main_dir: str, version: str, dl_list: 'DownloadList') -> 'Tuple[str, bool, dict, str, str]':
+            self.print("version.loading", end="")
+            ret = super().ensure_version(main_dir, version, dl_list)
+            self.print("version.loaded", ret[2]["type"], ret[0])
+            return ret
+
+        def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
+            self.print("assets.checking", end="")
+            ret = super().ensure_assets(assets_dir, work_dir, version_meta, dl_list)
+            self.print("assets.checked", ret[2])
+            return ret
+
+        def ensure_logger(self, assets_dir: str, version_meta: dict, dl_list: 'DownloadList', better_logging: bool) -> 'Optional[str]':
+            self.print("logger.loading", end="")
+            ret = super().ensure_logger(assets_dir, version_meta, dl_list, better_logging)
+            self.print("logger.loaded_pretty" if better_logging else "start.loaded_logger")
+            return ret
+
+        def ensure_libraries(self, main_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[List[str], List[str]]':
+            self.print("libraries.loading", end="")
+            ret = super().ensure_libraries(main_dir, version_meta, dl_list)
+            self.print("libraries.loaded", len(ret[0]) + len(ret[1]))
+            return ret
+
+        def ensure_jvm(self, main_dir: str, jvm_version_type: str, dl_list: 'DownloadList') -> 'Optional[Tuple[str, str]]':
+            self.print("jvm.loading", end="")
+            ret = super().ensure_jvm(main_dir, jvm_version_type, dl_list)
+            self.print("jvm.loaded", ret[0])
+            return ret
 
         def game_runner(self, proc_args: list, proc_cwd: str, options: dict):
             self.print("", "====================================================")
@@ -2002,6 +2058,7 @@ if __name__ == '__main__':
 
             start_time = time.perf_counter()
             called_once = False
+
             def _progress_callback(progress: 'DownloadProgress'):
                 nonlocal called_once
                 speed = self.format_bytes(progress.size / (time.perf_counter() - start_time))
@@ -2012,9 +2069,13 @@ if __name__ == '__main__':
                 if progress_callback is not None:
                     progress_callback(progress)
 
+            def _line_break():
+                if called_once:
+                    self.print("", "")
+
+            lst.callbacks.insert(0, _line_break)
             super().download_files(lst, progress_callback=_progress_callback)
-            if called_once:
-                self.print("", "")
+            lst.callbacks.pop(0)
 
         """download_file_base = CorePortableMC.download_file
 
