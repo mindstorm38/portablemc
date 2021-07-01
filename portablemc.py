@@ -29,6 +29,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
 from typing import Dict, Callable, Optional, Generator, Tuple, List, Union, Type
 from http.client import HTTPConnection, HTTPSConnection
 from json.decoder import JSONDecodeError
+from contextlib import contextmanager
 from urllib import parse as url_parse
 from zipfile import ZipFile
 from uuid import uuid4
@@ -1394,11 +1395,13 @@ if __name__ == '__main__':
                 "cmd.addon.show.description": "=> Description: {}",
                 "cmd.addon.show.requires": "=> Requires: {}",
 
-                "download.progress": "\rDownloading {}... {:6.2f}% {}/s {}",
-                "download.progress.unknown_size": "\rDownloading {}... {}/s {}",
-                "download.of_total": "{:6.2f}% of total",
-                "download.invalid_size": " => Invalid size",
-                "download.invalid_sha1": " => Invalid SHA1",
+                # "download.progress": "\rDownloading {}... {:6.2f}% {}/s {}",
+                # "download.progress.unknown_size": "\rDownloading {}... {}/s {}",
+                # "download.of_total": "{:6.2f}% of total",
+                "download.downloading": "Downloading",
+                "download.downloaded": "Downloaded {} files, {} in {:.1f}s",
+                "download.error.invalid_size": " => Invalid size",
+                "download.error.invalid_sha1": " => Invalid SHA1",
 
                 "auth.pending": "Authenticating {}...",
                 "auth.already_cached": "=> Session already cached, checking...",
@@ -1428,10 +1431,11 @@ if __name__ == '__main__':
                 # "version.loading": "Loading... ",
                 # "version.loaded": "Loaded {} {}.",
                 "version.resolving": "Resolving version {}... ",
-                "version.resolved": "Ok.",
+                "version.resolved": "Resolved version {}.",
                 "version.jar.loading": "Loading version JAR... ",
-                "version.jar.loaded": "Loaded.",
-                "version.error.not_found": "Not found.",
+                "version.jar.loaded": "Loaded version JAR.",
+                "version.error.not_found": "Version {} not found.",
+                "version.error.jar_not_found": "Version JAR not found.",
                 "assets.checking": "Checking assets... ",
                 "assets.checked": "Checked {} assets.",
                 "logger.loading": "Loading logger... ",
@@ -1731,7 +1735,7 @@ if __name__ == '__main__':
                 self.print("http_request_error", err.args[0])
                 return EXIT_HTTP_ERROR
             except DownloadCorruptedError as err:
-                self.print("download.{}".format(err.args[0]))
+                self.print("download.error.{}".format(err.args[0]))
                 return EXIT_DOWNLOAD_CORRUPTED
             except JvmLoadingError as err:
                 self.print("jvm.error.{}".format(err.args[0]))
@@ -1745,11 +1749,35 @@ if __name__ == '__main__':
         def add_message(self, key: str, value: str):
             self._messages[key] = value
 
+        def get_message(self, message_key: str, *args) -> str:
+            if not len(message_key):
+                return args[0]
+            msg = self._messages.get(message_key, message_key)
+            try:
+                return msg.format(*args)
+            except IndexError:
+                return msg
+
         def print(self, message_key: str, *args, traceback: bool = False, end: str = "\n"):
             print(self.get_message(message_key, *args), end=end)
             if traceback:
                 import traceback
                 traceback.print_exc()
+
+        @contextmanager
+        def print_task(self, start_message_key: Optional[str] = None, *start_args):
+            len_limit = max(0, shutil.get_terminal_size().columns - 9)
+            last_len = 0
+            def complete(status: str, message_key: str, *args):
+                nonlocal last_len
+                msg = self.get_message(message_key, *args)[:len_limit]
+                missing_len = max(0, last_len - len(msg) - 1)
+                print("\r[{:^6s}]".format(status), msg, " " * missing_len, end="", flush=True)
+                last_len = len(msg)
+            if start_message_key is not None:
+                complete("", start_message_key, *start_args)
+            yield complete
+            print()
 
         def prompt(self, message_key: str, *args, password: bool = False) -> Optional[str]:
             print(self.get_message(message_key, *args), end="", flush=True)
@@ -1761,15 +1789,6 @@ if __name__ == '__main__':
                     return input("")
             except KeyboardInterrupt:
                 return None
-
-        def get_message(self, message_key: str, *args) -> str:
-            if not len(message_key):
-                return args[0]
-            msg = self._messages.get(message_key, message_key)
-            try:
-                return msg.format(*args)
-            except IndexError:
-                return msg
 
         # Addons
 
@@ -1786,47 +1805,47 @@ if __name__ == '__main__':
             super().start_mc(**kwargs)
 
         def resolve_version_meta(self, main_dir: str, name: str) -> Tuple[dict, str]:
-            self.print("version.resolving", name, end="")
-            try:
-                ret = super().resolve_version_meta(main_dir, name)
-                self.print("version.resolved")
-                return ret
-            except VersionNotFoundError:
-                self.print("version.error.not_found")
-                raise
+            with self.print_task("version.resolving", name) as complete:
+                try:
+                    ret = super().resolve_version_meta(main_dir, name)
+                    complete("OK", "version.resolved", name)
+                    return ret
+                except VersionNotFoundError:
+                    complete("ERRO", "version.error.not_found", name)
+                    raise
 
         def ensure_version_jar(self, version_dir: str, version: str, version_meta: dict, dl_list: 'DownloadList') -> 'str':
-            self.print("version.jar.loading", end="")
-            try:
-                ret = super().ensure_version_jar(version_dir, version, version_meta, dl_list)
-                self.print("version.jar.loaded")
-                return ret
-            except VersionNotFoundError:
-                self.print("version.error.not_found")
-                raise
+            with self.print_task("version.jar.loading") as complete:
+                try:
+                    ret = super().ensure_version_jar(version_dir, version, version_meta, dl_list)
+                    complete("OK", "version.jar.loaded")
+                    return ret
+                except VersionNotFoundError:
+                    complete("ERRO", "version.error.jar_not_found")
+                    raise
 
         def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
-            self.print("assets.checking", end="")
-            ret = super().ensure_assets(assets_dir, work_dir, version_meta, dl_list)
-            self.print("assets.checked", ret[2])
+            with self.print_task("assets.checking") as complete:
+                ret = super().ensure_assets(assets_dir, work_dir, version_meta, dl_list)
+                complete("OK", "assets.checked", ret[2])
             return ret
 
         def ensure_logger(self, assets_dir: str, version_meta: dict, dl_list: 'DownloadList', better_logging: bool) -> 'Optional[str]':
-            self.print("logger.loading", end="")
-            ret = super().ensure_logger(assets_dir, version_meta, dl_list, better_logging)
-            self.print("logger.loaded_pretty" if better_logging else "start.loaded_logger")
+            with self.print_task("logger.loading") as complete:
+                ret = super().ensure_logger(assets_dir, version_meta, dl_list, better_logging)
+                complete("OK", "logger.loaded_pretty" if better_logging else "start.loaded_logger")
             return ret
 
         def ensure_libraries(self, main_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[List[str], List[str]]':
-            self.print("libraries.loading", end="")
-            ret = super().ensure_libraries(main_dir, version_meta, dl_list)
-            self.print("libraries.loaded", len(ret[0]) + len(ret[1]))
+            with self.print_task("libraries.loading") as complete:
+                ret = super().ensure_libraries(main_dir, version_meta, dl_list)
+                complete("OK", "libraries.loaded", len(ret[0]) + len(ret[1]))
             return ret
 
         def ensure_jvm(self, main_dir: str, jvm_version_type: str, dl_list: 'DownloadList') -> 'Optional[Tuple[str, str]]':
-            self.print("jvm.loading", end="")
-            ret = super().ensure_jvm(main_dir, jvm_version_type, dl_list)
-            self.print("jvm.loaded", ret[0])
+            with self.print_task("jvm.loading") as complete:
+                ret = super().ensure_jvm(main_dir, jvm_version_type, dl_list)
+                complete("OK", "jvm.loaded", ret[0])
             return ret
 
         def game_runner(self, proc_args: list, proc_cwd: str, options: dict):
@@ -1980,21 +1999,33 @@ if __name__ == '__main__':
         def download_files(self, lst: 'DownloadList', *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
 
             start_time = time.perf_counter()
+            last_print_time = None  # type: Optional[float]
             called_once = False
 
+            dl_text = self.get_message("download.downloading")
+
+            columns = min(80, shutil.get_terminal_size().columns)
+            path_len = columns - 21 - len(dl_text)
+
             def _progress_callback(progress: 'DownloadProgress'):
-                nonlocal called_once
-                speed = self.format_bytes(progress.size / (time.perf_counter() - start_time))
-                percentage = progress.size / progress.total * 100
-                entries = ", ".join((entry.name for entry in progress.entries))
-                self.print("", "Downloading /{:50} {:6.2f}% {}/s\r".format(entries[:50], percentage, speed), end="")
-                called_once = True
-                if progress_callback is not None:
-                    progress_callback(progress)
+                nonlocal called_once, last_print_time
+                now = time.perf_counter()
+                if last_print_time is None or (now - last_print_time) > 0.1:
+                    last_print_time = now
+                    speed = self.format_bytes(int(progress.size / (now - start_time)))
+                    percentage = progress.size / progress.total * 100
+                    entries = ", ".join((entry.name for entry in progress.entries))
+                    real_path_len = path_len - len(speed)
+                    print("[      ] {} {} {:6.2f}% {}/s\r".format(dl_text, entries[:real_path_len].ljust(real_path_len), percentage, speed), end="")
+                    called_once = True
+                    if progress_callback is not None:
+                        progress_callback(progress)
 
             def _line_break():
                 if called_once:
-                    self.print("", "")
+                    result_text = self.get_message("download.downloaded", lst.count, self.format_bytes(lst.size).lstrip(" "), time.perf_counter() - start_time)
+                    result_len = columns - 9
+                    print("\r[  OK  ] {}".format(result_text[:result_len].ljust(result_len)))
 
             lst.callbacks.insert(0, _line_break)
             super().download_files(lst, progress_callback=_progress_callback)
@@ -2014,15 +2045,16 @@ if __name__ == '__main__':
                 return datetime.strptime(str(raw).rsplit("+", 2)[0], "%Y-%m-%dT%H:%M:%S").strftime("%c")
 
         @staticmethod
-        def format_bytes(n: float) -> str:
+        def format_bytes(n: int) -> str:
+            """ Return a byte with suffix B, kB, MB and GB. The string is always 7 chars unless the size exceed 1 TB. """
             if n < 1000:
-                return "{:4.0f}B".format(int(n))
+                return "{:6d}B".format(int(n))
             elif n < 1000000:
-                return "{:4.0f}kB".format(n // 1000)
+                return "{:5.1f}kB".format(int(n / 100) / 10)
             elif n < 1000000000:
-                return "{:4.0f}MB".format(n // 1000000)
+                return "{:5.1f}MB".format(int(n / 100000) / 10)
             else:
-                return "{:4.0f}GB".format(n // 1000000000)
+                return "{:5.1f}GB".format(int(n / 100000000) / 10)
 
 
     class PortableAddon:

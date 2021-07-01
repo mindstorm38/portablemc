@@ -31,6 +31,7 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
 from typing import Dict, Callable, Optional, Generator, Tuple, List, Union, Type
 from http.client import HTTPConnection, HTTPSConnection
 from json.decoder import JSONDecodeError
+from contextlib import contextmanager
 from urllib import parse as url_parse
 from zipfile import ZipFile
 from uuid import uuid4
