@@ -1811,7 +1811,7 @@ if __name__ == '__main__':
                     complete("OK", "version.resolved", name)
                     return ret
                 except VersionNotFoundError:
-                    complete("ERRO", "version.error.not_found", name)
+                    complete("FAILED", "version.error.not_found", name)
                     raise
 
         def ensure_version_jar(self, version_dir: str, version: str, version_meta: dict, dl_list: 'DownloadList') -> 'str':
@@ -1821,7 +1821,7 @@ if __name__ == '__main__':
                     complete("OK", "version.jar.loaded")
                     return ret
                 except VersionNotFoundError:
-                    complete("ERRO", "version.error.jar_not_found")
+                    complete("FAILED", "version.error.jar_not_found")
                     raise
 
         def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
