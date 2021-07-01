@@ -25,20 +25,7 @@ import asyncio
 class RicherAddon:
 
     def __init__(self, pmc):
-
         self.pmc = pmc
-
-        """self.progress_bar_formatters = [
-            Label(),
-            Text(" "),
-            Bar(sym_a="#", sym_b="#", sym_c="."),
-            Text(" ["),
-            ByteProgress(),
-            Text("] ["),
-            Percentage(),
-            Text("]"),
-        ]"""
-
         self.RollingLinesWindow = RollingLinesWindow
 
     def load(self):
@@ -51,7 +38,6 @@ class RicherAddon:
 
         self.pmc.mixin("register_start_arguments", self.register_start_arguments)
         self.pmc.mixin("game_runner", self.game_runner)
-        # self.pmc.mixin("download_file", self.download_file)
 
     def register_start_arguments(self, old, parser: ArgumentParser):
         parser.add_argument("--not-rich", help=self.pmc.get_message("args.start.not_rich"), default=False, action="store_true")
@@ -146,15 +132,6 @@ class RicherAddon:
                 application.exit()
 
         asyncio.get_event_loop().run_until_complete(_run())
-
-    """def download_file(self, _old, entry, **kwargs):
-        with ProgressBar(formatters=self.progress_bar_formatters) as pb:
-            progress_task = pb(label=entry.name, total=None if entry.size == 0 else entry.size)
-            def progress_callback(p_dl_size: int, _p_size: int, _p_dl_total_size: int, _p_total_size: int):
-                progress_task.items_completed = p_dl_size
-                pb.invalidate()
-            kwargs["progress_callback"] = progress_callback
-            return self.pmc.download_file_base(entry, **kwargs)"""
 
 
 class RollingLinesWindow:
@@ -299,22 +276,3 @@ class ColoredLogLexer(Lexer):
                 return []
 
         return get_line
-
-
-"""class ByteProgress(Formatter):
-
-    template = "<current>{current}</current>"
-
-    def format(self, progress_bar: "ProgressBar", progress: "ProgressBarCounter[object]", width: int) -> AnyFormattedText:
-        n = progress.items_completed
-        if n < 1000:
-            return "{:5.0f}B".format(n)
-        elif n < 1000000:
-            return "{:4.0f}kB".format(n // 1000)
-        elif n < 1000000000:
-            return "{:4.0f}MB".format(n // 1000000)
-        else:
-            return "{:4.0f}GB".format(n // 1000000000)
-
-    def get_width(self, progress_bar: "ProgressBar") -> AnyDimension:
-        return Dimension.exact(6)"""
