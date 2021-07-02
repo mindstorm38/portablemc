@@ -1625,17 +1625,17 @@ if __name__ == '__main__':
 
         def cmd_logout(self, args: Namespace) -> int:
             email_or_username = args.email_or_username
-            self.n_print_task("", "cmd.logout.microsoft.pending" if args.microsoft else "cmd.logout.yggdrasil.pending", email_or_username)
+            self.print_task("", "cmd.logout.microsoft.pending" if args.microsoft else "cmd.logout.yggdrasil.pending", email_or_username)
             auth_db = self.new_auth_database(self.get_arg_work_dir(args))
             auth_db.load()
             session = auth_db.remove(email_or_username, MicrosoftAuthSession if args.microsoft else YggdrasilAuthSession)
             if session is not None:
                 session.invalidate()
                 auth_db.save()
-                self.n_print_task("OK", "cmd.logout.success", email_or_username, done=True)
+                self.print_task("OK", "cmd.logout.success", email_or_username, done=True)
                 return 0
             else:
-                self.n_print_task("FAILED", "cmd.logout.unknown_session", email_or_username, done=True)
+                self.print_task("FAILED", "cmd.logout.unknown_session", email_or_username, done=True)
                 return EXIT_LOGOUT_FAILED
 
         def cmd_addon(self, args: Namespace) -> int:
@@ -1722,7 +1722,7 @@ if __name__ == '__main__':
             except VersionNotFoundError:
                 return EXIT_VERSION_NOT_FOUND
             except JsonRequestError as err:
-                self.n_print_task("FAILED", "http_request_error", err.args[0], done=True)
+                self.print_task("FAILED", "http_request_error", err.args[0], done=True)
                 return EXIT_HTTP_ERROR
             except DownloadError:
                 return EXIT_DOWNLOAD_ERROR
@@ -1761,7 +1761,7 @@ if __name__ == '__main__':
                 import traceback
                 traceback.print_exc()
 
-        def n_print_task(self, status: Optional[str], msg_key: str, *msg_args, done: bool = False):
+        def print_task(self, status: Optional[str], msg_key: str, *msg_args, done: bool = False):
             len_limit = max(0, self.get_term_width() - 9)
             msg = self.get_message(msg_key, *msg_args)[:len_limit]
             missing_len = max(0, self._print_task_last_len - len(msg) - 1)  # -1 for the print 'spacer' arg
@@ -1796,50 +1796,50 @@ if __name__ == '__main__':
 
         def resolve_version_meta(self, main_dir: str, name: str) -> Tuple[dict, str]:
             try:
-                self.n_print_task("", "version.resolving", name)
+                self.print_task("", "version.resolving", name)
                 ret = super().resolve_version_meta(main_dir, name)
-                self.n_print_task("OK", "version.resolved", name, done=True)
+                self.print_task("OK", "version.resolved", name, done=True)
                 return ret
             except VersionNotFoundError:
-                self.n_print_task("FAILED", "version.error.not_found", name, done=True)
+                self.print_task("FAILED", "version.error.not_found", name, done=True)
                 raise
 
         def ensure_version_jar(self, version_dir: str, version: str, version_meta: dict, dl_list: 'DownloadList') -> 'str':
             try:
-                self.n_print_task("", "version.jar.loading")
+                self.print_task("", "version.jar.loading")
                 ret = super().ensure_version_jar(version_dir, version, version_meta, dl_list)
-                self.n_print_task("OK", "version.jar.loaded", done=True)
+                self.print_task("OK", "version.jar.loaded", done=True)
                 return ret
             except VersionNotFoundError:
-                self.n_print_task("FAILED", "version.error.jar_not_found", done=True)
+                self.print_task("FAILED", "version.error.jar_not_found", done=True)
                 raise
 
         def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
-            self.n_print_task("", "assets.checking")
+            self.print_task("", "assets.checking")
             ret = super().ensure_assets(assets_dir, work_dir, version_meta, dl_list)
-            self.n_print_task("OK", "assets.checked", ret[2], done=True)
+            self.print_task("OK", "assets.checked", ret[2], done=True)
             return ret
 
         def ensure_logger(self, assets_dir: str, version_meta: dict, dl_list: 'DownloadList', better_logging: bool) -> 'Optional[str]':
-            self.n_print_task("", "logger.loading")
+            self.print_task("", "logger.loading")
             ret = super().ensure_logger(assets_dir, version_meta, dl_list, better_logging)
-            self.n_print_task("OK", "logger.loaded_pretty" if better_logging else "start.loaded_logger", done=True)
+            self.print_task("OK", "logger.loaded_pretty" if better_logging else "start.loaded_logger", done=True)
             return ret
 
         def ensure_libraries(self, main_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[List[str], List[str]]':
-            self.n_print_task("", "libraries.loading")
+            self.print_task("", "libraries.loading")
             ret = super().ensure_libraries(main_dir, version_meta, dl_list)
-            self.n_print_task("OK", "libraries.loaded", len(ret[0]) + len(ret[1]), done=True)
+            self.print_task("OK", "libraries.loaded", len(ret[0]) + len(ret[1]), done=True)
             return ret
 
         def ensure_jvm(self, main_dir: str, jvm_version_type: str, dl_list: 'DownloadList') -> 'Optional[Tuple[str, str]]':
             try:
-                self.n_print_task("", "jvm.loading")
+                self.print_task("", "jvm.loading")
                 ret = super().ensure_jvm(main_dir, jvm_version_type, dl_list)
-                self.n_print_task("OK", "jvm.loaded", ret[0], done=True)
+                self.print_task("OK", "jvm.loaded", ret[0], done=True)
                 return ret
             except JvmLoadingError as err:
-                self.n_print_task("FAILED", "jvm.error.{}".format(err.args[0]), done=True)
+                self.print_task("FAILED", "jvm.error.{}".format(err.args[0]), done=True)
                 raise
 
         def game_runner(self, proc_args: list, proc_cwd: str, options: dict):
@@ -1861,36 +1861,36 @@ if __name__ == '__main__':
             auth_db.load()
 
             task_text = "auth.microsoft" if microsoft else "auth.yggdrasil"
-            self.n_print_task("", task_text, email_or_username)
+            self.print_task("", task_text, email_or_username)
 
             session = auth_db.get(email_or_username, MicrosoftAuthSession if microsoft else YggdrasilAuthSession)
             if session is not None:
                 try:
                     if not session.validate():
-                        self.n_print_task("", "auth.refreshing")
+                        self.print_task("", "auth.refreshing")
                         session.refresh()
                         auth_db.save()
-                        self.n_print_task("OK", "auth.refreshed", email_or_username, done=True)
+                        self.print_task("OK", "auth.refreshed", email_or_username, done=True)
                     else:
-                        self.n_print_task("OK", "auth.validated", email_or_username, done=True)
+                        self.print_task("OK", "auth.validated", email_or_username, done=True)
                     return session
                 except AuthError as err:
-                    self.n_print_task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:], done=True)
+                    self.print_task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:], done=True)
 
-            self.n_print_task("..", task_text, email_or_username, done=True)
+            self.print_task("..", task_text, email_or_username, done=True)
 
             try:
                 session = self.prompt_microsoft_authenticate(email_or_username) if microsoft else self.prompt_yggdrasil_authenticate(email_or_username)
                 if session is None:
                     return None
                 if cache_in_db:
-                    self.n_print_task("", "auth.caching")
+                    self.print_task("", "auth.caching")
                     auth_db.put(email_or_username, session)
                     auth_db.save()
-                self.n_print_task("OK", "auth.logged_in", done=True)
+                self.print_task("OK", "auth.logged_in", done=True)
                 return session
             except AuthError as err:
-                self.n_print_task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:], done=True)
+                self.print_task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:], done=True)
                 return None
 
         def prompt_yggdrasil_authenticate(self, email_or_username: str) -> 'Optional[YggdrasilAuthSession]':
@@ -1908,7 +1908,7 @@ if __name__ == '__main__':
             nonce = uuid4().hex
 
             if not webbrowser.open(MicrosoftAuthSession.get_authentication_url(client_id, code_redirect_uri, email, nonce)):
-                self.n_print_task("FAILED", "auth.microsoft.no_browser", done=True)
+                self.print_task("FAILED", "auth.microsoft.no_browser", done=True)
                 return None
 
             class AuthServer(HTTPServer):
@@ -1969,7 +1969,7 @@ if __name__ == '__main__':
                         self.send_response(404)
                         self.send_auth_response("Unexpected page.")
 
-            self.n_print_task("", "auth.microsoft.opening_browser_and_listening")
+            self.print_task("", "auth.microsoft.opening_browser_and_listening")
 
             try:
                 with AuthServer() as server:
@@ -1979,14 +1979,14 @@ if __name__ == '__main__':
                 pass
 
             if server.ms_auth_code is None:
-                self.n_print_task("FAILED", "auth.microsoft.failed_to_authenticate", done=True)
+                self.print_task("FAILED", "auth.microsoft.failed_to_authenticate", done=True)
                 return None
             else:
-                self.n_print_task("", "auth.microsoft.processing")
+                self.print_task("", "auth.microsoft.processing")
                 if MicrosoftAuthSession.check_token_id(server.ms_auth_id_token, email, nonce):
                     return MicrosoftAuthSession.authenticate(client_id, server.ms_auth_code, code_redirect_uri)
                 else:
-                    self.n_print_task("FAILED", "auth.microsoft.incoherent_dat", done=True)
+                    self.print_task("FAILED", "auth.microsoft.incoherent_dat", done=True)
                     return None
 
         # Downloading
