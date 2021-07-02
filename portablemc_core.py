@@ -31,7 +31,6 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
 from typing import Dict, Callable, Optional, Generator, Tuple, List, Union, Type
 from http.client import HTTPConnection, HTTPSConnection
 from json.decoder import JSONDecodeError
-from contextlib import contextmanager
 from urllib import parse as url_parse
 from zipfile import ZipFile
 from uuid import uuid4
@@ -151,10 +150,12 @@ class CorePortableMC:
                    args_replacement_modifier: 'Optional[Callable[[Dict[str, str]], None]]' = None,
                    runner: 'Optional[Callable[[list, str, dict], None]]' = None) -> None:
 
-        # This method can raise these errors:
-        # - VersionNotFoundError: if the given version was not found
-        # - URLError: for any URL resolving error
-        # - DownloadCorruptedError: if a download is corrupted
+        """
+        This method can raise these errors:
+        - VersionNotFoundError: if the given version was not found
+        - JsonRequestError: for any HTTP request resolving error
+        - DownloadError: if a download is corrupted
+        """
 
         main_dir = self.compute_main_dir(main_dir)
         work_dir = self.compute_work_dir(main_dir, work_dir)
@@ -323,7 +324,7 @@ class CorePortableMC:
 
 
     def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
-        """ Returns (index_version, virtual_dir, assets_count). """
+        """ Returns (index_version, virtual_dir, assets_count). Raise JsonRequestError. """
 
         assets_indexes_dir = path.join(assets_dir, "indexes")
         assets_index_version = version_meta["assets"]
@@ -489,7 +490,7 @@ class CorePortableMC:
         return classpath_libs, native_libs
 
     def ensure_jvm(self, main_dir: str, jvm_version_type: str, dl_list: 'DownloadList') -> 'Tuple[str, str]':
-        """ Return (jvm_version, jvm_exec_path). """
+        """ Return (jvm_version, jvm_exec_path). Raise JvmLoadingError and JsonRequestError. """
 
         jvm_arch = self.get_minecraft_jvm()
         if jvm_arch is None:
@@ -534,6 +535,7 @@ class CorePortableMC:
     # Lazy variables getters
 
     def get_version_manifest(self) -> 'VersionManifest':
+        """ Can raise JsonRequestError. """
         if self._version_manifest is None:
             self._version_manifest = VersionManifest.load_from_url()
         return self._version_manifest
@@ -657,7 +659,7 @@ class CorePortableMC:
         return path.join(main_dir, "versions", name)
 
     def resolve_version_meta(self, main_dir: str, name: str) -> Tuple[dict, str]:
-        """ Return (version_meta, version_dir). Raise VersionNotFoundError(name) if fails. """
+        """ Return (version_meta, version_dir). Raise VersionNotFoundError(name) or JsonRequestError. """
 
         version_dir = self.get_version_dir(main_dir, name)
         version_meta_file = path.join(version_dir, "{}.json".format(name))
@@ -684,7 +686,7 @@ class CorePortableMC:
         return content, version_dir
 
     def resolve_version_meta_recursive(self, main_dir: str, name: str) -> Tuple[dict, str]:
-        """ Return (version_meta, version_dir). Raise VersionNotFoundError(name) if fails. """
+        """ Return (version_meta, version_dir). Raise VersionNotFoundError(name) or JsonRequestError. """
         version_meta, version_dir = self.resolve_version_meta(main_dir, name)
         while "inheritsFrom" in version_meta:
             parent_meta, _ = self.resolve_version_meta(main_dir, version_meta["inheritsFrom"])

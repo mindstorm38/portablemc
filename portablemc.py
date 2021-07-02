@@ -29,7 +29,6 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 6:
 from typing import Dict, Callable, Optional, Generator, Tuple, List, Union, Type
 from http.client import HTTPConnection, HTTPSConnection
 from json.decoder import JSONDecodeError
-from contextlib import contextmanager
 from urllib import parse as url_parse
 from zipfile import ZipFile
 from uuid import uuid4
@@ -149,10 +148,12 @@ class CorePortableMC:
                    args_replacement_modifier: 'Optional[Callable[[Dict[str, str]], None]]' = None,
                    runner: 'Optional[Callable[[list, str, dict], None]]' = None) -> None:
 
-        # This method can raise these errors:
-        # - VersionNotFoundError: if the given version was not found
-        # - URLError: for any URL resolving error
-        # - DownloadCorruptedError: if a download is corrupted
+        """
+        This method can raise these errors:
+        - VersionNotFoundError: if the given version was not found
+        - JsonRequestError: for any HTTP request resolving error
+        - DownloadError: if a download is corrupted
+        """
 
         main_dir = self.compute_main_dir(main_dir)
         work_dir = self.compute_work_dir(main_dir, work_dir)
@@ -321,7 +322,7 @@ class CorePortableMC:
 
 
     def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
-        """ Returns (index_version, virtual_dir, assets_count). """
+        """ Returns (index_version, virtual_dir, assets_count). Raise JsonRequestError. """
 
         assets_indexes_dir = path.join(assets_dir, "indexes")
         assets_index_version = version_meta["assets"]
@@ -487,7 +488,7 @@ class CorePortableMC:
         return classpath_libs, native_libs
 
     def ensure_jvm(self, main_dir: str, jvm_version_type: str, dl_list: 'DownloadList') -> 'Tuple[str, str]':
-        """ Return (jvm_version, jvm_exec_path). """
+        """ Return (jvm_version, jvm_exec_path). Raise JvmLoadingError and JsonRequestError. """
 
         jvm_arch = self.get_minecraft_jvm()
         if jvm_arch is None:
@@ -532,6 +533,7 @@ class CorePortableMC:
     # Lazy variables getters
 
     def get_version_manifest(self) -> 'VersionManifest':
+        """ Can raise JsonRequestError. """
         if self._version_manifest is None:
             self._version_manifest = VersionManifest.load_from_url()
         return self._version_manifest
@@ -655,7 +657,7 @@ class CorePortableMC:
         return path.join(main_dir, "versions", name)
 
     def resolve_version_meta(self, main_dir: str, name: str) -> Tuple[dict, str]:
-        """ Return (version_meta, version_dir). Raise VersionNotFoundError(name) if fails. """
+        """ Return (version_meta, version_dir). Raise VersionNotFoundError(name) or JsonRequestError. """
 
         version_dir = self.get_version_dir(main_dir, name)
         version_meta_file = path.join(version_dir, "{}.json".format(name))
@@ -682,7 +684,7 @@ class CorePortableMC:
         return content, version_dir
 
     def resolve_version_meta_recursive(self, main_dir: str, name: str) -> Tuple[dict, str]:
-        """ Return (version_meta, version_dir). Raise VersionNotFoundError(name) if fails. """
+        """ Return (version_meta, version_dir). Raise VersionNotFoundError(name) or JsonRequestError. """
         version_meta, version_dir = self.resolve_version_meta(main_dir, name)
         while "inheritsFrom" in version_meta:
             parent_meta, _ = self.resolve_version_meta(main_dir, version_meta["inheritsFrom"])
@@ -1324,6 +1326,10 @@ if __name__ == '__main__':
             self._addons_dir = path.join(path.dirname(__file__), ADDONS_DIR)
             self._addons: Dict[str, PortableAddon] = {}
 
+            self._term_width = 0
+            self._term_width_update_time = 0
+            self._print_task_last_len = 0
+
             self._messages = {
 
                 "addon.defined_twice": "The addon '{}' is defined twice, both single-file and package, loaded the package one.",
@@ -1382,10 +1388,10 @@ if __name__ == '__main__':
                 "cmd.search.result.more.local": "[LOCAL]",
                 "cmd.search.not_found": "=> No version found",
 
-                "cmd.logout.pending": "Logging out from {}...",
-                "cmd.logout.microsoft.pending": "Logging out from {} (Microsoft account)...",
-                "cmd.logout.success": "=> Logged out.",
-                "cmd.logout.unknown_session": "=> This session is not cached.",
+                "cmd.logout.yggdrasil.pending": "Logging out {} from Mojang...",
+                "cmd.logout.microsoft.pending": "Logging out {} from Microsoft...",
+                "cmd.logout.success": "Logged out {}.",
+                "cmd.logout.unknown_session": "No session for {}.",
 
                 "cmd.addon.list.title": "Addons list ({}):",
                 "cmd.addon.list.result": "=> {:20s} v{} by {} [{}]",
@@ -1619,17 +1625,17 @@ if __name__ == '__main__':
 
         def cmd_logout(self, args: Namespace) -> int:
             email_or_username = args.email_or_username
-            self.print("cmd.logout.microsoft.pending" if args.microsoft else "cmd.logout.pending", email_or_username)
+            self.n_print_task("", "cmd.logout.microsoft.pending" if args.microsoft else "cmd.logout.yggdrasil.pending", email_or_username)
             auth_db = self.new_auth_database(self.get_arg_work_dir(args))
             auth_db.load()
             session = auth_db.remove(email_or_username, MicrosoftAuthSession if args.microsoft else YggdrasilAuthSession)
             if session is not None:
                 session.invalidate()
                 auth_db.save()
-                self.print("cmd.logout.success")
+                self.n_print_task("OK", "cmd.logout.success", email_or_username, done=True)
                 return 0
             else:
-                self.print("cmd.logout.unknown_session")
+                self.n_print_task("FAILED", "cmd.logout.unknown_session", email_or_username, done=True)
                 return EXIT_LOGOUT_FAILED
 
         def cmd_addon(self, args: Namespace) -> int:
@@ -1716,14 +1722,14 @@ if __name__ == '__main__':
             except VersionNotFoundError:
                 return EXIT_VERSION_NOT_FOUND
             except JsonRequestError as err:
-                self.print("http_request_error", err.args[0])
+                self.n_print_task("FAILED", "http_request_error", err.args[0], done=True)
                 return EXIT_HTTP_ERROR
             except DownloadError:
                 return EXIT_DOWNLOAD_ERROR
             except JvmLoadingError:
                 return EXIT_JVM_LOADING_ERROR
 
-        # Messages
+        # Messages #
 
         def get_messages(self) -> Dict[str, str]:
             return self._messages
@@ -1740,28 +1746,28 @@ if __name__ == '__main__':
             except IndexError:
                 return msg
 
+        # Printing #
+
+        def get_term_width(self) -> int:
+            now = time.monotonic()
+            if now - self._term_width_update_time > 1:
+                self._term_width_update_time = now
+                self._term_width = shutil.get_terminal_size().columns
+            return self._term_width
+
         def print(self, message_key: str, *args, traceback: bool = False, end: str = "\n"):
             print(self.get_message(message_key, *args), end=end)
             if traceback:
                 import traceback
                 traceback.print_exc()
 
-        @contextmanager
-        def print_task(self, start_message_key: Optional[str] = None, *start_args):
-            len_limit = max(0, shutil.get_terminal_size().columns - 9)
-            last_len = 0
-            def complete(status: Optional[str], message_key: str, *args):
-                nonlocal last_len
-                msg = self.get_message(message_key, *args)[:len_limit]
-                missing_len = max(0, last_len - len(msg) - 1)
-                print("\r        " if status is None else "\r[{:^6s}]".format(status), msg, " " * missing_len, end="", flush=True)
-                last_len = len(msg)
-            if start_message_key is not None:
-                complete("", start_message_key, *start_args)
-            try:
-                yield complete
-            finally:
-                print()
+        def n_print_task(self, status: Optional[str], msg_key: str, *msg_args, done: bool = False):
+            len_limit = max(0, self.get_term_width() - 9)
+            msg = self.get_message(msg_key, *msg_args)[:len_limit]
+            missing_len = max(0, self._print_task_last_len - len(msg) - 1)  # -1 for the print 'spacer' arg
+            status_header = "\r        " if status is None else "\r[{:^6s}]".format(status)
+            self._print_task_last_len = 0 if done else len(msg)
+            print(status_header, msg, " " * missing_len, end="\n" if done else "", flush=True)
 
         def prompt(self, message_key: str, *args, password: bool = False) -> Optional[str]:
             print(self.get_message(message_key, *args), end="", flush=True)
@@ -1789,52 +1795,52 @@ if __name__ == '__main__':
             super().start_mc(**kwargs)
 
         def resolve_version_meta(self, main_dir: str, name: str) -> Tuple[dict, str]:
-            with self.print_task("version.resolving", name) as task:
-                try:
-                    ret = super().resolve_version_meta(main_dir, name)
-                    task("OK", "version.resolved", name)
-                    return ret
-                except VersionNotFoundError:
-                    task("FAILED", "version.error.not_found", name)
-                    raise
+            try:
+                self.n_print_task("", "version.resolving", name)
+                ret = super().resolve_version_meta(main_dir, name)
+                self.n_print_task("OK", "version.resolved", name, done=True)
+                return ret
+            except VersionNotFoundError:
+                self.n_print_task("FAILED", "version.error.not_found", name, done=True)
+                raise
 
         def ensure_version_jar(self, version_dir: str, version: str, version_meta: dict, dl_list: 'DownloadList') -> 'str':
-            with self.print_task("version.jar.loading") as task:
-                try:
-                    ret = super().ensure_version_jar(version_dir, version, version_meta, dl_list)
-                    task("OK", "version.jar.loaded")
-                    return ret
-                except VersionNotFoundError:
-                    task("FAILED", "version.error.jar_not_found")
-                    raise
+            try:
+                self.n_print_task("", "version.jar.loading")
+                ret = super().ensure_version_jar(version_dir, version, version_meta, dl_list)
+                self.n_print_task("OK", "version.jar.loaded", done=True)
+                return ret
+            except VersionNotFoundError:
+                self.n_print_task("FAILED", "version.error.jar_not_found", done=True)
+                raise
 
         def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
-            with self.print_task("assets.checking") as task:
-                ret = super().ensure_assets(assets_dir, work_dir, version_meta, dl_list)
-                task("OK", "assets.checked", ret[2])
+            self.n_print_task("", "assets.checking")
+            ret = super().ensure_assets(assets_dir, work_dir, version_meta, dl_list)
+            self.n_print_task("OK", "assets.checked", ret[2], done=True)
             return ret
 
         def ensure_logger(self, assets_dir: str, version_meta: dict, dl_list: 'DownloadList', better_logging: bool) -> 'Optional[str]':
-            with self.print_task("logger.loading") as task:
-                ret = super().ensure_logger(assets_dir, version_meta, dl_list, better_logging)
-                task("OK", "logger.loaded_pretty" if better_logging else "start.loaded_logger")
+            self.n_print_task("", "logger.loading")
+            ret = super().ensure_logger(assets_dir, version_meta, dl_list, better_logging)
+            self.n_print_task("OK", "logger.loaded_pretty" if better_logging else "start.loaded_logger", done=True)
             return ret
 
         def ensure_libraries(self, main_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[List[str], List[str]]':
-            with self.print_task("libraries.loading") as task:
-                ret = super().ensure_libraries(main_dir, version_meta, dl_list)
-                task("OK", "libraries.loaded", len(ret[0]) + len(ret[1]))
+            self.n_print_task("", "libraries.loading")
+            ret = super().ensure_libraries(main_dir, version_meta, dl_list)
+            self.n_print_task("OK", "libraries.loaded", len(ret[0]) + len(ret[1]), done=True)
             return ret
 
         def ensure_jvm(self, main_dir: str, jvm_version_type: str, dl_list: 'DownloadList') -> 'Optional[Tuple[str, str]]':
-            with self.print_task("jvm.loading") as task:
-                try:
-                    ret = super().ensure_jvm(main_dir, jvm_version_type, dl_list)
-                    task("OK", "jvm.loaded", ret[0])
-                except JvmLoadingError as err:
-                    task("FAILED", "jvm.error.{}".format(err.args[0]))
-                    raise
-            return ret
+            try:
+                self.n_print_task("", "jvm.loading")
+                ret = super().ensure_jvm(main_dir, jvm_version_type, dl_list)
+                self.n_print_task("OK", "jvm.loaded", ret[0], done=True)
+                return ret
+            except JvmLoadingError as err:
+                self.n_print_task("FAILED", "jvm.error.{}".format(err.args[0]), done=True)
+                raise
 
         def game_runner(self, proc_args: list, proc_cwd: str, options: dict):
             self.print("", "====================================================")
@@ -1855,43 +1861,43 @@ if __name__ == '__main__':
             auth_db.load()
 
             task_text = "auth.microsoft" if microsoft else "auth.yggdrasil"
-            with self.print_task(task_text, email_or_username) as task:
-                session = auth_db.get(email_or_username, MicrosoftAuthSession if microsoft else YggdrasilAuthSession)
-                if session is not None:
-                    try:
-                        if not session.validate():
-                            task("", "auth.refreshing")
-                            session.refresh()
-                            auth_db.save()
-                            task("OK", "auth.refreshed", email_or_username)
-                        else:
-                            task("OK", "auth.validated", email_or_username)
-                        return session
-                    except AuthError as err:
-                        task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:])
-                else:
-                    task("..", task_text, email_or_username)
+            self.n_print_task("", task_text, email_or_username)
 
-            with self.print_task() as task:
+            session = auth_db.get(email_or_username, MicrosoftAuthSession if microsoft else YggdrasilAuthSession)
+            if session is not None:
                 try:
-                    session = self.prompt_microsoft_authenticate(email_or_username, task) if microsoft else self.prompt_yggdrasil_authenticate(email_or_username, task)
-                    if session is None:
-                        return None
-                    if cache_in_db:
-                        task("", "auth.caching")
-                        auth_db.put(email_or_username, session)
+                    if not session.validate():
+                        self.n_print_task("", "auth.refreshing")
+                        session.refresh()
                         auth_db.save()
-                    task("OK", "auth.logged_in")
+                        self.n_print_task("OK", "auth.refreshed", email_or_username, done=True)
+                    else:
+                        self.n_print_task("OK", "auth.validated", email_or_username, done=True)
                     return session
                 except AuthError as err:
-                    task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:])
-                    return None
+                    self.n_print_task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:], done=True)
 
-        def prompt_yggdrasil_authenticate(self, email_or_username: str, _task) -> 'Optional[YggdrasilAuthSession]':
+            self.n_print_task("..", task_text, email_or_username, done=True)
+
+            try:
+                session = self.prompt_microsoft_authenticate(email_or_username) if microsoft else self.prompt_yggdrasil_authenticate(email_or_username)
+                if session is None:
+                    return None
+                if cache_in_db:
+                    self.n_print_task("", "auth.caching")
+                    auth_db.put(email_or_username, session)
+                    auth_db.save()
+                self.n_print_task("OK", "auth.logged_in", done=True)
+                return session
+            except AuthError as err:
+                self.n_print_task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:], done=True)
+                return None
+
+        def prompt_yggdrasil_authenticate(self, email_or_username: str) -> 'Optional[YggdrasilAuthSession]':
             password = self.prompt("auth.yggdrasil.enter_password", password=True)
             return None if password is None else YggdrasilAuthSession.authenticate(email_or_username, password)
 
-        def prompt_microsoft_authenticate(self, email: str, task) -> 'Optional[MicrosoftAuthSession]':
+        def prompt_microsoft_authenticate(self, email: str) -> 'Optional[MicrosoftAuthSession]':
 
             server_port = 12782
             client_id = MS_AZURE_APP_ID
@@ -1902,7 +1908,7 @@ if __name__ == '__main__':
             nonce = uuid4().hex
 
             if not webbrowser.open(MicrosoftAuthSession.get_authentication_url(client_id, code_redirect_uri, email, nonce)):
-                task("FAILED", "auth.microsoft.no_browser")
+                self.n_print_task("FAILED", "auth.microsoft.no_browser", done=True)
                 return None
 
             class AuthServer(HTTPServer):
@@ -1963,7 +1969,7 @@ if __name__ == '__main__':
                         self.send_response(404)
                         self.send_auth_response("Unexpected page.")
 
-            task("", "auth.microsoft.opening_browser_and_listening")
+            self.n_print_task("", "auth.microsoft.opening_browser_and_listening")
 
             try:
                 with AuthServer() as server:
@@ -1973,14 +1979,14 @@ if __name__ == '__main__':
                 pass
 
             if server.ms_auth_code is None:
-                task("FAILED", "auth.microsoft.failed_to_authenticate")
+                self.n_print_task("FAILED", "auth.microsoft.failed_to_authenticate", done=True)
                 return None
             else:
-                task("", "auth.microsoft.processing")
+                self.n_print_task("", "auth.microsoft.processing")
                 if MicrosoftAuthSession.check_token_id(server.ms_auth_id_token, email, nonce):
                     return MicrosoftAuthSession.authenticate(client_id, server.ms_auth_code, code_redirect_uri)
                 else:
-                    task("FAILED", "auth.microsoft.incoherent_dat")
+                    self.n_print_task("FAILED", "auth.microsoft.incoherent_dat", done=True)
                     return None
 
         # Downloading
@@ -1992,9 +1998,7 @@ if __name__ == '__main__':
             called_once = False
 
             dl_text = self.get_message("download.downloading")
-
-            columns = min(80, shutil.get_terminal_size().columns)
-            path_len = columns - 21 - len(dl_text)
+            non_path_len = len(dl_text) + 21
 
             def _progress_callback(progress: 'DownloadProgress'):
                 nonlocal called_once, last_print_time
@@ -2004,8 +2008,8 @@ if __name__ == '__main__':
                     speed = self.format_bytes(int(progress.size / (now - start_time)))
                     percentage = progress.size / progress.total * 100
                     entries = ", ".join((entry.name for entry in progress.entries))
-                    real_path_len = path_len - len(speed)
-                    print("[      ] {} {} {:6.2f}% {}/s\r".format(dl_text, entries[:real_path_len].ljust(real_path_len), percentage, speed), end="")
+                    path_len = max(0, min(80, self.get_term_width()) - non_path_len - len(speed))
+                    print("[      ] {} {} {:6.2f}% {}/s\r".format(dl_text, entries[:path_len].ljust(path_len), percentage, speed), end="")
                     called_once = True
                     if progress_callback is not None:
                         progress_callback(progress)
@@ -2015,7 +2019,7 @@ if __name__ == '__main__':
                     result_text = self.get_message("download.downloaded", lst.count, self.format_bytes(lst.size).lstrip(" "), time.perf_counter() - start_time)
                     if error:
                         result_text = self.get_message("download.errors", result_text)
-                    result_len = columns - 9
+                    result_len = max(0, min(80, self.get_term_width()) - 9)
                     template = "\r[FAILED] {}" if error else "\r[  OK  ] {}"
                     print(template.format(result_text[:result_len].ljust(result_len)))
 
@@ -2054,17 +2058,6 @@ if __name__ == '__main__':
                 return "{:5.1f}MB".format(int(n / 100000) / 10)
             else:
                 return "{:5.1f}GB".format(int(n / 100000000) / 10)
-
-
-    class TaskPrinter:
-
-        def __enter__(self):
-            pass
-
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            pass
-
-        pass
 
 
     class PortableAddon:
