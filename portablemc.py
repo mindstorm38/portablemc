@@ -1398,9 +1398,6 @@ if __name__ == '__main__':
                 "cmd.addon.show.description": "=> Description: {}",
                 "cmd.addon.show.requires": "=> Requires: {}",
 
-                # "download.progress": "\rDownloading {}... {:6.2f}% {}/s {}",
-                # "download.progress.unknown_size": "\rDownloading {}... {}/s {}",
-                # "download.of_total": "{:6.2f}% of total",
                 "download.downloading": "Downloading",
                 "download.downloaded": "Downloaded {} files, {} in {:.1f}s.",
                 "download.errors": "{} Errors happened, can't continue.",
@@ -1408,13 +1405,9 @@ if __name__ == '__main__':
                 "download.error.invalid_size": "Invalid size",
                 "download.error.invalid_sha1": "Invalid SHA1",
 
-                # "auth.pending": "Authenticating {}...",
-                # "auth.already_cached": "Session already cached, checking...",
-                # "auth.not_cached": "Session not cached, login...",
                 "auth.refreshing": "Invalid session, refreshing...",
                 "auth.refreshed": "Session refreshed for {}.",
                 "auth.validated": "Session validated for {}.",
-                # "auth.validation_failed": "{} Login...",
                 "auth.caching": "Caching your session...",
                 "auth.logged_in": "Logged in",
 
@@ -1433,17 +1426,6 @@ if __name__ == '__main__':
                 "auth.error.microsoft.outdated_token": "The token is no longer valid.",
                 "auth.error.microsoft.error": "Misc error: {}.",
 
-                # "version.resolving": "Resolving version {}",
-                # "version.found_cached": "=> Found cached metadata, loading...",
-                # "version.loaded": "=> Version loaded.",
-                # "version.failed_to_decode_cached": "=> Failed to decode cached metadata, try updating...",
-                # "version.found_in_manifest": "=> Found metadata in manifest, caching...",
-                # "version.not_found_in_manifest": "=> Not found in manifest.",
-                # "version.parent_version": "=> Parent version: {}",
-                # "version.parent_version_not_found": "=> Failed to find parent version {}",
-
-                # "version.loading": "Loading... ",
-                # "version.loaded": "Loaded {} {}.",
                 "version.resolving": "Resolving version {}... ",
                 "version.resolved": "Resolved version {}.",
                 "version.jar.loading": "Loading version JAR... ",
@@ -1463,14 +1445,6 @@ if __name__ == '__main__':
                 "jvm.error.unsupported_jvm_arch": "No JVM download was found for your platform architecture '{}', use --jvm argument to set the JVM executable of path to it.",
                 "jvm.error.unsupported_jvm_version": "No JVM download was found for version '{}', use --jvm argument to set the JVM executable of path to it.",
 
-                # "start.loading_jar_file": "Loading jar file...",
-                # "start.no_client_jar_file": "=> Can't find client download in version meta",
-                # "start.failed_to_decode_asset_index": "=> Failed to decode assets index, try updating...",
-                # "start.found_asset_index": "=> Found asset index in metadata: {}",
-                # "start.legacy_assets": "=> This version use lagacy assets, put in {}",
-                # "start.virtual_assets": "=> This version use virtual assets, put in {}",
-                # "start.verifying_assets": "=> Verifying assets...",
-                # "start.generating_better_logging_config": "=> Generating better logging configuration...",
                 "start.dry": "Dry run, stopping.",
                 "start.starting": "Starting game...",
                 "start.extracting_natives": "=> Extracting natives...",
@@ -1478,10 +1452,6 @@ if __name__ == '__main__':
                 "start.stopped": "Game stopped, clearing natives.",
                 "start.run.session": "=> Username: {}, UUID: {}",
                 "start.run.command_line": "=> Command line: {}",
-
-                # "libraries.loading_libraries": "Loading libraries and natives...",
-                # "libraries.no_download_for_library": "=> Can't found any download for library {}",
-                # "libraries.cached_library_not_found": "=> Can't found cached library {} at {}",
 
             }
 
@@ -1881,8 +1851,6 @@ if __name__ == '__main__':
                                 cache_in_db: bool,
                                 microsoft: bool) -> 'Optional[BaseAuthSession]':
 
-            # self.print("auth.microsoft.pending" if microsoft else "auth.pending", email_or_username)
-
             auth_db = self.new_auth_database(work_dir)
             auth_db.load()
 
@@ -1893,18 +1861,14 @@ if __name__ == '__main__':
                     try:
                         if not session.validate():
                             task("", "auth.refreshing")
-                            # self.print("auth.refreshing")
                             session.refresh()
                             auth_db.save()
                             task("OK", "auth.refreshed", email_or_username)
-                            # self.print("auth.refreshed")
                         else:
                             task("OK", "auth.validated", email_or_username)
-                            # self.print("auth.validated")
                         return session
                     except AuthError as err:
-                        self.print("", err)
-                        # complete("WARN", auth_err)
+                        task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:])
                 else:
                     task("..", task_text, email_or_username)
 
@@ -1915,15 +1879,12 @@ if __name__ == '__main__':
                         return None
                     if cache_in_db:
                         task("", "auth.caching")
-                        # self.print("auth.caching")
                         auth_db.put(email_or_username, session)
                         auth_db.save()
                     task("OK", "auth.logged_in")
-                    # self.print("auth.logged_in")
                     return session
                 except AuthError as err:
                     task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:])
-                    # self.print("", err)
                     return None
 
         def prompt_yggdrasil_authenticate(self, email_or_username: str, _task) -> 'Optional[YggdrasilAuthSession]':
@@ -1942,7 +1903,6 @@ if __name__ == '__main__':
 
             if not webbrowser.open(MicrosoftAuthSession.get_authentication_url(client_id, code_redirect_uri, email, nonce)):
                 task("FAILED", "auth.microsoft.no_browser")
-                # self.print("auth.microsoft.no_browser")
                 return None
 
             class AuthServer(HTTPServer):
@@ -2004,7 +1964,6 @@ if __name__ == '__main__':
                         self.send_auth_response("Unexpected page.")
 
             task("", "auth.microsoft.opening_browser_and_listening")
-            # self.print("auth.microsoft.opening_browser_and_listening")
 
             try:
                 with AuthServer() as server:
@@ -2015,16 +1974,13 @@ if __name__ == '__main__':
 
             if server.ms_auth_code is None:
                 task("FAILED", "auth.microsoft.failed_to_authenticate")
-                # self.print("auth.microsoft.failed_to_authenticate")
                 return None
             else:
-                # self.print("auth.microsoft.processing")
                 task("", "auth.microsoft.processing")
                 if MicrosoftAuthSession.check_token_id(server.ms_auth_id_token, email, nonce):
                     return MicrosoftAuthSession.authenticate(client_id, server.ms_auth_code, code_redirect_uri)
                 else:
                     task("FAILED", "auth.microsoft.incoherent_dat")
-                    # self.print("auth.microsoft.incoherent_data")
                     return None
 
         # Downloading
