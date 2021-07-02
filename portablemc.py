@@ -945,7 +945,7 @@ class YggdrasilAuthSession(BaseAuthSession):
                                                 headers={"Content-Type": "application/json"},
                                                 ignore_error=True)
         if error and code != 200:
-            raise AuthError(res["errorMessage"])
+            raise AuthError("yggdrasil", res["errorMessage"])
         return code, res
 
 
@@ -1057,7 +1057,7 @@ class MicrosoftAuthSession(BaseAuthSession):
         xsts_token = res["Token"]
 
         if xbl_user_hash != res["DisplayClaims"]["xui"][0]["uhs"]:
-            raise AuthError("Inconsistent user hash.")
+            raise AuthError("microsoft.inconsistent_user_hash")
 
         # MC Services Auth
         _, res = cls.ms_request(MC_AUTH_URL, {
@@ -1069,11 +1069,11 @@ class MicrosoftAuthSession(BaseAuthSession):
         code, res = cls.mc_request(MC_PROFILE_URL, mc_access_token)
 
         if code == 404:
-            raise AuthError("This account does not own Minecraft.")
+            raise AuthError("microsoft.does_not_own_minecraft")
         elif code == 401:
-            raise AuthError("The token is no longer valid.")
+            raise AuthError("microsoft.outdated_token")
         elif "error" in res or code != 200:
-            raise AuthError(res.get("errorMessage", res.get("error", "Unknown error")))
+            raise AuthError("microsoft.error", res.get("errorMessage", res.get("error", "Unknown error")))
 
         return {
             "refresh_token": ms_refresh_token,
@@ -1408,22 +1408,30 @@ if __name__ == '__main__':
                 "download.error.invalid_size": "Invalid size",
                 "download.error.invalid_sha1": "Invalid SHA1",
 
-                "auth.pending": "Authenticating {}...",
+                # "auth.pending": "Authenticating {}...",
                 # "auth.already_cached": "Session already cached, checking...",
                 # "auth.not_cached": "Session not cached, login...",
                 "auth.refreshing": "Invalid session, refreshing...",
-                "auth.refreshed": "Session refreshed.",
-                "auth.validated": "Session validated.",
+                "auth.refreshed": "Session refreshed for {}.",
+                "auth.validated": "Session validated for {}.",
                 # "auth.validation_failed": "{} Login...",
-                "auth.caching": "=> Caching your session...",
-                "auth.enter_your_password": "=> Enter {} password: ",
-                "auth.logged_in": "=> Logged in",
-                "auth.microsoft.pending": "Authenticating {} (Microsoft account)...",
+                "auth.caching": "Caching your session...",
+                "auth.logged_in": "Logged in",
+
+                "auth.yggdrasil": "Authenticating {} with Mojang...",
+                "auth.yggdrasil.enter_password": "         Password: ",
+                "auth.error.yggdrasil": "{}",
+
+                "auth.microsoft": "Authenticating {} with Microsoft...",
                 "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser is supported.",
                 "auth.microsoft.opening_browser_and_listening": "Opened authentication page in browser...",
-                "auth.microsoft.failed_to_authenticate": "=> Failed to authenticate.",
+                "auth.microsoft.failed_to_authenticate": "Failed to authenticate.",
                 "auth.microsoft.processing": "Processing authentication against Minecraft services...",
-                "auth.microsoft.incoherent_data": "=> Incoherent authentication data, please retry.",
+                "auth.microsoft.incoherent_data": "Incoherent authentication data, please retry.",
+                "auth.error.microsoft.inconsistent_user_hash": "Inconsistent user hash.",
+                "auth.error.microsoft.does_not_own_minecraft": "This account does not own Minecraft.",
+                "auth.error.microsoft.outdated_token": "The token is no longer valid.",
+                "auth.error.microsoft.error": "Misc error: {}.",
 
                 # "version.resolving": "Resolving version {}",
                 # "version.found_cached": "=> Found cached metadata, loading...",
@@ -1780,8 +1788,10 @@ if __name__ == '__main__':
                 last_len = len(msg)
             if start_message_key is not None:
                 complete("", start_message_key, *start_args)
-            yield complete
-            print()
+            try:
+                yield complete
+            finally:
+                print()
 
         def prompt(self, message_key: str, *args, password: bool = False) -> Optional[str]:
             print(self.get_message(message_key, *args), end="", flush=True)
@@ -1809,50 +1819,50 @@ if __name__ == '__main__':
             super().start_mc(**kwargs)
 
         def resolve_version_meta(self, main_dir: str, name: str) -> Tuple[dict, str]:
-            with self.print_task("version.resolving", name) as complete:
+            with self.print_task("version.resolving", name) as task:
                 try:
                     ret = super().resolve_version_meta(main_dir, name)
-                    complete("OK", "version.resolved", name)
+                    task("OK", "version.resolved", name)
                     return ret
                 except VersionNotFoundError:
-                    complete("FAILED", "version.error.not_found", name)
+                    task("FAILED", "version.error.not_found", name)
                     raise
 
         def ensure_version_jar(self, version_dir: str, version: str, version_meta: dict, dl_list: 'DownloadList') -> 'str':
-            with self.print_task("version.jar.loading") as complete:
+            with self.print_task("version.jar.loading") as task:
                 try:
                     ret = super().ensure_version_jar(version_dir, version, version_meta, dl_list)
-                    complete("OK", "version.jar.loaded")
+                    task("OK", "version.jar.loaded")
                     return ret
                 except VersionNotFoundError:
-                    complete("FAILED", "version.error.jar_not_found")
+                    task("FAILED", "version.error.jar_not_found")
                     raise
 
         def ensure_assets(self, assets_dir: str, work_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[str, str, int]':
-            with self.print_task("assets.checking") as complete:
+            with self.print_task("assets.checking") as task:
                 ret = super().ensure_assets(assets_dir, work_dir, version_meta, dl_list)
-                complete("OK", "assets.checked", ret[2])
+                task("OK", "assets.checked", ret[2])
             return ret
 
         def ensure_logger(self, assets_dir: str, version_meta: dict, dl_list: 'DownloadList', better_logging: bool) -> 'Optional[str]':
-            with self.print_task("logger.loading") as complete:
+            with self.print_task("logger.loading") as task:
                 ret = super().ensure_logger(assets_dir, version_meta, dl_list, better_logging)
-                complete("OK", "logger.loaded_pretty" if better_logging else "start.loaded_logger")
+                task("OK", "logger.loaded_pretty" if better_logging else "start.loaded_logger")
             return ret
 
         def ensure_libraries(self, main_dir: str, version_meta: dict, dl_list: 'DownloadList') -> 'Tuple[List[str], List[str]]':
-            with self.print_task("libraries.loading") as complete:
+            with self.print_task("libraries.loading") as task:
                 ret = super().ensure_libraries(main_dir, version_meta, dl_list)
-                complete("OK", "libraries.loaded", len(ret[0]) + len(ret[1]))
+                task("OK", "libraries.loaded", len(ret[0]) + len(ret[1]))
             return ret
 
         def ensure_jvm(self, main_dir: str, jvm_version_type: str, dl_list: 'DownloadList') -> 'Optional[Tuple[str, str]]':
-            with self.print_task("jvm.loading") as complete:
+            with self.print_task("jvm.loading") as task:
                 try:
                     ret = super().ensure_jvm(main_dir, jvm_version_type, dl_list)
-                    complete("OK", "jvm.loaded", ret[0])
+                    task("OK", "jvm.loaded", ret[0])
                 except JvmLoadingError as err:
-                    complete("FAILED", "jvm.error.{}".format(err.args[0]))
+                    task("FAILED", "jvm.error.{}".format(err.args[0]))
                     raise
             return ret
 
@@ -1871,57 +1881,56 @@ if __name__ == '__main__':
                                 cache_in_db: bool,
                                 microsoft: bool) -> 'Optional[BaseAuthSession]':
 
-            # task_text = "auth.microsoft.pending" if microsoft else "auth.pending"
-            # with self.print_task() as complete:
-            #     complete(None, task_text, email_or_username)
-
-            self.print("auth.microsoft.pending" if microsoft else "auth.pending", email_or_username)
+            # self.print("auth.microsoft.pending" if microsoft else "auth.pending", email_or_username)
 
             auth_db = self.new_auth_database(work_dir)
             auth_db.load()
 
-            # with self.print_task(task_text, email_or_username) as complete:
-            session = auth_db.get(email_or_username, MicrosoftAuthSession if microsoft else YggdrasilAuthSession)
-            if session is not None:
+            task_text = "auth.microsoft" if microsoft else "auth.yggdrasil"
+            with self.print_task(task_text, email_or_username) as task:
+                session = auth_db.get(email_or_username, MicrosoftAuthSession if microsoft else YggdrasilAuthSession)
+                if session is not None:
+                    try:
+                        if not session.validate():
+                            task("", "auth.refreshing")
+                            # self.print("auth.refreshing")
+                            session.refresh()
+                            auth_db.save()
+                            task("OK", "auth.refreshed", email_or_username)
+                            # self.print("auth.refreshed")
+                        else:
+                            task("OK", "auth.validated", email_or_username)
+                            # self.print("auth.validated")
+                        return session
+                    except AuthError as err:
+                        self.print("", err)
+                        # complete("WARN", auth_err)
+                else:
+                    task("..", task_text, email_or_username)
+
+            with self.print_task() as task:
                 try:
-                    if not session.validate():
-                        # complete("", "auth.refreshing")
-                        self.print("auth.refreshing")
-                        session.refresh()
+                    session = self.prompt_microsoft_authenticate(email_or_username, task) if microsoft else self.prompt_yggdrasil_authenticate(email_or_username, task)
+                    if session is None:
+                        return None
+                    if cache_in_db:
+                        task("", "auth.caching")
+                        # self.print("auth.caching")
+                        auth_db.put(email_or_username, session)
                         auth_db.save()
-                        # complete("OK", "auth.refreshed")
-                        self.print("auth.refreshed")
-                    else:
-                        # complete("OK", "auth.validated")
-                        self.print("auth.validated")
+                    task("OK", "auth.logged_in")
+                    # self.print("auth.logged_in")
                     return session
-                except AuthError as auth_err:
-                    self.print("", auth_err)
-                    # complete("WARN", auth_err)
-
-            try:
-                session = self.prompt_microsoft_authenticate(email_or_username) if microsoft else self.prompt_yggdrasil_authenticate(email_or_username)
-                if session is None:
+                except AuthError as err:
+                    task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:])
+                    # self.print("", err)
                     return None
-                if cache_in_db:
-                    # complete("", "auth.caching")
-                    self.print("auth.caching")
-                    auth_db.put(email_or_username, session)
-                    auth_db.save()
-                # complete("OK", "auth.logged_in")
-                self.print("auth.logged_in")
-                return session
-            except AuthError as auth_err:
-                # complete("FAILED", auth_err)
-                self.print("", auth_err)
-                return None
 
-        def prompt_yggdrasil_authenticate(self, email_or_username: str) -> 'Optional[YggdrasilAuthSession]':
-            password = self.prompt("auth.enter_your_password", email_or_username, password=True)
+        def prompt_yggdrasil_authenticate(self, email_or_username: str, _task) -> 'Optional[YggdrasilAuthSession]':
+            password = self.prompt("auth.yggdrasil.enter_password", password=True)
             return None if password is None else YggdrasilAuthSession.authenticate(email_or_username, password)
-            # return None if password is None else AuthEntry.mojang_authenticate(email_or_username, password)
 
-        def prompt_microsoft_authenticate(self, email: str) -> 'Optional[MicrosoftAuthSession]':
+        def prompt_microsoft_authenticate(self, email: str, task) -> 'Optional[MicrosoftAuthSession]':
 
             server_port = 12782
             client_id = MS_AZURE_APP_ID
@@ -1932,7 +1941,8 @@ if __name__ == '__main__':
             nonce = uuid4().hex
 
             if not webbrowser.open(MicrosoftAuthSession.get_authentication_url(client_id, code_redirect_uri, email, nonce)):
-                self.print("auth.microsoft.no_browser")
+                task("FAILED", "auth.microsoft.no_browser")
+                # self.print("auth.microsoft.no_browser")
                 return None
 
             class AuthServer(HTTPServer):
@@ -1956,7 +1966,7 @@ if __name__ == '__main__':
 
                 def send_auth_response(self, msg: str):
                     self.end_headers()
-                    self.wfile.write("{}{}".format(msg, "\n\nClose this tab and return to the application." if cast(AuthServer, self.server).ms_auth_done else "").encode())
+                    self.wfile.write("{}{}".format(msg, "\n\nClose this tab and return to the launcher." if cast(AuthServer, self.server).ms_auth_done else "").encode())
                     self.wfile.flush()
 
                 def do_POST(self):
@@ -1993,7 +2003,8 @@ if __name__ == '__main__':
                         self.send_response(404)
                         self.send_auth_response("Unexpected page.")
 
-            self.print("auth.microsoft.opening_browser_and_listening")
+            task("", "auth.microsoft.opening_browser_and_listening")
+            # self.print("auth.microsoft.opening_browser_and_listening")
 
             try:
                 with AuthServer() as server:
@@ -2003,14 +2014,17 @@ if __name__ == '__main__':
                 pass
 
             if server.ms_auth_code is None:
-                self.print("auth.microsoft.failed_to_authenticate")
+                task("FAILED", "auth.microsoft.failed_to_authenticate")
+                # self.print("auth.microsoft.failed_to_authenticate")
                 return None
             else:
-                self.print("auth.microsoft.processing")
+                # self.print("auth.microsoft.processing")
+                task("", "auth.microsoft.processing")
                 if MicrosoftAuthSession.check_token_id(server.ms_auth_id_token, email, nonce):
                     return MicrosoftAuthSession.authenticate(client_id, server.ms_auth_code, code_redirect_uri)
                 else:
-                    self.print("auth.microsoft.incoherent_data")
+                    task("FAILED", "auth.microsoft.incoherent_dat")
+                    # self.print("auth.microsoft.incoherent_data")
                     return None
 
         # Downloading
@@ -2084,6 +2098,17 @@ if __name__ == '__main__':
                 return "{:5.1f}MB".format(int(n / 100000) / 10)
             else:
                 return "{:5.1f}GB".format(int(n / 100000000) / 10)
+
+
+    class TaskPrinter:
+
+        def __enter__(self):
+            pass
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+        pass
 
 
     class PortableAddon:

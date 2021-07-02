@@ -947,7 +947,7 @@ class YggdrasilAuthSession(BaseAuthSession):
                                                 headers={"Content-Type": "application/json"},
                                                 ignore_error=True)
         if error and code != 200:
-            raise AuthError(res["errorMessage"])
+            raise AuthError("yggdrasil", res["errorMessage"])
         return code, res
 
 
@@ -1059,7 +1059,7 @@ class MicrosoftAuthSession(BaseAuthSession):
         xsts_token = res["Token"]
 
         if xbl_user_hash != res["DisplayClaims"]["xui"][0]["uhs"]:
-            raise AuthError("Inconsistent user hash.")
+            raise AuthError("microsoft.inconsistent_user_hash")
 
         # MC Services Auth
         _, res = cls.ms_request(MC_AUTH_URL, {
@@ -1071,11 +1071,11 @@ class MicrosoftAuthSession(BaseAuthSession):
         code, res = cls.mc_request(MC_PROFILE_URL, mc_access_token)
 
         if code == 404:
-            raise AuthError("This account does not own Minecraft.")
+            raise AuthError("microsoft.does_not_own_minecraft")
         elif code == 401:
-            raise AuthError("The token is no longer valid.")
+            raise AuthError("microsoft.outdated_token")
         elif "error" in res or code != 200:
-            raise AuthError(res.get("errorMessage", res.get("error", "Unknown error")))
+            raise AuthError("microsoft.error", res.get("errorMessage", res.get("error", "Unknown error")))
 
         return {
             "refresh_token": ms_refresh_token,
