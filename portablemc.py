@@ -557,13 +557,16 @@ class CorePortableMC:
     # General utilities
 
     def download_files(self, lst: 'DownloadList', *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
+        """ Downloads the given list of files. Even if some downloads fails, it continue and raise DownloadError(fails)
+        only at the end, where 'fails' is a dict associating the entry URL and its error ('not_found', 'invalid_size',
+        'invalid_sha1')."""
 
         if len(lst.entries):
 
             headers = {}
             buffer = bytearray(65536)
             total_size = 0
-            fails = {}
+            fails = {}  # type: Dict[str, str]
             max_try_count = 3
 
             if progress_callback is not None:
@@ -635,13 +638,13 @@ class CorePortableMC:
                             total_size -= size
 
                     else:
-                        # If the break was not triggered, an error is set.
+                        # If the break was not triggered, an error must be set.
                         fails[entry.url] = error
 
                 conn.close()
 
             if len(fails):
-                raise DownloadCorruptedError(fails)
+                raise DownloadError(fails)
 
         for callback in lst.callbacks:
             callback()
@@ -1238,7 +1241,7 @@ class DownloadProgress:
 
 class AuthError(Exception): ...
 class VersionNotFoundError(Exception): ...
-class DownloadCorruptedError(Exception): ...
+class DownloadError(Exception): ...
 class JsonRequestError(Exception): ...
 class JvmLoadingError(Exception): ...
 
@@ -1276,7 +1279,7 @@ if __name__ == '__main__':
     EXIT_VERSION_NOT_FOUND = 10
     # EXIT_CLIENT_JAR_NOT_FOUND = 11
     # EXIT_NATIVES_DIR_ALREADY_EXITS = 12
-    EXIT_DOWNLOAD_CORRUPTED = 13
+    EXIT_DOWNLOAD_ERROR = 13
     EXIT_AUTHENTICATION_FAILED = 14
     EXIT_VERSION_SEARCH_NOT_FOUND = 15
     EXIT_DEPRECATED_ARGUMENT = 16
@@ -1312,7 +1315,7 @@ if __name__ == '__main__':
         DownloadEntry = DownloadEntry
         AuthError = AuthError
         VersionNotFoundError = VersionNotFoundError
-        DownloadCorruptedError = DownloadCorruptedError
+        DownloadCorruptedError = DownloadError
 
         def __init__(self):
 
@@ -1399,16 +1402,19 @@ if __name__ == '__main__':
                 # "download.progress.unknown_size": "\rDownloading {}... {}/s {}",
                 # "download.of_total": "{:6.2f}% of total",
                 "download.downloading": "Downloading",
-                "download.downloaded": "Downloaded {} files, {} in {:.1f}s",
-                "download.error.invalid_size": " => Invalid size",
-                "download.error.invalid_sha1": " => Invalid SHA1",
+                "download.downloaded": "Downloaded {} files, {} in {:.1f}s.",
+                "download.errors": "{} Errors happened, can't continue.",
+                "download.error.not_found": "Not found",
+                "download.error.invalid_size": "Invalid size",
+                "download.error.invalid_sha1": "Invalid SHA1",
 
                 "auth.pending": "Authenticating {}...",
-                "auth.already_cached": "=> Session already cached, checking...",
-                "auth.refreshing": "=> Invalid session, refreshing...",
-                "auth.refreshed": "=> Session refreshed.",
-                "auth.error": "=> {}",
-                "auth.validated": "=> Session validated.",
+                # "auth.already_cached": "Session already cached, checking...",
+                # "auth.not_cached": "Session not cached, login...",
+                "auth.refreshing": "Invalid session, refreshing...",
+                "auth.refreshed": "Session refreshed.",
+                "auth.validated": "Session validated.",
+                # "auth.validation_failed": "{} Login...",
                 "auth.caching": "=> Caching your session...",
                 "auth.enter_your_password": "=> Enter {} password: ",
                 "auth.logged_in": "=> Logged in",
@@ -1734,11 +1740,9 @@ if __name__ == '__main__':
             except JsonRequestError as err:
                 self.print("http_request_error", err.args[0])
                 return EXIT_HTTP_ERROR
-            except DownloadCorruptedError as err:
-                self.print("download.error.{}".format(err.args[0]))
-                return EXIT_DOWNLOAD_CORRUPTED
-            except JvmLoadingError as err:
-                self.print("jvm.error.{}".format(err.args[0]))
+            except DownloadError:
+                return EXIT_DOWNLOAD_ERROR
+            except JvmLoadingError:
                 return EXIT_JVM_LOADING_ERROR
 
         # Messages
@@ -1768,11 +1772,11 @@ if __name__ == '__main__':
         def print_task(self, start_message_key: Optional[str] = None, *start_args):
             len_limit = max(0, shutil.get_terminal_size().columns - 9)
             last_len = 0
-            def complete(status: str, message_key: str, *args):
+            def complete(status: Optional[str], message_key: str, *args):
                 nonlocal last_len
                 msg = self.get_message(message_key, *args)[:len_limit]
                 missing_len = max(0, last_len - len(msg) - 1)
-                print("\r[{:^6s}]".format(status), msg, " " * missing_len, end="", flush=True)
+                print("\r        " if status is None else "\r[{:^6s}]".format(status), msg, " " * missing_len, end="", flush=True)
                 last_len = len(msg)
             if start_message_key is not None:
                 complete("", start_message_key, *start_args)
@@ -1844,8 +1848,12 @@ if __name__ == '__main__':
 
         def ensure_jvm(self, main_dir: str, jvm_version_type: str, dl_list: 'DownloadList') -> 'Optional[Tuple[str, str]]':
             with self.print_task("jvm.loading") as complete:
-                ret = super().ensure_jvm(main_dir, jvm_version_type, dl_list)
-                complete("OK", "jvm.loaded", ret[0])
+                try:
+                    ret = super().ensure_jvm(main_dir, jvm_version_type, dl_list)
+                    complete("OK", "jvm.loaded", ret[0])
+                except JvmLoadingError as err:
+                    complete("FAILED", "jvm.error.{}".format(err.args[0]))
+                    raise
             return ret
 
         def game_runner(self, proc_args: list, proc_cwd: str, options: dict):
@@ -1863,38 +1871,49 @@ if __name__ == '__main__':
                                 cache_in_db: bool,
                                 microsoft: bool) -> 'Optional[BaseAuthSession]':
 
+            # task_text = "auth.microsoft.pending" if microsoft else "auth.pending"
+            # with self.print_task() as complete:
+            #     complete(None, task_text, email_or_username)
+
             self.print("auth.microsoft.pending" if microsoft else "auth.pending", email_or_username)
 
             auth_db = self.new_auth_database(work_dir)
             auth_db.load()
 
+            # with self.print_task(task_text, email_or_username) as complete:
             session = auth_db.get(email_or_username, MicrosoftAuthSession if microsoft else YggdrasilAuthSession)
             if session is not None:
-                self.print("auth.already_cached")
                 try:
                     if not session.validate():
+                        # complete("", "auth.refreshing")
                         self.print("auth.refreshing")
                         session.refresh()
                         auth_db.save()
+                        # complete("OK", "auth.refreshed")
                         self.print("auth.refreshed")
                     else:
+                        # complete("OK", "auth.validated")
                         self.print("auth.validated")
                     return session
                 except AuthError as auth_err:
-                    self.print("auth.error", auth_err)
+                    self.print("", auth_err)
+                    # complete("WARN", auth_err)
 
             try:
                 session = self.prompt_microsoft_authenticate(email_or_username) if microsoft else self.prompt_yggdrasil_authenticate(email_or_username)
                 if session is None:
                     return None
                 if cache_in_db:
+                    # complete("", "auth.caching")
                     self.print("auth.caching")
                     auth_db.put(email_or_username, session)
                     auth_db.save()
+                # complete("OK", "auth.logged_in")
                 self.print("auth.logged_in")
                 return session
             except AuthError as auth_err:
-                self.print("auth.error", auth_err)
+                # complete("FAILED", auth_err)
+                self.print("", auth_err)
                 return None
 
         def prompt_yggdrasil_authenticate(self, email_or_username: str) -> 'Optional[YggdrasilAuthSession]':
@@ -2021,15 +2040,25 @@ if __name__ == '__main__':
                     if progress_callback is not None:
                         progress_callback(progress)
 
-            def _line_break():
+            def _complete_task(error: bool = False):
                 if called_once:
                     result_text = self.get_message("download.downloaded", lst.count, self.format_bytes(lst.size).lstrip(" "), time.perf_counter() - start_time)
+                    if error:
+                        result_text = self.get_message("download.errors", result_text)
                     result_len = columns - 9
-                    print("\r[  OK  ] {}".format(result_text[:result_len].ljust(result_len)))
+                    template = "\r[FAILED] {}" if error else "\r[  OK  ] {}"
+                    print(template.format(result_text[:result_len].ljust(result_len)))
 
-            lst.callbacks.insert(0, _line_break)
-            super().download_files(lst, progress_callback=_progress_callback)
-            lst.callbacks.pop(0)
+            try:
+                lst.callbacks.insert(0, _complete_task)
+                super().download_files(lst, progress_callback=_progress_callback)
+            except DownloadError as err:
+                _complete_task(True)
+                for entry_url, entry_error in err.args[0]:
+                    print("         {}: {}", entry_url, self.get_message("download.error.{}".format(entry_error)))
+                raise
+            finally:
+                lst.callbacks.pop(0)
 
         # Miscellaneous utilities
 

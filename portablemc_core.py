@@ -559,13 +559,16 @@ class CorePortableMC:
     # General utilities
 
     def download_files(self, lst: 'DownloadList', *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
+        """ Downloads the given list of files. Even if some downloads fails, it continue and raise DownloadError(fails)
+        only at the end, where 'fails' is a dict associating the entry URL and its error ('not_found', 'invalid_size',
+        'invalid_sha1')."""
 
         if len(lst.entries):
 
             headers = {}
             buffer = bytearray(65536)
             total_size = 0
-            fails = {}
+            fails = {}  # type: Dict[str, str]
             max_try_count = 3
 
             if progress_callback is not None:
@@ -637,13 +640,13 @@ class CorePortableMC:
                             total_size -= size
 
                     else:
-                        # If the break was not triggered, an error is set.
+                        # If the break was not triggered, an error must be set.
                         fails[entry.url] = error
 
                 conn.close()
 
             if len(fails):
-                raise DownloadCorruptedError(fails)
+                raise DownloadError(fails)
 
         for callback in lst.callbacks:
             callback()
@@ -1240,7 +1243,7 @@ class DownloadProgress:
 
 class AuthError(Exception): ...
 class VersionNotFoundError(Exception): ...
-class DownloadCorruptedError(Exception): ...
+class DownloadError(Exception): ...
 class JsonRequestError(Exception): ...
 class JvmLoadingError(Exception): ...
 
