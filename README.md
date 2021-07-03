@@ -8,7 +8,7 @@ stateless manner. You can now customize the launcher with addons.
 
 ### [Download now!](https://github.com/mindstorm38/portablemc/releases) *[Fabric is now supported!](#fabricmc-support)*
 
-[Check out the latest pre-release and contribute to this launcher!](https://github.com/mindstorm38/portablemc/releases/tag/v1.1.4-pre1)
+[Check out the latest pre-release and contribute to this launcher!](https://github.com/mindstorm38/portablemc/releases/tag/v1.1.4-pre2)
 
 ![illustration](https://github.com/mindstorm38/portablemc/blob/master/doc/illustration.png?raw=true)
 

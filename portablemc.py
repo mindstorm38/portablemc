@@ -45,7 +45,7 @@ import os
 
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "1.1.4-pre1"
+LAUNCHER_VERSION = "1.1.4-pre2"
 LAUNCHER_AUTHORS = "Théo Rozier"
 
 VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
