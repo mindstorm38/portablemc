@@ -1,15 +1,11 @@
-# from prompt_toolkit.shortcuts.progress_bar.formatters import Formatter, Label, Text, Percentage, Bar
 from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
 from prompt_toolkit.layout.containers import Window, HSplit, VSplit, Container
-# from prompt_toolkit.shortcuts import ProgressBar, ProgressBarCounter
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.formatted_text import StyleAndTextTuples
-# from prompt_toolkit.formatted_text import AnyFormattedText
-from prompt_toolkit.layout import Layout # , AnyDimension
-# from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.document import Document
+from prompt_toolkit.layout import Layout
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
