@@ -95,7 +95,6 @@ class CorePortableMC:
         self._mc_archbits = self.get_minecraft_archbits()
 
         self._version_manifest: Optional[VersionManifest] = None
-        self._download_buffer: Optional[bytearray] = None
 
     # Generic methods
 
@@ -151,7 +150,7 @@ class CorePortableMC:
                    runner: 'Optional[Callable[[list, str, dict], None]]' = None) -> None:
 
         """
-        This method can raise these errors:
+        This method can raise these errors:\n
         - VersionNotFoundError: if the given version was not found
         - JsonRequestError: for any HTTP request resolving error
         - DownloadError: if a download is corrupted
@@ -539,11 +538,6 @@ class CorePortableMC:
         if self._version_manifest is None:
             self._version_manifest = VersionManifest.load_from_url()
         return self._version_manifest
-
-    def get_download_buffer(self) -> bytearray:
-        if self._download_buffer is None:
-            self._download_buffer = bytearray(65536)
-        return self._download_buffer
 
     def new_auth_database(self, work_dir: Optional[str]) -> 'AuthDatabase':
         return AuthDatabase(path.join(work_dir, AUTH_FILE_NAME), path.join(work_dir, LEGACY_AUTH_FILE_NAME))

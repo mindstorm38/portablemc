@@ -47,7 +47,7 @@ class FabricAddon:
             version_split = version.split(":")
 
             if len(version_split) > 3:
-                self.pmc.print("start.fabric.invalid_format")
+                self.pmc.print_task("FAILED", "start.fabric.invalid_format", done=True)
                 return
 
             mc_version = version_split[1]
@@ -59,76 +59,75 @@ class FabricAddon:
             mc_version, _mc_version_alias = self.pmc.get_version_manifest().filter_latest(mc_version)
 
             if loader_version is not None and not len(loader_version):
-                self.pmc.print("start.fabric.invalid_format")
+                self.pmc.print_task("FAILED", "start.fabric.invalid_format", done=True)
                 return
 
-            with self.pmc.print_task() as complete:
-                try:
+            try:
 
-                    if loader_version is None:
-                        complete("", "start.fabric.resolving_loader", mc_version)
-                        loader_meta = self.request_version_loader(mc_version, None)
-                        loader_version = loader_meta["loader"]["version"]
-                    else:
-                        complete("", "start.fabric.resolving_loader_with_version", loader_version, mc_version)
-                        loader_meta = None
+                if loader_version is None:
+                    self.pmc.print_task("", "start.fabric.resolving_loader", mc_version)
+                    loader_meta = self.request_version_loader(mc_version, None)
+                    loader_version = loader_meta["loader"]["version"]
+                else:
+                    self.pmc.print_task("", "start.fabric.resolving_loader_with_version", loader_version, mc_version)
+                    loader_meta = None
 
-                    version = "{}-{}-{}".format(cmd_args.fabric_prefix, mc_version, loader_version)
-                    version_dir = self.pmc.get_version_dir(main_dir, version)
-                    version_meta_file = path.join(version_dir, "{}.json".format(version))
+                version = "{}-{}-{}".format(cmd_args.fabric_prefix, mc_version, loader_version)
+                version_dir = self.pmc.get_version_dir(main_dir, version)
+                version_meta_file = path.join(version_dir, "{}.json".format(version))
 
-                    if not path.isdir(version_dir) or not path.isfile(version_meta_file):
+                if not path.isdir(version_dir) or not path.isfile(version_meta_file):
 
-                        complete("", "start.fabric.generating")
+                    self.pmc.print_task("", "start.fabric.generating")
 
-                        if loader_meta is None:
-                            # Loader meta can be None if loader version is set, in this case the version is not
-                            # needed to check if the directory already exists.
-                            loader_meta = self.request_version_loader(mc_version, loader_version)
+                    if loader_meta is None:
+                        # Loader meta can be None if loader version is set, in this case the version is not
+                        # needed to check if the directory already exists.
+                        loader_meta = self.request_version_loader(mc_version, loader_version)
 
-                        loader_launcher_meta = loader_meta["launcherMeta"]
+                    loader_launcher_meta = loader_meta["launcherMeta"]
 
-                        iso_time = datetime.now().isoformat()
+                    iso_time = datetime.now().isoformat()
 
-                        version_libraries = loader_launcher_meta["libraries"]["common"]
-                        version_meta = {
-                            "id": version,
-                            "inheritsFrom": mc_version,
-                            "releaseTime": iso_time,
-                            "time": iso_time,
-                            "type": self.get_version_type(mc_version),
-                            "mainClass": loader_launcher_meta["mainClass"]["client"],
-                            "arguments": {
-                                "game": []
-                            },
-                            "libraries": version_libraries
-                        }
+                    version_libraries = loader_launcher_meta["libraries"]["common"]
+                    version_meta = {
+                        "id": version,
+                        "inheritsFrom": mc_version,
+                        "releaseTime": iso_time,
+                        "time": iso_time,
+                        "type": self.get_version_type(mc_version),
+                        "mainClass": loader_launcher_meta["mainClass"]["client"],
+                        "arguments": {
+                            "game": []
+                        },
+                        "libraries": version_libraries
+                    }
 
-                        version_libraries.append({
-                            "name": loader_meta["loader"]["maven"],
-                            "url": "https://maven.fabricmc.net/"
-                        })
+                    version_libraries.append({
+                        "name": loader_meta["loader"]["maven"],
+                        "url": "https://maven.fabricmc.net/"
+                    })
 
-                        version_libraries.append({
-                            "name": loader_meta["intermediary"]["maven"],
-                            "url": "https://maven.fabricmc.net/"
-                        })
+                    version_libraries.append({
+                        "name": loader_meta["intermediary"]["maven"],
+                        "url": "https://maven.fabricmc.net/"
+                    })
 
-                        os.makedirs(version_dir, exist_ok=True)
-                        with open(version_meta_file, "wt") as fp:
-                            json.dump(version_meta, fp, indent=2)
+                    os.makedirs(version_dir, exist_ok=True)
+                    with open(version_meta_file, "wt") as fp:
+                        json.dump(version_meta, fp, indent=2)
 
-                    else:
-                        pass
+                else:
+                    pass
 
-                    complete("OK", "start.fabric.resolved_loader", loader_version, mc_version)
+                self.pmc.print_task("OK", "start.fabric.resolved_loader", loader_version, mc_version, done=True)
 
-                except GameVersionNotFoundError:
-                    complete("FAILED", "start.fabric.game_version_not_found", mc_version)
-                    raise self.pmc.VersionNotFoundError
-                except LoaderVersionNotFoundError:
-                    complete("FAILED", "start.fabric.loader_version_not_found", loader_version)
-                    raise self.pmc.VersionNotFoundError
+            except GameVersionNotFoundError:
+                self.pmc.print_task("FAILED", "start.fabric.game_version_not_found", mc_version, done=True)
+                raise self.pmc.VersionNotFoundError
+            except LoaderVersionNotFoundError:
+                self.pmc.print_task("FAILED", "start.fabric.loader_version_not_found", loader_version, done=True)
+                raise self.pmc.VersionNotFoundError
 
         old(cmd_args=cmd_args, version=version, main_dir=main_dir, **kwargs)
 
