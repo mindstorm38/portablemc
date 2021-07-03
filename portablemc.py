@@ -1412,7 +1412,7 @@ if __name__ == '__main__':
                 "auth.logged_in": "Logged in",
 
                 "auth.yggdrasil": "Authenticating {} with Mojang...",
-                "auth.yggdrasil.enter_password": "         Password: ",
+                "auth.yggdrasil.enter_password": "Password: ",
                 "auth.error.yggdrasil": "{}",
 
                 "auth.microsoft": "Authenticating {} with Microsoft...",
@@ -1758,13 +1758,12 @@ if __name__ == '__main__':
         def print_task(self, status: Optional[str], msg_key: str, *msg_args, done: bool = False):
             len_limit = max(0, self.get_term_width() - 9)
             msg = self.get_message(msg_key, *msg_args)[:len_limit]
-            missing_len = max(0, self._print_task_last_len - len(msg) - 1)  # -1 for the print 'spacer' arg
-            status_header = "\r        " if status is None else "\r[{:^6s}]".format(status)
+            missing_len = max(0, self._print_task_last_len - len(msg))
+            status_header = "\r         " if status is None else "\r[{:^6s}] ".format(status)
             self._print_task_last_len = 0 if done else len(msg)
-            print(status_header, msg, " " * missing_len, end="\n" if done else "", flush=True)
+            print(status_header, msg, " " * missing_len, sep="", end="\n" if done else "", flush=True)
 
-        def prompt(self, message_key: str, *args, password: bool = False) -> Optional[str]:
-            print(self.get_message(message_key, *args), end="", flush=True)
+        def prompt(self, password: bool = False) -> Optional[str]:
             try:
                 if password:
                     import getpass
@@ -1888,7 +1887,8 @@ if __name__ == '__main__':
                 return None
 
         def prompt_yggdrasil_authenticate(self, email_or_username: str) -> 'Optional[YggdrasilAuthSession]':
-            password = self.prompt("auth.yggdrasil.enter_password", password=True)
+            self.print_task(None, "auth.yggdrasil.enter_password")
+            password = self.prompt(password=True)
             return None if password is None else YggdrasilAuthSession.authenticate(email_or_username, password)
 
         def prompt_microsoft_authenticate(self, email: str) -> 'Optional[MicrosoftAuthSession]':
