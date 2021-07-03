@@ -1327,7 +1327,8 @@ if __name__ == '__main__':
             self._messages = {
 
                 "addon.defined_twice": "The addon '{}' is defined twice, both single-file and package, loaded the package one.",
-                "addon.missing_requirement.module": "Addon '{0}' requires module '{1}' to load. You can try to install it using 'pip install {1}' or search for it on the web.",
+                "addon.missing_requirement.module": "Addon '{0}' requires module '{1}' to load. You can try to install "
+                                                    "it using 'pip install {1}' or search for it on the web.",
                 "addon.missing_requirement.ext": "Addon '{}' requires another addon '{}' to load.",
                 "addon.failed_to_build": "Failed to build addon '{}' (contact addon's authors):",
 
@@ -1348,21 +1349,21 @@ if __name__ == '__main__':
                 "args.start.disable_chat": "Disable the online chat (>= 1.16).",
                 "args.start.demo": "Start game in demo mode.",
                 "args.start.resol": "Set a custom start resolution (<width>x<height>).",
-                "args.start.jvm": "Set a custom JVM 'javaw' executable path. If this argument is omitted a public build of a JVM is downloaded from Mojang services.",
+                "args.start.jvm": "Set a custom JVM 'javaw' executable path. If this argument is omitted a public build "
+                                  "of a JVM is downloaded from Mojang services.",
                 "args.start.jvm_args": "Change the default JVM arguments.",
                 "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
                                                 "order to improve the log readability in the console.",
                 "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
-                                         "not already cached, deactivated by default.",
-                "args.start.login": "Use a email or username (legacy) to authenticate using mojang servers (you "
-                                    "will be asked for password, it override --username and --uuid).",
-                "args.start.microsoft": "Log-in using Microsoft account, to use with -l (--login).",
+                                         "not already cached, disabled by default.",
+                "args.start.login": "Use a email (or deprecated username) to authenticate using Mojang services (it override --username and --uuid).",
+                "args.start.microsoft": "Login using Microsoft account, to use with -l (--login).",
                 "args.start.username": "Set a custom user name to play.",
                 "args.start.uuid": "Set a custom user UUID to play.",
                 "args.start.server": "Start the game and auto-connect to this server address (since 1.6).",
                 "args.start.server_port": "Set the server address port (given with -s, --server, since 1.6).",
                 "args.login": "Login into your account, this will cache your session.",
-                "args.login.microsoft": "Log-in using Microsoft account.",
+                "args.login.microsoft": "Login using Microsoft account.",
                 "args.logout": "Logout and invalidate a session.",
                 "args.logout.microsoft": "Logout from a Microsoft account.",
                 "args.addon": "Addons management subcommands.",
@@ -1371,9 +1372,9 @@ if __name__ == '__main__':
                 "args.addon.init.single_file": "Make a single-file addon instead of a package one.",
                 "args.addon.show": "Show an addon details.",
 
-                "abort": "=> Abort",
                 "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
                 "http_request_error": "HTTP request error: {}",
+                "cancelled": "Cancelled.",
 
                 "cmd.search.pending": "Searching for version '{}'...",
                 "cmd.search.pending_local": "Searching for local version '{}'...",
@@ -1889,7 +1890,11 @@ if __name__ == '__main__':
         def prompt_yggdrasil_authenticate(self, email_or_username: str) -> 'Optional[YggdrasilAuthSession]':
             self.print_task(None, "auth.yggdrasil.enter_password")
             password = self.prompt(password=True)
-            return None if password is None else YggdrasilAuthSession.authenticate(email_or_username, password)
+            if password is None:
+                self.print_task("FAILED", "cancelled")
+                return None
+            else:
+                return YggdrasilAuthSession.authenticate(email_or_username, password)
 
         def prompt_microsoft_authenticate(self, email: str) -> 'Optional[MicrosoftAuthSession]':
 
