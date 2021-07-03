@@ -1303,15 +1303,24 @@ if __name__ == '__main__':
 
     class PortableMC(CorePortableMC):
 
+        CorePortableMC = CorePortableMC
         VersionManifest = VersionManifest
+
         BaseAuthSession = BaseAuthSession
         YggdrasilAuthSession = YggdrasilAuthSession
         MicrosoftAuthSession = MicrosoftAuthSession
         AuthDatabase = AuthDatabase
+
         DownloadEntry = DownloadEntry
+        DownloadList = DownloadList
+        DownloadEntryProgress = DownloadEntryProgress
+        DownloadProgress = DownloadProgress
+
         AuthError = AuthError
         VersionNotFoundError = VersionNotFoundError
-        DownloadCorruptedError = DownloadError
+        DownloadError = DownloadError
+        JsonRequestError = JsonRequestError
+        JvmLoadingError = JvmLoadingError
 
         def __init__(self):
 
