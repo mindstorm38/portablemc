@@ -398,7 +398,7 @@ class CorePortableMC:
                 if better_logging:
                     real_logging_file = path.join(log_config_dir, "portablemc-{}".format(logging_file_info["id"]))
                 else:
-                    real_logging_file = logging_dirty
+                    real_logging_file = logging_file
 
                 def finalize():
                     if better_logging:
