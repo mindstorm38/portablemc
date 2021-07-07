@@ -56,19 +56,26 @@ MC_PROFILE_URL = "https://api.minecraftservices.com/minecraft/profile"
 
 class Context:
 
+    """
+    This class is used to manage an installation context for Minecraft. This context can be reused multiple
+    times to install multiple versions. A context stores multiple important paths but all these paths can be
+    changed after the construction and before preparing versions.
+    """
+
     def __init__(self, main_dir: Optional[str] = None, work_dir: Optional[str] = None):
-        self.main_dir = Util.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
-        self.work_dir = self.main_dir if work_dir is None else path.realpath(work_dir)
-        self.versions_dir = path.join(self.main_dir, "versions")
-        self.assets_dir = path.join(self.main_dir, "assets")
-        self.libraries_dir = path.join(self.main_dir, "libraries")
+        main_dir = Util.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
+        self.work_dir = main_dir if work_dir is None else path.realpath(work_dir)
+        self.versions_dir = path.join(main_dir, "versions")
+        self.assets_dir = path.join(main_dir, "assets")
+        self.libraries_dir = path.join(main_dir, "libraries")
 
 
 class Version:
 
     """
-    All public function in this class are state less and can be executed multiple times, however they might
-    add duplicate URLs to the download list. The game still requires some parts to be prepared before starting.
+    This class is used to manage the installation of a version and then run it.\n
+    All public function in this class can be executed multiple times, however they might add duplicate URLs to
+    the download list. The game still requires some parts to be prepared before starting.
     """
 
     def __init__(self, context: Context, version: str):
@@ -94,6 +101,14 @@ class Version:
 
     def prepare_meta(self):
 
+        """
+        Prepare all metadata files for this version, this take 'inheritsFrom' key into account and all parents metadata
+        files are downloaded. Each metadata file is downloaded (if not already cached) in their own directory named
+        after the version ID, the directory is placed in the 'versions_dir' of the context.\n
+        This method will load the official Mojang version manifest, however you can set the 'manifest' attribute of this
+        object before with a custom manifest if you want to support more versions.
+        """
+
         if self.manifest is None:
             self.manifest = VersionManifest.load_from_url()
 
@@ -107,7 +122,7 @@ class Version:
 
     def _prepare_meta_internal(self, version: str) -> Tuple[dict, str]:
 
-        version_dir = path.join(self.context.main_dir, "versions", version)
+        version_dir = path.join(self.context.versions_dir, version)
         version_meta_file = path.join(version_dir, f"{version}.json")
 
         try:
@@ -129,21 +144,33 @@ class Version:
             raise ValueError("You must install metadata before.")
 
     def prepare_jar(self):
+
+        """
+        Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
+        If the metadata provides a client download URL, and the version JAR file doesn't exists or have not the expected
+        size, it's added to the download list to be downloaded to the same directory as the metadata file.
+        """
+
         self._check_version_meta()
-        version_jar_file = path.join(self.version_dir, self.version)
-        if not path.isfile(self.version_jar_file):
-            version_downloads = self.version_meta.get("downloads")
-            if version_downloads is None or "client" not in version_downloads:
-                raise VersionError(VersionError.JAR_NOT_FOUND)
-            self.dl.append(DownloadEntry.from_meta(version_downloads["client"], self.version_jar_file, name=f"{self.version}.jar"))
-        self.version_jar_file = version_jar_file
+        self.version_jar_file = path.join(self.version_dir, f"{self.version}.jar")
+        client_download = self.version_meta.get("downloads", {}).get("client")
+        if client_download is not None:
+            entry = DownloadEntry.from_meta(client_download, self.version_jar_file, name=f"{self.version}.jar")
+            if not path.isfile(entry.dst) or path.getsize(entry.dst) != entry.size:
+                self.dl.append(entry)
+        # raise VersionError(VersionError.JAR_NOT_FOUND)
 
     def prepare_assets(self):
 
-        self._check_version_meta()
+        """
+        Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
+        This method download the asset index file (if not already cached) named after the asset version into the
+        directory 'indexes' placed into the directory 'assets_dir' of the context. Once ready, the asset index file
+        is analysed and each object is checked, if it does not exist or not have the expected size, it is downloaded
+        to the 'objects' directory placed into the directory 'assets_dir' of the context.
+        """
 
-        if self.assets_index_version is not None:
-            raise ValueError("Assets are already prepared.")
+        self._check_version_meta()
 
         assets_indexes_dir = path.join(self.context.assets_dir, "indexes")
         assets_index_version = self.version_meta["assets"]
@@ -193,21 +220,18 @@ class Version:
         self.assets_virtual_dir = assets_virtual_dir
 
     def prepare_logger(self):
+
         self._check_version_meta()
-        self.logging_file = None
-        self.logging_argument = None
-        version_logging = self.version_meta.get("logging")
-        if version_logging is not None:
-            client_logging = version_logging.get("client")
-            if client_logging is not None:
-                logging_file_info = client_logging["file"]
-                logging_file = path.join(self.context.assets_dir, "log_configs", logging_file_info["id"])
-                download_entry = DownloadEntry.from_meta(logging_file_info, logging_file, name=logging_file_info["id"])
-                if not path.isfile(logging_file) or path.getsize(logging_file) != download_entry.size:
-                    self.dl.append(download_entry)
-                self.logging_file = logging_file
-                self.logging_argument = client_logging["argument"]
-                # return client_logging["argument"].replace("${path}", logging_file)
+        client_logging = self.version_meta.get("logging", {}).get("client")
+        if client_logging is not None:
+            logging_file_info = client_logging["file"]
+            logging_file = path.join(self.context.assets_dir, "log_configs", logging_file_info["id"])
+            download_entry = DownloadEntry.from_meta(logging_file_info, logging_file, name=logging_file_info["id"])
+            if not path.isfile(logging_file) or path.getsize(logging_file) != download_entry.size:
+                self.dl.append(download_entry)
+            self.logging_file = logging_file
+            self.logging_argument = client_logging["argument"]
+            # return client_logging["argument"].replace("${path}", logging_file)
 
     def prepare_libraries(self):
 
@@ -958,5 +982,6 @@ if __name__ == '__main__':
 
         ctx = Context()
         ver = Version(ctx, "1.16.5")
+        ver.install()
 
     cli_start()
