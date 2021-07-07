@@ -24,11 +24,13 @@ from urllib import parse as url_parse
 from json import JSONDecodeError
 from uuid import uuid4
 from os import path
+import platform
+import hashlib
 import shutil
 import base64
 import json
-import sys
 import os
+import re
 
 
 LAUNCHER_NAME = "portablemc"
@@ -64,6 +66,11 @@ class Context:
 
 class Version:
 
+    """
+    All public function in this class are state less and can be executed multiple times, however they might
+    add duplicate URLs to the download list. The game still requires some parts to be prepared before starting.
+    """
+
     def __init__(self, context: Context, version: str):
 
         self.context = context
@@ -79,20 +86,26 @@ class Version:
         self.assets_index_version: Optional[int] = None
         self.assets_virtual_dir: Optional[str] = None
 
-    def install_meta(self):
+        self.logging_file: Optional[str] = None
+        self.logging_argument: Optional[str] = None
+
+        self.classpath_libs: List[str] = []
+        self.native_libs: List[str] = []
+
+    def prepare_meta(self):
 
         if self.manifest is None:
             self.manifest = VersionManifest.load_from_url()
 
-        version_meta, version_dir = self._install_meta_internal(self.version)
+        version_meta, version_dir = self._prepare_meta_internal(self.version)
         while "inheritsFrom" in version_meta:  # TODO: Add a safe recursion limit
-            parent_meta, _ = self._install_meta_internal(version_meta["inheritsFrom"])
+            parent_meta, _ = self._prepare_meta_internal(version_meta["inheritsFrom"])
             del version_meta["inheritsFrom"]
             Util.merge_dict(version_meta, parent_meta)
 
         self.version_meta, self.version_dir = version_meta, version_dir
 
-    def _install_meta_internal(self, version: str) -> Tuple[dict, str]:
+    def _prepare_meta_internal(self, version: str) -> Tuple[dict, str]:
 
         version_dir = path.join(self.context.main_dir, "versions", version)
         version_meta_file = path.join(version_dir, f"{version}.json")
@@ -111,27 +124,30 @@ class Version:
             else:
                 raise VersionError(VersionError.NOT_FOUND, version)
 
-    def install_jar(self):
-
+    def _check_version_meta(self):
         if self.version_meta is None:
             raise ValueError("You must install metadata before.")
 
+    def prepare_jar(self):
+        self._check_version_meta()
         version_jar_file = path.join(self.version_dir, self.version)
         if not path.isfile(self.version_jar_file):
             version_downloads = self.version_meta.get("downloads")
             if version_downloads is None or "client" not in version_downloads:
                 raise VersionError(VersionError.JAR_NOT_FOUND)
-            self.dl.append(DownloadEntry.from_meta(version_downloads["client"], self.version_jar_file, name="{}.jar".format(self.version)))
+            self.dl.append(DownloadEntry.from_meta(version_downloads["client"], self.version_jar_file, name=f"{self.version}.jar"))
         self.version_jar_file = version_jar_file
 
-    def install_assets(self):
+    def prepare_assets(self):
 
-        if self.version_meta is None:
-            raise ValueError("You must install metadata before.")
+        self._check_version_meta()
+
+        if self.assets_index_version is not None:
+            raise ValueError("Assets are already prepared.")
 
         assets_indexes_dir = path.join(self.context.assets_dir, "indexes")
         assets_index_version = self.version_meta["assets"]
-        assets_index_file = path.join(assets_indexes_dir, "{}.json".format(assets_index_version))
+        assets_index_file = path.join(assets_indexes_dir, f"{assets_index_version}.json")
 
         try:
             with open(assets_index_file, "rb") as assets_index_fp:
@@ -176,50 +192,100 @@ class Version:
         self.assets_index_version = assets_index_version
         self.assets_virtual_dir = assets_virtual_dir
 
-    def install_logger(self):
-
-        if "logging" in self.version_meta:
-            version_logging = self.version_meta["logging"]
-            if "client" in version_logging:
-
-                log_config_dir = path.join(self.context.assets_dir, "log_configs")
-                client_logging = version_logging["client"]
+    def prepare_logger(self):
+        self._check_version_meta()
+        self.logging_file = None
+        self.logging_argument = None
+        version_logging = self.version_meta.get("logging")
+        if version_logging is not None:
+            client_logging = version_logging.get("client")
+            if client_logging is not None:
                 logging_file_info = client_logging["file"]
-                logging_file = path.join(log_config_dir, logging_file_info["id"])
-                logging_dirty = False
-
+                logging_file = path.join(self.context.assets_dir, "log_configs", logging_file_info["id"])
                 download_entry = DownloadEntry.from_meta(logging_file_info, logging_file, name=logging_file_info["id"])
                 if not path.isfile(logging_file) or path.getsize(logging_file) != download_entry.size:
                     self.dl.append(download_entry)
-                    logging_dirty = True
+                self.logging_file = logging_file
+                self.logging_argument = client_logging["argument"]
+                # return client_logging["argument"].replace("${path}", logging_file)
 
-                """if better_logging:
-                    real_logging_file = path.join(log_config_dir, "portablemc-{}".format(logging_file_info["id"]))
+    def prepare_libraries(self):
+
+        self._check_version_meta()
+        self.classpath_libs.clear()
+        self.native_libs.clear()
+
+        for lib_obj in self.version_meta["libraries"]:
+
+            if "rules" in lib_obj:
+                if not Util.interpret_rule(lib_obj["rules"]):
+                    continue
+
+            lib_name: str = lib_obj["name"]
+            lib_dl_name = lib_name
+            lib_natives: Optional[dict] = lib_obj.get("natives")
+
+            if lib_natives is not None:
+                lib_classifier = lib_natives.get(Util.get_minecraft_os())
+                if lib_classifier is None:
+                    continue  # If natives are defined, but the OS is not supported, skip.
+                lib_dl_name += f":{lib_classifier}"
+                archbits = Util.get_minecraft_archbits()
+                if len(archbits):
+                    lib_classifier = lib_classifier.replace("${arch}", archbits)
+                lib_libs = self.native_libs
+            else:
+                lib_classifier = None
+                lib_libs = self.classpath_libs
+
+            lib_path: Optional[str] = None
+            lib_dl_entry: Optional[DownloadEntry] = None
+            lib_dl: Optional[dict] = lib_obj.get("downloads")
+
+            if lib_dl is not None:
+
+                if lib_classifier is not None:
+                    lib_dl_classifiers = lib_dl.get("classifiers")
+                    lib_dl_meta = None if lib_dl_classifiers is None else lib_dl_classifiers.get(lib_classifier)
                 else:
-                    real_logging_file = logging_file
+                    lib_dl_meta = lib_dl.get("artifact")
 
-                def finalize():
-                    if better_logging:
-                        if logging_dirty or not path.isfile(real_logging_file):
-                            with open(logging_file, "rt") as logging_fp:
-                                with open(real_logging_file, "wt") as custom_logging_fp:
-                                    raw = logging_fp.read() \
-                                        .replace("<XMLLayout />", LOGGING_CONSOLE_REPLACEMENT) \
-                                        .replace("<LegacyXMLLayout />", LOGGING_CONSOLE_REPLACEMENT)
-                                    custom_logging_fp.write(raw)
+                if lib_dl_meta is not None:
+                    lib_path = path.join(self.context.libraries_dir, lib_dl_meta["path"])
+                    lib_dl_entry = DownloadEntry.from_meta(lib_dl_meta, lib_path, name=lib_dl_name)
 
-                self.dl.add_callback(finalize)"""
-                return client_logging["argument"].replace("${path}", real_logging_file)
+            if lib_dl_entry is None:
 
-    def install_libraries(self):
-        pass
+                lib_name_parts = lib_name.split(":")
+                if len(lib_name_parts) != 3:
+                    continue  # If the library name is not maven-formatted, skip.
+
+                vendor, package, version = lib_name_parts
+                jar_file = f"{package}-{version}.jar" if lib_classifier is None else f"{package}-{version}-{lib_classifier}.jar"
+                lib_path_raw = "/".join((*vendor.split("."), package, version, jar_file))
+                lib_path = path.join(self.context.libraries_dir, lib_path_raw)
+
+                if not path.isfile(lib_path):
+                    lib_repo_url: Optional[str] = lib_obj.get("url")
+                    if lib_repo_url is None:
+                        continue  # If the file doesn't exists, and no server url is provided, skip.
+                    lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=lib_dl_name)
+
+            lib_libs.append(lib_path)
+            if lib_dl_entry is not None and path.isfile(lib_path) and path.getsize(lib_path) == lib_dl_entry.size:
+                self.dl.append(lib_dl_entry)
+
+    def download(self):
+        self.dl.download_files()
+        self.dl.reset()
 
     def install(self):
-        self.install_meta()
-        self.install_jar()
-        self.install_assets()
-        self.install_logger()
-        self.install_libraries()
+        self.prepare_meta()
+        self.prepare_jar()
+        self.prepare_assets()
+        self.prepare_logger()
+        self.prepare_libraries()
+        self.download()
 
     def start(self):
         pass
@@ -340,7 +406,7 @@ class MicrosoftAuthSession(AuthSession):
         self.refresh_token = refresh_token
         self.client_id = client_id
         self.redirect_uri = redirect_uri
-        self._new_username = None  # type: Optional[str]
+        self._new_username: Optional[str] = None
 
     def validate(self) -> bool:
         self._new_username = None
@@ -491,7 +557,7 @@ class AuthDatabase:
     def __init__(self, filename: str, legacy_filename: str):
         self._filename = filename
         self._legacy_filename = legacy_filename
-        self._sessions = {}  # type: Dict[str, Dict[str, AuthSession]]
+        self._sessions: Dict[str, Dict[str, AuthSession]] = {}
 
     def load(self):
         self._sessions.clear()
@@ -563,6 +629,11 @@ class AuthDatabase:
 
 class Util:
 
+    minecraft_os: Optional[str] = None
+    minecraft_arch: Optional[str] = None
+    minecraft_archbits: Optional[str] = None
+    rule_os_checks: Optional[list] = None
+
     @staticmethod
     def json_request(url: str, method: str, *,
                      data: Optional[bytes] = None,
@@ -614,16 +685,81 @@ class Util:
             else:
                 dst[k] = other[k]
 
+    @classmethod
+    def interpret_rule_os(cls, rule_os: dict) -> bool:
+        os_name = rule_os.get("name")
+        if os_name is None or os_name == cls.get_minecraft_os():
+            os_arch = rule_os.get("arch")
+            if os_arch is None or os_arch == cls.get_minecraft_arch():
+                os_version = rule_os.get("version")
+                if os_version is None or re.search(os_version, platform.version()) is not None:
+                    return True
+        return False
+
+    @classmethod
+    def interpret_rule(cls, rules: List[dict], features: Optional[dict] = None) -> bool:
+        allowed = False
+        for rule in rules:
+            rule_os = rule.get("os")
+            if rule_os is not None and not cls.interpret_rule_os(rule_os):
+                continue
+            rule_features: Optional[dict] = rule.get("features")
+            if rule_features is not None:
+                feat_valid = True
+                for feat_name, feat_expected in rule_features.items():
+                    if features.get(feat_name) != feat_expected:
+                        feat_valid = False
+                        break
+                if not feat_valid:
+                    continue
+            allowed = (rule["action"] == "allow")
+        return allowed
+
+    @classmethod
+    def interpret_args(cls, args: list, features: dict) -> list:
+        ret = []
+        for arg in args:
+            if isinstance(arg, str):
+                ret.append(arg)
+            else:
+                if "rules" in arg:
+                    if not cls.interpret_rule(arg["rules"], features):
+                        continue
+                arg_value = arg["value"]
+                if isinstance(arg_value, list):
+                    ret.extend(arg_value)
+                elif isinstance(arg_value, str):
+                    ret.append(arg_value)
+        return ret
+
     @staticmethod
     def get_minecraft_dir() -> str:
-        pf = sys.platform
         home = path.expanduser("~")
-        if pf.startswith("freebsd") or pf.startswith("linux") or pf.startswith("aix") or pf.startswith("cygwin"):
-            return path.join(home, ".minecraft")
-        elif pf == "win32":
-            return path.join(home, "AppData", "Roaming", ".minecraft")
-        elif pf == "darwin":
-            return path.join(home, "Library", "Application Support", "minecraft")
+        return {
+            "Linux": path.join(home, ".minecraft"),
+            "Windows": path.join(home, "AppData", "Roaming", ".minecraft"),
+            "Darwin": path.join(home, "Library", "Application Support", "minecraft")
+        }.get(platform.system())
+
+    @classmethod
+    def get_minecraft_os(cls) -> str:
+        if cls.minecraft_os is None:
+            cls.minecraft_os = {"Linux": "linux", "Windows": "windows", "Darwin": "osx"}.get(platform.system(), "")
+        return cls.minecraft_os
+
+    @classmethod
+    def get_minecraft_arch(cls) -> str:
+        if cls.minecraft_arch is None:
+            machine = platform.machine().lower()
+            cls.minecraft_arch = "x86" if machine in ("i386", "i686") else "x86_64" if machine in ("x86_64", "amd64", "ia64") else ""
+        return cls.minecraft_arch
+
+    @classmethod
+    def get_minecraft_archbits(cls) -> str:
+        if cls.minecraft_archbits is None:
+            raw_bits = platform.architecture()[0]
+            cls.minecraft_archbits = "64" if raw_bits == "64bit" else "32" if raw_bits == "32bit" else ""
+        return cls.minecraft_archbits
 
 
 class DownloadEntry:
@@ -665,8 +801,105 @@ class DownloadList:
         if entry.size is not None:
             self.size += entry.size
 
+    def reset(self):
+        self.entries.clear()
+        self.callbacks.clear()
+
     def add_callback(self, callback: Callable[[], None]):
         self.callbacks.append(callback)
+
+    def download_files(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
+        """ Downloads the given list of files. Even if some downloads fails, it continue and raise DownloadError(fails)
+        only at the end, where 'fails' is a dict associating the entry URL and its error ('not_found', 'invalid_size',
+        'invalid_sha1')."""
+
+        if len(self.entries):
+
+            headers = {}
+            buffer = bytearray(65536)
+            total_size = 0
+            fails: Dict[str, str] = {}
+            max_try_count = 3
+
+            if progress_callback is not None:
+                progress = DownloadProgress(self.size)
+                entry_progress = DownloadEntryProgress()
+                progress.entries.append(entry_progress)
+            else:
+                progress = None
+                entry_progress = None
+
+            for host, entries in self.entries.items():
+
+                conn_type = HTTPSConnection if (host[0] == "1") else HTTPConnection
+                conn = conn_type(host[1:])
+                max_entry_idx = len(entries) - 1
+                headers["Connection"] = "keep-alive"
+
+                for i, entry in enumerate(entries):
+
+                    last_entry = (i == max_entry_idx)
+                    if last_entry:
+                        headers["Connection"] = "close"
+
+                    conn.request("GET", entry.url, None, headers)
+                    res = conn.getresponse()
+                    error = None
+
+                    size_target = 0 if entry.size is None else entry.size
+                    known_size = (size_target != 0)
+
+                    for _ in range(max_try_count):
+
+                        if res.status != 200:
+                            error = DownloadError.NOT_FOUND
+                            continue
+
+                        sha1 = hashlib.sha1()
+                        size = 0
+
+                        os.makedirs(path.dirname(entry.dst), exist_ok=True)
+                        with open(entry.dst, "wb") as dst_fp:
+                            while True:
+                                read_len = res.readinto(buffer)
+                                if not read_len:
+                                    break
+                                buffer_view = buffer[:read_len]
+                                size += read_len
+                                if known_size:
+                                    # Only adding to total size if the size is known.
+                                    total_size += read_len
+                                sha1.update(buffer_view)
+                                dst_fp.write(buffer_view)
+                                if progress_callback is not None:
+                                    progress.size = total_size
+                                    entry_progress.name = entry.name
+                                    entry_progress.total = size_target
+                                    entry_progress.size = size
+                                    progress_callback(progress)
+
+                        if entry.size is not None and size != entry.size:
+                            error = DownloadError.INVALID_SIZE
+                        elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
+                            error = DownloadError.INVALID_SHA1
+                        else:
+                            break
+
+                        if known_size:
+                            # When re-trying, reset the total size to the previous state.
+                            total_size -= size
+
+                    else:
+                        # If the break was not triggered, an error must be set.
+                        fails[entry.url] = error
+
+                conn.close()
+
+            if len(fails):
+                raise DownloadError(fails)
+
+        for callback in self.callbacks:
+            callback()
 
 
 class DownloadEntryProgress:
@@ -708,6 +941,15 @@ class AuthError(BaseError):
 class VersionError(BaseError):
     NOT_FOUND = "not_found"
     JAR_NOT_FOUND = "jar_not_found"
+
+
+class DownloadError(Exception):
+    NOT_FOUND = "not_found"
+    INVALID_SIZE = "invalid_size"
+    INVALID_SHA1 = "invalid_sha1"
+    def __init__(self, fails: Dict[str, str]):
+        super().__init__()
+        self.fails = fails
 
 
 if __name__ == '__main__':
