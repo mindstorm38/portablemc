@@ -22,13 +22,16 @@ from typing import Generator, Callable, Optional, Tuple, Dict, Type, List
 from http.client import HTTPConnection, HTTPSConnection
 from urllib import parse as url_parse
 from json import JSONDecodeError
+from zipfile import ZipFile
 from uuid import uuid4
 from os import path
 import platform
 import hashlib
+import atexit
 import shutil
 import base64
 import json
+import sys
 import os
 import re
 
@@ -68,6 +71,8 @@ class Context:
         self.versions_dir = path.join(main_dir, "versions")
         self.assets_dir = path.join(main_dir, "assets")
         self.libraries_dir = path.join(main_dir, "libraries")
+        self.jvm_dir = path.join(main_dir, "jvm")
+        self.bin_dir = path.join(self.work_dir, "bin")
 
 
 class Version:
@@ -99,6 +104,9 @@ class Version:
         self.classpath_libs: List[str] = []
         self.native_libs: List[str] = []
 
+        self.jvm_version: Optional[str] = None
+        self.jvm_exec: Optional[str] = None
+
     def prepare_meta(self):
 
         """
@@ -106,7 +114,9 @@ class Version:
         files are downloaded. Each metadata file is downloaded (if not already cached) in their own directory named
         after the version ID, the directory is placed in the 'versions_dir' of the context.\n
         This method will load the official Mojang version manifest, however you can set the 'manifest' attribute of this
-        object before with a custom manifest if you want to support more versions.
+        object before with a custom manifest if you want to support more versions.\n
+        If any version in the inherit tree is not found, a VersionError is raised with VersionError.NOT_FOUND and the
+        version ID as argument.
         """
 
         if self.manifest is None:
@@ -148,7 +158,9 @@ class Version:
         """
         Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
         If the metadata provides a client download URL, and the version JAR file doesn't exists or have not the expected
-        size, it's added to the download list to be downloaded to the same directory as the metadata file.
+        size, it's added to the download list to be downloaded to the same directory as the metadata file.\n
+        If no download URL is provided by metadata and the JAR file does not exists, a VersionError is raised with
+        VersionError.JAR_NOT_FOUND.
         """
 
         self._check_version_meta()
@@ -158,7 +170,8 @@ class Version:
             entry = DownloadEntry.from_meta(client_download, self.version_jar_file, name=f"{self.version}.jar")
             if not path.isfile(entry.dst) or path.getsize(entry.dst) != entry.size:
                 self.dl.append(entry)
-        # raise VersionError(VersionError.JAR_NOT_FOUND)
+        elif not path.isfile(self.version_jar_file):
+            raise VersionError(VersionError.JAR_NOT_FOUND)
 
     def prepare_assets(self):
 
@@ -221,6 +234,12 @@ class Version:
 
     def prepare_logger(self):
 
+        """
+        Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
+        This method check the metadata for a client logging configuration, it it doesn't exist the configuration is
+        added to the download list.
+        """
+
         self._check_version_meta()
         client_logging = self.version_meta.get("logging", {}).get("client")
         if client_logging is not None:
@@ -234,6 +253,12 @@ class Version:
             # return client_logging["argument"].replace("${path}", logging_file)
 
     def prepare_libraries(self):
+
+        """
+        Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
+        This method check all libraries found in the metadata, each library is downloaded if not already stored. Real
+        Java libraries are added to the classpath list and native libraries are added to the native list.
+        """
 
         self._check_version_meta()
         self.classpath_libs.clear()
@@ -299,20 +324,181 @@ class Version:
             if lib_dl_entry is not None and path.isfile(lib_path) and path.getsize(lib_path) == lib_dl_entry.size:
                 self.dl.append(lib_dl_entry)
 
-    def download(self):
-        self.dl.download_files()
+    def prepare_jvm(self):
+
+        """
+        Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
+        This method check all libraries found in the metadata, each library is downloaded if not already stored. Real
+        Java libraries are added to the classpath list and native libraries are added to the native list.
+        """
+
+        self._check_version_meta()
+        jvm_version_type = self.version_meta.get("javaVersion", {}).get("component", "jre-legacy")
+
+        all_jvm_meta = Util.json_simple_request(JVM_META_URL)
+        jvm_arch_meta = all_jvm_meta.get(Util.get_minecraft_jvm_os())
+        if jvm_arch_meta is None:
+            raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_ARCH)
+
+        jvm_meta = jvm_arch_meta.get(jvm_version_type)
+        if jvm_meta is None:
+            raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_VERSION)
+
+        jvm_dir = path.join(self.context.jvm_dir, jvm_version_type)
+        jvm_manifest = Util.json_simple_request(jvm_meta[0]["manifest"]["url"])["files"]
+        self.jvm_version = jvm_meta[0]["version"]["name"]
+        self.jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if sys.platform == "win32" else "java")
+
+        if not path.isfile(self.jvm_exec):
+
+            jvm_exec_files = []
+            os.makedirs(jvm_dir, exist_ok=True)
+            for jvm_file_path_suffix, jvm_file in jvm_manifest.items():
+                if jvm_file["type"] == "file":
+                    jvm_file_path = path.join(jvm_dir, jvm_file_path_suffix)
+                    jvm_download_info = jvm_file["downloads"]["raw"]
+                    self.dl.append(DownloadEntry.from_meta(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix))
+                    if jvm_file.get("executable", False):
+                        jvm_exec_files.append(jvm_file_path)
+
+            def finalize():
+                for exec_file in jvm_exec_files:
+                    os.chmod(exec_file, 0o777)
+
+            self.dl.add_callback(finalize)
+
+    def download(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
+        self.dl.download_files(progress_callback=progress_callback)
         self.dl.reset()
 
-    def install(self):
+    def install(self, *, jvm: bool = False):
         self.prepare_meta()
         self.prepare_jar()
         self.prepare_assets()
         self.prepare_logger()
         self.prepare_libraries()
+        if jvm:
+            self.prepare_jvm()
         self.download()
 
-    def start(self):
-        pass
+    def start(self, options: 'StartOptions'):
+
+        self._check_version_meta()
+
+        main_class = self.version_meta.get("mainClass")
+        if main_class is None:
+            raise ValueError("This version metadata has no main class to start.")
+
+        bin_dir = path.join(self.context.bin_dir, str(uuid4()))
+
+        @atexit.register
+        def _bin_dir_cleanup():
+            if path.isdir(bin_dir):
+                shutil.rmtree(bin_dir)
+
+        for native_lib in self.native_libs:
+            with ZipFile(native_lib, 'r') as native_zip:
+                for native_zip_info in native_zip.infolist():
+                    if Util.can_extract_native(native_zip_info.filename):
+                        native_zip.extract(native_zip_info, bin_dir)
+
+        # Features
+        features = {
+            "is_demo_user": options.demo,
+            "has_custom_resolution": options.resolution is not None,
+            **options.features
+        }
+
+        # Auth
+        auth_session = options.auth_session
+        if auth_session is not None:
+            uuid = auth_session.uuid
+            username = auth_session.username
+        else:
+            uuid = uuid4().hex if options.uuid is None else options.uuid.replace("-", "")
+            username = uuid[:8] if options.username is None else options.username[:16]  # Max username length is 16
+
+        # Arguments replacements
+        args_replacements = {
+            # Game
+            "auth_player_name": username,
+            "version_name": self.version,
+            "game_directory": self.context.work_dir,
+            "assets_root": self.context.assets_dir,
+            "assets_index_name": self.assets_index_version,
+            "auth_uuid": uuid,
+            "auth_access_token": "" if auth_session is None else auth_session.format_token_argument(False),
+            "user_type": "mojang",
+            "version_type": self.version_meta.get("type", ""),
+            # Game (legacy)
+            "auth_session": "notok" if auth_session is None else auth_session.format_token_argument(True),
+            "game_assets": self.assets_virtual_dir,
+            "user_properties": "{}",
+            # JVM
+            "natives_directory": bin_dir,
+            "launcher_name": LAUNCHER_NAME,
+            "launcher_version": LAUNCHER_VERSION,
+            "classpath": path.pathsep.join(self.classpath_libs),
+            **options.args_replacements
+        }
+
+        modern_args = self.version_meta.get("arguments", {})
+        modern_jvm_args = modern_args.get("jvm")
+        modern_game_args = modern_args.get("game")
+
+        raw_args = []
+
+        # JVM arguments
+        Util.interpret_args(Util.LEGACY_JVM_ARGUMENTS if modern_jvm_args is None else modern_jvm_args, features, raw_args)
+
+        # JVM argument for logging config
+        if self.logging_argument is not None:
+            raw_args.append(self.logging_argument.replace("${path}", self.logging_file))
+
+        # JVM argument for launch wrapper JAR path
+        if main_class == "net.minecraft.launchwrapper.Launch":
+            raw_args.append("-Dminecraft.client.jar={}".format(self.version_jar_file))
+
+        raw_args.append(main_class)
+
+        # Game arguments
+        if modern_game_args is None:
+            raw_args.extend(self.version_meta.get("minecraftArguments", "").split(" "))
+        else:
+            Util.interpret_args(modern_game_args, features, raw_args)
+
+        for i in range(len(raw_args)):
+            raw_arg = raw_args[i]
+            start = raw_arg.find("${")
+            if start == -1:
+                break
+            end = raw_arg.find("}", start + 1)
+            if end == -1:
+                break
+            var_name = raw_arg[(start + 1):end]
+
+
+
+
+
+class StartOptions:
+
+    def __init__(self):
+
+        self.auth_session: Optional[AuthSession] = None
+        self.uuid: Optional[str] = None
+        self.username: Optional[str] = None
+        self.demo: bool = False
+        self.resolution: Optional[Tuple[int, int]] = None
+        self.disable_multiplayer: bool = False
+        self.disable_chat: bool = False
+        self.server_address: Optional[str] = None
+        self.server_port: Optional[int] = None
+
+        self.features: Dict[str, bool] = {}
+        self.args_replacements: Dict[str, str] = {}
+        self.jvm_args: List[str] = []
+        self.games_args: List[str] = []
 
 
 class VersionManifest:
@@ -656,6 +842,7 @@ class Util:
     minecraft_os: Optional[str] = None
     minecraft_arch: Optional[str] = None
     minecraft_archbits: Optional[str] = None
+    minecraft_jvm_os: Optional[str] = None
     rule_os_checks: Optional[list] = None
 
     @staticmethod
@@ -740,21 +927,19 @@ class Util:
         return allowed
 
     @classmethod
-    def interpret_args(cls, args: list, features: dict) -> list:
-        ret = []
+    def interpret_args(cls, args: list, features: dict, dst: List[str]):
         for arg in args:
             if isinstance(arg, str):
-                ret.append(arg)
+                dst.append(arg)
             else:
                 if "rules" in arg:
                     if not cls.interpret_rule(arg["rules"], features):
                         continue
                 arg_value = arg["value"]
                 if isinstance(arg_value, list):
-                    ret.extend(arg_value)
+                    dst.extend(arg_value)
                 elif isinstance(arg_value, str):
-                    ret.append(arg_value)
-        return ret
+                    dst.append(arg_value)
 
     @staticmethod
     def get_minecraft_dir() -> str:
@@ -784,6 +969,40 @@ class Util:
             raw_bits = platform.architecture()[0]
             cls.minecraft_archbits = "64" if raw_bits == "64bit" else "32" if raw_bits == "32bit" else ""
         return cls.minecraft_archbits
+
+    @classmethod
+    def get_minecraft_jvm_os(cls) -> str:
+        if cls.minecraft_jvm_os is None:
+            cls.minecraft_jvm_os = {
+                "osx": {"x86": "mac-os"},
+                "linux": {"x86": "linux-i386", "x86_64": "linux"},
+                "windows": {"x86": "windows-x86", "x86_64": "windows-x64"}
+            }.get(cls.get_minecraft_os(), {}).get(cls.get_minecraft_arch())
+        return cls.minecraft_jvm_os
+
+    @staticmethod
+    def can_extract_native(filename: str) -> bool:
+        return not filename.startswith("META-INF") and not filename.endswith(".git") and not filename.endswith(".sha1")
+
+    LEGACY_JVM_ARGUMENTS = [
+        {
+            "rules": [{"action": "allow", "os": {"name": "osx"}}],
+            "value": ["-XstartOnFirstThread"]
+        },
+        {
+            "rules": [{"action": "allow", "os": {"name": "windows"}}],
+            "value": "-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump"
+        },
+        {
+            "rules": [{"action": "allow", "os": {"name": "windows", "version": "^10\\."}}],
+            "value": ["-Dos.name=Windows 10", "-Dos.version=10.0"]
+        },
+        "-Djava.library.path=${natives_directory}",
+        "-Dminecraft.launcher.brand=${launcher_name}",
+        "-Dminecraft.launcher.version=${launcher_version}",
+        "-cp",
+        "${classpath}"
+    ]
 
 
 class DownloadEntry:
@@ -833,9 +1052,12 @@ class DownloadList:
         self.callbacks.append(callback)
 
     def download_files(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
-        """ Downloads the given list of files. Even if some downloads fails, it continue and raise DownloadError(fails)
+
+        """
+        Downloads the given list of files. Even if some downloads fails, it continue and raise DownloadError(fails)
         only at the end, where 'fails' is a dict associating the entry URL and its error ('not_found', 'invalid_size',
-        'invalid_sha1')."""
+        'invalid_sha1').
+        """
 
         if len(self.entries):
 
@@ -871,7 +1093,6 @@ class DownloadList:
                     error = None
 
                     size_target = 0 if entry.size is None else entry.size
-                    known_size = (size_target != 0)
 
                     for _ in range(max_try_count):
 
@@ -890,9 +1111,7 @@ class DownloadList:
                                     break
                                 buffer_view = buffer[:read_len]
                                 size += read_len
-                                if known_size:
-                                    # Only adding to total size if the size is known.
-                                    total_size += read_len
+                                total_size += read_len
                                 sha1.update(buffer_view)
                                 dst_fp.write(buffer_view)
                                 if progress_callback is not None:
@@ -909,12 +1128,10 @@ class DownloadList:
                         else:
                             break
 
-                        if known_size:
-                            # When re-trying, reset the total size to the previous state.
-                            total_size -= size
+                        total_size -= size
 
                     else:
-                        # If the break was not triggered, an error must be set.
+                        # If the break was not triggered, an error should be set.
                         fails[entry.url] = error
 
                 conn.close()
@@ -965,6 +1182,11 @@ class AuthError(BaseError):
 class VersionError(BaseError):
     NOT_FOUND = "not_found"
     JAR_NOT_FOUND = "jar_not_found"
+
+
+class JvmLoadingError(BaseError):
+    UNSUPPORTED_ARCH = "unsupported_arch"
+    UNSUPPORTED_VERSION = "unsupported_version"
 
 
 class DownloadError(Exception):
