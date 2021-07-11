@@ -16,8 +16,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
-
 from typing import Generator, Callable, Optional, Tuple, Dict, Type, List
 from http.client import HTTPConnection, HTTPSConnection
 from urllib import parse as url_parse
@@ -27,7 +25,6 @@ from uuid import uuid4
 from os import path
 import platform
 import hashlib
-import atexit
 import shutil
 import base64
 import json
@@ -151,7 +148,7 @@ class Version:
 
     def _check_version_meta(self):
         if self.version_meta is None:
-            raise ValueError("You must install metadata before.")
+            raise ValueError("You should install metadata first.")
 
     def prepare_jar(self):
 
@@ -250,18 +247,23 @@ class Version:
                 self.dl.append(download_entry)
             self.logging_file = logging_file
             self.logging_argument = client_logging["argument"]
-            # return client_logging["argument"].replace("${path}", logging_file)
 
     def prepare_libraries(self):
 
         """
         Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
+        If the version JAR file is not set, a ValueError is raised because it is required to be added in classpath.\n
         This method check all libraries found in the metadata, each library is downloaded if not already stored. Real
         Java libraries are added to the classpath list and native libraries are added to the native list.
         """
 
         self._check_version_meta()
+
+        if self.version_jar_file is None:
+            raise ValueError("The version JAR file is not ")
+
         self.classpath_libs.clear()
+        self.classpath_libs.append(self.version_jar_file)
         self.native_libs.clear()
 
         for lib_obj in self.version_meta["libraries"]:
@@ -381,109 +383,17 @@ class Version:
             self.prepare_jvm()
         self.download()
 
-    def start(self, options: 'StartOptions'):
 
-        self._check_version_meta()
+class Start:
 
-        main_class = self.version_meta.get("mainClass")
-        if main_class is None:
-            raise ValueError("This version metadata has no main class to start.")
+    """
+    Class used to control the starting procedure of Minecraft, it is made in order to allow the user to customize
+    every argument given to the executable.
+    """
 
-        bin_dir = path.join(self.context.bin_dir, str(uuid4()))
+    def __init__(self, version: Version):
 
-        @atexit.register
-        def _bin_dir_cleanup():
-            if path.isdir(bin_dir):
-                shutil.rmtree(bin_dir)
-
-        for native_lib in self.native_libs:
-            with ZipFile(native_lib, 'r') as native_zip:
-                for native_zip_info in native_zip.infolist():
-                    if Util.can_extract_native(native_zip_info.filename):
-                        native_zip.extract(native_zip_info, bin_dir)
-
-        # Features
-        features = {
-            "is_demo_user": options.demo,
-            "has_custom_resolution": options.resolution is not None,
-            **options.features
-        }
-
-        # Auth
-        auth_session = options.auth_session
-        if auth_session is not None:
-            uuid = auth_session.uuid
-            username = auth_session.username
-        else:
-            uuid = uuid4().hex if options.uuid is None else options.uuid.replace("-", "")
-            username = uuid[:8] if options.username is None else options.username[:16]  # Max username length is 16
-
-        # Arguments replacements
-        args_replacements = {
-            # Game
-            "auth_player_name": username,
-            "version_name": self.version,
-            "game_directory": self.context.work_dir,
-            "assets_root": self.context.assets_dir,
-            "assets_index_name": self.assets_index_version,
-            "auth_uuid": uuid,
-            "auth_access_token": "" if auth_session is None else auth_session.format_token_argument(False),
-            "user_type": "mojang",
-            "version_type": self.version_meta.get("type", ""),
-            # Game (legacy)
-            "auth_session": "notok" if auth_session is None else auth_session.format_token_argument(True),
-            "game_assets": self.assets_virtual_dir,
-            "user_properties": "{}",
-            # JVM
-            "natives_directory": bin_dir,
-            "launcher_name": LAUNCHER_NAME,
-            "launcher_version": LAUNCHER_VERSION,
-            "classpath": path.pathsep.join(self.classpath_libs),
-            **options.args_replacements
-        }
-
-        modern_args = self.version_meta.get("arguments", {})
-        modern_jvm_args = modern_args.get("jvm")
-        modern_game_args = modern_args.get("game")
-
-        raw_args = []
-
-        # JVM arguments
-        Util.interpret_args(Util.LEGACY_JVM_ARGUMENTS if modern_jvm_args is None else modern_jvm_args, features, raw_args)
-
-        # JVM argument for logging config
-        if self.logging_argument is not None:
-            raw_args.append(self.logging_argument.replace("${path}", self.logging_file))
-
-        # JVM argument for launch wrapper JAR path
-        if main_class == "net.minecraft.launchwrapper.Launch":
-            raw_args.append("-Dminecraft.client.jar={}".format(self.version_jar_file))
-
-        raw_args.append(main_class)
-
-        # Game arguments
-        if modern_game_args is None:
-            raw_args.extend(self.version_meta.get("minecraftArguments", "").split(" "))
-        else:
-            Util.interpret_args(modern_game_args, features, raw_args)
-
-        for i in range(len(raw_args)):
-            raw_arg = raw_args[i]
-            start = raw_arg.find("${")
-            if start == -1:
-                break
-            end = raw_arg.find("}", start + 1)
-            if end == -1:
-                break
-            var_name = raw_arg[(start + 1):end]
-
-
-
-
-
-class StartOptions:
-
-    def __init__(self):
+        self.version = version
 
         self.auth_session: Optional[AuthSession] = None
         self.uuid: Optional[str] = None
@@ -497,8 +407,149 @@ class StartOptions:
 
         self.features: Dict[str, bool] = {}
         self.args_replacements: Dict[str, str] = {}
+        self.bin_dir: Optional[str] = None
+
+        self.main_class: Optional[str] = None
         self.jvm_args: List[str] = []
         self.games_args: List[str] = []
+
+    def _check_version(self):
+        if self.version.version_meta is None:
+            raise ValueError("You should install the version metadata first.")
+
+    def prepare_config(self):
+
+        """
+        Must be called once metadata file are prepared, using 'prepare_meta' on version, if not, ValueError is raised.\n
+        The 'bin_dir' is set if not already.\n
+        Features and arguments replacements are set according to config attributes set in this object.
+        """
+
+        self._check_version()
+
+        # Bin directory
+        if self.bin_dir is None:
+            self.bin_dir = path.join(self.version.context.bin_dir, str(uuid4()))
+
+        # Features
+        self.features = {
+            "is_demo_user": self.demo,
+            "has_custom_resolution": self.resolution is not None
+        }
+
+        # Auth
+        if self.auth_session is not None:
+            uuid = self.auth_session.uuid
+            username = self.auth_session.username
+        else:
+            uuid = uuid4().hex if self.uuid is None else self.uuid.replace("-", "").lower()
+            username = uuid[:8] if self.username is None else self.username[:16]  # Max username length is 16
+
+        # Arguments replacements
+        self.args_replacements = {
+            # Game
+            "auth_player_name": username,
+            "version_name": self.version.version,
+            "game_directory": self.version.context.work_dir,
+            "assets_root": self.version.context.assets_dir,
+            "assets_index_name": self.version.assets_index_version,
+            "auth_uuid": uuid,
+            "auth_access_token": "" if self.auth_session is None else self.auth_session.format_token_argument(False),
+            "user_type": "mojang",
+            "version_type": self.version.version_meta.get("type", ""),
+            # Game (legacy)
+            "auth_session": "" if self.auth_session is None else self.auth_session.format_token_argument(True),
+            "game_assets": self.version.assets_virtual_dir,
+            "user_properties": "{}",
+            # JVM
+            "natives_directory": self.bin_dir,
+            "launcher_name": LAUNCHER_NAME,
+            "launcher_version": LAUNCHER_VERSION,
+            "classpath": path.pathsep.join(self.version.classpath_libs)
+        }
+
+    def prepare_arguments(self):
+
+        """
+        Must be called once metadata file are prepared, using 'prepare_meta' on version, if not, ValueError is raised.\n
+        This method computes JVM ('jvm_args') and game arguments ('game_args'), the two arrays are cleared before and
+        all variables are replaced using 'args_replacements' set before. The main class is not part of these array and
+        is set from the metadata only if was not already set, if no main class is specified in metadata, ValueError is
+        raised.
+        """
+
+        self._check_version()
+
+        if self.main_class is None:
+            self.main_class = self.version.version_meta.get("mainClass")
+            if self.main_class is None:
+                raise ValueError("The version metadata has no main class to start.")
+
+        modern_args = self.version.version_meta.get("arguments", {})
+        modern_jvm_args = modern_args.get("jvm")
+        modern_game_args = modern_args.get("game")
+
+        self.jvm_args.clear()
+        self.games_args.clear()
+
+        # JVM arguments
+        Util.interpret_args(Util.LEGACY_JVM_ARGUMENTS if modern_jvm_args is None else modern_jvm_args, self.features, self.jvm_args)
+
+        # JVM argument for logging config
+        if self.version.logging_argument is not None:
+            self.jvm_args.append(self.version.logging_argument.replace("${path}", self.version.logging_file))
+
+        # JVM argument for launch wrapper JAR path
+        if self.main_class == "net.minecraft.launchwrapper.Launch":
+            self.jvm_args.append("-Dminecraft.client.jar={}".format(self.version.version_jar_file))
+
+        # Game arguments
+        if modern_game_args is None:
+            self.games_args.extend(self.version.version_meta.get("minecraftArguments", "").split(" "))
+        else:
+            Util.interpret_args(modern_game_args, self.features, self.games_args)
+
+        Util.replace_list_vars(self.jvm_args, self.args_replacements)
+        Util.replace_list_vars(self.games_args, self.args_replacements)
+
+    def start(self, *, runner: Optional[Callable[[List[str]], None]] = None):
+
+        """
+        Actually start the game
+        """
+
+        if self.main_class is None:
+            raise ValueError("Main class should be set before starting the game.")
+
+        if runner is None:
+            import subprocess
+            runner = lambda _args: subprocess.run(_args)
+
+        if self.bin_dir is not None:
+            for native_lib in self.version.native_libs:
+                with ZipFile(native_lib, "r") as native_zip:
+                    for native_zip_info in native_zip.infolist():
+                        if Util.can_extract_native(native_zip_info.filename):
+                            native_zip.extract(native_zip_info, self.bin_dir)
+
+        runner([*self.jvm_args, self.main_class, *self.games_args])
+
+    def cleanup(self):
+        if self.bin_dir is not None:
+            shutil.rmtree(self.bin_dir, ignore_errors=True)
+
+    def launch(self, *, atexit_cleanup: bool = True):
+
+        self.prepare_config()
+        self.prepare_arguments()
+        self.start()
+
+        if atexit_cleanup:
+            import atexit
+
+            @atexit.register
+            def atexit_cleanup():
+                self.cleanup()
 
 
 class VersionManifest:
@@ -932,14 +983,44 @@ class Util:
             if isinstance(arg, str):
                 dst.append(arg)
             else:
-                if "rules" in arg:
-                    if not cls.interpret_rule(arg["rules"], features):
+                rules = arg.get("rules")
+                if rules is not None:
+                    if not cls.interpret_rule(rules, features):
                         continue
                 arg_value = arg["value"]
                 if isinstance(arg_value, list):
                     dst.extend(arg_value)
                 elif isinstance(arg_value, str):
                     dst.append(arg_value)
+
+    @classmethod
+    def replace_vars(cls, txt: str, replacements: Dict[str, str]) -> str:
+        parts = []
+        last_end = 0
+        while True:
+            start = txt.find("${", last_end)
+            if start == -1:
+                break
+            end = txt.find("}", start + 2)
+            if end == -1:
+                break
+            parts.append(txt[last_end:start])
+            var = txt[(start + 2):end]
+            parts.append(replacements.get(var, txt[start:end + 1]))
+            last_end = end + 1
+        parts.append(txt[last_end:])
+        return "".join(parts)
+
+    @classmethod
+    def replace_list_vars(cls, lst: List[str], replacements: Dict[str, str]):
+        for i, elt in enumerate(lst):
+            lst[i] = cls.replace_vars(elt, replacements)
+
+    @classmethod
+    def update_dict_keep(cls, orig: dict, other: dict):
+        for k, v in other.items():
+            if k not in orig:
+                orig[k] = v
 
     @staticmethod
     def get_minecraft_dir() -> str:
@@ -1205,5 +1286,7 @@ if __name__ == '__main__':
         ctx = Context()
         ver = Version(ctx, "1.16.5")
         ver.install()
+        start = Start(ver)
+        start.launch()
 
     cli_start()
