@@ -16,6 +16,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 from typing import Generator, Callable, Optional, Tuple, Dict, Type, List
 from http.client import HTTPConnection, HTTPSConnection
 from urllib import parse as url_parse
@@ -411,7 +412,9 @@ class Start:
 
         self.main_class: Optional[str] = None
         self.jvm_args: List[str] = []
-        self.games_args: List[str] = []
+        self.game_args: List[str] = []
+
+        self.runner: Callable[[List[str]], None] = self.default_runner
 
     def _check_version(self):
         if self.version.version_meta is None:
@@ -475,7 +478,8 @@ class Start:
         This method computes JVM ('jvm_args') and game arguments ('game_args'), the two arrays are cleared before and
         all variables are replaced using 'args_replacements' set before. The main class is not part of these array and
         is set from the metadata only if was not already set, if no main class is specified in metadata, ValueError is
-        raised.
+        raised.\n
+        Note that the JVM arguments also contains the JVM executable path as first argument.
         """
 
         self._check_version()
@@ -490,13 +494,13 @@ class Start:
         modern_game_args = modern_args.get("game")
 
         self.jvm_args.clear()
-        self.games_args.clear()
+        self.game_args.clear()
 
         # JVM arguments
         Util.interpret_args(Util.LEGACY_JVM_ARGUMENTS if modern_jvm_args is None else modern_jvm_args, self.features, self.jvm_args)
 
         # JVM argument for logging config
-        if self.version.logging_argument is not None:
+        if self.version.logging_argument is not None and self.version.logging_file is not None:
             self.jvm_args.append(self.version.logging_argument.replace("${path}", self.version.logging_file))
 
         # JVM argument for launch wrapper JAR path
@@ -505,25 +509,23 @@ class Start:
 
         # Game arguments
         if modern_game_args is None:
-            self.games_args.extend(self.version.version_meta.get("minecraftArguments", "").split(" "))
+            self.game_args.extend(self.version.version_meta.get("minecraftArguments", "").split(" "))
         else:
-            Util.interpret_args(modern_game_args, self.features, self.games_args)
+            Util.interpret_args(modern_game_args, self.features, self.game_args)
 
         Util.replace_list_vars(self.jvm_args, self.args_replacements)
-        Util.replace_list_vars(self.games_args, self.args_replacements)
+        Util.replace_list_vars(self.game_args, self.args_replacements)
 
-    def start(self, *, runner: Optional[Callable[[List[str]], None]] = None):
+    def start(self):
 
         """
-        Actually start the game
+        Actually start the game, this method requires 'main_class' to be set, if not, a ValueError is raised.\n
+        This method does not requires anything else, the user of this method must ensure that 'jvm_args', 'main_class'
+        and 'game_args' are valid to actually launch Minecraft.
         """
 
         if self.main_class is None:
             raise ValueError("Main class should be set before starting the game.")
-
-        if runner is None:
-            import subprocess
-            runner = lambda _args: subprocess.run(_args)
 
         if self.bin_dir is not None:
             for native_lib in self.version.native_libs:
@@ -532,7 +534,7 @@ class Start:
                         if Util.can_extract_native(native_zip_info.filename):
                             native_zip.extract(native_zip_info, self.bin_dir)
 
-        runner([*self.jvm_args, self.main_class, *self.games_args])
+        self.runner([*self.jvm_args, self.main_class, *self.game_args])
 
     def cleanup(self):
         if self.bin_dir is not None:
@@ -550,6 +552,11 @@ class Start:
             @atexit.register
             def atexit_cleanup():
                 self.cleanup()
+
+    @staticmethod
+    def default_runner(args: List[str]) -> None:
+        import subprocess
+        subprocess.run(args)
 
 
 class VersionManifest:
