@@ -894,7 +894,6 @@ class Util:
     minecraft_arch: Optional[str] = None
     minecraft_archbits: Optional[str] = None
     minecraft_jvm_os: Optional[str] = None
-    rule_os_checks: Optional[list] = None
 
     @staticmethod
     def json_request(url: str, method: str, *,
