@@ -33,7 +33,6 @@ import sys
 import os
 import re
 
-
 LAUNCHER_NAME = "portablemc"
 LAUNCHER_VERSION = "1.2.0"
 LAUNCHER_AUTHORS = "Théo Rozier"
@@ -64,6 +63,15 @@ class Context:
     """
 
     def __init__(self, main_dir: Optional[str] = None, work_dir: Optional[str] = None):
+
+        """
+        Construct a Minecraft context. The main directory `main_dir` is used to construct versions, assets, libraries
+        and JVM directories, but it is not stored afterward. The working directory `work_dir` (also named "game
+        directory"), however it is stored as-is.\n
+        By default `main_dir` is set to the default .minecraft (https://minecraft.fandom.com/fr/wiki/.minecraft) and
+        `work_dir` is set by default to the value of `main_dir`.
+        """
+
         main_dir = Util.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
         self.work_dir = main_dir if work_dir is None else path.realpath(work_dir)
         self.versions_dir = path.join(main_dir, "versions")
@@ -82,6 +90,8 @@ class Version:
     """
 
     def __init__(self, context: Context, version: str):
+
+        """ Construct a new version, using a specific context and the exact version ID you want to start. """
 
         self.context = context
         self.version = version
@@ -108,13 +118,13 @@ class Version:
     def prepare_meta(self):
 
         """
-        Prepare all metadata files for this version, this take 'inheritsFrom' key into account and all parents metadata
+        Prepare all metadata files for this version, this take `inheritsFrom` key into account and all parents metadata
         files are downloaded. Each metadata file is downloaded (if not already cached) in their own directory named
-        after the version ID, the directory is placed in the 'versions_dir' of the context.\n
-        This method will load the official Mojang version manifest, however you can set the 'manifest' attribute of this
+        after the version ID, the directory is placed in the `versions_dir` of the context.\n
+        This method will load the official Mojang version manifest, however you can set the `manifest` attribute of this
         object before with a custom manifest if you want to support more versions.\n
-        If any version in the inherit tree is not found, a VersionError is raised with VersionError.NOT_FOUND and the
-        version ID as argument.
+        If any version in the inherit tree is not found, a `VersionError` is raised with `VersionError.NOT_FOUND` and
+        the version ID as argument.
         """
 
         if self.manifest is None:
@@ -154,11 +164,11 @@ class Version:
     def prepare_jar(self):
 
         """
-        Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
+        Must be called once metadata file are prepared, using `prepare_meta`, if not, `ValueError` is raised.\n
         If the metadata provides a client download URL, and the version JAR file doesn't exists or have not the expected
         size, it's added to the download list to be downloaded to the same directory as the metadata file.\n
         If no download URL is provided by metadata and the JAR file does not exists, a VersionError is raised with
-        VersionError.JAR_NOT_FOUND.
+        `VersionError.JAR_NOT_FOUND`.
         """
 
         self._check_version_meta()
@@ -174,11 +184,11 @@ class Version:
     def prepare_assets(self):
 
         """
-        Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
+        Must be called once metadata file are prepared, using `prepare_meta`, if not, `ValueError` is raised.\n
         This method download the asset index file (if not already cached) named after the asset version into the
-        directory 'indexes' placed into the directory 'assets_dir' of the context. Once ready, the asset index file
+        directory `indexes` placed into the directory `assets_dir` of the context. Once ready, the asset index file
         is analysed and each object is checked, if it does not exist or not have the expected size, it is downloaded
-        to the 'objects' directory placed into the directory 'assets_dir' of the context.
+        to the `objects` directory placed into the directory `assets_dir` of the context.
         """
 
         self._check_version_meta()
@@ -233,7 +243,7 @@ class Version:
     def prepare_logger(self):
 
         """
-        Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
+        Must be called once metadata file are prepared, using `prepare_meta`, if not, `ValueError` is raised.\n
         This method check the metadata for a client logging configuration, it it doesn't exist the configuration is
         added to the download list.
         """
@@ -252,7 +262,7 @@ class Version:
     def prepare_libraries(self):
 
         """
-        Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
+        Must be called once metadata file are prepared, using `prepare_meta`, if not, `ValueError` is raised.\n
         If the version JAR file is not set, a ValueError is raised because it is required to be added in classpath.\n
         This method check all libraries found in the metadata, each library is downloaded if not already stored. Real
         Java libraries are added to the classpath list and native libraries are added to the native list.
@@ -330,9 +340,8 @@ class Version:
     def prepare_jvm(self):
 
         """
-        Must be called once metadata file are prepared, using 'prepare_meta', if not, ValueError is raised.\n
-        This method check all libraries found in the metadata, each library is downloaded if not already stored. Real
-        Java libraries are added to the classpath list and native libraries are added to the native list.
+        Must be called once metadata file are prepared, using `prepare_meta`, if not, `ValueError` is raised.\n
+        This method ensure that the JVM adapted to this version is downloaded to the `jvm_dir` of the context.
         """
 
         self._check_version_meta()
@@ -375,6 +384,7 @@ class Version:
         self.dl.reset()
 
     def install(self, *, jvm: bool = False):
+        """ Prepare and download the version with optional JVM installation. """
         self.prepare_meta()
         self.prepare_jar()
         self.prepare_assets()
@@ -383,6 +393,19 @@ class Version:
         if jvm:
             self.prepare_jvm()
         self.download()
+
+
+class StartOptions:
+    def __init__(self):
+        self.auth_session: Optional[AuthSession] = None
+        self.uuid: Optional[str] = None
+        self.username: Optional[str] = None
+        self.demo: bool = False
+        self.resolution: Optional[Tuple[int, int]] = None
+        self.disable_multiplayer: bool = False
+        self.disable_chat: bool = False
+        self.server_address: Optional[str] = None
+        self.server_port: Optional[int] = None
 
 
 class Start:
@@ -424,8 +447,12 @@ class Start:
 
         """
         Must be called once metadata file are prepared, using 'prepare_meta' on version, if not, ValueError is raised.\n
-        The 'bin_dir' is set if not already.\n
-        Features and arguments replacements are set according to config attributes set in this object.
+        This method builds the two 'features' and 'args_replacements' dictionaries depending on current configuration of
+        this object. \n
+        -- **Before this method** you can change 'bin_dir', it is set if not already.\n
+        -- **After this method** you can change 'features' and 'args_replacements' If you really need to change the bin
+        directory ('bin_dir') after this method, ensure that the 'args_replacements' dictionary is updated to use the
+        new value before preparing arguments.
         """
 
         self._check_version()
@@ -471,15 +498,22 @@ class Start:
             "classpath": path.pathsep.join(self.version.classpath_libs)
         }
 
+        if self.resolution is not None:
+            self.args_replacements["resolution_width"] = str(self.resolution[0])
+            self.args_replacements["resolution_height"] = str(self.resolution[1])
+
     def prepare_arguments(self):
 
         """
         Must be called once metadata file are prepared, using 'prepare_meta' on version, if not, ValueError is raised.\n
         This method computes JVM ('jvm_args') and game arguments ('game_args'), the two arrays are cleared before and
-        all variables are replaced using 'args_replacements' set before. The main class is not part of these array and
+        all variables are replaced using 'args_replacements'. The main class is not part of these arrays and
         is set from the metadata only if was not already set, if no main class is specified in metadata, ValueError is
         raised.\n
-        Note that the JVM arguments also contains the JVM executable path as first argument.
+        -- **Before this method** you can change 'main_class', 'features' and 'args_replacements'.\n
+        -- **After this method** you can change 'jvm_args' and 'game_args', the JVM exec is the first argument of JVM args.
+        You can still change 'main_class', but if you set it to the launch wrapper main class, this will not add the
+        argument to the version JAR path.
         """
 
         self._check_version()
@@ -513,38 +547,56 @@ class Start:
         else:
             Util.interpret_args(modern_game_args, self.features, self.game_args)
 
+        if self.disable_multiplayer:
+            self.game_args.append("--disableMultiplayer")
+        if self.disable_chat:
+            self.game_args.append("--disableChat")
+
+        if self.server_address is not None:
+            self.game_args.extend(("--server", self.server_address))
+        if self.server_port is not None:
+            self.game_args.extend(("--port", str(self.server_port)))
+
         Util.replace_list_vars(self.jvm_args, self.args_replacements)
         Util.replace_list_vars(self.game_args, self.args_replacements)
 
     def start(self):
 
         """
-        Actually start the game, this method requires 'main_class' to be set, if not, a ValueError is raised.\n
+        Actually start the game, this method requires 'main_class' and 'bin_dir' to be set, if not, a ValueError
+        is raised.\n
         This method does not requires anything else, the user of this method must ensure that 'jvm_args', 'main_class'
-        and 'game_args' are valid to actually launch Minecraft.
+        and 'game_args' are valid to actually launch Minecraft.\n
+        This method use the 'runner' of this object, by default it is set to 'default_runner' of this class which is
+        just a wrapper for 'subprocess.run'.\n
+        -- **Before this method** you can change 'main_class' and 'runner'. Even if you can change the main class it
+        is not advised, you should to that before.
         """
 
         if self.main_class is None:
             raise ValueError("Main class should be set before starting the game.")
 
-        if self.bin_dir is not None:
-            for native_lib in self.version.native_libs:
-                with ZipFile(native_lib, "r") as native_zip:
-                    for native_zip_info in native_zip.infolist():
-                        if Util.can_extract_native(native_zip_info.filename):
-                            native_zip.extract(native_zip_info, self.bin_dir)
+        if self.bin_dir is None:
+            raise ValueError("Binaries directory should be set before starting the game.")
+
+        for native_lib in self.version.native_libs:
+            with ZipFile(native_lib, "r") as native_zip:
+                for native_zip_info in native_zip.infolist():
+                    if Util.can_extract_native(native_zip_info.filename):
+                        native_zip.extract(native_zip_info, self.bin_dir)
 
         self.runner([*self.jvm_args, self.main_class, *self.game_args])
 
     def cleanup(self):
-        if self.bin_dir is not None:
-            shutil.rmtree(self.bin_dir, ignore_errors=True)
+        """ This is used to clean and remove the binaries directory ('bin_dir'). """
+        shutil.rmtree(self.bin_dir, ignore_errors=True)
 
-    def launch(self, *, atexit_cleanup: bool = True):
+    def start_fast(self, *, atexit_cleanup: bool = True):
 
         self.prepare_config()
         self.prepare_arguments()
         self.start()
+        self.cleanup()
 
         if atexit_cleanup:
             import atexit
@@ -1231,7 +1283,9 @@ class DownloadList:
 
 
 class DownloadEntryProgress:
+
     __slots__ = "name", "size", "total"
+
     def __init__(self):
         self.name = ""
         self.size = 0
@@ -1239,7 +1293,9 @@ class DownloadEntryProgress:
 
 
 class DownloadProgress:
+
     __slots__ = "entries", "size", "total"
+
     def __init__(self, total: int):
         self.entries: List[DownloadEntryProgress] = []
         self.size: int = 0
@@ -1247,6 +1303,7 @@ class DownloadProgress:
 
 
 class BaseError(Exception):
+
     def __init__(self, code: str, *args):
         super().__init__(code, args)
         self.code = code
@@ -1277,9 +1334,11 @@ class JvmLoadingError(BaseError):
 
 
 class DownloadError(Exception):
+
     NOT_FOUND = "not_found"
     INVALID_SIZE = "invalid_size"
     INVALID_SHA1 = "invalid_sha1"
+
     def __init__(self, fails: Dict[str, str]):
         super().__init__()
         self.fails = fails
@@ -1292,7 +1351,11 @@ if __name__ == '__main__':
         ctx = Context()
         ver = Version(ctx, "1.16.5")
         ver.install()
+
         start = Start(ver)
-        start.launch()
+        start.disable_chat = True
+        start.prepare_config()
+        start.prepare_arguments()
+
 
     cli_start()
