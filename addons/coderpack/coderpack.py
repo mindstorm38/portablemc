@@ -77,7 +77,7 @@ class CoderPackAddon:
             return old(subcommand, args)
 
     def register_coderpack_arguments(self, parser: ArgumentParser):
-        self.register_coderpack_subcommands(parser.add_subparsers(title="coderpack subcommands", dest="coderpack_subcommand", required=True))
+        self.register_coderpack_subcommands(parser.add_subparsers(title="coderpack subcommands", dest="coderpack_subcommand", required=True))  # TODO: Remove "required=" as it is only available since 3.7
 
     def register_coderpack_subcommands(self, subcommands):
         self.register_decompile_arguments(subcommands.add_parser("decompile", help=self.pmc.get_message("args.coderpack.decompile"), aliases=["d"]))

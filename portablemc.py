@@ -1578,7 +1578,7 @@ if __name__ == '__main__':
 
         def register_addon_arguments(self, parser: ArgumentParser):
 
-            subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand", required=True)
+            subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand")  # TODO: Remove "required=" as it is only available since 3.7
             subparsers.add_parser("list", help=self.get_message("args.addon.list"))
 
             init_parser = subparsers.add_parser("init", help=self.get_message("args.addon.init"))
