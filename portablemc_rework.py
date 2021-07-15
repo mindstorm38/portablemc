@@ -394,8 +394,15 @@ class Version:
             self.prepare_jvm()
         self.download()
 
+    def start(self, opts: 'Optional[StartOptions]' = None):
+        start = Start(self)
+        if opts is not None:
+            start.prepare(opts)
+        start.start()
+
 
 class StartOptions:
+
     def __init__(self):
         self.auth_session: Optional[AuthSession] = None
         self.uuid: Optional[str] = None
@@ -406,6 +413,19 @@ class StartOptions:
         self.disable_chat: bool = False
         self.server_address: Optional[str] = None
         self.server_port: Optional[int] = None
+
+    @classmethod
+    def with_online(cls, auth_session: 'AuthSession') -> 'StartOptions':
+        opts = StartOptions()
+        opts.auth_session = auth_session
+        return opts
+
+    @classmethod
+    def with_offline(cls, username: Optional[str], uuid: Optional[str]) -> 'StartOptions':
+        opts = StartOptions()
+        opts.username = username
+        opts.uuid = uuid
+        return opts
 
 
 class Start:
@@ -419,31 +439,19 @@ class Start:
 
         self.version = version
 
-        self.auth_session: Optional[AuthSession] = None
-        self.uuid: Optional[str] = None
-        self.username: Optional[str] = None
-        self.demo: bool = False
-        self.resolution: Optional[Tuple[int, int]] = None
-        self.disable_multiplayer: bool = False
-        self.disable_chat: bool = False
-        self.server_address: Optional[str] = None
-        self.server_port: Optional[int] = None
-
-        self.features: Dict[str, bool] = {}
         self.args_replacements: Dict[str, str] = {}
-        self.bin_dir: Optional[str] = None
-
         self.main_class: Optional[str] = None
         self.jvm_args: List[str] = []
         self.game_args: List[str] = []
 
+        self.bin_dir_factory: Callable[[str], str] = self.default_bin_dir_factory
         self.runner: Callable[[List[str]], None] = self.default_runner
 
     def _check_version(self):
         if self.version.version_meta is None:
             raise ValueError("You should install the version metadata first.")
 
-    def prepare_config(self):
+    def prepare(self, opts: StartOptions):
 
         """
         Must be called once metadata file are prepared, using 'prepare_meta' on version, if not, ValueError is raised.\n
@@ -457,23 +465,24 @@ class Start:
 
         self._check_version()
 
-        # Bin directory
-        if self.bin_dir is None:
-            self.bin_dir = path.join(self.version.context.bin_dir, str(uuid4()))
+        # Main class
+        self.main_class = self.version.version_meta.get("mainClass")
+        if self.main_class is None:
+            raise ValueError("The version metadata has no main class to start.")
 
         # Features
-        self.features = {
-            "is_demo_user": self.demo,
-            "has_custom_resolution": self.resolution is not None
+        features = {
+            "is_demo_user": opts.demo,
+            "has_custom_resolution": opts.resolution is not None
         }
 
         # Auth
-        if self.auth_session is not None:
-            uuid = self.auth_session.uuid
-            username = self.auth_session.username
+        if opts.auth_session is not None:
+            uuid = opts.auth_session.uuid
+            username = opts.auth_session.username
         else:
-            uuid = uuid4().hex if self.uuid is None else self.uuid.replace("-", "").lower()
-            username = uuid[:8] if self.username is None else self.username[:16]  # Max username length is 16
+            uuid = uuid4().hex if opts.uuid is None else opts.uuid.replace("-", "").lower()
+            username = uuid[:8] if opts.username is None else opts.username[:16]  # Max username length is 16
 
         # Arguments replacements
         self.args_replacements = {
@@ -484,45 +493,25 @@ class Start:
             "assets_root": self.version.context.assets_dir,
             "assets_index_name": self.version.assets_index_version,
             "auth_uuid": uuid,
-            "auth_access_token": "" if self.auth_session is None else self.auth_session.format_token_argument(False),
+            "auth_access_token": "" if opts.auth_session is None else opts.auth_session.format_token_argument(False),
             "user_type": "mojang",
             "version_type": self.version.version_meta.get("type", ""),
             # Game (legacy)
-            "auth_session": "" if self.auth_session is None else self.auth_session.format_token_argument(True),
+            "auth_session": "" if opts.auth_session is None else opts.auth_session.format_token_argument(True),
             "game_assets": self.version.assets_virtual_dir,
             "user_properties": "{}",
             # JVM
-            "natives_directory": self.bin_dir,
+            "natives_directory": "",
             "launcher_name": LAUNCHER_NAME,
             "launcher_version": LAUNCHER_VERSION,
             "classpath": path.pathsep.join(self.version.classpath_libs)
         }
 
-        if self.resolution is not None:
-            self.args_replacements["resolution_width"] = str(self.resolution[0])
-            self.args_replacements["resolution_height"] = str(self.resolution[1])
+        if opts.resolution is not None:
+            self.args_replacements["resolution_width"] = str(opts.resolution[0])
+            self.args_replacements["resolution_height"] = str(opts.resolution[1])
 
-    def prepare_arguments(self):
-
-        """
-        Must be called once metadata file are prepared, using 'prepare_meta' on version, if not, ValueError is raised.\n
-        This method computes JVM ('jvm_args') and game arguments ('game_args'), the two arrays are cleared before and
-        all variables are replaced using 'args_replacements'. The main class is not part of these arrays and
-        is set from the metadata only if was not already set, if no main class is specified in metadata, ValueError is
-        raised.\n
-        -- **Before this method** you can change 'main_class', 'features' and 'args_replacements'.\n
-        -- **After this method** you can change 'jvm_args' and 'game_args', the JVM exec is the first argument of JVM args.
-        You can still change 'main_class', but if you set it to the launch wrapper main class, this will not add the
-        argument to the version JAR path.
-        """
-
-        self._check_version()
-
-        if self.main_class is None:
-            self.main_class = self.version.version_meta.get("mainClass")
-            if self.main_class is None:
-                raise ValueError("The version metadata has no main class to start.")
-
+        # Arguments
         modern_args = self.version.version_meta.get("arguments", {})
         modern_jvm_args = modern_args.get("jvm")
         modern_game_args = modern_args.get("game")
@@ -531,7 +520,7 @@ class Start:
         self.game_args.clear()
 
         # JVM arguments
-        Util.interpret_args(Util.LEGACY_JVM_ARGUMENTS if modern_jvm_args is None else modern_jvm_args, self.features, self.jvm_args)
+        Util.interpret_args(Util.LEGACY_JVM_ARGUMENTS if modern_jvm_args is None else modern_jvm_args, features, self.jvm_args)
 
         # JVM argument for logging config
         if self.version.logging_argument is not None and self.version.logging_file is not None:
@@ -545,20 +534,17 @@ class Start:
         if modern_game_args is None:
             self.game_args.extend(self.version.version_meta.get("minecraftArguments", "").split(" "))
         else:
-            Util.interpret_args(modern_game_args, self.features, self.game_args)
+            Util.interpret_args(modern_game_args, features, self.game_args)
 
-        if self.disable_multiplayer:
+        if opts.disable_multiplayer:
             self.game_args.append("--disableMultiplayer")
-        if self.disable_chat:
+        if opts.disable_chat:
             self.game_args.append("--disableChat")
 
-        if self.server_address is not None:
-            self.game_args.extend(("--server", self.server_address))
-        if self.server_port is not None:
-            self.game_args.extend(("--port", str(self.server_port)))
-
-        Util.replace_list_vars(self.jvm_args, self.args_replacements)
-        Util.replace_list_vars(self.game_args, self.args_replacements)
+        if opts.server_address is not None:
+            self.game_args.extend(("--server", opts.server_address))
+        if opts.server_port is not None:
+            self.game_args.extend(("--port", str(opts.server_port)))
 
     def start(self):
 
@@ -576,34 +562,37 @@ class Start:
         if self.main_class is None:
             raise ValueError("Main class should be set before starting the game.")
 
-        if self.bin_dir is None:
-            raise ValueError("Binaries directory should be set before starting the game.")
+        bin_dir = self.bin_dir_factory(self.version.context.bin_dir)
+        cleaned = False
+
+        def cleanup():
+            nonlocal cleaned
+            if not cleaned:
+                shutil.rmtree(bin_dir, ignore_errors=True)
+                cleaned = True
+
+        import atexit
+        atexit.register(cleanup)
 
         for native_lib in self.version.native_libs:
             with ZipFile(native_lib, "r") as native_zip:
                 for native_zip_info in native_zip.infolist():
                     if Util.can_extract_native(native_zip_info.filename):
-                        native_zip.extract(native_zip_info, self.bin_dir)
+                        native_zip.extract(native_zip_info, bin_dir)
 
-        self.runner([*self.jvm_args, self.main_class, *self.game_args])
+        self.args_replacements["natives_directory"] = bin_dir
 
-    def cleanup(self):
-        """ This is used to clean and remove the binaries directory ('bin_dir'). """
-        shutil.rmtree(self.bin_dir, ignore_errors=True)
+        self.runner([
+            *Util.replace_list_vars(self.jvm_args, self.args_replacements),
+            self.main_class,
+            *Util.replace_list_vars(self.game_args, self.args_replacements)
+        ])
 
-    def start_fast(self, *, atexit_cleanup: bool = True):
+        cleanup()
 
-        self.prepare_config()
-        self.prepare_arguments()
-        self.start()
-        self.cleanup()
-
-        if atexit_cleanup:
-            import atexit
-
-            @atexit.register
-            def atexit_cleanup():
-                self.cleanup()
+    @staticmethod
+    def default_bin_dir_factory(common_bin_dir: str) -> str:
+        return path.join(common_bin_dir, str(uuid4()))
 
     @staticmethod
     def default_runner(args: List[str]) -> None:
@@ -1070,9 +1059,8 @@ class Util:
         return "".join(parts)
 
     @classmethod
-    def replace_list_vars(cls, lst: List[str], replacements: Dict[str, str]):
-        for i, elt in enumerate(lst):
-            lst[i] = cls.replace_vars(elt, replacements)
+    def replace_list_vars(cls, lst: List[str], replacements: Dict[str, str]) -> Generator[str, None, None]:
+        return (cls.replace_vars(elt, replacements) for elt in lst)
 
     @classmethod
     def update_dict_keep(cls, orig: dict, other: dict):
@@ -1351,6 +1339,7 @@ if __name__ == '__main__':
         ctx = Context()
         ver = Version(ctx, "1.16.5")
         ver.install()
+        ver.start()
 
         start = Start(ver)
         start.disable_chat = True
