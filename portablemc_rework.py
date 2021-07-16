@@ -380,6 +380,7 @@ class Version:
             self.dl.add_callback(finalize)
 
     def download(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
+        """ Download all missing files computed in `prepare_` methods. """
         self.dl.download_files(progress_callback=progress_callback)
         self.dl.reset()
 
@@ -395,6 +396,7 @@ class Version:
         self.download()
 
     def start(self, opts: 'Optional[StartOptions]' = None):
+        """ Faster method to start the version. This actually use `Start` class, however, you can use it directly. """
         start = Start(self)
         start.prepare(opts or StartOptions())
         start.start()
