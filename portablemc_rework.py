@@ -526,7 +526,7 @@ class Start:
 
         # JVM argument for launch wrapper JAR path
         if self.main_class == "net.minecraft.launchwrapper.Launch":
-            self.jvm_args.append("-Dminecraft.client.jar={}".format(self.version.version_jar_file))
+            self.jvm_args.append(f"-Dminecraft.client.jar={self.version.version_jar_file}")
 
         # Game arguments
         if modern_game_args is None:
@@ -636,7 +636,7 @@ class AuthSession:
         self.uuid = uuid
 
     def format_token_argument(self, legacy: bool) -> str:
-        return "token:{}:{}".format(self.access_token, self.uuid) if legacy else self.access_token
+        return f"token:{self.access_token}:{self.uuid}" if legacy else self.access_token
 
     def validate(self) -> bool:
         return True
@@ -813,7 +813,7 @@ class MicrosoftAuthSession(AuthSession):
 
         # MC Services Auth
         _, res = cls.ms_request(MC_AUTH_URL, {
-            "identityToken": "XBL3.0 x={};{}".format(xbl_user_hash, xsts_token)
+            "identityToken": f"XBL3.0 x={xbl_user_hash};{xsts_token}"
         })
         mc_access_token = res["access_token"]
 
@@ -842,7 +842,7 @@ class MicrosoftAuthSession(AuthSession):
 
     @classmethod
     def mc_request(cls, url: str, bearer: str) -> Tuple[int, dict]:
-        return Util.json_request(url, "GET", headers={"Authorization": "Bearer {}".format(bearer)})
+        return Util.json_request(url, "GET", headers={"Authorization": f"Bearer {bearer}"})
 
     @classmethod
     def base64url_decode(cls, s: str) -> bytes:
@@ -1158,7 +1158,7 @@ class DownloadList:
         url_parsed = url_parse.urlparse(entry.url)
         if url_parsed.scheme not in ("http", "https"):
             raise ValueError("Illegal URL scheme for HTTP connection.")
-        host_key = "{}{}".format(int(url_parsed.scheme == "https"), url_parsed.netloc)
+        host_key = f"{int(url_parsed.scheme == 'https')}{url_parsed.netloc}"
         entries = self.entries.get(host_key)
         if entries is None:
             self.entries[host_key] = entries = []
@@ -1251,11 +1251,10 @@ class DownloadList:
                         else:
                             break
 
-                        total_size -= size
+                        total_size -= size  # If error happened, subtract the size and restart from latest total_size.
 
                     else:
-                        # If the break was not triggered, an error should be set.
-                        fails[entry.url] = error
+                        fails[entry.url] = error  # If the break was not triggered, an error should be set.
 
                 conn.close()
 
