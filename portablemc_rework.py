@@ -80,6 +80,9 @@ class Context:
         self.jvm_dir = path.join(main_dir, "jvm")
         self.bin_dir = path.join(self.work_dir, "bin")
 
+    def has_version_metadata(self, version: str) -> bool:
+        return path.isfile(path.join(self.versions_dir, version, f"{version}.json"))
+
 
 class Version:
 
