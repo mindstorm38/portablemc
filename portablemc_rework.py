@@ -396,8 +396,7 @@ class Version:
 
     def start(self, opts: 'Optional[StartOptions]' = None):
         start = Start(self)
-        if opts is not None:
-            start.prepare(opts)
+        start.prepare(opts or StartOptions())
         start.start()
 
 
@@ -454,13 +453,10 @@ class Start:
     def prepare(self, opts: StartOptions):
 
         """
-        Must be called once metadata file are prepared, using 'prepare_meta' on version, if not, ValueError is raised.\n
-        This method builds the two 'features' and 'args_replacements' dictionaries depending on current configuration of
-        this object. \n
-        -- **Before this method** you can change 'bin_dir', it is set if not already.\n
-        -- **After this method** you can change 'features' and 'args_replacements' If you really need to change the bin
-        directory ('bin_dir') after this method, ensure that the 'args_replacements' dictionary is updated to use the
-        new value before preparing arguments.
+        This method is used to prepare internal arguments arrays, main class and arguments variables according to the
+        version of this object and the given options. After this method you can call multiple times the `start` method.
+        However before calling the `start` method you can changer `args_replacements`, `main_class`, `jvm_args`,
+        `game_args`.
         """
 
         self._check_version()
@@ -549,14 +545,12 @@ class Start:
     def start(self):
 
         """
-        Actually start the game, this method requires 'main_class' and 'bin_dir' to be set, if not, a ValueError
-        is raised.\n
-        This method does not requires anything else, the user of this method must ensure that 'jvm_args', 'main_class'
-        and 'game_args' are valid to actually launch Minecraft.\n
-        This method use the 'runner' of this object, by default it is set to 'default_runner' of this class which is
-        just a wrapper for 'subprocess.run'.\n
-        -- **Before this method** you can change 'main_class' and 'runner'. Even if you can change the main class it
-        is not advised, you should to that before.
+        Start the game using prevously configured attributes `args_replacements`, `main_class`, `jvm_args`, `game_args`.
+        You can easily configure these attributes with the `prepare` method.\n
+        This method actually use the `bin_dir_factory` of this object to produce a path where to extract binaries, by
+        default a random UUID is appended to the common `bin_dir` of the context. The `runner` argument is also used to
+        run the game, by default is uses the `subprocess.run` method. These two attributes can be changed before calling
+        this method.
         """
 
         if self.main_class is None:
@@ -1340,11 +1334,6 @@ if __name__ == '__main__':
         ver = Version(ctx, "1.16.5")
         ver.install()
         ver.start()
-
-        start = Start(ver)
-        start.disable_chat = True
-        start.prepare_config()
-        start.prepare_arguments()
 
 
     cli_start()
