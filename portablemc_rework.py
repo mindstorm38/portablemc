@@ -33,10 +33,10 @@ import sys
 import os
 import re
 
+
 LAUNCHER_NAME = "portablemc"
 LAUNCHER_VERSION = "1.2.0"
 LAUNCHER_AUTHORS = "Théo Rozier"
-
 
 VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
 ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
@@ -115,12 +115,14 @@ class Version:
         self.jvm_version: Optional[str] = None
         self.jvm_exec: Optional[str] = None
 
-    def prepare_meta(self):
+    def prepare_meta(self, *, recursion_limit: int = 50):
 
         """
         Prepare all metadata files for this version, this take `inheritsFrom` key into account and all parents metadata
-        files are downloaded. Each metadata file is downloaded (if not already cached) in their own directory named
-        after the version ID, the directory is placed in the `versions_dir` of the context.\n
+        files are downloaded. You can change the limit of parents metadata to download with the `recursion_limit`
+        argument, if the number of parents exceed this argument, a `VersionError` is raised with
+        `VersionError.TO_MUCH_PARENTS`. Each metadata file is downloaded (if not already cached) in their own directory
+        named after the version ID, the directory is placed in the `versions_dir` of the context.\n
         This method will load the official Mojang version manifest, however you can set the `manifest` attribute of this
         object before with a custom manifest if you want to support more versions.\n
         If any version in the inherit tree is not found, a `VersionError` is raised with `VersionError.NOT_FOUND` and
@@ -131,7 +133,10 @@ class Version:
             self.manifest = VersionManifest.load_from_url()
 
         version_meta, version_dir = self._prepare_meta_internal(self.version)
-        while "inheritsFrom" in version_meta:  # TODO: Add a safe recursion limit
+        while "inheritsFrom" in version_meta:
+            if recursion_limit <= 0:
+                raise VersionError(VersionError.TO_MUCH_PARENTS)
+            recursion_limit -= 1
             parent_meta, _ = self._prepare_meta_internal(version_meta["inheritsFrom"])
             del version_meta["inheritsFrom"]
             Util.merge_dict(version_meta, parent_meta)
@@ -1308,6 +1313,7 @@ class AuthError(BaseError):
 
 class VersionError(BaseError):
     NOT_FOUND = "not_found"
+    TO_MUCH_PARENTS = "to_much_parents"
     JAR_NOT_FOUND = "jar_not_found"
 
 
@@ -1335,6 +1341,5 @@ if __name__ == '__main__':
         ver = Version(ctx, "1.16.5")
         ver.install()
         ver.start()
-
 
     cli_start()
