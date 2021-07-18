@@ -81,7 +81,17 @@ class Context:
         self.bin_dir = path.join(self.work_dir, "bin")
 
     def has_version_metadata(self, version: str) -> bool:
+        """ Return True if the given version has a metadata file. """
         return path.isfile(path.join(self.versions_dir, version, f"{version}.json"))
+
+    def list_versions(self) -> Generator[Tuple[str, int], None, None]:
+        """ A generator method that yields all versions (version, mtime) that have a version metadata file. """
+        if path.isdir(self.versions_dir):
+            for version in os.listdir(self.versions_dir):
+                try:
+                    yield version, path.getmtime(path.join(self.versions_dir, version, f"{version}.json"))
+                except OSError:
+                    pass
 
 
 class Version:
@@ -613,8 +623,9 @@ class VersionManifest:
     def load_from_url(cls):
         return cls(Util.json_simple_request(VERSION_MANIFEST_URL))
 
-    def filter_latest(self, version: str) -> Tuple[Optional[str], bool]:
-        return (self._data["latest"][version], True) if version in self._data["latest"] else (version, False)
+    def filter_latest(self, version: str) -> Tuple[str, bool]:
+        latest = self._data["latest"].get(version)
+        return (version, False) if latest is None else (latest, True)
 
     def get_version(self, version: str) -> Optional[dict]:
         version, _alias = self.filter_latest(version)
@@ -626,11 +637,11 @@ class VersionManifest:
     def all_versions(self) -> list:
         return self._data["versions"]
 
-    def search_versions(self, inp: str) -> Generator[dict, None, None]:
+    """def search_versions(self, inp: str) -> Generator[dict, None, None]:
         inp, alias = self.filter_latest(inp)
         for version_data in self._data["versions"]:
             if (alias and version_data["id"] == inp) or (not alias and inp in version_data["id"]):
-                yield version_data
+                yield version_data"""
 
 
 class AuthSession:
@@ -987,7 +998,7 @@ class Util:
     @classmethod
     def merge_dict(cls, dst: dict, other: dict):
         """ Merge the 'other' dict into the 'dst' dict. For every key/value in 'other', if the key is present in 'dst'
-        it does nothing. Unless if the value in both dict are also dict, in this case the merge is recursive. If the
+        it does nothing. Unless values in both dict are also dict, in this case the merge is recursive. If the
         value in both dict are list, the 'dst' list is extended (.extend()) with the one of 'other'. """
         for k, v in other.items():
             if k in dst:
@@ -1338,11 +1349,367 @@ class DownloadError(Exception):
 
 if __name__ == '__main__':
 
-    def cli_start():
+    from argparse import ArgumentParser, Namespace, HelpFormatter
+    from datetime import datetime
+    from typing import Union
 
-        ctx = Context()
-        ver = Version(ctx, "1.16.5")
-        ver.install()
-        ver.start()
 
-    cli_start()
+    EXIT_OK = 0
+    EXIT_WRONG_USAGE = 9
+    EXIT_VERSION_NOT_FOUND = 10
+    EXIT_DOWNLOAD_ERROR = 13
+    EXIT_AUTHENTICATION_FAILED = 14
+    EXIT_DEPRECATED_ARGUMENT = 16
+    EXIT_LOGOUT_FAILED = 17
+    EXIT_HTTP_ERROR = 18
+    EXIT_JVM_LOADING_ERROR = 19
+
+
+    def cli(args: List[str]):
+
+        parser = register_arguments()
+        ns = parser.parse_args(args)
+
+        command_handlers = get_command_handlers()
+        command_attr = "subcommand"
+        while True:
+            command = getattr(ns, command_attr)
+            handler = command_handlers.get(command)
+            if handler is None:
+                parser.print_help()
+                sys.exit(EXIT_WRONG_USAGE)
+            elif callable(handler):
+                handler(ns, Context(ns.main_dir, ns.work_dir))
+            elif isinstance(handler, dict):
+                command_attr = f"{command}_{command_attr}"
+                command_handlers = handler
+                continue
+            sys.exit(EXIT_OK)
+
+    # CLI Parser
+
+    def register_arguments() -> ArgumentParser:
+        _ = get_message
+        parser = ArgumentParser(allow_abbrev=False, prog="portablemc", description=_("args"))
+        parser.add_argument("--main-dir", help=_("args.main_dir"))
+        parser.add_argument("--work-dir", help=_("args.work_dir"))
+        register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
+        return parser
+
+    def register_subcommands(subparsers):
+        _ = get_message
+        register_search_arguments(subparsers.add_parser("search", help=_("args.search")))
+        register_start_arguments(subparsers.add_parser("start", help=_("args.start")))
+        register_login_arguments(subparsers.add_parser("login", help=_("args.login")))
+        register_logout_arguments(subparsers.add_parser("logout", help=_("args.logout")))
+        register_addon_arguments(subparsers.add_parser("addon", help=_("args.addon")))
+
+    def register_search_arguments(parser: ArgumentParser):
+        parser.add_argument("-l", "--local", help=get_message("args.search.local"), action="store_true")
+        parser.add_argument("input", nargs="?")
+
+    def register_start_arguments(parser: ArgumentParser):
+        _ = get_message
+        parser.formatter_class = new_help_formatter_class(32)
+        parser.add_argument("--dry", help=_("args.start.dry"), action="store_true")
+        parser.add_argument("--disable-mp", help=_("args.start.disable_multiplayer"), action="store_true")
+        parser.add_argument("--disable-chat", help=_("args.start.disable_chat"), action="store_true")
+        parser.add_argument("--demo", help=_("args.start.demo"), action="store_true")
+        parser.add_argument("--resol", help=_("args.start.resol"), type=decode_resolution)
+        parser.add_argument("--jvm", help=_("args.start.jvm"))
+        parser.add_argument("--jvm-args", help=_("args.start.jvm_args"))
+        parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
+        parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
+        parser.add_argument("-l", "--login", help=_("args.start.login"))
+        parser.add_argument("-m", "--microsoft", help=_("args.start.microsoft"), action="store_true")
+        parser.add_argument("-u", "--username", help=_("args.start.username"), metavar="NAME")
+        parser.add_argument("-i", "--uuid", help=_("args.start.uuid"))
+        parser.add_argument("-s", "--server", help=_("args.start.server"))
+        parser.add_argument("-p", "--server-port", type=int, help=_("args.start.server_port"), metavar="PORT")
+        parser.add_argument("version", nargs="?", default="release")
+
+    def register_login_arguments(parser: ArgumentParser):
+        parser.add_argument("-m", "--microsoft", help=get_message("args.login.microsoft"), action="store_true")
+        parser.add_argument("email_or_username")
+
+    def register_logout_arguments(parser: ArgumentParser):
+        parser.add_argument("-m", "--microsoft", help=get_message("args.logout.microsoft"), action="store_true")
+        parser.add_argument("email_or_username")
+
+    def register_addon_arguments(parser: ArgumentParser):
+        _ = get_message
+        subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand")
+        subparsers.required = True
+        subparsers.add_parser("list", help=_("args.addon.list"))
+        init_parser = subparsers.add_parser("init", help=_("args.addon.init"))
+        init_parser.add_argument("--single-file", help=_("args.addon.init.single_file"), action="store_true")
+        init_parser.add_argument("addon_name")
+        show_parser = subparsers.add_parser("show", help=_("args.addon.show"))
+        show_parser.add_argument("addon_name")
+
+    def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
+
+        class CustomHelpFormatter(HelpFormatter):
+            def __init__(self, prog):
+                super().__init__(prog, max_help_position=max_help_position)
+
+        return CustomHelpFormatter
+
+    def decode_resolution(raw: str):
+        return tuple(int(size) for size in raw.split("x"))
+
+    # Commands handlers
+
+    def get_command_handlers():
+        return {
+            "search": cmd_search,
+            "start": cmd_start,
+            "login": cmd_login,
+            "logout": cmd_logout,
+            "addon": {
+                "list": cmd_addon_list,
+                "init": cmd_addon_init,
+                "show": cmd_addon_show
+            }
+        }
+
+    def cmd_search(ns: Namespace, ctx: Context):
+
+        _ = get_message
+        table = []
+        search = ns.input
+        no_version = (search is None)
+
+        if ns.local:
+            for version, mtime in ctx.list_versions():
+                if no_version or search in version:
+                    table.append((version, format_iso_date(mtime)))
+        else:
+            manifest = VersionManifest.load_from_url()
+            search, alias = manifest.filter_latest(search)
+            for version_data in manifest.all_versions():
+                version = version_data["id"]
+                if no_version or (alias and search == version) or (not alias and search in version):
+                    table.append((
+                        version_data["type"],
+                        version,
+                        format_iso_date(version_data["releaseTime"]),
+                        _("cmd.search.flags.local") if ctx.has_version_metadata(version) else ""
+                    ))
+
+        if len(table):
+            table.insert(0, (
+                _("cmd.search.name"),
+                _("cmd.search.last_modified")
+            ) if ns.local else (
+                _("cmd.search.type"),
+                _("cmd.search.name"),
+                _("cmd.search.release_date"),
+                _("cmd.search.flags")
+            ))
+            print_table(table, header=0)
+            sys.exit(EXIT_OK)
+        else:
+            print_message("cmd.search.not_found")
+            sys.exit(EXIT_VERSION_NOT_FOUND)
+
+    def cmd_start(ns: Namespace, ctx: Context):
+        print("cmd_start")
+
+    def cmd_login(ns: Namespace, ctx: Context):
+        print("cmd_login")
+
+    def cmd_logout(ns: Namespace, ctx: Context):
+        print("cmd_logout")
+
+    def cmd_addon_list(ns: Namespace, ctx: Context):
+        print("cmd_addon_list")
+
+    def cmd_addon_init(ns: Namespace, ctx: Context):
+        print("cmd_addon_init")
+
+    def cmd_addon_show(ns: Namespace, ctx: Context):
+        print("cmd_addon_show")
+
+    # Internal utilities
+
+    def format_iso_date(raw: Union[str, float]) -> str:
+        if isinstance(raw, float):
+            return datetime.fromtimestamp(raw).strftime("%c")
+        else:
+            return datetime.strptime(str(raw).rsplit("+", 2)[0], "%Y-%m-%dT%H:%M:%S").strftime("%c")
+
+    # Messages
+
+    def get_message(key: str, **kwargs) -> str:
+        try:
+            return messages[key].format_map(kwargs)
+        except KeyError:
+            return key
+
+    def print_message(key: str, **kwargs):
+        print(get_message(key, **kwargs))
+
+    def print_table(lines: List[Tuple[str, ...]], *, header: int = -1):
+        if not len(lines):
+            return
+        columns_count = len(lines[0])
+        columns_length = [0] * columns_count
+        for line in lines:
+            if len(line) != columns_count:
+                raise ValueError(f"Inconsistent cell count '{line}', expected {columns_count}.")
+            for i, cell in enumerate(line):
+                cell_len = len(cell)
+                if columns_length[i] < cell_len:
+                    columns_length[i] = cell_len
+        format_string = "│ {} │".format(" │ ".join(("{{:{}s}}".format(length) for length in columns_length)))
+        columns_lines = ["─" * length for length in columns_length]
+        print("┌─{}─┐".format("─┬─".join(columns_lines)))
+        for i, line in enumerate(lines):
+            print(format_string.format(*line))
+            if i == header:
+                print("├─{}─┤".format("─┼─".join(columns_lines)))
+        print("└─{}─┘".format("─┴─".join(columns_lines)))
+
+
+    messages = {
+
+        "addon.defined_twice": "The addon '{}' is defined twice, both single-file and package, loaded the package one.",
+        "addon.missing_requirement.module": "Addon '{0}' requires module '{1}' to load. You can try to install "
+                                            "it using 'pip install {1}' or search for it on the web.",
+        "addon.missing_requirement.ext": "Addon '{}' requires another addon '{}' to load.",
+        "addon.failed_to_build": "Failed to build addon '{}' (contact addon's authors):",
+
+        "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
+                "script! This single-script launcher is still compatible with the official "
+                "(Mojang) Minecraft Launcher stored in .minecraft and use it.",
+        "args.main_dir": "Set the main directory where libraries, assets and versions. "
+                         "This argument can be used or not by subcommand.",
+        "args.work_dir": "Set the working directory where the game run and place for examples "
+                         "saves, screenshots (and resources for legacy versions), it also store "
+                         "runtime binaries and authentication. "
+                         "This argument can be used or not by subcommand.",
+        "args.search": "Search for Minecraft versions.",
+        "args.search.local": "Search only for local installed Minecraft versions.",
+        "args.start": "Start a Minecraft version, default to the latest release.",
+        "args.start.dry": "Simulate game starting.",
+        "args.start.disable_multiplayer": "Disable the multiplayer buttons (>= 1.16).",
+        "args.start.disable_chat": "Disable the online chat (>= 1.16).",
+        "args.start.demo": "Start game in demo mode.",
+        "args.start.resol": "Set a custom start resolution (<width>x<height>).",
+        "args.start.jvm": "Set a custom JVM 'javaw' executable path. If this argument is omitted a public build "
+                          "of a JVM is downloaded from Mojang services.",
+        "args.start.jvm_args": "Change the default JVM arguments.",
+        "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
+                                        "order to improve the log readability in the console.",
+        "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
+                                 "not already cached, disabled by default.",
+        "args.start.login": "Use a email (or deprecated username) to authenticate using Mojang services (it override --username and --uuid).",
+        "args.start.microsoft": "Login using Microsoft account, to use with -l (--login).",
+        "args.start.username": "Set a custom user name to play.",
+        "args.start.uuid": "Set a custom user UUID to play.",
+        "args.start.server": "Start the game and auto-connect to this server address (since 1.6).",
+        "args.start.server_port": "Set the server address port (given with -s, --server, since 1.6).",
+        "args.login": "Login into your account, this will cache your session.",
+        "args.login.microsoft": "Login using Microsoft account.",
+        "args.logout": "Logout and invalidate a session.",
+        "args.logout.microsoft": "Logout from a Microsoft account.",
+        "args.addon": "Addons management subcommands.",
+        "args.addon.list": "List addons.",
+        "args.addon.init": "For developers: Given an addon's name, initialize its package if it doesn't already exists.",
+        "args.addon.init.single_file": "Make a single-file addon instead of a package one.",
+        "args.addon.show": "Show an addon details.",
+
+        "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
+        "http_request_error": "HTTP request error: {}",
+        "cancelled": "Cancelled.",
+
+        "cmd.search.type": "Type",
+        "cmd.search.name": "Identifier",
+        "cmd.search.release_date": "Release date",
+        "cmd.search.last_modified": "Last modified",
+        "cmd.search.flags": "Flags",
+        "cmd.search.flags.local": "local",
+        # "cmd.search.pending": "Searching for version '{input}'...",
+        # "cmd.search.pending_local": "Searching for local version '{input}'...",
+        # "cmd.search.pending_all": "Searching for all versions...",
+        # "cmd.search.result": "=> {type:10s} {version:16s} {date:24s} {more}",
+        # "cmd.search.result.more.local": "[LOCAL]",
+        # "cmd.search.not_found": "=> No version found",
+
+        "cmd.logout.yggdrasil.pending": "Logging out {} from Mojang...",
+        "cmd.logout.microsoft.pending": "Logging out {} from Microsoft...",
+        "cmd.logout.success": "Logged out {}.",
+        "cmd.logout.unknown_session": "No session for {}.",
+
+        "cmd.addon.list.title": "Addons list ({}):",
+        "cmd.addon.list.result": "=> {:20s} v{} by {} [{}]",
+        "cmd.addon.init.already_exits": "An addon '{}' already exists at '{}'.",
+        "cmd.addon.init.done": "The addon '{}' was initialized at '{}'.",
+        "cmd.addon.show.unknown": "No addon named '{}' exists.",
+        "cmd.addon.show.title": "Addon {} ({}):",
+        "cmd.addon.show.version": "=> Version: {}",
+        "cmd.addon.show.authors": "=> Authors: {}",
+        "cmd.addon.show.description": "=> Description: {}",
+        "cmd.addon.show.requires": "=> Requires: {}",
+
+        "download.downloading": "Downloading",
+        "download.downloaded": "Downloaded {} files, {} in {:.1f}s.",
+        "download.errors": "{} Errors happened, can't continue.",
+        "download.error.not_found": "Not found",
+        "download.error.invalid_size": "Invalid size",
+        "download.error.invalid_sha1": "Invalid SHA1",
+
+        "auth.refreshing": "Invalid session, refreshing...",
+        "auth.refreshed": "Session refreshed for {}.",
+        "auth.validated": "Session validated for {}.",
+        "auth.caching": "Caching your session...",
+        "auth.logged_in": "Logged in",
+
+        "auth.yggdrasil": "Authenticating {} with Mojang...",
+        "auth.yggdrasil.enter_password": "Password: ",
+        "auth.error.yggdrasil": "{}",
+
+        "auth.microsoft": "Authenticating {} with Microsoft...",
+        "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser is supported.",
+        "auth.microsoft.opening_browser_and_listening": "Opened authentication page in browser...",
+        "auth.microsoft.failed_to_authenticate": "Failed to authenticate.",
+        "auth.microsoft.processing": "Processing authentication against Minecraft services...",
+        "auth.microsoft.incoherent_data": "Incoherent authentication data, please retry.",
+        "auth.error.microsoft.inconsistent_user_hash": "Inconsistent user hash.",
+        "auth.error.microsoft.does_not_own_minecraft": "This account does not own Minecraft.",
+        "auth.error.microsoft.outdated_token": "The token is no longer valid.",
+        "auth.error.microsoft.error": "Misc error: {}.",
+
+        "version.resolving": "Resolving version {}... ",
+        "version.resolved": "Resolved version {}.",
+        "version.jar.loading": "Loading version JAR... ",
+        "version.jar.loaded": "Loaded version JAR.",
+        "version.error.not_found": "Version {} not found.",
+        "version.error.jar_not_found": "Version JAR not found.",
+        "assets.checking": "Checking assets... ",
+        "assets.checked": "Checked {} assets.",
+        "logger.loading": "Loading logger... ",
+        "logger.loaded": "Loaded.",
+        "logger.loaded_pretty": "Loaded pretty logger.",
+        "libraries.loading": "Loading libraries... ",
+        "libraries.loaded": "Loaded {} libraries.",
+        "jvm.loading": "Loading java... ",
+        "jvm.loaded": "Loaded Mojang Java {}.",
+        "jvm.error.not_found": "No JVM was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
+        "jvm.error.unsupported_jvm_arch": "No JVM download was found for your platform architecture '{}', use --jvm argument to set the JVM executable of path to it.",
+        "jvm.error.unsupported_jvm_version": "No JVM download was found for version '{}', use --jvm argument to set the JVM executable of path to it.",
+
+        "start.dry": "Dry run, stopping.",
+        "start.starting": "Starting game...",
+        "start.extracting_natives": "=> Extracting natives...",
+        "start.running": "Running...",
+        "start.stopped": "Game stopped, clearing natives.",
+        "start.run.session": "=> Username: {}, UUID: {}",
+        "start.run.command_line": "=> Command line: {}",
+
+    }
+
+    # Actual start
+
+    cli(sys.argv[1:])
