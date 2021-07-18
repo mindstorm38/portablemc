@@ -141,7 +141,8 @@ class Version:
         This method will load the official Mojang version manifest, however you can set the `manifest` attribute of this
         object before with a custom manifest if you want to support more versions.\n
         If any version in the inherit tree is not found, a `VersionError` is raised with `VersionError.NOT_FOUND` and
-        the version ID as argument.
+        the version ID as argument.\n
+        This method can raise `JsonRequestError` for any error for requests to JSON file.
         """
 
         if self.manifest is None:
@@ -209,7 +210,8 @@ class Version:
         directory `indexes` placed into the directory `assets_dir` of the context. Once ready, the asset index file
         is analysed and each object is checked, if it does not exist or not have the expected size, it is downloaded
         to the `objects` directory placed into the directory `assets_dir` of the context.\n
-        This method also set the `assets_count` attribute with the number of assets for this version.
+        This method also set the `assets_count` attribute with the number of assets for this version.\n
+        This method can raise `JsonRequestError` if it fails to load the asset index file.
         """
 
         self._check_version_meta()
@@ -356,7 +358,7 @@ class Version:
                     lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=lib_dl_name)
 
             lib_libs.append(lib_path)
-            if lib_dl_entry is not None and path.isfile(lib_path) and path.getsize(lib_path) == lib_dl_entry.size:
+            if lib_dl_entry is not None and (not path.isfile(lib_path) or path.getsize(lib_path) != lib_dl_entry.size):
                 self.dl.append(lib_dl_entry)
 
     def prepare_jvm(self):
@@ -366,7 +368,7 @@ class Version:
         This method ensure that the JVM adapted to this version is downloaded to the `jvm_dir` of the context.\n
         This method can raise `JvmLoadingError` with `JvmLoadingError.UNSUPPORTED_ARCH` if Mojang does not provide
         a JVM for your current architecture, or `JvmLoadingError.UNSUPPORTED_VERSION` if the required JVM version is
-        not provided by Mojang.
+        not provided by Mojang. It can also raise `JsonRequestError` when failing to get JSON files.\n
         """
 
         self._check_version_meta()
@@ -628,6 +630,7 @@ class VersionManifest:
 
     @classmethod
     def load_from_url(cls):
+        """ Load the version manifest from the official URL. Might raise `JsonRequestError` if failed. """
         return cls(Util.json_simple_request(VERSION_MANIFEST_URL))
 
     def filter_latest(self, version: str) -> Tuple[str, bool]:
@@ -972,6 +975,8 @@ class Util:
                      ignore_error: bool = False,
                      timeout: Optional[int] = None) -> Tuple[int, dict]:
 
+        """ Make a request for a JSON API at specified URL. Might raise `JsonRequestError` if failed. """
+
         url_parsed = url_parse.urlparse(url)
         conn_type = {"http": HTTPConnection, "https": HTTPSConnection}.get(url_parsed.scheme)
         if conn_type is None:
@@ -1000,6 +1005,7 @@ class Util:
 
     @classmethod
     def json_simple_request(cls, url: str, *, ignore_error: bool = False, timeout: Optional[int] = None) -> dict:
+        """ Make a GET request for a JSON API at specified URL. Might raise `JsonRequestError` if failed. """
         return cls.json_request(url, "GET", ignore_error=ignore_error, timeout=timeout)[1]
 
     @classmethod
@@ -1572,7 +1578,14 @@ if __name__ == '__main__':
         libs_count = len(version_rt.classpath_libs) + len(version_rt.native_libs)
         print_task("OK", "libraries.loaded", {"count": libs_count}, done=True)
 
-        # version_rt.prepare_jvm()
+        if ns.jvm is None:
+            try:
+                print_task("", "jvm.loading")
+                version_rt.prepare_jvm()
+                print_task("OK", "jvm.loaded", {"version": version_rt.jvm_version}, done=True)
+            except JvmLoadingError as err:
+                print_task("FAILED", f"jvm.error.{err.code}", done=True)
+                sys.exit(EXIT_JVM_LOADING_ERROR)
 
         pretty_download(version_rt.dl)
         version_rt.dl.reset()
@@ -1835,15 +1848,14 @@ if __name__ == '__main__':
         "assets.checking": "Checking assets... ",
         "assets.checked": "Checked {count} assets.",
         "logger.loading": "Loading logger... ",
-        "logger.loaded": "Loaded.",
+        "logger.loaded": "Loaded logger.",
         "logger.loaded_pretty": "Loaded pretty logger.",
         "libraries.loading": "Loading libraries... ",
         "libraries.loaded": "Loaded {count} libraries.",
         "jvm.loading": "Loading java... ",
-        "jvm.loaded": "Loaded Mojang Java {}.",
-        "jvm.error.not_found": "No JVM was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
-        "jvm.error.unsupported_jvm_arch": "No JVM download was found for your platform architecture '{}', use --jvm argument to set the JVM executable of path to it.",
-        "jvm.error.unsupported_jvm_version": "No JVM download was found for version '{}', use --jvm argument to set the JVM executable of path to it.",
+        "jvm.loaded": "Loaded Mojang Java {version}.",
+        f"jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
+        f"jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, use --jvm argument to set the JVM executable of path to it.",
 
         "start.dry": "Dry run, stopping.",
         "start.starting": "Starting game...",
