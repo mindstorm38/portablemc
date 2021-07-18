@@ -118,6 +118,7 @@ class Version:
 
         self.assets_index_version: Optional[int] = None
         self.assets_virtual_dir: Optional[str] = None
+        self.assets_count: Optional[int] = None
 
         self.logging_file: Optional[str] = None
         self.logging_argument: Optional[str] = None
@@ -134,8 +135,9 @@ class Version:
         Prepare all metadata files for this version, this take `inheritsFrom` key into account and all parents metadata
         files are downloaded. You can change the limit of parents metadata to download with the `recursion_limit`
         argument, if the number of parents exceed this argument, a `VersionError` is raised with
-        `VersionError.TO_MUCH_PARENTS`. Each metadata file is downloaded (if not already cached) in their own directory
-        named after the version ID, the directory is placed in the `versions_dir` of the context.\n
+        `VersionError.TO_MUCH_PARENTS` and the version ID as argument. Each metadata file is downloaded (if not already
+        cached) in their own directory named after the version ID, the directory is placed in the `versions_dir` of the
+        context.\n
         This method will load the official Mojang version manifest, however you can set the `manifest` attribute of this
         object before with a custom manifest if you want to support more versions.\n
         If any version in the inherit tree is not found, a `VersionError` is raised with `VersionError.NOT_FOUND` and
@@ -148,7 +150,7 @@ class Version:
         version_meta, version_dir = self._prepare_meta_internal(self.version)
         while "inheritsFrom" in version_meta:
             if recursion_limit <= 0:
-                raise VersionError(VersionError.TO_MUCH_PARENTS)
+                raise VersionError(VersionError.TO_MUCH_PARENTS, self.version)
             recursion_limit -= 1
             parent_meta, _ = self._prepare_meta_internal(version_meta["inheritsFrom"])
             del version_meta["inheritsFrom"]
@@ -186,7 +188,7 @@ class Version:
         If the metadata provides a client download URL, and the version JAR file doesn't exists or have not the expected
         size, it's added to the download list to be downloaded to the same directory as the metadata file.\n
         If no download URL is provided by metadata and the JAR file does not exists, a VersionError is raised with
-        `VersionError.JAR_NOT_FOUND`.
+        `VersionError.JAR_NOT_FOUND` and the version ID as argument.
         """
 
         self._check_version_meta()
@@ -197,7 +199,7 @@ class Version:
             if not path.isfile(entry.dst) or path.getsize(entry.dst) != entry.size:
                 self.dl.append(entry)
         elif not path.isfile(self.version_jar_file):
-            raise VersionError(VersionError.JAR_NOT_FOUND)
+            raise VersionError(VersionError.JAR_NOT_FOUND, self.version)
 
     def prepare_assets(self):
 
@@ -206,7 +208,8 @@ class Version:
         This method download the asset index file (if not already cached) named after the asset version into the
         directory `indexes` placed into the directory `assets_dir` of the context. Once ready, the asset index file
         is analysed and each object is checked, if it does not exist or not have the expected size, it is downloaded
-        to the `objects` directory placed into the directory `assets_dir` of the context.
+        to the `objects` directory placed into the directory `assets_dir` of the context.\n
+        This method also set the `assets_count` attribute with the number of assets for this version.
         """
 
         self._check_version_meta()
@@ -257,6 +260,7 @@ class Version:
         self.dl.add_callback(finalize)
         self.assets_index_version = assets_index_version
         self.assets_virtual_dir = assets_virtual_dir
+        self.assets_count = len(assets_index["objects"])
 
     def prepare_logger(self):
 
@@ -359,7 +363,10 @@ class Version:
 
         """
         Must be called once metadata file are prepared, using `prepare_meta`, if not, `ValueError` is raised.\n
-        This method ensure that the JVM adapted to this version is downloaded to the `jvm_dir` of the context.
+        This method ensure that the JVM adapted to this version is downloaded to the `jvm_dir` of the context.\n
+        This method can raise `JvmLoadingError` with `JvmLoadingError.UNSUPPORTED_ARCH` if Mojang does not provide
+        a JVM for your current architecture, or `JvmLoadingError.UNSUPPORTED_VERSION` if the required JVM version is
+        not provided by Mojang.
         """
 
         self._check_version_meta()
@@ -403,7 +410,7 @@ class Version:
         self.dl.reset()
 
     def install(self, *, jvm: bool = False):
-        """ Prepare and download the version with optional JVM installation. """
+        """ Prepare (meta, jar, assets, logger, libs, jvm) and download the version with optional JVM installation. """
         self.prepare_meta()
         self.prepare_jar()
         self.prepare_assets()
@@ -985,9 +992,9 @@ class Util:
                 if ignore_error:
                     return res.status, {}
                 else:
-                    raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, res.status)
-        except OSError:
-            raise JsonRequestError(JsonRequestError.SOCKET_ERROR)
+                    raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, str(res.status))
+        except OSError as os_err:
+            raise JsonRequestError(JsonRequestError.SOCKET_ERROR, str(os_err))
         finally:
             conn.close()
 
@@ -1197,8 +1204,8 @@ class DownloadList:
 
         """
         Downloads the given list of files. Even if some downloads fails, it continue and raise DownloadError(fails)
-        only at the end, where 'fails' is a dict associating the entry URL and its error ('not_found', 'invalid_size',
-        'invalid_sha1').
+        only at the end (but not calling callbacks), where 'fails' is a dict associating the entry URL and its error
+        ('not_found', 'invalid_size', 'invalid_sha1').
         """
 
         if len(self.entries):
@@ -1306,29 +1313,45 @@ class DownloadProgress:
 
 class BaseError(Exception):
 
-    def __init__(self, code: str, *args):
-        super().__init__(code, args)
+    def __init__(self, code: str):
+        super().__init__()
         self.code = code
 
 
 class JsonRequestError(BaseError):
+
     INVALID_URL_SCHEME = "invalid_url_scheme"
     INVALID_RESPONSE_NOT_JSON = "invalid_response_not_json"
     SOCKET_ERROR = "socket_error"
 
+    def __init__(self, code: str, details: str):
+        super().__init__(code)
+        self.details = details
+
 
 class AuthError(BaseError):
+
     YGGDRASIL = "yggdrasil"
     MICROSOFT = "microsoft"
     MICROSOFT_INCONSISTENT_USER_HASH = "microsoft.inconsistent_user_hash"
     MICROSOFT_DOES_NOT_OWN_MINECRAFT = "microsoft.does_not_own_minecraft"
     MICROSOFT_OUTDATED_TOKEN = "microsoft.outdated_token"
 
+    def __init__(self, code: str, details: Optional[str] = None):
+        super().__init__(code)
+        self.details = details
+
+
 
 class VersionError(BaseError):
+
     NOT_FOUND = "not_found"
     TO_MUCH_PARENTS = "to_much_parents"
     JAR_NOT_FOUND = "jar_not_found"
+
+    def __init__(self, code: str, version: str):
+        super().__init__(code)
+        self.version = version
 
 
 class JvmLoadingError(BaseError):
@@ -1352,6 +1375,7 @@ if __name__ == '__main__':
     from argparse import ArgumentParser, Namespace, HelpFormatter
     from datetime import datetime
     from typing import Union
+    import time
 
 
     EXIT_OK = 0
@@ -1485,7 +1509,7 @@ if __name__ == '__main__':
                 if no_version or search in version:
                     table.append((version, format_iso_date(mtime)))
         else:
-            manifest = VersionManifest.load_from_url()
+            manifest = load_version_manifest()
             search, alias = manifest.filter_latest(search)
             for version_data in manifest.all_versions():
                 version = version_data["id"]
@@ -1514,7 +1538,44 @@ if __name__ == '__main__':
             sys.exit(EXIT_VERSION_NOT_FOUND)
 
     def cmd_start(ns: Namespace, ctx: Context):
-        print("cmd_start")
+
+        manifest = load_version_manifest()
+        version, alias = manifest.filter_latest(ns.version)
+
+        version_rt = Version(ctx, version)
+        version_rt.manifest = manifest
+
+        try:
+
+            print_task("", "version.resolving", {"version": version})
+            version_rt.prepare_meta()
+            print_task("OK", "version.resolved", {"version": version}, done=True)
+
+            print_task("", "version.jar.loading")
+            version_rt.prepare_jar()
+            print_task("OK", "version.jar.loaded", done=True)
+
+        except VersionError as err:
+            print_task("FAILED", f"version.error.{err.code}", {"version": err.version}, done=True)
+            sys.exit(EXIT_VERSION_NOT_FOUND)
+
+        print_task("", "assets.checking")
+        version_rt.prepare_assets()
+        print_task("OK", "assets.checked", {"count": version_rt.assets_count}, done=True)
+
+        print_task("", "logger.loading")
+        version_rt.prepare_logger()
+        print_task("OK", "logger.loaded", done=True)
+
+        print_task("", "libraries.loading")
+        version_rt.prepare_libraries()
+        libs_count = len(version_rt.classpath_libs) + len(version_rt.native_libs)
+        print_task("OK", "libraries.loaded", {"count": libs_count}, done=True)
+
+        # version_rt.prepare_jvm()
+
+        pretty_download(version_rt.dl)
+        version_rt.dl.reset()
 
     def cmd_login(ns: Namespace, ctx: Context):
         print("cmd_login")
@@ -1539,16 +1600,90 @@ if __name__ == '__main__':
         else:
             return datetime.strptime(str(raw).rsplit("+", 2)[0], "%Y-%m-%dT%H:%M:%S").strftime("%c")
 
+    def format_bytes(n: int) -> str:
+        """ Return a byte with suffix B, kB, MB and GB. The string is always 7 chars unless the size exceed 1 TB. """
+        if n < 1000:
+            return "{:6d}B".format(int(n))
+        elif n < 1000000:
+            return "{:5.1f}kB".format(int(n / 100) / 10)
+        elif n < 1000000000:
+            return "{:5.1f}MB".format(int(n / 100000) / 10)
+        else:
+            return "{:5.1f}GB".format(int(n / 100000000) / 10)
+
+    def load_version_manifest() -> VersionManifest:
+        return VersionManifest.load_from_url()
+
+    _term_width = 0
+    _term_width_update_time = 0
+    def get_term_width() -> int:
+        global _term_width, _term_width_update_time
+        now = time.monotonic()
+        if now - _term_width_update_time > 1:
+            _term_width_update_time = now
+            _term_width = shutil.get_terminal_size().columns
+        return _term_width
+
+    # Pretty download
+
+    def pretty_download(dl_list: DownloadList):
+
+        start_time = time.perf_counter()
+        last_print_time: Optional[bool] = None
+        called_once = False
+
+        dl_text = get_message("download.downloading")
+        non_path_len = len(dl_text) + 21
+
+        def progress_callback(progress: 'DownloadProgress'):
+            nonlocal called_once, last_print_time
+            now = time.perf_counter()
+            if last_print_time is None or (now - last_print_time) > 0.1:
+                last_print_time = now
+                speed = format_bytes(int(progress.size / (now - start_time)))
+                percentage = progress.size / progress.total * 100
+                entries = ", ".join((entry.name for entry in progress.entries))
+                path_len = max(0, min(80, get_term_width()) - non_path_len - len(speed))
+                print(f"[      ] {dl_text} {entries[:path_len].ljust(path_len)} {percentage:6.2f}% {speed}/s\r", end="")
+                called_once = True
+
+        def complete_task(error: bool = False):
+            if called_once:
+                result_text = get_message("download.downloaded",
+                                          count=dl_list.count,
+                                          size=format_bytes(dl_list.size).lstrip(" "),
+                                          duration=(time.perf_counter() - start_time))
+                if error:
+                    result_text = get_message("download.errors", count=result_text)
+                result_len = max(0, min(80, get_term_width()) - 9)
+                template = "\r[FAILED] {}" if error else "\r[  OK  ] {}"
+                print(template.format(result_text[:result_len].ljust(result_len)))
+
+        try:
+            dl_list.callbacks.insert(0, complete_task)
+            dl_list.download_files(progress_callback=progress_callback)
+        except DownloadError as err:
+            complete_task(True)
+            for entry_url, entry_error in err.args[0]:
+                entry_error_msg = get_message(f"download.error.{entry_error}")
+                print(f"         {entry_url}: {entry_error_msg}")
+            raise
+        finally:
+            dl_list.callbacks.pop(0)
+
     # Messages
 
-    def get_message(key: str, **kwargs) -> str:
+    def get_message_raw(key: str, kwargs: Optional[dict]) -> str:
         try:
-            return messages[key].format_map(kwargs)
+            return messages[key].format_map(kwargs or {})
         except KeyError:
             return key
 
-    def print_message(key: str, **kwargs):
-        print(get_message(key, **kwargs))
+    def get_message(key: str, **kwargs) -> str:
+        return get_message_raw(key, kwargs)
+
+    def print_message(key: str, end: str = "\n", **kwargs):
+        print(get_message(key, **kwargs), end=end)
 
     def print_table(lines: List[Tuple[str, ...]], *, header: int = -1):
         if not len(lines):
@@ -1571,6 +1706,15 @@ if __name__ == '__main__':
                 print("├─{}─┤".format("─┼─".join(columns_lines)))
         print("└─{}─┘".format("─┴─".join(columns_lines)))
 
+    _print_task_last_len = 0
+    def print_task(status: Optional[str], msg_key: str, msg_args: Optional[dict] = None, *, done: bool = False):
+        global _print_task_last_len
+        len_limit = max(0, get_term_width() - 9)
+        msg = get_message_raw(msg_key, msg_args)[:len_limit]
+        missing_len = max(0, _print_task_last_len - len(msg))
+        status_header = "\r         " if status is None else "\r[{:^6s}] ".format(status)
+        _print_task_last_len = 0 if done else len(msg)
+        print(status_header, msg, " " * missing_len, sep="", end="\n" if done else "", flush=True)
 
     messages = {
 
@@ -1654,11 +1798,11 @@ if __name__ == '__main__':
         "cmd.addon.show.requires": "=> Requires: {}",
 
         "download.downloading": "Downloading",
-        "download.downloaded": "Downloaded {} files, {} in {:.1f}s.",
-        "download.errors": "{} Errors happened, can't continue.",
-        "download.error.not_found": "Not found",
-        "download.error.invalid_size": "Invalid size",
-        "download.error.invalid_sha1": "Invalid SHA1",
+        "download.downloaded": "Downloaded {count} files, {size} in {duration:.1f}s.",
+        "download.errors": "{count} errors happened, can't continue.",
+        f"download.error.{DownloadError.NOT_FOUND}": "Not found",
+        f"download.error.{DownloadError.INVALID_SIZE}": "Invalid size",
+        f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
 
         "auth.refreshing": "Invalid session, refreshing...",
         "auth.refreshed": "Session refreshed for {}.",
@@ -1681,19 +1825,20 @@ if __name__ == '__main__':
         "auth.error.microsoft.outdated_token": "The token is no longer valid.",
         "auth.error.microsoft.error": "Misc error: {}.",
 
-        "version.resolving": "Resolving version {}... ",
-        "version.resolved": "Resolved version {}.",
+        "version.resolving": "Resolving version {version}... ",
+        "version.resolved": "Resolved version {version}.",
         "version.jar.loading": "Loading version JAR... ",
         "version.jar.loaded": "Loaded version JAR.",
-        "version.error.not_found": "Version {} not found.",
-        "version.error.jar_not_found": "Version JAR not found.",
+        f"version.error.{VersionError.NOT_FOUND}": "Version {version} not found.",
+        f"version.error.{VersionError.TO_MUCH_PARENTS}": "The version {version} has to much parents.",
+        f"version.error.{VersionError.JAR_NOT_FOUND}": "Version {version} JAR not found.",
         "assets.checking": "Checking assets... ",
-        "assets.checked": "Checked {} assets.",
+        "assets.checked": "Checked {count} assets.",
         "logger.loading": "Loading logger... ",
         "logger.loaded": "Loaded.",
         "logger.loaded_pretty": "Loaded pretty logger.",
         "libraries.loading": "Loading libraries... ",
-        "libraries.loaded": "Loaded {} libraries.",
+        "libraries.loaded": "Loaded {count} libraries.",
         "jvm.loading": "Loading java... ",
         "jvm.loaded": "Loaded Mojang Java {}.",
         "jvm.error.not_found": "No JVM was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
