@@ -441,6 +441,7 @@ class StartOptions:
         self.disable_chat: bool = False
         self.server_address: Optional[str] = None
         self.server_port: Optional[int] = None
+        self.jvm_exec: Optional[str] = None
 
     @classmethod
     def with_online(cls, auth_session: 'AuthSession') -> 'StartOptions':
@@ -473,7 +474,7 @@ class Start:
         self.game_args: List[str] = []
 
         self.bin_dir_factory: Callable[[str], str] = self.default_bin_dir_factory
-        self.runner: Callable[[List[str]], None] = self.default_runner
+        self.runner: Callable[[List[str], str], None] = self.default_runner
 
     def _check_version(self):
         if self.version.version_meta is None:
@@ -485,7 +486,9 @@ class Start:
         This method is used to prepare internal arguments arrays, main class and arguments variables according to the
         version of this object and the given options. After this method you can call multiple times the `start` method.
         However before calling the `start` method you can changer `args_replacements`, `main_class`, `jvm_args`,
-        `game_args`.
+        `game_args`.\n
+        This method can raise a `ValueError` if the version metadata has no `mainClass` or if no JVM executable was set
+        in the given options nor downloaded by `Version` instance. You can ignore these errors if you ensure that
         """
 
         self._check_version()
@@ -494,6 +497,13 @@ class Start:
         self.main_class = self.version.version_meta.get("mainClass")
         if self.main_class is None:
             raise ValueError("The version metadata has no main class to start.")
+
+        # Prepare JVM exec
+        jvm_exec = opts.jvm_exec
+        if jvm_exec is None:
+            jvm_exec = self.version.jvm_exec
+            if jvm_exec is None:
+                raise ValueError("No JVM executable set in options or downloaded by the version.")
 
         # Features
         features = {
@@ -545,6 +555,7 @@ class Start:
         self.game_args.clear()
 
         # JVM arguments
+        self.jvm_args.append(jvm_exec)
         Util.interpret_args(Util.LEGACY_JVM_ARGUMENTS if modern_jvm_args is None else modern_jvm_args, features, self.jvm_args)
 
         # JVM argument for logging config
@@ -574,7 +585,7 @@ class Start:
     def start(self):
 
         """
-        Start the game using prevously configured attributes `args_replacements`, `main_class`, `jvm_args`, `game_args`.
+        Start the game using configured attributes `args_replacements`, `main_class`, `jvm_args`, `game_args`.
         You can easily configure these attributes with the `prepare` method.\n
         This method actually use the `bin_dir_factory` of this object to produce a path where to extract binaries, by
         default a random UUID is appended to the common `bin_dir` of the context. The `runner` argument is also used to
@@ -609,7 +620,7 @@ class Start:
             *Util.replace_list_vars(self.jvm_args, self.args_replacements),
             self.main_class,
             *Util.replace_list_vars(self.game_args, self.args_replacements)
-        ])
+        ], self.version.context.work_dir)
 
         cleanup()
 
@@ -618,9 +629,9 @@ class Start:
         return path.join(common_bin_dir, str(uuid4()))
 
     @staticmethod
-    def default_runner(args: List[str]) -> None:
+    def default_runner(args: List[str], cwd: str) -> None:
         import subprocess
-        subprocess.run(args)
+        subprocess.run(args, cwd=cwd)
 
 
 class VersionManifest:
@@ -646,12 +657,6 @@ class VersionManifest:
 
     def all_versions(self) -> list:
         return self._data["versions"]
-
-    """def search_versions(self, inp: str) -> Generator[dict, None, None]:
-        inp, alias = self.filter_latest(inp)
-        for version_data in self._data["versions"]:
-            if (alias and version_data["id"] == inp) or (not alias and inp in version_data["id"]):
-                yield version_data"""
 
 
 class AuthSession:
@@ -1070,21 +1075,7 @@ class Util:
 
     @classmethod
     def replace_vars(cls, txt: str, replacements: Dict[str, str]) -> str:
-        parts = []
-        last_end = 0
-        while True:
-            start = txt.find("${", last_end)
-            if start == -1:
-                break
-            end = txt.find("}", start + 2)
-            if end == -1:
-                break
-            parts.append(txt[last_end:start])
-            var = txt[(start + 2):end]
-            parts.append(replacements.get(var, txt[start:end + 1]))
-            last_end = end + 1
-        parts.append(txt[last_end:])
-        return "".join(parts)
+        return txt.replace("${", "{").format_map(replacements)
 
     @classmethod
     def replace_list_vars(cls, lst: List[str], replacements: Dict[str, str]) -> Generator[str, None, None]:
@@ -1401,6 +1392,14 @@ if __name__ == '__main__':
 
     MS_AZURE_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
 
+    JVM_ARGS_DEFAULT = ["-Xmx2G",
+                       "-XX:+UnlockExperimentalVMOptions",
+                       "-XX:+UseG1GC",
+                       "-XX:G1NewSizePercent=20",
+                       "-XX:G1ReservePercent=20",
+                       "-XX:MaxGCPauseMillis=50",
+                       "-XX:G1HeapRegionSize=32M"]
+
 
     def cli(args: List[str]):
 
@@ -1598,6 +1597,7 @@ if __name__ == '__main__':
             start_opts.demo = ns.demo
             start_opts.server_address = ns.server
             start_opts.server_port = ns.server_port
+            start_opts.jvm_exec = ns.jvm
 
             if ns.resol is not None and len(ns.resol) == 2:
                 start_opts.resolution = ns.resol
@@ -1610,11 +1610,12 @@ if __name__ == '__main__':
                 start_opts.uuid = ns.uuid
                 start_opts.username = ns.username
 
-            # TODO: Handle JVM path and arguments
-
             start = new_start(version)
             start.prepare(start_opts)
+            start.jvm_args[-1:-1] = JVM_ARGS_DEFAULT if ns.jvm_args is None else ns.jvm_args.split()
             start.start()
+
+            sys.exit(EXIT_OK)
 
         except VersionError as err:
             print_task("FAILED", f"version.error.{err.code}", {"version": err.version}, done=True)
