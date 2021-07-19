@@ -1379,8 +1379,10 @@ class DownloadError(Exception):
 if __name__ == '__main__':
 
     from argparse import ArgumentParser, Namespace, HelpFormatter
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    from typing import cast, Union, Any
     from datetime import datetime
-    from typing import Union
+    import webbrowser
     import time
 
 
@@ -1391,8 +1393,13 @@ if __name__ == '__main__':
     EXIT_AUTHENTICATION_FAILED = 14
     EXIT_DEPRECATED_ARGUMENT = 16
     EXIT_LOGOUT_FAILED = 17
-    EXIT_HTTP_ERROR = 18
+    EXIT_JSON_REQUEST_ERROR = 18
     EXIT_JVM_LOADING_ERROR = 19
+
+    AUTH_DB_FILE_NAME = "portablemc_auth.json"
+    AUTH_DB_LEGACY_FILE_NAME = "portablemc_tokens"
+
+    MS_AZURE_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
 
 
     def cli(args: List[str]):
@@ -1409,7 +1416,7 @@ if __name__ == '__main__':
                 parser.print_help()
                 sys.exit(EXIT_WRONG_USAGE)
             elif callable(handler):
-                handler(ns, Context(ns.main_dir, ns.work_dir))
+                handler(ns, new_context(ns.main_dir, ns.work_dir))
             elif isinstance(handler, dict):
                 command_attr = f"{command}_{command_attr}"
                 command_handlers = handler
@@ -1545,50 +1552,79 @@ if __name__ == '__main__':
 
     def cmd_start(ns: Namespace, ctx: Context):
 
-        manifest = load_version_manifest()
-        version, alias = manifest.filter_latest(ns.version)
-
-        version_rt = Version(ctx, version)
-        version_rt.manifest = manifest
-
         try:
 
-            print_task("", "version.resolving", {"version": version})
-            version_rt.prepare_meta()
-            print_task("OK", "version.resolved", {"version": version}, done=True)
+            manifest = load_version_manifest()
+            version_id, alias = manifest.filter_latest(ns.version)
+
+            version = new_version(ctx, version_id)
+            version.manifest = manifest
+
+            print_task("", "version.resolving", {"version": version_id})
+            version.prepare_meta()
+            print_task("OK", "version.resolved", {"version": version_id}, done=True)
 
             print_task("", "version.jar.loading")
-            version_rt.prepare_jar()
+            version.prepare_jar()
             print_task("OK", "version.jar.loaded", done=True)
+
+            print_task("", "assets.checking")
+            version.prepare_assets()
+            print_task("OK", "assets.checked", {"count": version.assets_count}, done=True)
+
+            print_task("", "logger.loading")
+            version.prepare_logger()
+            print_task("OK", "logger.loaded", done=True)
+
+            print_task("", "libraries.loading")
+            version.prepare_libraries()
+            libs_count = len(version.classpath_libs) + len(version.native_libs)
+            print_task("OK", "libraries.loaded", {"count": libs_count}, done=True)
+
+            if ns.jvm is None:
+                print_task("", "jvm.loading")
+                version.prepare_jvm()
+                print_task("OK", "jvm.loaded", {"version": version.jvm_version}, done=True)
+
+            pretty_download(version.dl)
+            version.dl.reset()
+
+            if ns.dry:
+                return
+
+            start_opts = new_start_options()
+            start_opts.disable_multiplayer = ns.disable_mp
+            start_opts.disable_chat = ns.disable_chat
+            start_opts.demo = ns.demo
+            start_opts.server_address = ns.server
+            start_opts.server_port = ns.server_port
+
+            if ns.resol is not None and len(ns.resol) == 2:
+                start_opts.resolution = ns.resol
+
+            if ns.login is not None:
+                start_opts.auth_session = prompt_authenticate(ctx, ns.login, not ns.temp_login, ns.microsoft)
+                if start_opts.auth_session:
+                    sys.exit(EXIT_AUTHENTICATION_FAILED)
+            else:
+                start_opts.uuid = ns.uuid
+                start_opts.username = ns.username
+
+            # TODO: Handle JVM path and arguments
+
+            start = new_start(version)
+            start.prepare(start_opts)
+            start.start()
 
         except VersionError as err:
             print_task("FAILED", f"version.error.{err.code}", {"version": err.version}, done=True)
             sys.exit(EXIT_VERSION_NOT_FOUND)
-
-        print_task("", "assets.checking")
-        version_rt.prepare_assets()
-        print_task("OK", "assets.checked", {"count": version_rt.assets_count}, done=True)
-
-        print_task("", "logger.loading")
-        version_rt.prepare_logger()
-        print_task("OK", "logger.loaded", done=True)
-
-        print_task("", "libraries.loading")
-        version_rt.prepare_libraries()
-        libs_count = len(version_rt.classpath_libs) + len(version_rt.native_libs)
-        print_task("OK", "libraries.loaded", {"count": libs_count}, done=True)
-
-        if ns.jvm is None:
-            try:
-                print_task("", "jvm.loading")
-                version_rt.prepare_jvm()
-                print_task("OK", "jvm.loaded", {"version": version_rt.jvm_version}, done=True)
-            except JvmLoadingError as err:
-                print_task("FAILED", f"jvm.error.{err.code}", done=True)
-                sys.exit(EXIT_JVM_LOADING_ERROR)
-
-        pretty_download(version_rt.dl)
-        version_rt.dl.reset()
+        except JvmLoadingError as err:
+            print_task("FAILED", f"jvm.error.{err.code}", done=True)
+            sys.exit(EXIT_JVM_LOADING_ERROR)
+        except JsonRequestError as err:
+            print_task("FAILED", f"son_request.error.{err.code}", {"details": err.details}, done=True)
+            sys.exit(EXIT_JSON_REQUEST_ERROR)
 
     def cmd_login(ns: Namespace, ctx: Context):
         print("cmd_login")
@@ -1604,6 +1640,23 @@ if __name__ == '__main__':
 
     def cmd_addon_show(ns: Namespace, ctx: Context):
         print("cmd_addon_show")
+
+    # Constructors to override
+
+    def new_context(main_dir: Optional[str], work_dir: Optional[str]) -> Context:
+        return Context(main_dir, work_dir)
+
+    def new_version(ctx: Context, version: str) -> Version:
+        return Version(ctx, version)
+
+    def new_start(version: Version) -> Start:
+        return Start(version)
+
+    def new_start_options() -> StartOptions:
+        return StartOptions()
+
+    def new_auth_database(ctx: Context) -> AuthDatabase:
+        return AuthDatabase(path.join(ctx.work_dir, AUTH_DB_FILE_NAME), path.join(ctx.work_dir, AUTH_DB_LEGACY_FILE_NAME))
 
     # Internal utilities
 
@@ -1680,9 +1733,151 @@ if __name__ == '__main__':
             for entry_url, entry_error in err.args[0]:
                 entry_error_msg = get_message(f"download.error.{entry_error}")
                 print(f"         {entry_url}: {entry_error_msg}")
-            raise
         finally:
             dl_list.callbacks.pop(0)
+
+    # Authentication
+
+    def prompt_authenticate(ctx: Context, email_or_username: str, cache_in_db: bool, microsoft: bool) -> Optional[AuthSession]:
+
+        auth_db = new_auth_database(ctx)
+        auth_db.load()
+
+        task_text = "auth.microsoft" if microsoft else "auth.yggdrasil"
+        task_text_args = {"username": email_or_username}
+        print_task("", task_text, task_text_args)
+
+        session = auth_db.get(email_or_username, MicrosoftAuthSession if microsoft else YggdrasilAuthSession)
+        if session is not None:
+            try:
+                if not session.validate():
+                    print_task("", "auth.refreshing")
+                    session.refresh()
+                    auth_db.save()
+                    print_task("OK", "auth.refreshed", task_text_args, done=True)
+                else:
+                    print_task("OK", "auth.validated", task_text_args, done=True)
+                return session
+            except AuthError as err:
+                print_task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:], done=True)
+
+        print_task("..", task_text, task_text_args, done=True)
+
+        try:
+            session = prompt_microsoft_authenticate(email_or_username) if microsoft else prompt_yggdrasil_authenticate(email_or_username)
+            if session is None:
+                return None
+            if cache_in_db:
+                print_task("", "auth.caching")
+                auth_db.put(email_or_username, session)
+                auth_db.save()
+            print_task("OK", "auth.logged_in", done=True)
+            return session
+        except AuthError as err:
+            print_task("FAILED", f"auth.error.{err.code}", {"details": err.details}, done=True)
+            return None
+
+    def prompt_yggdrasil_authenticate(email_or_username: str) -> Optional[YggdrasilAuthSession]:
+        print_task(None, "auth.yggdrasil.enter_password")
+        password = prompt(password=True)
+        if password is None:
+            print_task("FAILED", "cancelled")
+            return None
+        else:
+            return YggdrasilAuthSession.authenticate(email_or_username, password)
+
+    def prompt_microsoft_authenticate(email: str) -> Optional[MicrosoftAuthSession]:
+
+        server_port = 12782
+        client_id = MS_AZURE_APP_ID
+        redirect_auth = "http://localhost:{}".format(server_port)
+        code_redirect_uri = "{}/code".format(redirect_auth)
+        exit_redirect_uri = "{}/exit".format(redirect_auth)
+
+        nonce = uuid4().hex
+
+        if not webbrowser.open(MicrosoftAuthSession.get_authentication_url(client_id, code_redirect_uri, email, nonce)):
+            print_task("FAILED", "auth.microsoft.no_browser", done=True)
+            return None
+
+        class AuthServer(HTTPServer):
+
+            def __init__(self):
+                super().__init__(("", server_port), RequestHandler)
+                self.timeout = 0.5
+                self.ms_auth_done = False
+                self.ms_auth_id_token: Optional[str] = None
+                self.ms_auth_code: Optional[str] = None
+
+        class RequestHandler(BaseHTTPRequestHandler):
+
+            server_version = "PortableMC/{}".format(LAUNCHER_VERSION)
+
+            def __init__(self, request: bytes, client_address: Tuple[str, int], auth_server: AuthServer) -> None:
+                super().__init__(request, client_address, auth_server)
+
+            def log_message(self, _format: str, *args: Any):
+                return
+
+            def send_auth_response(self, msg: str):
+                self.end_headers()
+                self.wfile.write("{}{}".format(msg, "\n\nClose this tab and return to the launcher." if cast(AuthServer, self.server).ms_auth_done else "").encode())
+                self.wfile.flush()
+
+            def do_POST(self):
+                if self.path.startswith(
+                        "/code") and self.headers.get_content_type() == "application/x-www-form-urlencoded":
+                    content_length = int(self.headers.get("Content-Length"))
+                    qs = url_parse.parse_qs(self.rfile.read(content_length).decode())
+                    auth_server = cast(AuthServer, self.server)
+                    if "code" in qs and "id_token" in qs:
+                        self.send_response(307)
+                        # We logout the user directly after authorization, this just clear the browser cache to allow
+                        # another user to authenticate with another email after. This doesn't invalide the access token.
+                        self.send_header("Location", MicrosoftAuthSession.get_logout_url(client_id, exit_redirect_uri))
+                        auth_server.ms_auth_id_token = qs["id_token"][0]
+                        auth_server.ms_auth_code = qs["code"][0]
+                        self.send_auth_response("Redirecting...")
+                    elif "error" in qs:
+                        self.send_response(400)
+                        auth_server.ms_auth_done = True
+                        self.send_auth_response("Error: {} ({}).".format(qs["error_description"][0], qs["error"][0]))
+                    else:
+                        self.send_response(404)
+                        self.send_auth_response("Missing parameters.")
+                else:
+                    self.send_response(404)
+                    self.send_auth_response("Unexpected page.")
+
+            def do_GET(self):
+                auth_server = cast(AuthServer, self.server)
+                if self.path.startswith("/exit"):
+                    self.send_response(200)
+                    auth_server.ms_auth_done = True
+                    self.send_auth_response("Logged in.")
+                else:
+                    self.send_response(404)
+                    self.send_auth_response("Unexpected page.")
+
+        print_task("", "auth.microsoft.opening_browser_and_listening")
+
+        try:
+            with AuthServer() as server:
+                while not server.ms_auth_done:
+                    server.handle_request()
+        except KeyboardInterrupt:
+            pass
+
+        if server.ms_auth_code is None:
+            print_task("FAILED", "auth.microsoft.failed_to_authenticate", done=True)
+            return None
+        else:
+            print_task("", "auth.microsoft.processing")
+            if MicrosoftAuthSession.check_token_id(server.ms_auth_id_token, email, nonce):
+                return MicrosoftAuthSession.authenticate(client_id, server.ms_auth_code, code_redirect_uri)
+            else:
+                print_task("FAILED", "auth.microsoft.incoherent_dat", done=True)
+                return None
 
     # Messages
 
@@ -1697,6 +1892,16 @@ if __name__ == '__main__':
 
     def print_message(key: str, end: str = "\n", **kwargs):
         print(get_message(key, **kwargs), end=end)
+
+    def prompt(password: bool = False) -> Optional[str]:
+        try:
+            if password:
+                import getpass
+                return getpass.getpass("")
+            else:
+                return input("")
+        except KeyboardInterrupt:
+            return None
 
     def print_table(lines: List[Tuple[str, ...]], *, header: int = -1):
         if not len(lines):
@@ -1778,8 +1983,12 @@ if __name__ == '__main__':
         "args.addon.show": "Show an addon details.",
 
         "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
-        "http_request_error": "HTTP request error: {}",
+        # "http_request_error": "HTTP request error: {}",
         "cancelled": "Cancelled.",
+
+        f"json_request.error.{JsonRequestError.INVALID_URL_SCHEME}": "Invalid URL scheme: {details}",
+        f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid response, not JSON: {details}",
+        f"json_request.error.{JsonRequestError.SOCKET_ERROR}": "Socket error: {details}",
 
         "cmd.search.type": "Type",
         "cmd.search.name": "Identifier",
@@ -1818,25 +2027,25 @@ if __name__ == '__main__':
         f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
 
         "auth.refreshing": "Invalid session, refreshing...",
-        "auth.refreshed": "Session refreshed for {}.",
-        "auth.validated": "Session validated for {}.",
+        "auth.refreshed": "Session refreshed for {username}.",
+        "auth.validated": "Session validated for {username}.",
         "auth.caching": "Caching your session...",
         "auth.logged_in": "Logged in",
 
-        "auth.yggdrasil": "Authenticating {} with Mojang...",
+        "auth.yggdrasil": "Authenticating {username} with Mojang...",
         "auth.yggdrasil.enter_password": "Password: ",
-        "auth.error.yggdrasil": "{}",
+        f"auth.error.{AuthError.YGGDRASIL}": "{details}",
 
-        "auth.microsoft": "Authenticating {} with Microsoft...",
+        "auth.microsoft": "Authenticating {username} with Microsoft...",
         "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser is supported.",
         "auth.microsoft.opening_browser_and_listening": "Opened authentication page in browser...",
         "auth.microsoft.failed_to_authenticate": "Failed to authenticate.",
         "auth.microsoft.processing": "Processing authentication against Minecraft services...",
         "auth.microsoft.incoherent_data": "Incoherent authentication data, please retry.",
-        "auth.error.microsoft.inconsistent_user_hash": "Inconsistent user hash.",
-        "auth.error.microsoft.does_not_own_minecraft": "This account does not own Minecraft.",
-        "auth.error.microsoft.outdated_token": "The token is no longer valid.",
-        "auth.error.microsoft.error": "Misc error: {}.",
+        f"auth.error.{AuthError.MICROSOFT_INCONSISTENT_USER_HASH}": "Inconsistent user hash.",
+        f"auth.error.{AuthError.MICROSOFT_DOES_NOT_OWN_MINECRAFT}": "This account does not own Minecraft.",
+        f"auth.error.{AuthError.MICROSOFT_OUTDATED_TOKEN}": "The token is no longer valid.",
+        f"auth.error.{AuthError.MICROSOFT}": "Misc error: {details}.",
 
         "version.resolving": "Resolving version {version}... ",
         "version.resolved": "Resolved version {version}.",
