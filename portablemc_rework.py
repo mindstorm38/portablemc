@@ -1543,23 +1543,23 @@ if __name__ == '__main__':
                         version_data["type"],
                         version,
                         format_iso_date(version_data["releaseTime"]),
-                        _("cmd.search.flags.local") if ctx.has_version_metadata(version) else ""
+                        _("search.flags.local") if ctx.has_version_metadata(version) else ""
                     ))
 
         if len(table):
             table.insert(0, (
-                _("cmd.search.name"),
-                _("cmd.search.last_modified")
+                _("search.name"),
+                _("search.last_modified")
             ) if ns.local else (
-                _("cmd.search.type"),
-                _("cmd.search.name"),
-                _("cmd.search.release_date"),
-                _("cmd.search.flags")
+                _("search.type"),
+                _("search.name"),
+                _("search.release_date"),
+                _("search.flags")
             ))
             print_table(table, header=0)
             sys.exit(EXIT_OK)
         else:
-            print_message("cmd.search.not_found")
+            print_message("search.not_found")
             sys.exit(EXIT_VERSION_NOT_FOUND)
 
     def cmd_start(ns: Namespace, ctx: Context):
@@ -1572,31 +1572,31 @@ if __name__ == '__main__':
             version = new_version(ctx, version_id)
             version.manifest = manifest
 
-            print_task("", "version.resolving", {"version": version_id})
+            print_task("", "start.version.resolving", {"version": version_id})
             version.prepare_meta()
-            print_task("OK", "version.resolved", {"version": version_id}, done=True)
+            print_task("OK", "start.version.resolved", {"version": version_id}, done=True)
 
-            print_task("", "version.jar.loading")
+            print_task("", "start.version.jar.loading")
             version.prepare_jar()
-            print_task("OK", "version.jar.loaded", done=True)
+            print_task("OK", "start.version.jar.loaded", done=True)
 
-            print_task("", "assets.checking")
+            print_task("", "start.assets.checking")
             version.prepare_assets()
-            print_task("OK", "assets.checked", {"count": version.assets_count}, done=True)
+            print_task("OK", "start.assets.checked", {"count": version.assets_count}, done=True)
 
-            print_task("", "logger.loading")
+            print_task("", "start.logger.loading")
             version.prepare_logger()
-            print_task("OK", "logger.loaded", done=True)
+            print_task("OK", "start.logger.loaded", done=True)
 
-            print_task("", "libraries.loading")
+            print_task("", "start.libraries.loading")
             version.prepare_libraries()
             libs_count = len(version.classpath_libs) + len(version.native_libs)
-            print_task("OK", "libraries.loaded", {"count": libs_count}, done=True)
+            print_task("OK", "start.libraries.loaded", {"count": libs_count}, done=True)
 
             if ns.jvm is None:
-                print_task("", "jvm.loading")
+                print_task("", "start.jvm.loading")
                 version.prepare_jvm()
-                print_task("OK", "jvm.loaded", {"version": version.jvm_version}, done=True)
+                print_task("OK", "start.jvm.loaded", {"version": version.jvm_version}, done=True)
 
             pretty_download(version.dl)
             version.dl.reset()
@@ -1617,15 +1617,23 @@ if __name__ == '__main__':
 
             if ns.login is not None:
                 start_opts.auth_session = prompt_authenticate(ctx, ns.login, not ns.temp_login, ns.microsoft)
-                if start_opts.auth_session:
+                if start_opts.auth_session is None:
                     sys.exit(EXIT_AUTH_ERROR)
             else:
                 start_opts.uuid = ns.uuid
                 start_opts.username = ns.username
 
+            print_task("", "start.starting")
+
             start = new_start(version)
             start.prepare(start_opts)
             start.jvm_args[-1:-1] = JVM_ARGS_DEFAULT if ns.jvm_args is None else ns.jvm_args.split()
+
+            print_task("OK", "start.starting_info", {
+                "username": start.args_replacements["auth_player_name"],
+                "uuid": start.args_replacements["auth_uuid"]
+            }, done=True)
+
             start.start()
 
             sys.exit(EXIT_OK)
@@ -1637,7 +1645,7 @@ if __name__ == '__main__':
             print_task("FAILED", f"jvm.error.{err.code}", done=True)
             sys.exit(EXIT_JVM_LOADING_ERROR)
         except JsonRequestError as err:
-            print_task("FAILED", f"son_request.error.{err.code}", {"details": err.details}, done=True)
+            print_task("FAILED", f"json_request.error.{err.code}", {"details": err.details}, done=True)
             sys.exit(EXIT_JSON_REQUEST_ERROR)
 
     def cmd_login(ns: Namespace, ctx: Context):
@@ -1646,17 +1654,17 @@ if __name__ == '__main__':
 
     def cmd_logout(ns: Namespace, ctx: Context):
         task_args = {"email": ns.email_or_username}
-        print_task("", "cmd.logout.microsoft.pending" if ns.microsoft else "cmd.logout.yggdrasil.pending", task_args)
+        print_task("", "logout.microsoft.pending" if ns.microsoft else "logout.yggdrasil.pending", task_args)
         auth_db = new_auth_database(ctx)
         auth_db.load()
         session = auth_db.remove(ns.email_or_username, MicrosoftAuthSession if ns.microsoft else YggdrasilAuthSession)
         if session is not None:
             session.invalidate()
             auth_db.save()
-            print_task("OK", "cmd.logout.success", task_args, done=True)
+            print_task("OK", "logout.success", task_args, done=True)
             sys.exit(EXIT_OK)
         else:
-            print_task("FAILED", "cmd.logout.unknown_session", task_args, done=True)
+            print_task("FAILED", "logout.unknown_session", task_args, done=True)
             sys.exit(EXIT_AUTH_ERROR)
 
     def cmd_show_about(_ns: Namespace, _ctx: Context):
@@ -2047,41 +2055,55 @@ if __name__ == '__main__':
         "args.addon.show": "Show an addon details.",
         # Common
         "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
-        # "http_request_error": "HTTP request error: {}",
         "cancelled": "Cancelled.",
         # Json Request
         f"json_request.error.{JsonRequestError.INVALID_URL_SCHEME}": "Invalid URL scheme: {details}",
         f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid response, not JSON: {details}",
         f"json_request.error.{JsonRequestError.SOCKET_ERROR}": "Socket error: {details}",
         # Command search
-        "cmd.search.type": "Type",
-        "cmd.search.name": "Identifier",
-        "cmd.search.release_date": "Release date",
-        "cmd.search.last_modified": "Last modified",
-        "cmd.search.flags": "Flags",
-        "cmd.search.flags.local": "local",
-        # "cmd.search.pending": "Searching for version '{input}'...",
-        # "cmd.search.pending_local": "Searching for local version '{input}'...",
-        # "cmd.search.pending_all": "Searching for all versions...",
-        # "cmd.search.result": "=> {type:10s} {version:16s} {date:24s} {more}",
-        # "cmd.search.result.more.local": "[LOCAL]",
-        # "cmd.search.not_found": "=> No version found",
+        "search.type": "Type",
+        "search.name": "Identifier",
+        "search.release_date": "Release date",
+        "search.last_modified": "Last modified",
+        "search.flags": "Flags",
+        "search.flags.local": "local",
         # Command logout
-        "cmd.logout.yggdrasil.pending": "Logging out {email} from Mojang...",
-        "cmd.logout.microsoft.pending": "Logging out {email} from Microsoft...",
-        "cmd.logout.success": "Logged out {email}.",
-        "cmd.logout.unknown_session": "No session for {email}.",
+        "logout.yggdrasil.pending": "Logging out {email} from Mojang...",
+        "logout.microsoft.pending": "Logging out {email} from Microsoft...",
+        "logout.success": "Logged out {email}.",
+        "logout.unknown_session": "No session for {email}.",
         # Command Addon
-        "cmd.addon.list.title": "Addons list ({}):",
-        "cmd.addon.list.result": "=> {:20s} v{} by {} [{}]",
-        "cmd.addon.init.already_exits": "An addon '{}' already exists at '{}'.",
-        "cmd.addon.init.done": "The addon '{}' was initialized at '{}'.",
-        "cmd.addon.show.unknown": "No addon named '{}' exists.",
-        "cmd.addon.show.title": "Addon {} ({}):",
-        "cmd.addon.show.version": "=> Version: {}",
-        "cmd.addon.show.authors": "=> Authors: {}",
-        "cmd.addon.show.description": "=> Description: {}",
-        "cmd.addon.show.requires": "=> Requires: {}",
+        "addon.list.title": "Addons list ({}):",
+        "addon.list.result": "=> {:20s} v{} by {} [{}]",
+        "addon.init.already_exits": "An addon '{}' already exists at '{}'.",
+        "addon.init.done": "The addon '{}' was initialized at '{}'.",
+        "addon.show.unknown": "No addon named '{}' exists.",
+        "addon.show.title": "Addon {} ({}):",
+        "addon.show.version": "=> Version: {}",
+        "addon.show.authors": "=> Authors: {}",
+        "addon.show.description": "=> Description: {}",
+        "addon.show.requires": "=> Requires: {}",
+        # Command start
+        "start.version.resolving": "Resolving version {version}... ",
+        "start.version.resolved": "Resolved version {version}.",
+        "start.version.jar.loading": "Loading version JAR... ",
+        "start.version.jar.loaded": "Loaded version JAR.",
+        f"start.version.error.{VersionError.NOT_FOUND}": "Version {version} not found.",
+        f"start.version.error.{VersionError.TO_MUCH_PARENTS}": "The version {version} has to much parents.",
+        f"start.version.error.{VersionError.JAR_NOT_FOUND}": "Version {version} JAR not found.",
+        "start.assets.checking": "Checking assets... ",
+        "start.assets.checked": "Checked {count} assets.",
+        "start.logger.loading": "Loading logger... ",
+        "start.logger.loaded": "Loaded logger.",
+        "start.logger.loaded_pretty": "Loaded pretty logger.",
+        "start.libraries.loading": "Loading libraries... ",
+        "start.libraries.loaded": "Loaded {count} libraries.",
+        "start.jvm.loading": "Loading java... ",
+        "start.jvm.loaded": "Loaded Mojang Java {version}.",
+        f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
+        f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, use --jvm argument to set the JVM executable of path to it.",
+        "start.starting": "Starting the game...",
+        "start.starting_info": "Username: {username} ({uuid})",
         # Pretty download
         "download.downloading": "Downloading",
         "download.downloaded": "Downloaded {count} files, {size} in {duration:.1f}s.",
@@ -2091,16 +2113,16 @@ if __name__ == '__main__':
         f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
         # Auth common
         "auth.refreshing": "Invalid session, refreshing...",
-        "auth.refreshed": "Session refreshed for {username}.",
-        "auth.validated": "Session validated for {username}.",
+        "auth.refreshed": "Session refreshed for {email}.",
+        "auth.validated": "Session validated for {email}.",
         "auth.caching": "Caching your session...",
         "auth.logged_in": "Logged in",
         # Auth Yggdrasil
-        "auth.yggdrasil": "Authenticating {username} with Mojang...",
+        "auth.yggdrasil": "Authenticating {email} with Mojang...",
         "auth.yggdrasil.enter_password": "Password: ",
         f"auth.error.{AuthError.YGGDRASIL}": "{details}",
         # Auth Microsoft
-        "auth.microsoft": "Authenticating {username} with Microsoft...",
+        "auth.microsoft": "Authenticating {email} with Microsoft...",
         "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser is supported.",
         "auth.microsoft.opening_browser_and_listening": "Opened authentication page in browser...",
         "auth.microsoft.failed_to_authenticate": "Failed to authenticate.",
@@ -2110,25 +2132,6 @@ if __name__ == '__main__':
         f"auth.error.{AuthError.MICROSOFT_DOES_NOT_OWN_MINECRAFT}": "This account does not own Minecraft.",
         f"auth.error.{AuthError.MICROSOFT_OUTDATED_TOKEN}": "The token is no longer valid.",
         f"auth.error.{AuthError.MICROSOFT}": "Misc error: {details}.",
-        # Command start
-        "version.resolving": "Resolving version {version}... ",
-        "version.resolved": "Resolved version {version}.",
-        "version.jar.loading": "Loading version JAR... ",
-        "version.jar.loaded": "Loaded version JAR.",
-        f"version.error.{VersionError.NOT_FOUND}": "Version {version} not found.",
-        f"version.error.{VersionError.TO_MUCH_PARENTS}": "The version {version} has to much parents.",
-        f"version.error.{VersionError.JAR_NOT_FOUND}": "Version {version} JAR not found.",
-        "assets.checking": "Checking assets... ",
-        "assets.checked": "Checked {count} assets.",
-        "logger.loading": "Loading logger... ",
-        "logger.loaded": "Loaded logger.",
-        "logger.loaded_pretty": "Loaded pretty logger.",
-        "libraries.loading": "Loading libraries... ",
-        "libraries.loaded": "Loaded {count} libraries.",
-        "jvm.loading": "Loading java... ",
-        "jvm.loaded": "Loaded Mojang Java {version}.",
-        f"jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
-        f"jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, use --jvm argument to set the JVM executable of path to it.",
 
         # "start.dry": "Dry run, stopping.",
         # "start.starting": "Starting game...",
