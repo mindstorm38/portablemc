@@ -2,7 +2,7 @@
 # encoding: utf8
 
 # PortableMC is a portable Minecraft launcher in only one Python script (without addons).
-# Copyright (C) 2021 Théo Rozier
+# Copyright (C) 2021  Théo Rozier
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -36,7 +36,9 @@ import re
 
 LAUNCHER_NAME = "portablemc"
 LAUNCHER_VERSION = "1.2.0"
-LAUNCHER_AUTHORS = "Théo Rozier"
+LAUNCHER_AUTHORS = ("Théo Rozier", "Github contributors")
+LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021  Théo Rozier"
+LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
 
 VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
 ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
@@ -712,13 +714,13 @@ class YggdrasilAuthSession(AuthSession):
         }, False)
 
     @classmethod
-    def authenticate(cls, email_or_username: str, password: str) -> 'YggdrasilAuthSession':
+    def authenticate(cls, email: str, password: str) -> 'YggdrasilAuthSession':
         _, res = cls.request("authenticate", {
             "agent": {
                 "name": "Minecraft",
                 "version": 1
             },
-            "username": email_or_username,
+            "username": email,
             "password": password,
             "clientToken": uuid4().hex
         })
@@ -894,22 +896,22 @@ class AuthDatabase:
     }
 
     def __init__(self, filename: str, legacy_filename: str):
-        self._filename = filename
-        self._legacy_filename = legacy_filename
-        self._sessions: Dict[str, Dict[str, AuthSession]] = {}
+        self.filename = filename
+        self.legacy_filename = legacy_filename
+        self.sessions: Dict[str, Dict[str, AuthSession]] = {}
 
     def load(self):
-        self._sessions.clear()
-        if not path.isfile(self._filename):
+        self.sessions.clear()
+        if not path.isfile(self.filename):
             self._load_legacy_and_delete()
         try:
-            with open(self._filename, "rb") as fp:
+            with open(self.filename, "rb") as fp:
                 data = json.load(fp)
                 for typ, typ_data in data.items():
                     if typ not in self.types:
                         continue
                     sess_type = self.types[typ]
-                    sessions = self._sessions[typ] = {}
+                    sessions = self.sessions[typ] = {}
                     sessions_data = typ_data["sessions"]
                     for email, sess_data in sessions_data.items():
                         sess_params = []
@@ -921,19 +923,19 @@ class AuthDatabase:
 
     def _load_legacy_and_delete(self):
         try:
-            with open(self._legacy_filename, "rt") as fp:
+            with open(self.legacy_filename, "rt") as fp:
                 for line in fp.readlines():
                     parts = line.split(" ")
                     if len(parts) == 5:
                         self.put(parts[0], YggdrasilAuthSession(parts[4], parts[2], parts[3], parts[1]))
-            os.remove(self._legacy_filename)
+            os.remove(self.legacy_filename)
         except OSError:
             pass
 
     def save(self):
-        with open(self._filename, "wt") as fp:
+        with open(self.filename, "wt") as fp:
             data = {}
-            for typ, sessions in self._sessions.items():
+            for typ, sessions in self.sessions.items():
                 if typ not in self.types:
                     continue
                 sess_type = self.types[typ]
@@ -945,24 +947,24 @@ class AuthDatabase:
                         sess_data[field] = getattr(sess, field)
             json.dump(data, fp, indent=2)
 
-    def get(self, email_or_username: str, sess_type: Type[AuthSession]) -> Optional[AuthSession]:
-        sessions = self._sessions.get(sess_type.type)
-        return None if sessions is None else sessions.get(email_or_username)
+    def get(self, email: str, sess_type: Type[AuthSession]) -> Optional[AuthSession]:
+        sessions = self.sessions.get(sess_type.type)
+        return None if sessions is None else sessions.get(email)
 
-    def put(self, email_or_username: str, sess: AuthSession):
-        sessions = self._sessions.get(sess.type)
+    def put(self, email: str, sess: AuthSession):
+        sessions = self.sessions.get(sess.type)
         if sessions is None:
             if sess.type not in self.types:
                 raise ValueError("Given session's type is not supported.")
-            sessions = self._sessions[sess.type] = {}
-        sessions[email_or_username] = sess
+            sessions = self.sessions[sess.type] = {}
+        sessions[email] = sess
 
-    def remove(self, email_or_username: str, sess_type: Type[AuthSession]) -> Optional[AuthSession]:
-        sessions = self._sessions.get(sess_type.type)
+    def remove(self, email: str, sess_type: Type[AuthSession]) -> Optional[AuthSession]:
+        sessions = self.sessions.get(sess_type.type)
         if sessions is not None:
-            session = sessions.get(email_or_username)
+            session = sessions.get(email)
             if session is not None:
-                del sessions[email_or_username]
+                del sessions[email]
                 return session
 
 
@@ -1381,9 +1383,8 @@ if __name__ == '__main__':
     EXIT_WRONG_USAGE = 9
     EXIT_VERSION_NOT_FOUND = 10
     EXIT_DOWNLOAD_ERROR = 13
-    EXIT_AUTHENTICATION_FAILED = 14
+    EXIT_AUTH_ERROR = 14
     EXIT_DEPRECATED_ARGUMENT = 16
-    EXIT_LOGOUT_FAILED = 17
     EXIT_JSON_REQUEST_ERROR = 18
     EXIT_JVM_LOADING_ERROR = 19
 
@@ -1438,6 +1439,7 @@ if __name__ == '__main__':
         register_start_arguments(subparsers.add_parser("start", help=_("args.start")))
         register_login_arguments(subparsers.add_parser("login", help=_("args.login")))
         register_logout_arguments(subparsers.add_parser("logout", help=_("args.logout")))
+        register_show_arguments(subparsers.add_parser("show", help=_("args.show")))
         register_addon_arguments(subparsers.add_parser("addon", help=_("args.addon")))
 
     def register_search_arguments(parser: ArgumentParser):
@@ -1472,6 +1474,13 @@ if __name__ == '__main__':
         parser.add_argument("-m", "--microsoft", help=get_message("args.logout.microsoft"), action="store_true")
         parser.add_argument("email_or_username")
 
+    def register_show_arguments(parser: ArgumentParser):
+        _ = get_message
+        subparsers = parser.add_subparsers(title="subcommands", dest="show_subcommand")
+        subparsers.required = True
+        subparsers.add_parser("about", help=_("args.show.about"))
+        subparsers.add_parser("auth", help=_("args.show.auth"))
+
     def register_addon_arguments(parser: ArgumentParser):
         _ = get_message
         subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand")
@@ -1502,6 +1511,10 @@ if __name__ == '__main__':
             "start": cmd_start,
             "login": cmd_login,
             "logout": cmd_logout,
+            "show": {
+                "about": cmd_show_about,
+                "auth": cmd_show_auth,
+            },
             "addon": {
                 "list": cmd_addon_list,
                 "init": cmd_addon_init,
@@ -1605,7 +1618,7 @@ if __name__ == '__main__':
             if ns.login is not None:
                 start_opts.auth_session = prompt_authenticate(ctx, ns.login, not ns.temp_login, ns.microsoft)
                 if start_opts.auth_session:
-                    sys.exit(EXIT_AUTHENTICATION_FAILED)
+                    sys.exit(EXIT_AUTH_ERROR)
             else:
                 start_opts.uuid = ns.uuid
                 start_opts.username = ns.username
@@ -1628,10 +1641,41 @@ if __name__ == '__main__':
             sys.exit(EXIT_JSON_REQUEST_ERROR)
 
     def cmd_login(ns: Namespace, ctx: Context):
-        print("cmd_login")
+        sess = prompt_authenticate(ctx, ns.email_or_username, True, ns.microsoft)
+        sys.exit(EXIT_AUTH_ERROR if sess is None else EXIT_OK)
 
     def cmd_logout(ns: Namespace, ctx: Context):
-        print("cmd_logout")
+        task_args = {"email": ns.email_or_username}
+        print_task("", "cmd.logout.microsoft.pending" if ns.microsoft else "cmd.logout.yggdrasil.pending", task_args)
+        auth_db = new_auth_database(ctx)
+        auth_db.load()
+        session = auth_db.remove(ns.email_or_username, MicrosoftAuthSession if ns.microsoft else YggdrasilAuthSession)
+        if session is not None:
+            session.invalidate()
+            auth_db.save()
+            print_task("OK", "cmd.logout.success", task_args, done=True)
+            sys.exit(EXIT_OK)
+        else:
+            print_task("FAILED", "cmd.logout.unknown_session", task_args, done=True)
+            sys.exit(EXIT_AUTH_ERROR)
+
+    def cmd_show_about(_ns: Namespace, _ctx: Context):
+        print(f"Version: {LAUNCHER_VERSION}")
+        print(f"Authors: {', '.join(LAUNCHER_AUTHORS)}")
+        print(f"Website: {LAUNCHER_URL}")
+        print(f"License: {LAUNCHER_COPYRIGHT}")
+        print( "         This program comes with ABSOLUTELY NO WARRANTY. This is free software,")
+        print( "         and you are welcome to redistribute it under certain conditions.")
+        print( "         See <https://www.gnu.org/licenses/gpl-3.0.html>.")
+
+    def cmd_show_auth(_ns: Namespace, ctx: Context):
+        auth_db = new_auth_database(ctx)
+        auth_db.load()
+        lines = [("Type", "Email", "Username", "UUID")]
+        for auth_type, auth_type_sessions in auth_db.sessions.items():
+            for email, sess in auth_type_sessions.items():
+                lines.append((auth_type, email, sess.username, sess.uuid))
+        print_table(lines, header=0)
 
     def cmd_addon_list(ns: Namespace, ctx: Context):
         print("cmd_addon_list")
@@ -1643,6 +1687,9 @@ if __name__ == '__main__':
         print("cmd_addon_show")
 
     # Constructors to override
+
+    def load_version_manifest() -> VersionManifest:
+        return VersionManifest.load_from_url()
 
     def new_context(main_dir: Optional[str], work_dir: Optional[str]) -> Context:
         return Context(main_dir, work_dir)
@@ -1678,9 +1725,6 @@ if __name__ == '__main__':
         else:
             return "{:5.1f}GB".format(int(n / 100000000) / 10)
 
-    def load_version_manifest() -> VersionManifest:
-        return VersionManifest.load_from_url()
-
     _term_width = 0
     _term_width_update_time = 0
     def get_term_width() -> int:
@@ -1694,6 +1738,10 @@ if __name__ == '__main__':
     # Pretty download
 
     def pretty_download(dl_list: DownloadList):
+
+        """
+        Download a `DownloadList` with a pretty progress bar using the `print_task` function
+        """
 
         start_time = time.perf_counter()
         last_print_time: Optional[bool] = None
@@ -1739,16 +1787,22 @@ if __name__ == '__main__':
 
     # Authentication
 
-    def prompt_authenticate(ctx: Context, email_or_username: str, cache_in_db: bool, microsoft: bool) -> Optional[AuthSession]:
+    def prompt_authenticate(ctx: Context, email: str, cache_in_db: bool, microsoft: bool) -> Optional[AuthSession]:
+
+        """
+        Prompt the user to login using the given email (or legacy username) for specific service (Microsoft or
+        Yggdrasil) and return the :class:`AuthSession` if successful, None otherwise. This function handles task
+        printing and all exceptions are caught internally.
+        """
 
         auth_db = new_auth_database(ctx)
         auth_db.load()
 
         task_text = "auth.microsoft" if microsoft else "auth.yggdrasil"
-        task_text_args = {"username": email_or_username}
+        task_text_args = {"email": email}
         print_task("", task_text, task_text_args)
 
-        session = auth_db.get(email_or_username, MicrosoftAuthSession if microsoft else YggdrasilAuthSession)
+        session = auth_db.get(email, MicrosoftAuthSession if microsoft else YggdrasilAuthSession)
         if session is not None:
             try:
                 if not session.validate():
@@ -1760,17 +1814,17 @@ if __name__ == '__main__':
                     print_task("OK", "auth.validated", task_text_args, done=True)
                 return session
             except AuthError as err:
-                print_task("FAILED", "auth.error.{}".format(err.args[0]), *err.args[1:], done=True)
+                print_task("FAILED", f"auth.error.{err.code}", {"details": err.details}, done=True)
 
         print_task("..", task_text, task_text_args, done=True)
 
         try:
-            session = prompt_microsoft_authenticate(email_or_username) if microsoft else prompt_yggdrasil_authenticate(email_or_username)
+            session = prompt_microsoft_authenticate(email) if microsoft else prompt_yggdrasil_authenticate(email)
             if session is None:
                 return None
             if cache_in_db:
                 print_task("", "auth.caching")
-                auth_db.put(email_or_username, session)
+                auth_db.put(email, session)
                 auth_db.save()
             print_task("OK", "auth.logged_in", done=True)
             return session
@@ -1891,8 +1945,8 @@ if __name__ == '__main__':
     def get_message(key: str, **kwargs) -> str:
         return get_message_raw(key, kwargs)
 
-    def print_message(key: str, end: str = "\n", **kwargs):
-        print(get_message(key, **kwargs), end=end)
+    def print_message(key: str, kwargs: Optional[dict] = None, *, end: str = "\n"):
+        print(get_message_raw(key, kwargs), end=end)
 
     def prompt(password: bool = False) -> Optional[str]:
         try:
@@ -1916,7 +1970,7 @@ if __name__ == '__main__':
                 cell_len = len(cell)
                 if columns_length[i] < cell_len:
                     columns_length[i] = cell_len
-        format_string = "│ {} │".format(" │ ".join(("{{:{}s}}".format(length) for length in columns_length)))
+        format_string = "│ {} │".format(" │ ".join((f"{{:{length}s}}" for length in columns_length)))
         columns_lines = ["─" * length for length in columns_length]
         print("┌─{}─┐".format("─┬─".join(columns_lines)))
         for i, line in enumerate(lines):
@@ -1936,13 +1990,13 @@ if __name__ == '__main__':
         print(status_header, msg, " " * missing_len, sep="", end="\n" if done else "", flush=True)
 
     messages = {
-
+        # Addons
         "addon.defined_twice": "The addon '{}' is defined twice, both single-file and package, loaded the package one.",
         "addon.missing_requirement.module": "Addon '{0}' requires module '{1}' to load. You can try to install "
                                             "it using 'pip install {1}' or search for it on the web.",
         "addon.missing_requirement.ext": "Addon '{}' requires another addon '{}' to load.",
         "addon.failed_to_build": "Failed to build addon '{}' (contact addon's authors):",
-
+        # Args root
         "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
                 "script! This single-script launcher is still compatible with the official "
                 "(Mojang) Minecraft Launcher stored in .minecraft and use it.",
@@ -1952,8 +2006,10 @@ if __name__ == '__main__':
                          "saves, screenshots (and resources for legacy versions), it also store "
                          "runtime binaries and authentication. "
                          "This argument can be used or not by subcommand.",
+        # Args search
         "args.search": "Search for Minecraft versions.",
         "args.search.local": "Search only for local installed Minecraft versions.",
+        # Args start
         "args.start": "Start a Minecraft version, default to the latest release.",
         "args.start.dry": "Simulate game starting.",
         "args.start.disable_multiplayer": "Disable the multiplayer buttons (>= 1.16).",
@@ -1973,24 +2029,31 @@ if __name__ == '__main__':
         "args.start.uuid": "Set a custom user UUID to play.",
         "args.start.server": "Start the game and auto-connect to this server address (since 1.6).",
         "args.start.server_port": "Set the server address port (given with -s, --server, since 1.6).",
-        "args.login": "Login into your account, this will cache your session.",
+        # Args login
+        "args.login": "Login into your account and save the session.",
         "args.login.microsoft": "Login using Microsoft account.",
+        # Args logout
         "args.logout": "Logout and invalidate a session.",
         "args.logout.microsoft": "Logout from a Microsoft account.",
+        # Args show
+        "args.show": "Show and debug various data.",
+        "args.show.about": "Display authors, version and license of PortableMC.",
+        "args.show.auth": "Debug the authentication database and supported services.",
+        # Args addon
         "args.addon": "Addons management subcommands.",
         "args.addon.list": "List addons.",
         "args.addon.init": "For developers: Given an addon's name, initialize its package if it doesn't already exists.",
         "args.addon.init.single_file": "Make a single-file addon instead of a package one.",
         "args.addon.show": "Show an addon details.",
-
+        # Common
         "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
         # "http_request_error": "HTTP request error: {}",
         "cancelled": "Cancelled.",
-
+        # Json Request
         f"json_request.error.{JsonRequestError.INVALID_URL_SCHEME}": "Invalid URL scheme: {details}",
         f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid response, not JSON: {details}",
         f"json_request.error.{JsonRequestError.SOCKET_ERROR}": "Socket error: {details}",
-
+        # Command search
         "cmd.search.type": "Type",
         "cmd.search.name": "Identifier",
         "cmd.search.release_date": "Release date",
@@ -2003,12 +2066,12 @@ if __name__ == '__main__':
         # "cmd.search.result": "=> {type:10s} {version:16s} {date:24s} {more}",
         # "cmd.search.result.more.local": "[LOCAL]",
         # "cmd.search.not_found": "=> No version found",
-
-        "cmd.logout.yggdrasil.pending": "Logging out {} from Mojang...",
-        "cmd.logout.microsoft.pending": "Logging out {} from Microsoft...",
-        "cmd.logout.success": "Logged out {}.",
-        "cmd.logout.unknown_session": "No session for {}.",
-
+        # Command logout
+        "cmd.logout.yggdrasil.pending": "Logging out {email} from Mojang...",
+        "cmd.logout.microsoft.pending": "Logging out {email} from Microsoft...",
+        "cmd.logout.success": "Logged out {email}.",
+        "cmd.logout.unknown_session": "No session for {email}.",
+        # Command Addon
         "cmd.addon.list.title": "Addons list ({}):",
         "cmd.addon.list.result": "=> {:20s} v{} by {} [{}]",
         "cmd.addon.init.already_exits": "An addon '{}' already exists at '{}'.",
@@ -2019,24 +2082,24 @@ if __name__ == '__main__':
         "cmd.addon.show.authors": "=> Authors: {}",
         "cmd.addon.show.description": "=> Description: {}",
         "cmd.addon.show.requires": "=> Requires: {}",
-
+        # Pretty download
         "download.downloading": "Downloading",
         "download.downloaded": "Downloaded {count} files, {size} in {duration:.1f}s.",
         "download.errors": "{count} errors happened, can't continue.",
         f"download.error.{DownloadError.NOT_FOUND}": "Not found",
         f"download.error.{DownloadError.INVALID_SIZE}": "Invalid size",
         f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
-
+        # Auth common
         "auth.refreshing": "Invalid session, refreshing...",
         "auth.refreshed": "Session refreshed for {username}.",
         "auth.validated": "Session validated for {username}.",
         "auth.caching": "Caching your session...",
         "auth.logged_in": "Logged in",
-
+        # Auth Yggdrasil
         "auth.yggdrasil": "Authenticating {username} with Mojang...",
         "auth.yggdrasil.enter_password": "Password: ",
         f"auth.error.{AuthError.YGGDRASIL}": "{details}",
-
+        # Auth Microsoft
         "auth.microsoft": "Authenticating {username} with Microsoft...",
         "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser is supported.",
         "auth.microsoft.opening_browser_and_listening": "Opened authentication page in browser...",
@@ -2047,7 +2110,7 @@ if __name__ == '__main__':
         f"auth.error.{AuthError.MICROSOFT_DOES_NOT_OWN_MINECRAFT}": "This account does not own Minecraft.",
         f"auth.error.{AuthError.MICROSOFT_OUTDATED_TOKEN}": "The token is no longer valid.",
         f"auth.error.{AuthError.MICROSOFT}": "Misc error: {details}.",
-
+        # Command start
         "version.resolving": "Resolving version {version}... ",
         "version.resolved": "Resolved version {version}.",
         "version.jar.loading": "Loading version JAR... ",
@@ -2067,13 +2130,13 @@ if __name__ == '__main__':
         f"jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
         f"jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, use --jvm argument to set the JVM executable of path to it.",
 
-        "start.dry": "Dry run, stopping.",
-        "start.starting": "Starting game...",
-        "start.extracting_natives": "=> Extracting natives...",
-        "start.running": "Running...",
-        "start.stopped": "Game stopped, clearing natives.",
-        "start.run.session": "=> Username: {}, UUID: {}",
-        "start.run.command_line": "=> Command line: {}",
+        # "start.dry": "Dry run, stopping.",
+        # "start.starting": "Starting game...",
+        # "start.extracting_natives": "=> Extracting natives...",
+        # "start.running": "Running...",
+        # "start.stopped": "Game stopped, clearing natives.",
+        # "start.run.session": "=> Username: {}, UUID: {}",
+        # "start.run.command_line": "=> Command line: {}",
 
     }
 
