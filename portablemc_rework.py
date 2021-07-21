@@ -1086,8 +1086,7 @@ class Util:
     @classmethod
     def update_dict_keep(cls, orig: dict, other: dict):
         for k, v in other.items():
-            if k not in orig:
-                orig[k] = v
+            orig.setdefault(k, v)
 
     @staticmethod
     def get_minecraft_dir() -> str:
@@ -1369,12 +1368,15 @@ class DownloadError(Exception):
         self.fails = fails
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     from argparse import ArgumentParser, Namespace, HelpFormatter
     from http.server import HTTPServer, BaseHTTPRequestHandler
+    from importlib.machinery import SourceFileLoader
     from typing import cast, Union, Any
     from datetime import datetime
+    from types import ModuleType
+    import importlib.util
     import webbrowser
     import time
 
@@ -1404,6 +1406,8 @@ if __name__ == '__main__':
 
     def cli(args: List[str]):
 
+        load_addons()
+
         parser = register_arguments()
         ns = parser.parse_args(args)
 
@@ -1422,6 +1426,101 @@ if __name__ == '__main__':
                 command_handlers = handler
                 continue
             sys.exit(EXIT_OK)
+
+    # Addons
+
+    class Addon:
+        __slots__ = ("id", "module", "meta")
+        def __init__(self, id_: str, module: ModuleType, meta: dict):
+            self.id = id_
+            self.module = module
+            self.meta = meta
+
+    addons: Dict[str, Addon] = {}
+    addons_loaded: bool = False
+
+    def load_addons():
+
+        global addons, addons_loaded
+
+        if addons_loaded:
+            raise ValueError("Addons already loaded.")
+
+        addons_loaded = True
+        addons_dirs = [path.join(path.dirname(__file__), "addons")]
+
+        home = path.expanduser("~")
+        system = platform.system()
+
+        if system == "Linux":
+            addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), "portablemc"))
+        elif system == "Windows":
+            addons_dirs.append(path.join(home, "AppData", "Local", "portablemc"))
+        elif system == "Darwin":
+            addons_dirs.append(path.join(home, "Library", "Application Support", "portablemc"))
+
+        for addons_dir in addons_dirs:
+
+            if not path.isdir(addons_dir):
+                continue
+
+            for addon_id in os.listdir(addons_dir):
+                if not addon_id.endswith(".dis") and addon_id != "__pycache__":
+
+                    addon_path = path.join(addons_dir, addon_id)
+                    if not path.isdir(addon_path):
+                        continue  # If not terminated with '.py' and not a dir
+
+                    addon_init_path = path.join(addon_path, "__init__.py")
+                    addon_meta_path = path.join(addon_path, "addon.json")
+                    if not path.isfile(addon_init_path) or not path.isfile(addon_meta_path):
+                        continue  # If __init__.py is not found in dir
+
+                    if not addon_id.isidentifier():
+                        print_message("addon.invalid_identifier", {"addon": addon_id, "path": addon_path})
+                        continue
+
+                    with open(addon_meta_path, "rt") as addon_meta_fp:
+                        addon_meta = json.load(addon_meta_fp)
+
+                    existing_module = addons.get(addon_id)
+                    if existing_module is not None:
+                        print_message("addon.defined_twice", {
+                            "addon": addon_id,
+                            "path1": path.dirname(existing_module.__file__),
+                            "path2": addon_path
+                        })
+                        continue
+
+                    module_name = f"_pmc_addon_{addon_id}"
+                    existing_module = sys.modules.get(module_name)
+                    if existing_module is not None:
+                        print_message("addon.module_conflict", {
+                            "addon": addon_id,
+                            "addon_path": addon_path,
+                            "module": module_name,
+                            "module_path": path.dirname(existing_module.__file__)
+                        })
+                        continue
+
+                    loader = SourceFileLoader(module_name, addon_init_path)
+                    spec = importlib.util.spec_from_file_location(module_name, addon_init_path, loader=loader,
+                                                                  submodule_search_locations=[addon_path])
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = module
+                    loader.exec_module(module)
+                    addons[addon_id] = Addon(addon_id, module, addon_meta)
+
+        self_module = sys.modules["__main__"]
+        for addon_id, module in addons.items():
+            if hasattr(module, "addon_build") and callable(module.addon_build):
+                module.addon_build(self_module)
+
+    """from importlib.abc import MetaPathFinder
+    class AddonFinder(MetaPathFinder):
+
+        def find_spec(self, fullname, path_, target=None):
+            print(f"{fullname=}, path={path_}, {target=}")"""
 
     # CLI Parser
 
@@ -1999,7 +2098,10 @@ if __name__ == '__main__':
 
     messages = {
         # Addons
-        "addon.defined_twice": "The addon '{}' is defined twice, both single-file and package, loaded the package one.",
+        "addon.invalid_identifier": "\033[31mInvalid identifier for the addon '{addon}' at '{path}'.\033[0m",
+        "addon.module_conflict": "\033[31mThe addon '{addon}' at '{addon_path}' is internally conflicting with the "
+                                 "module '{module}' at '{module_path}', cannot be loaded.\033[0m",
+        "addon.defined_twice": "\033[31mThe addon '{addon}' is defined twice, both at '{path1}' and '{path2}'.\033[0m",
         "addon.missing_requirement.module": "Addon '{0}' requires module '{1}' to load. You can try to install "
                                             "it using 'pip install {1}' or search for it on the web.",
         "addon.missing_requirement.ext": "Addon '{}' requires another addon '{}' to load.",
@@ -2131,16 +2233,7 @@ if __name__ == '__main__':
         f"auth.error.{AuthError.MICROSOFT_INCONSISTENT_USER_HASH}": "Inconsistent user hash.",
         f"auth.error.{AuthError.MICROSOFT_DOES_NOT_OWN_MINECRAFT}": "This account does not own Minecraft.",
         f"auth.error.{AuthError.MICROSOFT_OUTDATED_TOKEN}": "The token is no longer valid.",
-        f"auth.error.{AuthError.MICROSOFT}": "Misc error: {details}.",
-
-        # "start.dry": "Dry run, stopping.",
-        # "start.starting": "Starting game...",
-        # "start.extracting_natives": "=> Extracting natives...",
-        # "start.running": "Running...",
-        # "start.stopped": "Game stopped, clearing natives.",
-        # "start.run.session": "=> Username: {}, UUID: {}",
-        # "start.run.command_line": "=> Command line: {}",
-
+        f"auth.error.{AuthError.MICROSOFT}": "Misc error: {details}."
     }
 
     # Actual start

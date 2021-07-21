@@ -1,0 +1,34 @@
+[tool.poetry]
+name = "portablemc"
+version = "1.2.0"
+description = "PortableMC is an easy-to-use portable CLI Minecraft launcher."
+authors = ["Theo Rozier <contact@theorozier.fr>"]
+license = "GPL-3.0-only"
+readme = "README.md"
+homepage = "https://github.com/mindstorm38/portablemc"
+repository = "https://github.com/mindstorm38/portablemc"
+keywords = ["minecraft", "launcher", "portable", "cli"]
+packages = [
+    { include = "portablemc.py" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)"
+]
+
+[tool.poetry.dependencies]
+python = "^3.6"
+
+[tool.poetry.scripts]
+portablemc = "portablemc"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

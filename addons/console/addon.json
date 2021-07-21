@@ -1,0 +1,9 @@
+{
+  "name": "Richer",
+  "version": "0.0.2",
+  "authors": ["Théo Rozier"],
+  "requires": {
+    "prompt_toolkit": ">=3.0.16"
+  },
+  "description": "Better terminal for game process."
+}
