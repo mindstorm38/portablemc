@@ -104,12 +104,12 @@ class Version:
     the download list. The game still requires some parts to be prepared before starting.
     """
 
-    def __init__(self, context: Context, version: str):
+    def __init__(self, context: Context, version_id: str):
 
         """ Construct a new version, using a specific context and the exact version ID you want to start. """
 
         self.context = context
-        self.version = version
+        self.id = version_id
 
         self.manifest: Optional[VersionManifest] = None
         self.dl = DownloadList()
@@ -150,10 +150,10 @@ class Version:
         if self.manifest is None:
             self.manifest = VersionManifest.load_from_url()
 
-        version_meta, version_dir = self._prepare_meta_internal(self.version)
+        version_meta, version_dir = self._prepare_meta_internal(self.id)
         while "inheritsFrom" in version_meta:
             if recursion_limit <= 0:
-                raise VersionError(VersionError.TO_MUCH_PARENTS, self.version)
+                raise VersionError(VersionError.TO_MUCH_PARENTS, self.id)
             recursion_limit -= 1
             parent_meta, _ = self._prepare_meta_internal(version_meta["inheritsFrom"])
             del version_meta["inheritsFrom"]
@@ -161,16 +161,16 @@ class Version:
 
         self.version_meta, self.version_dir = version_meta, version_dir
 
-    def _prepare_meta_internal(self, version: str) -> Tuple[dict, str]:
+    def _prepare_meta_internal(self, version_id: str) -> Tuple[dict, str]:
 
-        version_dir = path.join(self.context.versions_dir, version)
-        version_meta_file = path.join(version_dir, f"{version}.json")
+        version_dir = path.join(self.context.versions_dir, version_id)
+        version_meta_file = path.join(version_dir, f"{version_id}.json")
 
         try:
             with open(version_meta_file, "rt") as version_meta_fp:
                 return json.load(version_meta_fp), version_dir
         except (OSError, JSONDecodeError):
-            version_super_meta = self.manifest.get_version(version)
+            version_super_meta = self.manifest.get_version(version_id)
             if version_super_meta is not None:
                 content = Util.json_simple_request(version_super_meta["url"])
                 os.makedirs(version_dir, exist_ok=True)
@@ -178,7 +178,7 @@ class Version:
                     json.dump(content, version_meta_fp, indent=2)
                 return content, version_dir
             else:
-                raise VersionError(VersionError.NOT_FOUND, version)
+                raise VersionError(VersionError.NOT_FOUND, version_id)
 
     def _check_version_meta(self):
         if self.version_meta is None:
@@ -195,14 +195,14 @@ class Version:
         """
 
         self._check_version_meta()
-        self.version_jar_file = path.join(self.version_dir, f"{self.version}.jar")
+        self.version_jar_file = path.join(self.version_dir, f"{self.id}.jar")
         client_download = self.version_meta.get("downloads", {}).get("client")
         if client_download is not None:
-            entry = DownloadEntry.from_meta(client_download, self.version_jar_file, name=f"{self.version}.jar")
+            entry = DownloadEntry.from_meta(client_download, self.version_jar_file, name=f"{self.id}.jar")
             if not path.isfile(entry.dst) or path.getsize(entry.dst) != entry.size:
                 self.dl.append(entry)
         elif not path.isfile(self.version_jar_file):
-            raise VersionError(VersionError.JAR_NOT_FOUND, self.version)
+            raise VersionError(VersionError.JAR_NOT_FOUND, self.id)
 
     def prepare_assets(self):
 
@@ -482,6 +482,12 @@ class Start:
         if self.version.version_meta is None:
             raise ValueError("You should install the version metadata first.")
 
+    def get_username(self) -> str:
+        return self.args_replacements.get("auth_player_name", "n/a")
+
+    def get_uuid(self) -> str:
+        return self.args_replacements.get("auth_uuid", "n/a")
+
     def prepare(self, opts: StartOptions):
 
         """
@@ -525,7 +531,7 @@ class Start:
         self.args_replacements = {
             # Game
             "auth_player_name": username,
-            "version_name": self.version.version,
+            "version_name": self.version.id,
             "game_directory": self.version.context.work_dir,
             "assets_root": self.version.context.assets_dir,
             "assets_index_name": self.version.assets_index_version,
@@ -1378,6 +1384,7 @@ if __name__ == "__main__":
     from types import ModuleType
     import importlib.util
     import webbrowser
+    import traceback
     import time
 
 
@@ -1404,6 +1411,18 @@ if __name__ == "__main__":
                        "-XX:G1HeapRegionSize=32M"]
 
 
+    class CliContext(Context):
+        def __init__(self, ns: Namespace):
+            super().__init__(ns.main_dir, ns.work_dir)
+            self.ns = ns
+
+    class CliAddon:
+        __slots__ = ("module", "meta")
+        def __init__(self, module: ModuleType, meta: Dict[str, Any]):
+            self.module = module
+            self.meta = meta
+
+
     def cli(args: List[str]):
 
         load_addons()
@@ -1420,7 +1439,7 @@ if __name__ == "__main__":
                 parser.print_help()
                 sys.exit(EXIT_WRONG_USAGE)
             elif callable(handler):
-                handler(ns, new_context(ns.main_dir, ns.work_dir))
+                handler(ns, new_context(ns))
             elif isinstance(handler, dict):
                 command_attr = f"{command}_{command_attr}"
                 command_handlers = handler
@@ -1429,14 +1448,7 @@ if __name__ == "__main__":
 
     # Addons
 
-    class Addon:
-        __slots__ = ("id", "module", "meta")
-        def __init__(self, id_: str, module: ModuleType, meta: dict):
-            self.id = id_
-            self.module = module
-            self.meta = meta
-
-    addons: Dict[str, Addon] = {}
+    addons: Dict[str, CliAddon] = {}
     addons_loaded: bool = False
 
     def load_addons():
@@ -1477,11 +1489,18 @@ if __name__ == "__main__":
                         continue  # If __init__.py is not found in dir
 
                     if not addon_id.isidentifier():
-                        print_message("addon.invalid_identifier", {"addon": addon_id, "path": addon_path})
+                        print_message("addon.invalid_identifier", {"addon": addon_id, "path": addon_path}, critical=True)
                         continue
 
                     with open(addon_meta_path, "rt") as addon_meta_fp:
-                        addon_meta = json.load(addon_meta_fp)
+                        try:
+                            addon_meta = json.load(addon_meta_fp)
+                            if not isinstance(addon_meta, dict):
+                                print_message("addon.invalid_meta", {"addon": addon_id, "path": addon_meta_path}, critical=True)
+                                continue
+                        except JSONDecodeError:
+                            print_message("addon.invalid_meta", {"addon": addon_id, "path": addon_meta_path}, trace=True, critical=True)
+                            continue
 
                     existing_module = addons.get(addon_id)
                     if existing_module is not None:
@@ -1489,7 +1508,7 @@ if __name__ == "__main__":
                             "addon": addon_id,
                             "path1": path.dirname(existing_module.__file__),
                             "path2": addon_path
-                        })
+                        }, critical=True)
                         continue
 
                     module_name = f"_pmc_addon_{addon_id}"
@@ -1500,7 +1519,7 @@ if __name__ == "__main__":
                             "addon_path": addon_path,
                             "module": module_name,
                             "module_path": path.dirname(existing_module.__file__)
-                        })
+                        }, critical=True)
                         continue
 
                     loader = SourceFileLoader(module_name, addon_init_path)
@@ -1508,19 +1527,24 @@ if __name__ == "__main__":
                                                                   submodule_search_locations=[addon_path])
                     module = importlib.util.module_from_spec(spec)
                     sys.modules[module_name] = module
-                    loader.exec_module(module)
-                    addons[addon_id] = Addon(addon_id, module, addon_meta)
+
+                    try:
+                        loader.exec_module(module)
+                        addons[addon_id] = CliAddon(module, addon_meta)
+                    except Exception as e:
+                        if isinstance(e, ImportError):
+                            print_message("addon.import_error", {"addon": addon_id}, trace=True, critical=True)
+                        else:
+                            print_message("addon.unknown_error", {"addon": addon_id}, trace=True, critical=True)
+                        del sys.modules[module_name]
 
         self_module = sys.modules["__main__"]
         for addon_id, module in addons.items():
-            if hasattr(module, "addon_build") and callable(module.addon_build):
-                module.addon_build(self_module)
+            if hasattr(module, "load") and callable(module.load):
+                module.load(self_module)
 
-    """from importlib.abc import MetaPathFinder
-    class AddonFinder(MetaPathFinder):
-
-        def find_spec(self, fullname, path_, target=None):
-            print(f"{fullname=}, path={path_}, {target=}")"""
+    def get_addon(id_: str) -> Optional[CliAddon]:
+        return addons.get(id_)
 
     # CLI Parser
 
@@ -1621,7 +1645,7 @@ if __name__ == "__main__":
             }
         }
 
-    def cmd_search(ns: Namespace, ctx: Context):
+    def cmd_search(ns: Namespace, ctx: CliContext):
 
         _ = get_message
         table = []
@@ -1633,7 +1657,7 @@ if __name__ == "__main__":
                 if no_version or search in version:
                     table.append((version, format_iso_date(mtime)))
         else:
-            manifest = load_version_manifest()
+            manifest = load_version_manifest(ctx)
             search, alias = manifest.filter_latest(search)
             for version_data in manifest.all_versions():
                 version = version_data["id"]
@@ -1661,19 +1685,19 @@ if __name__ == "__main__":
             print_message("search.not_found")
             sys.exit(EXIT_VERSION_NOT_FOUND)
 
-    def cmd_start(ns: Namespace, ctx: Context):
+    def cmd_start(ns: Namespace, ctx: CliContext):
 
         try:
 
-            manifest = load_version_manifest()
+            manifest = load_version_manifest(ctx)
             version_id, alias = manifest.filter_latest(ns.version)
 
             version = new_version(ctx, version_id)
             version.manifest = manifest
 
-            print_task("", "start.version.resolving", {"version": version_id})
+            print_task("", "start.version.resolving", {"version": version.id})
             version.prepare_meta()
-            print_task("OK", "start.version.resolved", {"version": version_id}, done=True)
+            print_task("OK", "start.version.resolved", {"version": version.id}, done=True)
 
             print_task("", "start.version.jar.loading")
             version.prepare_jar()
@@ -1703,7 +1727,7 @@ if __name__ == "__main__":
             if ns.dry:
                 return
 
-            start_opts = new_start_options()
+            start_opts = new_start_options(ctx)
             start_opts.disable_multiplayer = ns.disable_mp
             start_opts.disable_chat = ns.disable_chat
             start_opts.demo = ns.demo
@@ -1724,13 +1748,13 @@ if __name__ == "__main__":
 
             print_task("", "start.starting")
 
-            start = new_start(version)
+            start = new_start(ctx, version)
             start.prepare(start_opts)
             start.jvm_args[-1:-1] = JVM_ARGS_DEFAULT if ns.jvm_args is None else ns.jvm_args.split()
 
             print_task("OK", "start.starting_info", {
-                "username": start.args_replacements["auth_player_name"],
-                "uuid": start.args_replacements["auth_uuid"]
+                "username": start.args_replacements.get("auth_player_name", "n/a"),
+                "uuid": start.args_replacements.get("auth_uuid", "n/a")
             }, done=True)
 
             start.start()
@@ -1747,11 +1771,11 @@ if __name__ == "__main__":
             print_task("FAILED", f"json_request.error.{err.code}", {"details": err.details}, done=True)
             sys.exit(EXIT_JSON_REQUEST_ERROR)
 
-    def cmd_login(ns: Namespace, ctx: Context):
+    def cmd_login(ns: Namespace, ctx: CliContext):
         sess = prompt_authenticate(ctx, ns.email_or_username, True, ns.microsoft)
         sys.exit(EXIT_AUTH_ERROR if sess is None else EXIT_OK)
 
-    def cmd_logout(ns: Namespace, ctx: Context):
+    def cmd_logout(ns: Namespace, ctx: CliContext):
         task_args = {"email": ns.email_or_username}
         print_task("", "logout.microsoft.pending" if ns.microsoft else "logout.yggdrasil.pending", task_args)
         auth_db = new_auth_database(ctx)
@@ -1766,7 +1790,7 @@ if __name__ == "__main__":
             print_task("FAILED", "logout.unknown_session", task_args, done=True)
             sys.exit(EXIT_AUTH_ERROR)
 
-    def cmd_show_about(_ns: Namespace, _ctx: Context):
+    def cmd_show_about(_ns: Namespace, _ctx: CliContext):
         print(f"Version: {LAUNCHER_VERSION}")
         print(f"Authors: {', '.join(LAUNCHER_AUTHORS)}")
         print(f"Website: {LAUNCHER_URL}")
@@ -1775,7 +1799,7 @@ if __name__ == "__main__":
         print( "         and you are welcome to redistribute it under certain conditions.")
         print( "         See <https://www.gnu.org/licenses/gpl-3.0.html>.")
 
-    def cmd_show_auth(_ns: Namespace, ctx: Context):
+    def cmd_show_auth(_ns: Namespace, ctx: CliContext):
         auth_db = new_auth_database(ctx)
         auth_db.load()
         lines = [("Type", "Email", "Username", "UUID")]
@@ -1784,36 +1808,47 @@ if __name__ == "__main__":
                 lines.append((auth_type, email, sess.username, sess.uuid))
         print_table(lines, header=0)
 
-    def cmd_addon_list(ns: Namespace, ctx: Context):
+    def cmd_addon_list(ns: Namespace, ctx: CliContext):
         print("cmd_addon_list")
 
-    def cmd_addon_init(ns: Namespace, ctx: Context):
+    def cmd_addon_init(ns: Namespace, ctx: CliContext):
         print("cmd_addon_init")
 
-    def cmd_addon_show(ns: Namespace, ctx: Context):
+    def cmd_addon_show(ns: Namespace, ctx: CliContext):
         print("cmd_addon_show")
 
     # Constructors to override
 
-    def load_version_manifest() -> VersionManifest:
+    def new_context(ns: Namespace) -> CliContext:
+        return CliContext(ns)
+
+    def load_version_manifest(_ctx: CliContext) -> VersionManifest:
         return VersionManifest.load_from_url()
 
-    def new_context(main_dir: Optional[str], work_dir: Optional[str]) -> Context:
-        return Context(main_dir, work_dir)
-
-    def new_version(ctx: Context, version: str) -> Version:
-        return Version(ctx, version)
-
-    def new_start(version: Version) -> Start:
-        return Start(version)
-
-    def new_start_options() -> StartOptions:
-        return StartOptions()
-
-    def new_auth_database(ctx: Context) -> AuthDatabase:
+    def new_auth_database(ctx: CliContext) -> AuthDatabase:
         return AuthDatabase(path.join(ctx.work_dir, AUTH_DB_FILE_NAME), path.join(ctx.work_dir, AUTH_DB_LEGACY_FILE_NAME))
 
+    def new_version(ctx: CliContext, version: str) -> Version:
+        return Version(ctx, version)
+
+    def new_start(_ctx: CliContext, version: Version) -> Start:
+        return Start(version)
+
+    def new_start_options(_ctx: CliContext) -> StartOptions:
+        return StartOptions()
+
     # Internal utilities
+
+    def mixin(name: Optional[str] = None, module: Optional[str] = None):
+        def mixin_decorator(func):
+            orig_module = sys.modules[module or __name__]
+            orig_name = name or func.__name__
+            orig_func = getattr(orig_module, orig_name)
+            def wrapper(*args, **kwargs):
+                return func(orig_func, *args, **kwargs)
+            setattr(orig_module, orig_name, wrapper)
+            return func
+        return mixin_decorator
 
     def format_iso_date(raw: Union[str, float]) -> str:
         if isinstance(raw, float):
@@ -1894,7 +1929,7 @@ if __name__ == "__main__":
 
     # Authentication
 
-    def prompt_authenticate(ctx: Context, email: str, cache_in_db: bool, microsoft: bool) -> Optional[AuthSession]:
+    def prompt_authenticate(ctx: CliContext, email: str, cache_in_db: bool, microsoft: bool) -> Optional[AuthSession]:
 
         """
         Prompt the user to login using the given email (or legacy username) for specific service (Microsoft or
@@ -2052,8 +2087,14 @@ if __name__ == "__main__":
     def get_message(key: str, **kwargs) -> str:
         return get_message_raw(key, kwargs)
 
-    def print_message(key: str, kwargs: Optional[dict] = None, *, end: str = "\n"):
+    def print_message(key: str, kwargs: Optional[dict] = None, *, end: str = "\n", trace: bool = False, critical: bool = False):
+        if critical:
+            print("\033[31m", end="")
         print(get_message_raw(key, kwargs), end=end)
+        if trace:
+            traceback.print_exc()
+        if critical:
+            print("\033[0m", end="")
 
     def prompt(password: bool = False) -> Optional[str]:
         try:
@@ -2098,14 +2139,14 @@ if __name__ == "__main__":
 
     messages = {
         # Addons
-        "addon.invalid_identifier": "\033[31mInvalid identifier for the addon '{addon}' at '{path}'.\033[0m",
-        "addon.module_conflict": "\033[31mThe addon '{addon}' at '{addon_path}' is internally conflicting with the "
-                                 "module '{module}' at '{module_path}', cannot be loaded.\033[0m",
-        "addon.defined_twice": "\033[31mThe addon '{addon}' is defined twice, both at '{path1}' and '{path2}'.\033[0m",
-        "addon.missing_requirement.module": "Addon '{0}' requires module '{1}' to load. You can try to install "
-                                            "it using 'pip install {1}' or search for it on the web.",
-        "addon.missing_requirement.ext": "Addon '{}' requires another addon '{}' to load.",
-        "addon.failed_to_build": "Failed to build addon '{}' (contact addon's authors):",
+        "addon.invalid_identifier": "Invalid identifier for the addon '{addon}' at '{path}'.",
+        "addon.invalid_meta": "Invalid metadata file for the addon '{addon}' defined at '{path}'.",
+        "addon.module_conflict": "The addon '{addon}' at '{addon_path}' is internally conflicting with the "
+                                 "module '{module}' at '{module_path}', cannot be loaded.",
+        "addon.defined_twice": "The addon '{addon}' is defined twice, both at '{path1}' and '{path2}'.",
+        "addon.import_error": "The addon '{addon}' has failed to build because some packages is missing:",
+        "addon.unknown_error": "The addon '{addon}' has failed to build for unknown reason:",
+        "addon.failed_to_build": "Failed to build addon '{addon}' (contact addon's authors):",
         # Args root
         "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
                 "script! This single-script launcher is still compatible with the official "

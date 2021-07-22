@@ -1,9 +1,9 @@
 {
-  "name": "Richer",
-  "version": "0.0.2",
+  "name": "Console",
+  "version": "1.0.0",
   "authors": ["Théo Rozier"],
   "requires": {
-    "prompt_toolkit": ">=3.0.16"
+    "prompt_toolkit": ">=3.0.16,<3.1.0"
   },
-  "description": "Better terminal for game process."
+  "description": "Provide an interactive console for the Minecraft process' output. Also provide an API for other addons to customize the UI."
 }
