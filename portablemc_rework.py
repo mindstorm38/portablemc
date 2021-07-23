@@ -1397,6 +1397,7 @@ if __name__ == "__main__":
 
 
     EXIT_OK = 0
+    EXIT_FAILURE = 1
     EXIT_WRONG_USAGE = 9
     EXIT_VERSION_NOT_FOUND = 10
     EXIT_DOWNLOAD_ERROR = 13
@@ -1425,10 +1426,20 @@ if __name__ == "__main__":
             self.ns = ns
 
     class CliAddon:
+
         __slots__ = ("module", "meta")
+
         def __init__(self, module: ModuleType, meta: Dict[str, Any]):
+            self.fix_meta(meta)
             self.module = module
             self.meta = meta
+
+        @staticmethod
+        def fix_meta(meta: dict):
+            if not isinstance(meta.get("authors"), list):
+                meta["authors"] = []
+            if not isinstance(meta.get("requires"), dict):
+                meta["requires"] = {}
 
 
     def cli(args: List[str]):
@@ -1500,7 +1511,7 @@ if __name__ == "__main__":
                         print_message("addon.invalid_identifier", {"addon": addon_id, "path": addon_path}, critical=True)
                         continue
 
-                    with open(addon_meta_path, "rt") as addon_meta_fp:
+                    with open(addon_meta_path, "rb") as addon_meta_fp:
                         try:
                             addon_meta = json.load(addon_meta_fp)
                             if not isinstance(addon_meta, dict):
@@ -1617,11 +1628,8 @@ if __name__ == "__main__":
         subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand")
         subparsers.required = True
         subparsers.add_parser("list", help=_("args.addon.list"))
-        init_parser = subparsers.add_parser("init", help=_("args.addon.init"))
-        init_parser.add_argument("--single-file", help=_("args.addon.init.single_file"), action="store_true")
-        init_parser.add_argument("addon_name")
         show_parser = subparsers.add_parser("show", help=_("args.addon.show"))
-        show_parser.add_argument("addon_name")
+        show_parser.add_argument("addon_id")
 
     def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
 
@@ -1648,7 +1656,6 @@ if __name__ == "__main__":
             },
             "addon": {
                 "list": cmd_addon_list,
-                "init": cmd_addon_init,
                 "show": cmd_addon_show
             }
         }
@@ -1806,20 +1813,53 @@ if __name__ == "__main__":
     def cmd_show_auth(_ns: Namespace, ctx: CliContext):
         auth_db = new_auth_database(ctx)
         auth_db.load()
-        lines = [("Type", "Email", "Username", "UUID")]
+        lines = [("Type", "Email", "Username", "UUID")]  # Intentionally not i18n for now
         for auth_type, auth_type_sessions in auth_db.sessions.items():
             for email, sess in auth_type_sessions.items():
                 lines.append((auth_type, email, sess.username, sess.uuid))
         print_table(lines, header=0)
 
-    def cmd_addon_list(ns: Namespace, ctx: CliContext):
-        print("cmd_addon_list")
+    def cmd_addon_list(_ns: Namespace, _ctx: CliContext):
 
-    def cmd_addon_init(ns: Namespace, ctx: CliContext):
-        print("cmd_addon_init")
+        _ = get_message
 
-    def cmd_addon_show(ns: Namespace, ctx: CliContext):
-        print("cmd_addon_show")
+        lines = [(
+            _("addon.list.id", count=len(addons)),
+            _("addon.list.name"),
+            _("addon.list.version"),
+            _("addon.list.authors"),
+        )]
+
+        for addon_id, addon in addons.items():
+            lines.append((
+                addon_id,
+                addon.meta.get("name", "n/a"),
+                addon.meta.get("version", "n/a"),
+                ", ".join(addon.meta["authors"])
+            ))
+
+        print_table(lines, header=0)
+
+    def cmd_addon_show(ns: Namespace, _ctx: CliContext):
+
+        addon_id = ns.addon_id
+        addon = addons.get(addon_id)
+
+        if addon is None:
+            print_message("addon.show.not_found", {"addon": addon_id})
+            sys.exit(EXIT_FAILURE)
+        else:
+            _ = get_message
+            print_message("addon.show.name", {"name": addon.meta.get("name", "n/a")})
+            print_message("addon.show.version", {"version": addon.meta.get("version", "n/a")})
+            print_message("addon.show.authors", {"authors": ", ".join(addon.meta["authors"])})
+            print_message("addon.show.description", {"description": addon.meta.get("description", "n/a")})
+            if len(addon.meta["requires"]):
+                print_message("addon.show.requirements")
+                for requirement, version in addon.meta["requires"].items():
+                    print(f"   {requirement}: {version}")
+            sys.exit(EXIT_OK)
+
 
     # Constructors to override
 
@@ -2135,6 +2175,16 @@ if __name__ == "__main__":
                 print("├─{}─┤".format("─┼─".join(columns_lines)))
         print("└─{}─┘".format("─┴─".join(columns_lines)))
 
+    def print_description(data: List[Tuple[str, str]]):
+        key_length = 0
+        for key, _ in data:
+            if len(key) > key_length:
+                key_length = len(key)
+        key_length += 1
+        key_format = f"{{:{key_length}s}} {{}}"
+        for key, value in data:
+            print(key_format.format(f"{key}:", value))
+
     _print_task_last_len = 0
     def print_task(status: Optional[str], msg_key: str, msg_args: Optional[dict] = None, *, done: bool = False):
         global _print_task_last_len
@@ -2224,16 +2274,16 @@ if __name__ == "__main__":
         "logout.success": "Logged out {email}.",
         "logout.unknown_session": "No session for {email}.",
         # Command Addon
-        "addon.list.title": "Addons list ({}):",
-        "addon.list.result": "=> {:20s} v{} by {} [{}]",
-        "addon.init.already_exits": "An addon '{}' already exists at '{}'.",
-        "addon.init.done": "The addon '{}' was initialized at '{}'.",
-        "addon.show.unknown": "No addon named '{}' exists.",
-        "addon.show.title": "Addon {} ({}):",
-        "addon.show.version": "=> Version: {}",
-        "addon.show.authors": "=> Authors: {}",
-        "addon.show.description": "=> Description: {}",
-        "addon.show.requires": "=> Requires: {}",
+        "addon.list.id": "ID ({count})",
+        "addon.list.name": "Name",
+        "addon.list.version": "Version",
+        "addon.list.authors": "Authors",
+        "addon.show.not_found": "Addon '{addon}' not found.",
+        "addon.show.name": "Name: {name}",
+        "addon.show.version": "Version: {version}",
+        "addon.show.authors": "Authors: {authors}",
+        "addon.show.description": "Description: {description}",
+        "addon.show.requirements": "Requirements:",
         # Command start
         "start.version.resolving": "Resolving version {version}... ",
         "start.version.resolved": "Resolved version {version}.",
