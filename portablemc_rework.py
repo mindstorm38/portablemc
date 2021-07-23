@@ -131,6 +131,10 @@ class Version:
         self.jvm_version: Optional[str] = None
         self.jvm_exec: Optional[str] = None
 
+    @staticmethod
+    def get_version_dir(ctx: Context, version_id: str) -> str:
+        return path.join(ctx.versions_dir, version_id)
+
     def prepare_meta(self, *, recursion_limit: int = 50):
 
         """
@@ -163,7 +167,7 @@ class Version:
 
     def _prepare_meta_internal(self, version_id: str) -> Tuple[dict, str]:
 
-        version_dir = path.join(self.context.versions_dir, version_id)
+        version_dir = self.get_version_dir(self.context, version_id)
         version_meta_file = path.join(version_dir, f"{version_id}.json")
 
         try:
@@ -988,7 +992,11 @@ class Util:
                      ignore_error: bool = False,
                      timeout: Optional[int] = None) -> Tuple[int, dict]:
 
-        """ Make a request for a JSON API at specified URL. Might raise `JsonRequestError` if failed. """
+        """
+        Make a request for a JSON API at specified URL. Might raise `JsonRequestError` if failed.\n
+        The parameter `ignore_error` can be used to ignore JSONDecodeError handling and just return an empty dict on
+        failure, instead of raising an `JsonRequestError` with `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
+        """
 
         url_parsed = url_parse.urlparse(url)
         conn_type = {"http": HTTPConnection, "https": HTTPSConnection}.get(url_parsed.scheme)
@@ -1539,9 +1547,9 @@ if __name__ == "__main__":
                         del sys.modules[module_name]
 
         self_module = sys.modules["__main__"]
-        for addon_id, module in addons.items():
-            if hasattr(module, "load") and callable(module.load):
-                module.load(self_module)
+        for addon_id, addon in addons.items():
+            if hasattr(addon.module, "load") and callable(addon.module.load):
+                addon.module.load(self_module)
 
     def get_addon(id_: str) -> Optional[CliAddon]:
         return addons.get(id_)
@@ -1689,11 +1697,7 @@ if __name__ == "__main__":
 
         try:
 
-            manifest = load_version_manifest(ctx)
-            version_id, alias = manifest.filter_latest(ns.version)
-
-            version = new_version(ctx, version_id)
-            version.manifest = manifest
+            version = new_version(ctx, ns.version)
 
             print_task("", "start.version.resolving", {"version": version.id})
             version.prepare_meta()
@@ -1762,10 +1766,10 @@ if __name__ == "__main__":
             sys.exit(EXIT_OK)
 
         except VersionError as err:
-            print_task("FAILED", f"version.error.{err.code}", {"version": err.version}, done=True)
+            print_task("FAILED", f"start.version.error.{err.code}", {"version": err.version}, done=True)
             sys.exit(EXIT_VERSION_NOT_FOUND)
         except JvmLoadingError as err:
-            print_task("FAILED", f"jvm.error.{err.code}", done=True)
+            print_task("FAILED", f"start.jvm.error.{err.code}", done=True)
             sys.exit(EXIT_JVM_LOADING_ERROR)
         except JsonRequestError as err:
             print_task("FAILED", f"json_request.error.{err.code}", {"details": err.details}, done=True)
@@ -1828,8 +1832,12 @@ if __name__ == "__main__":
     def new_auth_database(ctx: CliContext) -> AuthDatabase:
         return AuthDatabase(path.join(ctx.work_dir, AUTH_DB_FILE_NAME), path.join(ctx.work_dir, AUTH_DB_LEGACY_FILE_NAME))
 
-    def new_version(ctx: CliContext, version: str) -> Version:
-        return Version(ctx, version)
+    def new_version(ctx: CliContext, version_id: str) -> Version:
+        manifest = load_version_manifest(ctx)
+        version_id, _alias = manifest.filter_latest(version_id)
+        version = Version(ctx, version_id)
+        version.manifest = manifest
+        return version
 
     def new_start(_ctx: CliContext, version: Version) -> Start:
         return Start(version)
