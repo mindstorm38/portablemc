@@ -2,6 +2,6 @@
   "name": "Fabric",
   "version": "1.0.0",
   "authors": ["Théo Rozier"],
-  "requires": {},
-  "description": "Start Minecraft using the Fabric mod loader using '<exec> start fabric:[<mc-version>[:<loader-version>]]'."
+  "description": "Start Minecraft using the Fabric mod loader using '<exec> start fabric:[<mc-version>[:<loader-version>]]'.",
+  "requires": {}
 }

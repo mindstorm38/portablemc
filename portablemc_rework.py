@@ -994,8 +994,9 @@ class Util:
 
         """
         Make a request for a JSON API at specified URL. Might raise `JsonRequestError` if failed.\n
-        The parameter `ignore_error` can be used to ignore JSONDecodeError handling and just return an empty dict on
-        failure, instead of raising an `JsonRequestError` with `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
+        The parameter `ignore_error` can be used to ignore JSONDecodeError handling and just return a dict with a
+        single key 'raw' and the raw data on failure, instead of raising an `JsonRequestError` with
+        `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
         """
 
         url_parsed = url_parse.urlparse(url)
@@ -1012,11 +1013,12 @@ class Util:
         try:
             conn.request(method, url, data, headers)
             res = conn.getresponse()
+            data = res.read()
             try:
-                return res.status, json.load(res)
+                return res.status, json.loads(data)
             except JSONDecodeError:
                 if ignore_error:
-                    return res.status, {}
+                    return res.status, {"raw": data}
                 else:
                     raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, str(res.status))
         except OSError as os_err:
@@ -1425,21 +1427,34 @@ if __name__ == "__main__":
             super().__init__(ns.main_dir, ns.work_dir)
             self.ns = ns
 
+    class CliAddonMeta:
+
+        __slots__ = ("id", "data", "name", "version", "authors", "description", "requires")
+
+        def __init__(self, data: Dict[str, Any], addon_id: str):
+            self.id = addon_id
+            self.data = data
+            self.name = str(self.data.get("name", addon_id))
+            self.version = str(self.data.get("version", "n/a"))
+            self.authors = self.data.get("authors")
+            self.description = str(self.data.get("description", "n/a"))
+            self.requires = self.data.get("requires")
+            if not isinstance(self.authors, list):
+                self.authors: List[str] = []
+            if not isinstance(self.requires, dict):
+                self.requires: Dict[str, str] = {}
+
     class CliAddon:
-
         __slots__ = ("module", "meta")
-
-        def __init__(self, module: ModuleType, meta: Dict[str, Any]):
-            self.fix_meta(meta)
+        def __init__(self, module: ModuleType, meta: CliAddonMeta):
             self.module = module
             self.meta = meta
 
-        @staticmethod
-        def fix_meta(meta: dict):
-            if not isinstance(meta.get("authors"), list):
-                meta["authors"] = []
-            if not isinstance(meta.get("requires"), dict):
-                meta["requires"] = {}
+    class CliInstallError(BaseError):
+        NOT_FOUND = "not_found"
+        INVALID_DIR = "invalid_dir"
+        INVALID_META = "invalid_meta"
+        ALREADY_INSTALLED = "already_installed"
 
 
     def cli(args: List[str]):
@@ -1549,7 +1564,7 @@ if __name__ == "__main__":
 
                     try:
                         loader.exec_module(module)
-                        addons[addon_id] = CliAddon(module, addon_meta)
+                        addons[addon_id] = CliAddon(module, CliAddonMeta(addon_meta, addon_id))
                     except Exception as e:
                         if isinstance(e, ImportError):
                             print_message("addon.import_error", {"addon": addon_id}, trace=True, critical=True)
@@ -1630,6 +1645,8 @@ if __name__ == "__main__":
         subparsers.add_parser("list", help=_("args.addon.list"))
         show_parser = subparsers.add_parser("show", help=_("args.addon.show"))
         show_parser.add_argument("addon_id")
+        install_parser = subparsers.add_parser("install", help=_("args.addon.install"))
+        install_parser.add_argument("addon_specifier")
 
     def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
 
@@ -1656,7 +1673,8 @@ if __name__ == "__main__":
             },
             "addon": {
                 "list": cmd_addon_list,
-                "show": cmd_addon_show
+                "show": cmd_addon_show,
+                "install": cmd_addon_install
             }
         }
 
@@ -1833,9 +1851,9 @@ if __name__ == "__main__":
         for addon_id, addon in addons.items():
             lines.append((
                 addon_id,
-                addon.meta.get("name", "n/a"),
-                addon.meta.get("version", "n/a"),
-                ", ".join(addon.meta["authors"])
+                addon.meta.name,
+                addon.meta.version,
+                ", ".join(addon.meta.authors)
             ))
 
         print_table(lines, header=0)
@@ -1850,16 +1868,122 @@ if __name__ == "__main__":
             sys.exit(EXIT_FAILURE)
         else:
             _ = get_message
-            print_message("addon.show.name", {"name": addon.meta.get("name", "n/a")})
-            print_message("addon.show.version", {"version": addon.meta.get("version", "n/a")})
-            print_message("addon.show.authors", {"authors": ", ".join(addon.meta["authors"])})
-            print_message("addon.show.description", {"description": addon.meta.get("description", "n/a")})
-            if len(addon.meta["requires"]):
-                print_message("addon.show.requirements")
-                for requirement, version in addon.meta["requires"].items():
+            print_message("addon.show.name", {"name": addon.meta.name})
+            print_message("addon.show.version", {"version": addon.meta.version})
+            print_message("addon.show.authors", {"authors": ", ".join(addon.meta.authors)})
+            print_message("addon.show.description", {"description": addon.meta.description})
+            if len(addon.meta.requires):
+                print_message("addon.show.requires")
+                for requirement, version in addon.meta.requires.items():
                     print(f"   {requirement}: {version}")
             sys.exit(EXIT_OK)
 
+    def cmd_addon_install(ns: Namespace, ctx: CliContext):
+
+        """to_install: Dict[str, CliAddonFetch] = {}
+
+        def fetch_recursive(specifier: str):
+            nonlocal to_install
+            dirs, ref = CliAddonFetch.decode_specifier(specifier)
+            addon_id = dirs[-1]
+            if addon_id not in addons and addon_id not in to_install:
+                res = CliAddonFetch.fetch_single(dirs, ref)
+                to_install[res.meta.id] = res
+                for requirement, version in res.meta.requires.items():
+                    if requirement.startswith("addon:"):
+                        fetch_recursive(requirement[6:])
+                    else:
+                        pass
+
+        fetch_recursive(ns.addon_specifier)"""
+        pass
+
+
+
+    """class CliAddonFetch:
+
+        def __init__(self, meta: CliAddonMeta):
+            self.meta = meta
+
+        @staticmethod
+        def decode_specifier(specifier: str) -> Tuple[List[str], Optional[str]]:
+            # Specifier can be:
+            # <user>/<repo>[/<dir>[...]][@<branch_or_commit>] -> Github
+            # <addon_id>[@<branch_or_commit>] -> Github PortableMC
+            parts = specifier.split("@", 1)
+            dirs = parts[0].split("/")
+            ref = None if len(parts) == 1 else parts[1]
+            if len(dirs) == 1:
+                dirs = ["mindstorm38", "portablemc", "addons", dirs[0]]
+            return dirs, ref
+
+        @staticmethod
+        def fetch_single(dirs: List[str], ref: Optional[str]) -> 'CliAddonFetch':
+            return CliAddonGithubFetch.fetch(dirs, ref)"""
+
+
+
+    """def decode_addon_specifier(specifier: str) -> Tuple[List[str], Optional[str], Optional[str]]:
+        # Specifier can be:
+        # <user>/<repo>[/<dir>[...]][@<branch_or_commit>] -> Github
+        # <addon_id>[@<branch_or_commit>] -> Github PortableMC
+        parts = specifier.split("@", 1)
+        dirs = parts[0].split("/")
+        ref = None if len(parts) == 1 else parts[1]
+        if len(dirs) == 1:
+            dirs = ["mindstorm38", "portablemc", "addons", dirs[0]]
+        return dirs, ref"""
+
+    """def fetch_addon(dirs: List[str], ref: Optional[str], service: Optional[str]) -> CliAddonFetch:
+        return CliAddonGithubFetch.fetch(dirs, ref, service)
+
+    class CliAddonGithubFetch(CliAddonFetch):
+
+        @classmethod
+        def fetch(cls, dirs: List[str], ref: Optional[str], service: Optional[str]) -> 'CliAddonGithubFetch':
+
+            # print_task("", "addon.install.fetching.github")
+
+            repo = "/".join(dirs[:2])
+            repo_dir = "/".join(dirs[2:])
+
+            query = "" if ref is None else f"?ref={ref}"
+            github_path = f"/repos/{repo}/contents/{repo_dir}/{{file}}{query}"
+            status, res = github_request(github_path.format(file="addon.json"), "GET")
+
+            if status == 200:
+
+                if not isinstance(res, dict) or res["type"] != "file":
+                    raise CliInstallError(CliInstallError.INVALID_DIR)
+
+                if res["encoding"] != "base64":
+                    pass  # TODO: I don't know how many encodings are available for 'content', but we need to handle them.
+
+                addon_id = dirs[-1]
+
+                try:
+                    addon_meta = CliAddonMeta(json.loads(binascii.a2b_base64(res["content"].encode())), addon_id)
+                except (binascii.Error, JSONDecodeError):
+                    raise CliInstallError(CliInstallError.INVALID_META)
+
+                return CliAddonGithubFetch(addon_meta)
+
+                # existing_addon = addons.get(addon_id)
+                # if existing_addon is not None:
+                #     if existing_addon.meta.version == addon_meta.version:
+                #         raise CliInstallError(CliInstallError.ALREADY_INSTALLED)
+                #
+                # check_addon_meta_requires(addon_meta)
+
+            else:
+                raise CliInstallError(CliInstallError.NOT_FOUND)
+
+    def check_addon_meta_requires(addon_meta: CliAddonMeta):
+        for requirement, version in addon_meta.requires.items():
+            if requirement.startswith("addon:"):
+                pass
+            else:
+                pass"""
 
     # Constructors to override
 
@@ -1885,7 +2009,7 @@ if __name__ == "__main__":
     def new_start_options(_ctx: CliContext) -> StartOptions:
         return StartOptions()
 
-    # Internal utilities
+    # CLI utilities
 
     def mixin(name: Optional[str] = None, module: Optional[str] = None):
         def mixin_decorator(func):
@@ -1924,6 +2048,13 @@ if __name__ == "__main__":
             _term_width_update_time = now
             _term_width = shutil.get_terminal_size().columns
         return _term_width
+
+    def github_request(path_: str, method: str, *, data: Optional[dict] = None, timeout: Optional[int] = None):
+        return Util.json_request(f"https://api.github.com{path_}", method,
+                          data=data,
+                          headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "PortableMC"},
+                          ignore_error=True,
+                          timeout=timeout)
 
     # Pretty download
 
@@ -2251,8 +2382,6 @@ if __name__ == "__main__":
         # Args addon
         "args.addon": "Addons management subcommands.",
         "args.addon.list": "List addons.",
-        "args.addon.init": "For developers: Given an addon's name, initialize its package if it doesn't already exists.",
-        "args.addon.init.single_file": "Make a single-file addon instead of a package one.",
         "args.addon.show": "Show an addon details.",
         # Common
         "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
@@ -2273,17 +2402,23 @@ if __name__ == "__main__":
         "logout.microsoft.pending": "Logging out {email} from Microsoft...",
         "logout.success": "Logged out {email}.",
         "logout.unknown_session": "No session for {email}.",
-        # Command Addon
+        # Command addon list
         "addon.list.id": "ID ({count})",
         "addon.list.name": "Name",
         "addon.list.version": "Version",
         "addon.list.authors": "Authors",
+        # Command addon show
         "addon.show.not_found": "Addon '{addon}' not found.",
         "addon.show.name": "Name: {name}",
         "addon.show.version": "Version: {version}",
         "addon.show.authors": "Authors: {authors}",
         "addon.show.description": "Description: {description}",
-        "addon.show.requirements": "Requirements:",
+        "addon.show.requires": "Requires:",
+        # Command addon install
+        "addon.install.fetching.github": "Fetching addon on github...",
+        "addon.install.not_found": "Cannot find where to find the addon.",
+        "addon.install.invalid_dir": "Invalid given path to the addon, it does not contains a valid '__init__.py' and 'addon.json'.",
+        "addon.install.invalid_meta": "Invalid given path to the addon, failed to decode 'addon.json'.",
         # Command start
         "start.version.resolving": "Resolving version {version}... ",
         "start.version.resolved": "Resolved version {version}.",
