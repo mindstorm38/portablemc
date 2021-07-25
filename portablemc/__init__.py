@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # encoding: utf8
 
-# PortableMC is a portable Minecraft launcher in only one Python script (without addons).
 # Copyright (C) 2021  Théo Rozier
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,6 +15,11 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+""" PortableMC is a module that provides both an API for development of your
+custom launcher and an executable script to run PortableMC CLI. """
+
+__version__ = "1.2.0"
 
 from typing import Generator, Callable, Optional, Tuple, Dict, Type, List
 from http.client import HTTPConnection, HTTPSConnection
@@ -35,8 +39,8 @@ import re
 
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "1.2.0"
-LAUNCHER_AUTHORS = ("Théo Rozier", "Github contributors")
+LAUNCHER_VERSION = __version__
+LAUNCHER_AUTHORS = ["Théo Rozier <contact@theorozier.fr>", "Github contributors"]
 LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021  Théo Rozier"
 LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
 
@@ -1493,17 +1497,18 @@ if __name__ == "__main__":
             raise ValueError("Addons already loaded.")
 
         addons_loaded = True
-        addons_dirs = [path.join(path.dirname(__file__), "addons")]
+        addons_dirs = [path.join(path.dirname(__file__), "../addons")]
 
         home = path.expanduser("~")
         system = platform.system()
 
         if system == "Linux":
-            addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), "portablemc"))
+            addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")),
+                                         ""))
         elif system == "Windows":
-            addons_dirs.append(path.join(home, "AppData", "Local", "portablemc"))
+            addons_dirs.append(path.join(home, "AppData", "Local", ""))
         elif system == "Darwin":
-            addons_dirs.append(path.join(home, "Library", "Application Support", "portablemc"))
+            addons_dirs.append(path.join(home, "Library", "Application Support", ""))
 
         for addons_dir in addons_dirs:
 
@@ -2201,16 +2206,6 @@ if __name__ == "__main__":
             if i == header:
                 print("├─{}─┤".format("─┼─".join(columns_lines)))
         print("└─{}─┘".format("─┴─".join(columns_lines)))
-
-    def print_description(data: List[Tuple[str, str]]):
-        key_length = 0
-        for key, _ in data:
-            if len(key) > key_length:
-                key_length = len(key)
-        key_length += 1
-        key_format = f"{{:{key_length}s}} {{}}"
-        for key, value in data:
-            print(key_format.format(f"{key}:", value))
 
     _print_task_last_len = 0
     def print_task(status: Optional[str], msg_key: str, msg_args: Optional[dict] = None, *, done: bool = False):

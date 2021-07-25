@@ -1,16 +1,55 @@
+# [build-system]
+# requires = ["flit_core >=2,<4"]
+# build-backend = "flit_core.buildapi"
+
+# [build-system]
+# requires = ["setuptools>=42", "wheel"]
+# build-backend = "setuptools.build_meta"
+
+[build-system]
+requires = ["poetry_core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
 [tool.poetry]
 name = "portablemc"
 version = "1.2.0"
-description = "PortableMC is an easy-to-use portable CLI Minecraft launcher."
-authors = ["Theo Rozier <contact@theorozier.fr>"]
+description = "PortableMC is a module that provides both an API for development of your custom launcher and an executable script to run PortableMC CLI."
 license = "GPL-3.0-only"
+authors = ["Théo Rozier <contact@theorozier.fr>"]
 readme = "README.md"
 homepage = "https://github.com/mindstorm38/portablemc"
 repository = "https://github.com/mindstorm38/portablemc"
+documentation = "https://github.com/mindstorm38/portablemc"
 keywords = ["minecraft", "launcher", "portable", "cli"]
-packages = [
-    { include = "portablemc.py" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)"
 ]
+packages = [
+    { include = "portablemc" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.6"
+
+
+
+[tool.flit.metadata]
+module = "portablemc"
+author = "Théo Rozier"
+author-email = "contact@theorozier.fr"
+home-page = "https://github.com/mindstorm38/portablemc"
+description-file = "README.md"
+requires = []
+requires-python = ">=3.6"
+keywords = "minecraft,launcher,portable,cli"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.6",
@@ -23,12 +62,8 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)"
 ]
 
-[tool.poetry.dependencies]
-python = "^3.6"
+# [tool.flit.scripts]
+# portablemc = "portablemc"
 
-[tool.poetry.scripts]
-portablemc = "portablemc:cli"
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+# [tool.flit.sdist]
+# exclude = ["addons/", "doc/", ".gitignore", "gen_packages.py", "poetry.lock", "setup.py"]
