@@ -6,20 +6,14 @@ build-backend = "poetry.core.masonry.api"
 name = "portablemc"
 version = "1.2.0"
 description = "PortableMC is a module that provides both an API for development of your custom launcher and an executable script to run PortableMC CLI."
-license = "GPL-3.0-only"
 authors = ["Théo Rozier <contact@theorozier.fr>"]
+license = "GPL-3.0-only"
 readme = "README.md"
 homepage = "https://github.com/mindstorm38/portablemc"
 repository = "https://github.com/mindstorm38/portablemc"
 documentation = "https://github.com/mindstorm38/portablemc"
 keywords = ["minecraft", "launcher", "portable", "cli"]
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.6",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)"

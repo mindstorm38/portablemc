@@ -111,6 +111,17 @@ class CliInstallError(BaseError):
 
 def main(args: Optional[List[str]] = None):
 
+    try:
+        import importlib_metadata
+    except ImportError:
+        import importlib.metadata as importlib_metadata
+
+    entry_points = importlib_metadata.entry_points().get("portablemc.addon")
+    if entry_points is not None:
+        for ep in entry_points:
+            addon = ep.load()
+            print(addon)
+
     # load_addons()
 
     parser = register_arguments()
