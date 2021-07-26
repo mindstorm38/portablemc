@@ -303,10 +303,9 @@ def register_addon_arguments(parser: ArgumentParser):
     subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand")
     subparsers.required = True
     subparsers.add_parser("list", help=_("args.addon.list"))
+    subparsers.add_parser("dirs", help=_("args.addon.dirs"))
     show_parser = subparsers.add_parser("show", help=_("args.addon.show"))
     show_parser.add_argument("addon_id")
-    install_parser = subparsers.add_parser("install", help=_("args.addon.install"))
-    install_parser.add_argument("addon_specifier")
 
 
 def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
@@ -337,7 +336,7 @@ def get_command_handlers():
         "addon": {
             "list": cmd_addon_list,
             "show": cmd_addon_show,
-            "install": cmd_addon_install
+            "dirs": cmd_addon_dirs
         }
     }
 
@@ -550,8 +549,11 @@ def cmd_addon_show(ns: Namespace, _ctx: CliContext):
         sys.exit(EXIT_OK)
 
 
-def cmd_addon_install(ns: Namespace, ctx: CliContext):
-    pass
+def cmd_addon_dirs(_ns: Namespace, _ctx: CliContext):
+    print_message("addon.dirs.title")
+    for addons_dir in addons_dirs:
+        msg_args = {"path": path.abspath(addons_dir)}
+        print_message("addon.dirs.entry" if path.isdir(addons_dir) else "addon.dirs.entry.not_existing", msg_args)
 
 
 # Constructors to override
@@ -952,6 +954,7 @@ messages = {
     # Args addon
     "args.addon": "Addons management subcommands.",
     "args.addon.list": "List addons.",
+    "args.addon.dirs": "Display the list of directories where you can place addons.",
     "args.addon.show": "Show an addon details.",
     # Common
     "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
@@ -984,11 +987,10 @@ messages = {
     "addon.show.authors": "Authors: {authors}",
     "addon.show.description": "Description: {description}",
     "addon.show.requires": "Requires:",
-    # Command addon install
-    "addon.install.fetching.github": "Fetching addon on github...",
-    "addon.install.not_found": "Cannot find where to find the addon.",
-    "addon.install.invalid_dir": "Invalid given path to the addon, it does not contains a valid '__init__.py' and 'addon.json'.",
-    "addon.install.invalid_meta": "Invalid given path to the addon, failed to decode 'addon.json'.",
+    # Command addon dirs
+    "addon.dirs.title": "You can place your addons in the following directories:",
+    "addon.dirs.entry": "  {path}",
+    "addon.dirs.entry.not_existing": "  {path} (not existing)",
     # Command start
     "start.version.resolving": "Resolving version {version}... ",
     "start.version.resolved": "Resolved version {version}.",

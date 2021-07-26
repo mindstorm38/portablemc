@@ -16,7 +16,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Main module for PortableMC, it provides a flexible API to download and start Minecraft.
+Core module of PortableMC, it provides a flexible API to download and start Minecraft.
 """
 
 from typing import Generator, Callable, Optional, Tuple, Dict, Type, List
@@ -36,26 +36,27 @@ import os
 import re
 
 
+__all__ = [
+    "LAUNCHER_NAME", "LAUNCHER_VERSION", "LAUNCHER_AUTHORS", "LAUNCHER_COPYRIGHT", "LAUNCHER_URL",
+    "Context", "Version", "StartOptions", "Start", "VersionManifest",
+    "AuthSession", "YggdrasilAuthSession", "MicrosoftAuthSession", "AuthDatabase",
+    "DownloadEntry", "DownloadList", "DownloadProgress", "DownloadEntryProgress",
+    "BaseError", "JsonRequestError", "AuthError", "VersionError", "JvmLoadingError", "DownloadError",
+    "json_request", "json_simple_request",
+    "merge_dict",
+    "interpret_rule_os", "interpret_rule", "interpret_args",
+    "replace_vars", "replace_list_vars",
+    "get_minecraft_dir", "get_minecraft_os", "get_minecraft_arch", "get_minecraft_archbits", "get_minecraft_jvm_os",
+    "can_extract_native",
+    "LEGACY_JVM_ARGUMENTS"
+]
+
+
 LAUNCHER_NAME = "portablemc"
 LAUNCHER_VERSION = "1.2.0"
 LAUNCHER_AUTHORS = ["Théo Rozier <contact@theorozier.fr>", "Github contributors"]
 LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021  Théo Rozier"
 LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
-
-VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
-ASSET_BASE_URL = "https://resources.download.minecraft.net/{}/{}"
-AUTHSERVER_URL = "https://authserver.mojang.com/{}"
-JVM_META_URL = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
-
-MS_OAUTH_CODE_URL = "https://login.live.com/oauth20_authorize.srf"
-MS_OAUTH_LOGOUT_URL = "https://login.live.com/oauth20_logout.srf"
-MS_OAUTH_TOKEN_URL = "https://login.live.com/oauth20_token.srf"
-MS_XBL_AUTH_DOMAIN = "user.auth.xboxlive.com"
-MS_XBL_AUTH_URL = "https://user.auth.xboxlive.com/user/authenticate"
-MS_XSTS_AUTH_URL = "https://xsts.auth.xboxlive.com/xsts/authorize"
-MS_GRAPH_UPN_REQUEST_URL = "https://graph.microsoft.com/v1.0/me?$select=userPrincipalName"
-MC_AUTH_URL = "https://api.minecraftservices.com/authentication/login_with_xbox"
-MC_PROFILE_URL = "https://api.minecraftservices.com/minecraft/profile"
 
 
 class Context:
@@ -76,7 +77,7 @@ class Context:
         `work_dir` is set by default to the value of `main_dir`.
         """
 
-        main_dir = Util.get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
+        main_dir = get_minecraft_dir() if main_dir is None else path.realpath(main_dir)
         self.work_dir = main_dir if work_dir is None else path.realpath(work_dir)
         self.versions_dir = path.join(main_dir, "versions")
         self.assets_dir = path.join(main_dir, "assets")
@@ -163,7 +164,7 @@ class Version:
             recursion_limit -= 1
             parent_meta, _ = self._prepare_meta_internal(version_meta["inheritsFrom"])
             del version_meta["inheritsFrom"]
-            Util.merge_dict(version_meta, parent_meta)
+            merge_dict(version_meta, parent_meta)
 
         self.version_meta, self.version_dir = version_meta, version_dir
 
@@ -178,7 +179,7 @@ class Version:
         except (OSError, JSONDecodeError):
             version_super_meta = self.manifest.get_version(version_id)
             if version_super_meta is not None:
-                content = Util.json_simple_request(version_super_meta["url"])
+                content = json_simple_request(version_super_meta["url"])
                 os.makedirs(version_dir, exist_ok=True)
                 with open(version_meta_file, "wt") as version_meta_fp:
                     json.dump(content, version_meta_fp, indent=2)
@@ -234,7 +235,7 @@ class Version:
         except (OSError, JSONDecodeError):
             asset_index_info = self.version_meta["assetIndex"]
             asset_index_url = asset_index_info["url"]
-            assets_index = Util.json_simple_request(asset_index_url)
+            assets_index = json_simple_request(asset_index_url)
             os.makedirs(assets_indexes_dir, exist_ok=True)
             with open(assets_index_file, "wt") as assets_index_fp:
                 json.dump(assets_index, assets_index_fp)
@@ -250,7 +251,7 @@ class Version:
             asset_size = asset_obj["size"]
             asset_file = path.join(assets_objects_dir, asset_hash_prefix, asset_hash)
             if not path.isfile(asset_file) or path.getsize(asset_file) != asset_size:
-                asset_url = ASSET_BASE_URL.format(asset_hash_prefix, asset_hash)
+                asset_url = f"https://resources.download.minecraft.net/{asset_hash_prefix}/{asset_hash}"
                 self.dl.append(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id))
 
         def finalize():
@@ -312,7 +313,7 @@ class Version:
         for lib_obj in self.version_meta["libraries"]:
 
             if "rules" in lib_obj:
-                if not Util.interpret_rule(lib_obj["rules"]):
+                if not interpret_rule(lib_obj["rules"]):
                     continue
 
             lib_name: str = lib_obj["name"]
@@ -320,11 +321,11 @@ class Version:
             lib_natives: Optional[dict] = lib_obj.get("natives")
 
             if lib_natives is not None:
-                lib_classifier = lib_natives.get(Util.get_minecraft_os())
+                lib_classifier = lib_natives.get(get_minecraft_os())
                 if lib_classifier is None:
                     continue  # If natives are defined, but the OS is not supported, skip.
                 lib_dl_name += f":{lib_classifier}"
-                archbits = Util.get_minecraft_archbits()
+                archbits = get_minecraft_archbits()
                 if len(archbits):
                     lib_classifier = lib_classifier.replace("${arch}", archbits)
                 lib_libs = self.native_libs
@@ -382,8 +383,8 @@ class Version:
         self._check_version_meta()
         jvm_version_type = self.version_meta.get("javaVersion", {}).get("component", "jre-legacy")
 
-        all_jvm_meta = Util.json_simple_request(JVM_META_URL)
-        jvm_arch_meta = all_jvm_meta.get(Util.get_minecraft_jvm_os())
+        all_jvm_meta = json_simple_request("https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json")
+        jvm_arch_meta = all_jvm_meta.get(get_minecraft_jvm_os())
         if jvm_arch_meta is None:
             raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_ARCH)
 
@@ -392,7 +393,7 @@ class Version:
             raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_VERSION)
 
         jvm_dir = path.join(self.context.jvm_dir, jvm_version_type)
-        jvm_manifest = Util.json_simple_request(jvm_meta[0]["manifest"]["url"])["files"]
+        jvm_manifest = json_simple_request(jvm_meta[0]["manifest"]["url"])["files"]
         self.jvm_version = jvm_meta[0]["version"]["name"]
         self.jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if sys.platform == "win32" else "java")
 
@@ -570,7 +571,7 @@ class Start:
 
         # JVM arguments
         self.jvm_args.append(jvm_exec)
-        Util.interpret_args(Util.LEGACY_JVM_ARGUMENTS if modern_jvm_args is None else modern_jvm_args, features, self.jvm_args)
+        interpret_args(LEGACY_JVM_ARGUMENTS if modern_jvm_args is None else modern_jvm_args, features, self.jvm_args)
 
         # JVM argument for logging config
         if self.version.logging_argument is not None and self.version.logging_file is not None:
@@ -584,7 +585,7 @@ class Start:
         if modern_game_args is None:
             self.game_args.extend(self.version.version_meta.get("minecraftArguments", "").split(" "))
         else:
-            Util.interpret_args(modern_game_args, features, self.game_args)
+            interpret_args(modern_game_args, features, self.game_args)
 
         if opts.disable_multiplayer:
             self.game_args.append("--disableMultiplayer")
@@ -625,15 +626,15 @@ class Start:
         for native_lib in self.version.native_libs:
             with ZipFile(native_lib, "r") as native_zip:
                 for native_zip_info in native_zip.infolist():
-                    if Util.can_extract_native(native_zip_info.filename):
+                    if can_extract_native(native_zip_info.filename):
                         native_zip.extract(native_zip_info, bin_dir)
 
         self.args_replacements["natives_directory"] = bin_dir
 
         self.runner([
-            *Util.replace_list_vars(self.jvm_args, self.args_replacements),
+            *replace_list_vars(self.jvm_args, self.args_replacements),
             self.main_class,
-            *Util.replace_list_vars(self.game_args, self.args_replacements)
+            *replace_list_vars(self.game_args, self.args_replacements)
         ], self.version.context.work_dir)
 
         cleanup()
@@ -656,7 +657,7 @@ class VersionManifest:
     @classmethod
     def load_from_url(cls):
         """ Load the version manifest from the official URL. Might raise `JsonRequestError` if failed. """
-        return cls(Util.json_simple_request(VERSION_MANIFEST_URL))
+        return cls(json_simple_request("https://launchermeta.mojang.com/mc/game/version_manifest.json"))
 
     def filter_latest(self, version: str) -> Tuple[str, bool]:
         latest = self._data["latest"].get(version)
@@ -740,10 +741,10 @@ class YggdrasilAuthSession(AuthSession):
 
     @classmethod
     def request(cls, req: str, payload: dict, error: bool = True) -> Tuple[int, dict]:
-        code, res = Util.json_request(AUTHSERVER_URL.format(req), "POST",
-                                      data=json.dumps(payload).encode("ascii"),
-                                      headers={"Content-Type": "application/json"},
-                                      ignore_error=True)
+        code, res = json_request(f"https://authserver.mojang.com/{req}", "POST",
+                                 data=json.dumps(payload).encode("ascii"),
+                                 headers={"Content-Type": "application/json"},
+                                 ignore_error=True)
         if error and code != 200:
             raise AuthError(AuthError.YGGDRASIL, res["errorMessage"])
         return code, res
@@ -763,7 +764,7 @@ class MicrosoftAuthSession(AuthSession):
 
     def validate(self) -> bool:
         self._new_username = None
-        code, res = self.mc_request(MC_PROFILE_URL, self.access_token)
+        code, res = self.mc_request_profile(self.access_token)
         if code == 200:
             username = res["name"]
             if self.username != username:
@@ -791,7 +792,7 @@ class MicrosoftAuthSession(AuthSession):
 
     @staticmethod
     def get_authentication_url(app_client_id: str, redirect_uri: str, email: str, nonce: str):
-        return "{}?{}".format(MS_OAUTH_CODE_URL, url_parse.urlencode({
+        return "https://login.live.com/oauth20_authorize.srf?{}".format(url_parse.urlencode({
             "client_id": app_client_id,
             "redirect_uri": redirect_uri,
             "response_type": "code id_token",
@@ -803,7 +804,7 @@ class MicrosoftAuthSession(AuthSession):
 
     @staticmethod
     def get_logout_url(app_client_id: str, redirect_uri: str):
-        return "{}?{}".format(MS_OAUTH_LOGOUT_URL, url_parse.urlencode({
+        return "https://login.live.com/oauth20_logout.srf?{}".format(url_parse.urlencode({
             "client_id": app_client_id,
             "redirect_uri": redirect_uri
         }))
@@ -828,14 +829,14 @@ class MicrosoftAuthSession(AuthSession):
     def authenticate_base(cls, request_token_payload: dict) -> dict:
 
         # Microsoft OAuth
-        _, res = cls.ms_request(MS_OAUTH_TOKEN_URL, request_token_payload, payload_url_encoded=True)
+        _, res = cls.ms_request("https://login.live.com/oauth20_token.srf", request_token_payload, payload_url_encoded=True)
         ms_refresh_token = res["refresh_token"]
 
         # Xbox Live Token
-        _, res = cls.ms_request(MS_XBL_AUTH_URL, {
+        _, res = cls.ms_request("https://user.auth.xboxlive.com/user/authenticate", {
             "Properties": {
                 "AuthMethod": "RPS",
-                "SiteName": MS_XBL_AUTH_DOMAIN,
+                "SiteName": "user.auth.xboxlive.com",
                 "RpsTicket": "d={}".format(res["access_token"])
             },
             "RelyingParty": "http://auth.xboxlive.com",
@@ -846,7 +847,7 @@ class MicrosoftAuthSession(AuthSession):
         xbl_user_hash = res["DisplayClaims"]["xui"][0]["uhs"]
 
         # Xbox Live XSTS Token
-        _, res = cls.ms_request(MS_XSTS_AUTH_URL, {
+        _, res = cls.ms_request("https://xsts.auth.xboxlive.com/xsts/authorize", {
             "Properties": {
                 "SandboxId": "RETAIL",
                 "UserTokens": [xbl_token]
@@ -860,13 +861,13 @@ class MicrosoftAuthSession(AuthSession):
             raise AuthError(AuthError.MICROSOFT_INCONSISTENT_USER_HASH)
 
         # MC Services Auth
-        _, res = cls.ms_request(MC_AUTH_URL, {
+        _, res = cls.ms_request("https://api.minecraftservices.com/authentication/login_with_xbox", {
             "identityToken": f"XBL3.0 x={xbl_user_hash};{xsts_token}"
         })
         mc_access_token = res["access_token"]
 
         # MC Services Profile
-        code, res = cls.mc_request(MC_PROFILE_URL, mc_access_token)
+        code, res = cls.mc_request_profile(mc_access_token)
 
         if code == 404:
             raise AuthError(AuthError.MICROSOFT_DOES_NOT_OWN_MINECRAFT)
@@ -886,11 +887,12 @@ class MicrosoftAuthSession(AuthSession):
     def ms_request(cls, url: str, payload: dict, *, payload_url_encoded: bool = False) -> Tuple[int, dict]:
         data = (url_parse.urlencode(payload) if payload_url_encoded else json.dumps(payload)).encode("ascii")
         content_type = "application/x-www-form-urlencoded" if payload_url_encoded else "application/json"
-        return Util.json_request(url, "POST", data=data, headers={"Content-Type": content_type})
+        return json_request(url, "POST", data=data, headers={"Content-Type": content_type})
 
     @classmethod
-    def mc_request(cls, url: str, bearer: str) -> Tuple[int, dict]:
-        return Util.json_request(url, "GET", headers={"Authorization": f"Bearer {bearer}"})
+    def mc_request_profile(cls, bearer: str) -> Tuple[int, dict]:
+        url = "https://api.minecraftservices.com/minecraft/profile"
+        return json_request(url, "GET", headers={"Authorization": f"Bearer {bearer}"})
 
     @classmethod
     def base64url_decode(cls, s: str) -> bytes:
@@ -978,196 +980,6 @@ class AuthDatabase:
             if session is not None:
                 del sessions[email]
                 return session
-
-
-class Util:
-
-    minecraft_os: Optional[str] = None
-    minecraft_arch: Optional[str] = None
-    minecraft_archbits: Optional[str] = None
-    minecraft_jvm_os: Optional[str] = None
-
-    @staticmethod
-    def json_request(url: str, method: str, *,
-                     data: Optional[bytes] = None,
-                     headers: Optional[dict] = None,
-                     ignore_error: bool = False,
-                     timeout: Optional[int] = None) -> Tuple[int, dict]:
-
-        """
-        Make a request for a JSON API at specified URL. Might raise `JsonRequestError` if failed.\n
-        The parameter `ignore_error` can be used to ignore JSONDecodeError handling and just return a dict with a
-        single key 'raw' and the raw data on failure, instead of raising an `JsonRequestError` with
-        `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
-        """
-
-        url_parsed = url_parse.urlparse(url)
-        conn_type = {"http": HTTPConnection, "https": HTTPSConnection}.get(url_parsed.scheme)
-        if conn_type is None:
-            raise JsonRequestError(JsonRequestError.INVALID_URL_SCHEME, url_parsed.scheme)
-        conn = conn_type(url_parsed.netloc, timeout=timeout)
-        if headers is None:
-            headers = {}
-        if "Accept" not in headers:
-            headers["Accept"] = "application/json"
-        headers["Connection"] = "close"
-
-        try:
-            conn.request(method, url, data, headers)
-            res = conn.getresponse()
-            data = res.read()
-            try:
-                return res.status, json.loads(data)
-            except JSONDecodeError:
-                if ignore_error:
-                    return res.status, {"raw": data}
-                else:
-                    raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, str(res.status))
-        except OSError as os_err:
-            raise JsonRequestError(JsonRequestError.SOCKET_ERROR, str(os_err))
-        finally:
-            conn.close()
-
-    @classmethod
-    def json_simple_request(cls, url: str, *, ignore_error: bool = False, timeout: Optional[int] = None) -> dict:
-        """ Make a GET request for a JSON API at specified URL. Might raise `JsonRequestError` if failed. """
-        return cls.json_request(url, "GET", ignore_error=ignore_error, timeout=timeout)[1]
-
-    @classmethod
-    def merge_dict(cls, dst: dict, other: dict):
-        """ Merge the 'other' dict into the 'dst' dict. For every key/value in 'other', if the key is present in 'dst'
-        it does nothing. Unless values in both dict are also dict, in this case the merge is recursive. If the
-        value in both dict are list, the 'dst' list is extended (.extend()) with the one of 'other'. """
-        for k, v in other.items():
-            if k in dst:
-                if isinstance(dst[k], dict) and isinstance(other[k], dict):
-                    cls.merge_dict(dst[k], other[k])
-                elif isinstance(dst[k], list) and isinstance(other[k], list):
-                    dst[k].extend(other[k])
-            else:
-                dst[k] = other[k]
-
-    @classmethod
-    def interpret_rule_os(cls, rule_os: dict) -> bool:
-        os_name = rule_os.get("name")
-        if os_name is None or os_name == cls.get_minecraft_os():
-            os_arch = rule_os.get("arch")
-            if os_arch is None or os_arch == cls.get_minecraft_arch():
-                os_version = rule_os.get("version")
-                if os_version is None or re.search(os_version, platform.version()) is not None:
-                    return True
-        return False
-
-    @classmethod
-    def interpret_rule(cls, rules: List[dict], features: Optional[dict] = None) -> bool:
-        allowed = False
-        for rule in rules:
-            rule_os = rule.get("os")
-            if rule_os is not None and not cls.interpret_rule_os(rule_os):
-                continue
-            rule_features: Optional[dict] = rule.get("features")
-            if rule_features is not None:
-                feat_valid = True
-                for feat_name, feat_expected in rule_features.items():
-                    if features.get(feat_name) != feat_expected:
-                        feat_valid = False
-                        break
-                if not feat_valid:
-                    continue
-            allowed = (rule["action"] == "allow")
-        return allowed
-
-    @classmethod
-    def interpret_args(cls, args: list, features: dict, dst: List[str]):
-        for arg in args:
-            if isinstance(arg, str):
-                dst.append(arg)
-            else:
-                rules = arg.get("rules")
-                if rules is not None:
-                    if not cls.interpret_rule(rules, features):
-                        continue
-                arg_value = arg["value"]
-                if isinstance(arg_value, list):
-                    dst.extend(arg_value)
-                elif isinstance(arg_value, str):
-                    dst.append(arg_value)
-
-    @classmethod
-    def replace_vars(cls, txt: str, replacements: Dict[str, str]) -> str:
-        return txt.replace("${", "{").format_map(replacements)
-
-    @classmethod
-    def replace_list_vars(cls, lst: List[str], replacements: Dict[str, str]) -> Generator[str, None, None]:
-        return (cls.replace_vars(elt, replacements) for elt in lst)
-
-    @classmethod
-    def update_dict_keep(cls, orig: dict, other: dict):
-        for k, v in other.items():
-            orig.setdefault(k, v)
-
-    @staticmethod
-    def get_minecraft_dir() -> str:
-        home = path.expanduser("~")
-        return {
-            "Linux": path.join(home, ".minecraft"),
-            "Windows": path.join(home, "AppData", "Roaming", ".minecraft"),
-            "Darwin": path.join(home, "Library", "Application Support", "minecraft")
-        }.get(platform.system())
-
-    @classmethod
-    def get_minecraft_os(cls) -> str:
-        if cls.minecraft_os is None:
-            cls.minecraft_os = {"Linux": "linux", "Windows": "windows", "Darwin": "osx"}.get(platform.system(), "")
-        return cls.minecraft_os
-
-    @classmethod
-    def get_minecraft_arch(cls) -> str:
-        if cls.minecraft_arch is None:
-            machine = platform.machine().lower()
-            cls.minecraft_arch = "x86" if machine in ("i386", "i686") else "x86_64" if machine in ("x86_64", "amd64", "ia64") else ""
-        return cls.minecraft_arch
-
-    @classmethod
-    def get_minecraft_archbits(cls) -> str:
-        if cls.minecraft_archbits is None:
-            raw_bits = platform.architecture()[0]
-            cls.minecraft_archbits = "64" if raw_bits == "64bit" else "32" if raw_bits == "32bit" else ""
-        return cls.minecraft_archbits
-
-    @classmethod
-    def get_minecraft_jvm_os(cls) -> str:
-        if cls.minecraft_jvm_os is None:
-            cls.minecraft_jvm_os = {
-                "osx": {"x86": "mac-os"},
-                "linux": {"x86": "linux-i386", "x86_64": "linux"},
-                "windows": {"x86": "windows-x86", "x86_64": "windows-x64"}
-            }.get(cls.get_minecraft_os(), {}).get(cls.get_minecraft_arch())
-        return cls.minecraft_jvm_os
-
-    @staticmethod
-    def can_extract_native(filename: str) -> bool:
-        return not filename.startswith("META-INF") and not filename.endswith(".git") and not filename.endswith(".sha1")
-
-    LEGACY_JVM_ARGUMENTS = [
-        {
-            "rules": [{"action": "allow", "os": {"name": "osx"}}],
-            "value": ["-XstartOnFirstThread"]
-        },
-        {
-            "rules": [{"action": "allow", "os": {"name": "windows"}}],
-            "value": "-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump"
-        },
-        {
-            "rules": [{"action": "allow", "os": {"name": "windows", "version": "^10\\."}}],
-            "value": ["-Dos.name=Windows 10", "-Dos.version=10.0"]
-        },
-        "-Djava.library.path=${natives_directory}",
-        "-Dminecraft.launcher.brand=${launcher_name}",
-        "-Dminecraft.launcher.version=${launcher_version}",
-        "-cp",
-        "${classpath}"
-    ]
 
 
 class DownloadEntry:
@@ -1323,7 +1135,7 @@ class DownloadProgress:
 
     def __init__(self, total: int):
         self.entries: List[DownloadEntryProgress] = []
-        self.size: int = 0
+        self.size: int = 0  # Size can be greater that total, this happen if any DownloadEntry has an unknown size.
         self.total = total
 
 
@@ -1358,7 +1170,6 @@ class AuthError(BaseError):
         self.details = details
 
 
-
 class VersionError(BaseError):
 
     NOT_FOUND = "not_found"
@@ -1384,3 +1195,198 @@ class DownloadError(Exception):
     def __init__(self, fails: Dict[str, str]):
         super().__init__()
         self.fails = fails
+
+
+def json_request(url: str, method: str, *,
+                 data: Optional[bytes] = None,
+                 headers: Optional[dict] = None,
+                 ignore_error: bool = False,
+                 timeout: Optional[int] = None) -> Tuple[int, dict]:
+
+    """
+    Make a request for a JSON API at specified URL. Might raise `JsonRequestError` if failed.\n
+    The parameter `ignore_error` can be used to ignore JSONDecodeError handling and just return a dict with a
+    single key 'raw' and the raw data on failure, instead of raising an `JsonRequestError` with
+    `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
+    """
+
+    url_parsed = url_parse.urlparse(url)
+    conn_type = {"http": HTTPConnection, "https": HTTPSConnection}.get(url_parsed.scheme)
+    if conn_type is None:
+        raise JsonRequestError(JsonRequestError.INVALID_URL_SCHEME, url_parsed.scheme)
+    conn = conn_type(url_parsed.netloc, timeout=timeout)
+    if headers is None:
+        headers = {}
+    if "Accept" not in headers:
+        headers["Accept"] = "application/json"
+    headers["Connection"] = "close"
+
+    try:
+        conn.request(method, url, data, headers)
+        res = conn.getresponse()
+        data = res.read()
+        try:
+            return res.status, json.loads(data)
+        except JSONDecodeError:
+            if ignore_error:
+                return res.status, {"raw": data}
+            else:
+                raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, str(res.status))
+    except OSError as os_err:
+        raise JsonRequestError(JsonRequestError.SOCKET_ERROR, str(os_err))
+    finally:
+        conn.close()
+
+
+def json_simple_request(url: str, *, ignore_error: bool = False, timeout: Optional[int] = None) -> dict:
+    """ Make a GET request for a JSON API at specified URL. Might raise `JsonRequestError` if failed. """
+    return json_request(url, "GET", ignore_error=ignore_error, timeout=timeout)[1]
+
+
+def merge_dict(dst: dict, other: dict):
+
+    """
+    Merge the 'other' dict into the 'dst' dict. For every key/value in 'other', if the key is present in 'dst'
+    it does nothing. Unless values in both dict are also dict, in this case the merge is recursive. If the
+    value in both dict are list, the 'dst' list is extended (.extend()) with the one of 'other'.
+    """
+
+    for k, v in other.items():
+        if k in dst:
+            if isinstance(dst[k], dict) and isinstance(other[k], dict):
+                merge_dict(dst[k], other[k])
+            elif isinstance(dst[k], list) and isinstance(other[k], list):
+                dst[k].extend(other[k])
+        else:
+            dst[k] = other[k]
+
+
+def interpret_rule_os(rule_os: dict) -> bool:
+    os_name = rule_os.get("name")
+    if os_name is None or os_name == get_minecraft_os():
+        os_arch = rule_os.get("arch")
+        if os_arch is None or os_arch == get_minecraft_arch():
+            os_version = rule_os.get("version")
+            if os_version is None or re.search(os_version, platform.version()) is not None:
+                return True
+    return False
+
+
+def interpret_rule(rules: List[dict], features: Optional[dict] = None) -> bool:
+    allowed = False
+    for rule in rules:
+        rule_os = rule.get("os")
+        if rule_os is not None and not interpret_rule_os(rule_os):
+            continue
+        rule_features: Optional[dict] = rule.get("features")
+        if rule_features is not None:
+            feat_valid = True
+            for feat_name, feat_expected in rule_features.items():
+                if features.get(feat_name) != feat_expected:
+                    feat_valid = False
+                    break
+            if not feat_valid:
+                continue
+        allowed = (rule["action"] == "allow")
+    return allowed
+
+
+def interpret_args(args: list, features: dict, dst: List[str]):
+    for arg in args:
+        if isinstance(arg, str):
+            dst.append(arg)
+        else:
+            rules = arg.get("rules")
+            if rules is not None:
+                if not interpret_rule(rules, features):
+                    continue
+            arg_value = arg["value"]
+            if isinstance(arg_value, list):
+                dst.extend(arg_value)
+            elif isinstance(arg_value, str):
+                dst.append(arg_value)
+
+
+def replace_vars(txt: str, replacements: Dict[str, str]) -> str:
+    return txt.replace("${", "{").format_map(replacements)
+
+
+def replace_list_vars(lst: List[str], replacements: Dict[str, str]) -> Generator[str, None, None]:
+    return (replace_vars(elt, replacements) for elt in lst)
+
+
+def get_minecraft_dir() -> str:
+    home = path.expanduser("~")
+    return {
+        "Linux": path.join(home, ".minecraft"),
+        "Windows": path.join(home, "AppData", "Roaming", ".minecraft"),
+        "Darwin": path.join(home, "Library", "Application Support", "minecraft")
+    }.get(platform.system())
+
+
+_minecraft_os: Optional[str] = None
+def get_minecraft_os() -> str:
+    """ Return the current OS identifier used in rules matching, 'linux', 'windows', 'osx' and '' if not found. """
+    global _minecraft_os
+    if _minecraft_os is None:
+        _minecraft_os = {"Linux": "linux", "Windows": "windows", "Darwin": "osx"}.get(platform.system(), "")
+    return _minecraft_os
+
+
+_minecraft_arch: Optional[str] = None
+def get_minecraft_arch() -> str:
+    """ Return the architecture to use in rules matching, 'x86', 'x86_64' or '' if not found. """
+    global _minecraft_arch
+    if _minecraft_arch is None:
+        machine = platform.machine().lower()
+        _minecraft_arch = "x86" if machine in ("i386", "i686") else "x86_64" if machine in ("x86_64", "amd64", "ia64") else ""
+    return _minecraft_arch
+
+
+_minecraft_archbits: Optional[str] = None
+def get_minecraft_archbits() -> str:
+    """ Return the address size of the architecture used for rules matching, '64', '32', or '' if not found. """
+    global _minecraft_archbits
+    if _minecraft_archbits is None:
+        raw_bits = platform.architecture()[0]
+        _minecraft_archbits = "64" if raw_bits == "64bit" else "32" if raw_bits == "32bit" else ""
+    return _minecraft_archbits
+
+
+_minecraft_jvm_os: Optional[str] = None
+def get_minecraft_jvm_os() -> str:
+    """ Return the OS identifier used to choose the right JVM to download. """
+    global _minecraft_jvm_os
+    if _minecraft_jvm_os is None:
+        _minecraft_jvm_os = {
+            "osx": {"x86": "mac-os"},
+            "linux": {"x86": "linux-i386", "x86_64": "linux"},
+            "windows": {"x86": "windows-x86", "x86_64": "windows-x64"}
+        }.get(get_minecraft_os(), {}).get(get_minecraft_arch())
+    return _minecraft_jvm_os
+
+
+def can_extract_native(filename: str) -> bool:
+    """ Return True if a file should be extracted to binaries directory. """
+    return not filename.startswith("META-INF") and not filename.endswith(".git") and not filename.endswith(".sha1")
+
+
+LEGACY_JVM_ARGUMENTS = [
+    {
+        "rules": [{"action": "allow", "os": {"name": "osx"}}],
+        "value": ["-XstartOnFirstThread"]
+    },
+    {
+        "rules": [{"action": "allow", "os": {"name": "windows"}}],
+        "value": "-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump"
+    },
+    {
+        "rules": [{"action": "allow", "os": {"name": "windows", "version": "^10\\."}}],
+        "value": ["-Dos.name=Windows 10", "-Dos.version=10.0"]
+    },
+    "-Djava.library.path=${natives_directory}",
+    "-Dminecraft.launcher.brand=${launcher_name}",
+    "-Dminecraft.launcher.version=${launcher_version}",
+    "-cp",
+    "${classpath}"
+]

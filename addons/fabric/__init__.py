@@ -16,7 +16,6 @@ def load(pmc):
 
     Version = pmc.Version
     VersionManifest = pmc.VersionManifest
-    Util = pmc.Util
     BaseError = pmc.BaseError
     CliContext = pmc.CliContext
 
@@ -128,7 +127,7 @@ def load(pmc):
     # FabricMC API
 
     def request_meta(method: str) -> dict:
-        return Util.json_simple_request(FABRIC_META_URL.format(method), ignore_error=True)
+        return pmc.json_simple_request(FABRIC_META_URL.format(method), ignore_error=True)
 
     def request_version_loader(game_version: str, loader_version: Optional[str]) -> Optional[dict]:
         if loader_version is None:
