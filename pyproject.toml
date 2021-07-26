@@ -15,8 +15,8 @@ documentation = "https://github.com/mindstorm38/portablemc"
 keywords = ["minecraft", "launcher", "portable", "cli"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
-    "Environment :: Console",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)"
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Environment :: Console"
 ]
 packages = [
     { include = "portablemc" }

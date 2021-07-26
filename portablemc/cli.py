@@ -40,11 +40,7 @@ import time
 import sys
 import os
 
-from . import Context, Version, Start, StartOptions, VersionManifest, Util, \
-    BaseError, VersionError, JvmLoadingError, JsonRequestError, AuthError, DownloadError, \
-    AuthSession, YggdrasilAuthSession, MicrosoftAuthSession, AuthDatabase, \
-    DownloadList, DownloadProgress, \
-    LAUNCHER_VERSION, LAUNCHER_AUTHORS, LAUNCHER_URL, LAUNCHER_COPYRIGHT
+from . import *
 
 
 EXIT_OK = 0
@@ -111,18 +107,7 @@ class CliInstallError(BaseError):
 
 def main(args: Optional[List[str]] = None):
 
-    try:
-        import importlib_metadata
-    except ImportError:
-        import importlib.metadata as importlib_metadata
-
-    entry_points = importlib_metadata.entry_points().get("portablemc.addon")
-    if entry_points is not None:
-        for ep in entry_points:
-            addon = ep.load()
-            print(addon)
-
-    # load_addons()
+    load_addons()
 
     parser = register_arguments()
     ns = parser.parse_args(args or sys.argv[1:])
@@ -147,24 +132,25 @@ def main(args: Optional[List[str]] = None):
 # Addons
 
 addons: Dict[str, CliAddon] = {}
+addons_dirs: List[str] = []
 addons_loaded: bool = False
 
 def load_addons():
 
-    global addons, addons_loaded
+    global addons, addons_loaded, addons_dirs
 
     if addons_loaded:
         raise ValueError("Addons already loaded.")
 
     addons_loaded = True
-    addons_dirs = [path.join(path.dirname(__file__), "../addons")]
 
     home = path.expanduser("~")
     system = platform.system()
 
+    addons_dirs.append(path.join(path.dirname(__file__), "../addons"))
+
     if system == "Linux":
-        addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")),
-                                     ""))
+        addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), ""))
     elif system == "Windows":
         addons_dirs.append(path.join(home, "AppData", "Local", ""))
     elif system == "Darwin":
@@ -237,7 +223,7 @@ def load_addons():
                         print_message("addon.unknown_error", {"addon": addon_id}, trace=True, critical=True)
                     del sys.modules[module_name]
 
-    self_module = sys.modules["__main__"]
+    self_module = sys.modules[__name__]
     for addon_id, addon in addons.items():
         if hasattr(addon.module, "load") and callable(addon.module.load):
             addon.module.load(self_module)
@@ -642,14 +628,6 @@ def get_term_width() -> int:
     return _term_width
 
 
-def github_request(path_: str, method: str, *, data: Optional[dict] = None, timeout: Optional[int] = None):
-    return Util.json_request(f"https://api.github.com{path_}", method,
-                      data=data,
-                      headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "PortableMC"},
-                      ignore_error=True,
-                      timeout=timeout)
-
-
 # Pretty download
 
 def pretty_download(dl_list: DownloadList):
@@ -671,7 +649,7 @@ def pretty_download(dl_list: DownloadList):
         if last_print_time is None or (now - last_print_time) > 0.1:
             last_print_time = now
             speed = format_bytes(int(progress.size / (now - start_time)))
-            percentage = progress.size / progress.total * 100
+            percentage = min(100.0, progress.size / progress.total * 100.0)
             entries = ", ".join((entry.name for entry in progress.entries))
             path_len = max(0, min(80, get_term_width()) - non_path_len - len(speed))
             print(f"[      ] {dl_text} {entries[:path_len].ljust(path_len)} {percentage:6.2f}% {speed}/s\r", end="")
