@@ -78,16 +78,12 @@ def build_portable():
                 wf.write("\n\nif __name__ == \"__main__\":\n\n")
 
                 with open(path.join(source_dir, "cli.py"), "rt", encoding="utf-8") as rf:
-                    self_import = False
+                    first_import = False
                     for line in rf.readlines():
-
-                        if line.startswith("from . import"):
-                            self_import = True
-                        elif self_import:
-                            if not line.startswith("    "):
-                                self_import = False
-
-                        if not self_import:
+                        if not first_import:
+                            if line.startswith("from"):
+                                first_import = True
+                        elif not line.startswith("from . import *"):
                             wf.write("    ")
                             wf.write(line)
 
