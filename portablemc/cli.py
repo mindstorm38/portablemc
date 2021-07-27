@@ -604,7 +604,7 @@ def format_iso_date(raw: Union[str, float]) -> str:
     if isinstance(raw, float):
         return datetime.fromtimestamp(raw).strftime("%c")
     else:
-        return datetime.strptime(str(raw).rsplit("+", 2)[0], "%Y-%m-%dT%H:%M:%S").strftime("%c")
+        return datetime.fromisoformat(str(raw)).strftime("%c")
 
 
 def format_bytes(n: int) -> str:
