@@ -25,6 +25,7 @@ from argparse import ArgumentParser, Namespace, HelpFormatter
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from importlib.machinery import SourceFileLoader
 from urllib import parse as url_parse
+from urllib.error import URLError
 from json import JSONDecodeError
 from datetime import datetime
 from types import ModuleType
@@ -33,6 +34,7 @@ from os import path
 import webbrowser
 import traceback
 import platform
+import socket
 import shutil
 import uuid
 import json
@@ -349,20 +351,20 @@ def cmd_search(ns: Namespace, ctx: CliContext):
     no_version = (search is None)
 
     if ns.local:
-        for version, mtime in ctx.list_versions():
-            if no_version or search in version:
-                table.append((version, format_iso_date(mtime)))
+        for version_id, mtime in ctx.list_versions():
+            if no_version or search in version_id:
+                table.append((version_id, format_iso_date(mtime)))
     else:
         manifest = load_version_manifest(ctx)
         search, alias = manifest.filter_latest(search)
         for version_data in manifest.all_versions():
-            version = version_data["id"]
-            if no_version or (alias and search == version) or (not alias and search in version):
+            version_id = version_data["id"]
+            if no_version or (alias and search == version_id) or (not alias and search in version_id):
                 table.append((
                     version_data["type"],
-                    version,
+                    version_id,
                     format_iso_date(version_data["releaseTime"]),
-                    _("search.flags.local") if ctx.has_version_metadata(version) else ""
+                    _("search.flags.local") if ctx.has_version_metadata(version_id) else ""
                 ))
 
     if len(table):
@@ -463,6 +465,9 @@ def cmd_start(ns: Namespace, ctx: CliContext):
     except JsonRequestError as err:
         print_task("FAILED", f"json_request.error.{err.code}", {"details": err.details}, done=True)
         sys.exit(EXIT_JSON_REQUEST_ERROR)
+    except (URLError, socket.gaierror, socket.timeout) as err:
+        print_task("FAILED", "error.socket", {"reason": str(err)}, done=True)
+        sys.exit(EXIT_FAILURE)
 
 
 def cmd_login(ns: Namespace, ctx: CliContext):
@@ -778,8 +783,7 @@ def prompt_microsoft_authenticate(email: str) -> Optional[MicrosoftAuthSession]:
             self.wfile.flush()
 
         def do_POST(self):
-            if self.path.startswith(
-                    "/code") and self.headers.get_content_type() == "application/x-www-form-urlencoded":
+            if self.path.startswith("/code") and self.headers.get_content_type() == "application/x-www-form-urlencoded":
                 content_length = int(self.headers.get("Content-Length"))
                 qs = url_parse.parse_qs(self.rfile.read(content_length).decode())
                 auth_server = cast(AuthServer, self.server)
@@ -960,9 +964,9 @@ messages = {
     "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
     "cancelled": "Cancelled.",
     # Json Request
-    f"json_request.error.{JsonRequestError.INVALID_URL_SCHEME}": "Invalid URL scheme: {details}",
     f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid response, not JSON: {details}",
-    f"json_request.error.{JsonRequestError.SOCKET_ERROR}": "Socket error: {details}",
+    # Misc errors
+    f"error.socket": "Socket error: {reason}",
     # Command search
     "search.type": "Type",
     "search.name": "Identifier",
@@ -970,6 +974,7 @@ messages = {
     "search.last_modified": "Last modified",
     "search.flags": "Flags",
     "search.flags.local": "local",
+    "search.not_found": "No version match the input.",
     # Command logout
     "logout.yggdrasil.pending": "Logging out {email} from Mojang...",
     "logout.microsoft.pending": "Logging out {email} from Microsoft...",

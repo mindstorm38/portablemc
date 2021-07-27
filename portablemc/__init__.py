@@ -19,9 +19,11 @@
 Core module of PortableMC, it provides a flexible API to download and start Minecraft.
 """
 
-from typing import Generator, Callable, Optional, Tuple, Dict, Type, List
-from http.client import HTTPConnection, HTTPSConnection
-from urllib import parse as url_parse
+from typing import cast, Generator, Callable, Optional, Tuple, Dict, Type, List
+from http.client import HTTPConnection, HTTPSConnection, HTTPResponse
+from urllib import parse as url_parse, request as url_request
+from urllib.request import Request as UrlRequest
+from urllib.error import HTTPError
 from json import JSONDecodeError
 from zipfile import ZipFile
 from uuid import uuid4
@@ -89,6 +91,9 @@ class Context:
         """ Return True if the given version has a metadata file. """
         return path.isfile(path.join(self.versions_dir, version, f"{version}.json"))
 
+    def get_version_dir(self, version_id: str) -> str:
+        return path.join(self.versions_dir, version_id)
+
     def list_versions(self) -> Generator[Tuple[str, int], None, None]:
         """ A generator method that yields all versions (version, mtime) that have a version metadata file. """
         if path.isdir(self.versions_dir):
@@ -134,10 +139,6 @@ class Version:
         self.jvm_version: Optional[str] = None
         self.jvm_exec: Optional[str] = None
 
-    @staticmethod
-    def get_version_dir(ctx: Context, version_id: str) -> str:
-        return path.join(ctx.versions_dir, version_id)
-
     def prepare_meta(self, *, recursion_limit: int = 50):
 
         """
@@ -154,9 +155,6 @@ class Version:
         This method can raise `JsonRequestError` for any error for requests to JSON file.
         """
 
-        if self.manifest is None:
-            self.manifest = VersionManifest.load_from_url()
-
         version_meta, version_dir = self._prepare_meta_internal(self.id)
         while "inheritsFrom" in version_meta:
             if recursion_limit <= 0:
@@ -170,14 +168,14 @@ class Version:
 
     def _prepare_meta_internal(self, version_id: str) -> Tuple[dict, str]:
 
-        version_dir = self.get_version_dir(self.context, version_id)
+        version_dir = self.context.get_version_dir(version_id)
         version_meta_file = path.join(version_dir, f"{version_id}.json")
 
         try:
             with open(version_meta_file, "rt") as version_meta_fp:
                 return json.load(version_meta_fp), version_dir
         except (OSError, JSONDecodeError):
-            version_super_meta = self.manifest.get_version(version_id)
+            version_super_meta = self._ensure_version_manifest().get_version(version_id)
             if version_super_meta is not None:
                 content = json_simple_request(version_super_meta["url"])
                 os.makedirs(version_dir, exist_ok=True)
@@ -186,6 +184,11 @@ class Version:
                 return content, version_dir
             else:
                 raise VersionError(VersionError.NOT_FOUND, version_id)
+
+    def _ensure_version_manifest(self) -> 'VersionManifest':
+        if self.manifest is None:
+            self.manifest = VersionManifest.load_from_url()
+        return self.manifest
 
     def _check_version_meta(self):
         if self.version_meta is None:
@@ -451,6 +454,7 @@ class StartOptions:
         self.server_address: Optional[str] = None
         self.server_port: Optional[int] = None
         self.jvm_exec: Optional[str] = None
+        self.features: Dict[str, bool] = {}  # Additional features
 
     @classmethod
     def with_online(cls, auth_session: 'AuthSession') -> 'StartOptions':
@@ -523,7 +527,8 @@ class Start:
         # Features
         features = {
             "is_demo_user": opts.demo,
-            "has_custom_resolution": opts.resolution is not None
+            "has_custom_resolution": opts.resolution is not None,
+            **opts.features
         }
 
         # Auth
@@ -652,26 +657,26 @@ class Start:
 class VersionManifest:
 
     def __init__(self, data: dict):
-        self._data = data
+        self.data = data
 
     @classmethod
     def load_from_url(cls):
-        """ Load the version manifest from the official URL. Might raise `JsonRequestError` if failed. """
+        """ Load the version manifest from the official URL. Can raise `JsonRequestError` if failed. """
         return cls(json_simple_request("https://launchermeta.mojang.com/mc/game/version_manifest.json"))
 
     def filter_latest(self, version: str) -> Tuple[str, bool]:
-        latest = self._data["latest"].get(version)
+        latest = self.data["latest"].get(version)
         return (version, False) if latest is None else (latest, True)
 
     def get_version(self, version: str) -> Optional[dict]:
         version, _alias = self.filter_latest(version)
-        for version_data in self._data["versions"]:
+        for version_data in self.data["versions"]:
             if version_data["id"] == version:
                 return version_data
         return None
 
     def all_versions(self) -> list:
-        return self._data["versions"]
+        return self.data["versions"]
 
 
 class AuthSession:
@@ -1148,9 +1153,7 @@ class BaseError(Exception):
 
 class JsonRequestError(BaseError):
 
-    INVALID_URL_SCHEME = "invalid_url_scheme"
     INVALID_RESPONSE_NOT_JSON = "invalid_response_not_json"
-    SOCKET_ERROR = "socket_error"
 
     def __init__(self, code: str, details: str):
         super().__init__(code)
@@ -1201,7 +1204,7 @@ def json_request(url: str, method: str, *,
                  data: Optional[bytes] = None,
                  headers: Optional[dict] = None,
                  ignore_error: bool = False,
-                 timeout: Optional[int] = None) -> Tuple[int, dict]:
+                 timeout: Optional[float] = None) -> Tuple[int, dict]:
 
     """
     Make a request for a JSON API at specified URL. Might raise `JsonRequestError` if failed.\n
@@ -1210,32 +1213,25 @@ def json_request(url: str, method: str, *,
     `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
     """
 
-    url_parsed = url_parse.urlparse(url)
-    conn_type = {"http": HTTPConnection, "https": HTTPSConnection}.get(url_parsed.scheme)
-    if conn_type is None:
-        raise JsonRequestError(JsonRequestError.INVALID_URL_SCHEME, url_parsed.scheme)
-    conn = conn_type(url_parsed.netloc, timeout=timeout)
     if headers is None:
         headers = {}
     if "Accept" not in headers:
         headers["Accept"] = "application/json"
-    headers["Connection"] = "close"
 
     try:
-        conn.request(method, url, data, headers)
-        res = conn.getresponse()
+        req = UrlRequest(url, data, headers, method=method)
+        res: HTTPResponse = url_request.urlopen(req, timeout=timeout)
+    except HTTPError as err:
+        res = cast(HTTPResponse, err)
+
+    try:
         data = res.read()
-        try:
-            return res.status, json.loads(data)
-        except JSONDecodeError:
-            if ignore_error:
-                return res.status, {"raw": data}
-            else:
-                raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, str(res.status))
-    except OSError as os_err:
-        raise JsonRequestError(JsonRequestError.SOCKET_ERROR, str(os_err))
-    finally:
-        conn.close()
+        return res.status, json.loads(data)
+    except JSONDecodeError:
+        if ignore_error:
+            return res.status, {"raw": data}
+        else:
+            raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, str(res.status))
 
 
 def json_simple_request(url: str, *, ignore_error: bool = False, timeout: Optional[int] = None) -> dict:
