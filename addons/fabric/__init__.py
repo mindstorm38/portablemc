@@ -26,6 +26,17 @@ def load(pmc):
         old(parser)
 
     @pmc.mixin()
+    def cmd_start(old, ns: Namespace, ctx: CliContext):
+        try:
+            return old(ns, ctx)
+        except FabricInvalidFormatError:
+            pmc.print_task("FAILED", "start.fabric.error.invalid_format", done=True)
+            sys.exit(pmc.EXIT_WRONG_USAGE)
+        except FabricVersionNotFound as err:
+            pmc.print_task("FAILED", f"start.fabric.error.{err.code}", {"version": err.version}, done=True)
+            sys.exit(pmc.EXIT_VERSION_NOT_FOUND)
+
+    @pmc.mixin()
     def new_version(old, ctx: CliContext, version_id: str) -> Version:
 
         if version_id.startswith("fabric:"):
@@ -59,7 +70,7 @@ def load(pmc):
                 loader_meta = None
 
             version_id = f"{ctx.ns.fabric_prefix}-{game_version}-{loader_version}"
-            version_dir = Version.get_version_dir(ctx, version_id)
+            version_dir = ctx.get_version_dir(version_id)
             version_meta_file = path.join(version_dir, f"{version_id}.json")
 
             if not path.isdir(version_dir) or not path.isfile(version_meta_file):
@@ -112,17 +123,6 @@ def load(pmc):
             return version
 
         return old(ctx, version_id)
-
-    @pmc.mixin()
-    def cmd_start(old, ns: Namespace, ctx: CliContext):
-        try:
-            return old(ns, ctx)
-        except FabricInvalidFormatError:
-            pmc.print_task("FAILED", "start.fabric.error.invalid_format", done=True)
-            sys.exit(pmc.EXIT_WRONG_USAGE)
-        except FabricVersionNotFound as err:
-            pmc.print_task("FAILED", f"start.fabric.error.{err.code}", {"version": err.version}, done=True)
-            sys.exit(pmc.EXIT_VERSION_NOT_FOUND)
 
     # FabricMC API
 
