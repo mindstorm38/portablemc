@@ -12,6 +12,7 @@ def load(pmc):
 
     Version = pmc.Version
     StartOptions = pmc.StartOptions
+    Start = pmc.Start
     CliContext = pmc.CliContext
 
     archive_items = {
@@ -32,7 +33,8 @@ def load(pmc):
     @pmc.mixin()
     def register_start_arguments(old, parser: ArgumentParser):
         _ = pmc.get_message
-        parser.add_argument("--archives-prefix", help=_("args.start.archives_prefix"), default="archive", metavar="PREFIX")
+        # parser.add_argument("--archives-prefix", help=_("args.start.archives_prefix"), default="archive", metavar="PREFIX")
+        parser.add_argument("--no-old-fix", help=_("args.start.no_old_fix"), action="store_true")
         old(parser)
 
     @pmc.mixin()
@@ -51,17 +53,16 @@ def load(pmc):
             nonlocal table, search, no_version
             files = request_archive_item_files(item_id)
             for file in files:
-                path_split = file["name"].split("/")
-                if len(path_split) == 2:
-                    if path_split[1].endswith(".json"):
-                        version_id = path_split[0]
-                        if no_version or search in version_id:
-                            table.append((
-                                version_type,
-                                version_id,
-                                pmc.format_iso_date(float(file["mtime"])),
-                                _("search.flags.local") if ctx.has_version_metadata(version_id) else ""
-                            ))
+                path_raw = file["name"]
+                version_id = file["name"].split("/")[0]
+                if path_raw == f"{version_id}/{version_id}.json":
+                    if no_version or search in version_id:
+                        table.append((
+                            version_type,
+                            version_id,
+                            pmc.format_iso_date(float(file["mtime"])),
+                            _("search.flags.local") if ctx.has_version_metadata(get_archive_version_id(version_id)) else ""
+                        ))
 
         if item_id_single is not None:
             internal_search(search, item_id_single)
@@ -96,7 +97,7 @@ def load(pmc):
         if version_id.startswith("arc:"):
 
             arc_version_id = version_id[4:]
-            version_id = f"{ctx.ns.archives_prefix}_{arc_version_id}"
+            version_id = get_archive_version_id(arc_version_id)
 
             version_dir = ctx.get_version_dir(version_id)
             version_meta_file = path.join(version_dir, f"{version_id}.json")
@@ -127,8 +128,9 @@ def load(pmc):
                 version_meta_url = get_archive_item_file_url(item_id, f"{arc_version_id}/{arc_version_id}.json")
                 version_jar_url = get_archive_item_file_url(item_id, f"{arc_version_id}/{arc_version_id}.jar")
 
-                version_meta: dict = pmc.json_simple_request(version_meta_url)
-                fix_version_metadata(arc_version_id, version_meta)
+                status, version_meta = pmc.json_request(version_meta_url, "GET", ignore_error=True)
+                if status != 200:
+                    raise ArchivesVersionNotFoundError(arc_version_id)
 
                 os.makedirs(version_dir, exist_ok=True)
                 with open(version_meta_file, "wt") as version_meta_fh:
@@ -145,11 +147,20 @@ def load(pmc):
         return old(ctx, version_id)
 
     @pmc.mixin()
-    def new_start_options(old, ctx: CliContext) -> StartOptions:
-        opts = old(ctx)
-        opts.features["legacy_merge_sort"] = True
-        opts.features["betacraft_proxy"] = True
-        return opts
+    def new_start(old, ctx: CliContext, version: Version) -> Start:
+
+        start = old(ctx, version)
+
+        is_alpha = version.id.startswith("a")
+
+        if is_alpha:
+            @pmc.mixin(into=start)
+            def prepare(old_prepare, opts: StartOptions):
+                old_prepare(opts)
+                start.jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
+                start.jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
+
+        return start
 
     def request_archive_item_files(item_id: str) -> list:
         return pmc.json_simple_request(f"https://archive.org/metadata/{item_id}/files")["result"]
@@ -157,37 +168,8 @@ def load(pmc):
     def get_archive_item_file_url(item_id: str, item_path: str) -> str:
         return f"https://archive.org/download/{item_id}/{item_path}"
 
-    def fix_version_metadata(_version_id: str, version_meta: dict):
-
-        legacy_arguments = version_meta.pop("minecraftArguments")
-        if legacy_arguments is not None:
-            version_meta["arguments"] = {
-                "jvm": pmc.LEGACY_JVM_ARGUMENTS + [
-                    {
-                        "rules": [
-                            {
-                                "action": "allow",
-                                "features": {
-                                    "legacy_merge_sort": True
-                                }
-                            }
-                        ],
-                        "value": "-Djava.util.Arrays.useLegacyMergeSort=true"
-                    },
-                    {
-                        "rules": [
-                            {
-                                "action": "allow",
-                                "features": {
-                                    "betacraft_proxy": True
-                                }
-                            }
-                        ],
-                        "value": "-Dhttp.proxyHost=betacraft.pl"
-                    }
-                ],
-                "game": legacy_arguments.split(" ")
-            }
+    def get_archive_version_id(version_id: str) -> str:
+        return f"archive-{version_id}"
 
     # Errors
 
@@ -200,6 +182,7 @@ def load(pmc):
     pmc.messages.update({
         "args.search.archives": "Search in archives versions (this disable the --local argument).",
         "args.start.archives_prefix": "Change the prefix of the version ID when starting archives versions.",
+        "args.start.no_old_fix": "Put this flag to disable the fixes for old versions (legacy merge sort, betacraft proxy).",
         "start.archives.fetching": "Fetching archives for version '{version}'...",
         "start.archives.fetching_archives_org": "Fetching archive.org for item '{item}'...",
         "start.archives.downloading_jar": "Downloading version JAR from archives...",

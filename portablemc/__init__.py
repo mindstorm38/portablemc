@@ -222,6 +222,7 @@ class Version:
         directory `indexes` placed into the directory `assets_dir` of the context. Once ready, the asset index file
         is analysed and each object is checked, if it does not exist or not have the expected size, it is downloaded
         to the `objects` directory placed into the directory `assets_dir` of the context.\n
+        If the metadata doesn't provide an `assetIndex`, the process is skipped.\n
         This method also set the `assets_count` attribute with the number of assets for this version.\n
         This method can raise `JsonRequestError` if it fails to load the asset index file.
         """
@@ -229,14 +230,20 @@ class Version:
         self._check_version_meta()
 
         assets_indexes_dir = path.join(self.context.assets_dir, "indexes")
-        assets_index_version = self.version_meta["assets"]
+        asset_index_info = self.version_meta.get("assetIndex")
+        if asset_index_info is None:
+            return
+
+        assets_index_version = self.version_meta.get("assets", asset_index_info.get("id", None))
+        if assets_index_version is None:
+            return
+
         assets_index_file = path.join(assets_indexes_dir, f"{assets_index_version}.json")
 
         try:
             with open(assets_index_file, "rb") as assets_index_fp:
                 assets_index = json.load(assets_index_fp)
         except (OSError, JSONDecodeError):
-            asset_index_info = self.version_meta["assetIndex"]
             asset_index_url = asset_index_info["url"]
             assets_index = json_simple_request(asset_index_url)
             os.makedirs(assets_indexes_dir, exist_ok=True)

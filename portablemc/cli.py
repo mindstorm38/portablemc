@@ -445,7 +445,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
 
         start = new_start(ctx, version)
         start.prepare(start_opts)
-        start.jvm_args[-1:-1] = JVM_ARGS_DEFAULT if ns.jvm_args is None else ns.jvm_args.split()
+        start.jvm_args.extend(JVM_ARGS_DEFAULT if ns.jvm_args is None else ns.jvm_args.split())
 
         print_task("OK", "start.starting_info", {
             "username": start.args_replacements.get("auth_player_name", "n/a"),
@@ -593,14 +593,14 @@ def new_start_options(_ctx: CliContext) -> StartOptions:
 
 # CLI utilities
 
-def mixin(name: Optional[str] = None, module: Optional[str] = None):
+def mixin(name: Optional[str] = None, into: Optional[object] = None):
     def mixin_decorator(func):
-        orig_module = sys.modules[module or __name__]
+        orig_obj = into or sys.modules[__name__]
         orig_name = name or func.__name__
-        orig_func = getattr(orig_module, orig_name)
+        orig_func = getattr(orig_obj, orig_name)
         def wrapper(*args, **kwargs):
             return func(orig_func, *args, **kwargs)
-        setattr(orig_module, orig_name, wrapper)
+        setattr(orig_obj, orig_name, wrapper)
         return func
     return mixin_decorator
 
