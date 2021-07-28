@@ -151,13 +151,19 @@ def load(pmc):
 
         start = old(ctx, version)
 
-        is_alpha = version.id.startswith("a")
+        version_id = version.id
+        if version_id.startswith("archive-"):
+            version_id = version_id[8:]
 
-        if is_alpha:
+        is_alpha = version_id.startswith("a")
+        is_beta = version_id.startswith("b")
+
+        if is_alpha or is_beta:
             @pmc.mixin(into=start)
             def prepare(old_prepare, opts: StartOptions):
                 old_prepare(opts)
-                start.jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
+                if is_alpha:
+                    start.jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
                 start.jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
 
         return start
