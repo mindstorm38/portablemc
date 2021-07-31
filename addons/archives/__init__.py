@@ -162,8 +162,7 @@ def load(pmc):
             @pmc.mixin(into=start)
             def prepare(old_prepare, opts: StartOptions):
                 old_prepare(opts)
-                if is_alpha:
-                    start.jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
+                start.jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
                 start.jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
 
         return start
