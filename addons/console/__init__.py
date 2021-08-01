@@ -16,9 +16,13 @@ from argparse import ArgumentParser, Namespace
 from subprocess import Popen, PIPE
 from threading import Thread
 import asyncio
+import shutil
 
 
 def load(pmc):
+
+    Version = pmc.Version
+    Start = pmc.Start
 
     pmc.messages.update({
         "args.start.no_console": "Disable the process' console from the 'console' addon.",
@@ -37,11 +41,12 @@ def load(pmc):
         old(parser)
 
     @pmc.mixin()
-    def new_start(old, ctx: pmc.CliContext, version: pmc.Version) -> pmc.Start:
+    def new_start(old, ctx: pmc.CliContext, version: Version) -> Start:
         start = old(ctx, version)
         old_runner = start.runner
         def runner_wrapper(args: List[str], cwd: str):
-            runner(old_runner, args, cwd, ctx.ns, start)
+            bin_dir = start.args_replacements["natives_directory"]
+            runner(old_runner, bin_dir, args, cwd, ctx.ns, start)
         start.runner = runner_wrapper
         return start
 
@@ -55,7 +60,7 @@ def load(pmc):
             ])
         )
 
-    def runner(old, args: List[str], cwd: str, ns: Namespace, start: pmc.Start) -> None:
+    def runner(old, bin_dir: str, args: List[str], cwd: str, ns: Namespace, start: Start) -> None:
 
         if ns.no_console:
             old(args, cwd)
@@ -117,6 +122,7 @@ def load(pmc):
                     buffer_window.append(*stdout_reader.poll_all(), *stderr_reader.poll_all())
                     break
             process = None
+            shutil.rmtree(bin_dir, ignore_errors=True)
             if double_exit:
                 buffer_window.append("", _("start.console.confirm_close"))
 

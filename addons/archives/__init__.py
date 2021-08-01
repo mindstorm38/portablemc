@@ -155,10 +155,7 @@ def load(pmc):
         if version_id.startswith("archive-"):
             version_id = version_id[8:]
 
-        is_alpha = version_id.startswith("a")
-        is_beta = version_id.startswith("b")
-
-        if is_alpha or is_beta:
+        if version_id[0] in ("a", "b"):
             @pmc.mixin(into=start)
             def prepare(old_prepare, opts: StartOptions):
                 old_prepare(opts)
