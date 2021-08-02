@@ -15,6 +15,7 @@ stateless manner. You can now customize the launcher with addons.
 # Table of contents
 - [Installation](#installation)
   - [Install with PIP](#install-with-pip)
+  - [Single-file script](#single-file-script)
 - [Sub-commands](#sub-commands)
   - [Start the game](#start-the-game)
     - [Authentication](#authentication)
@@ -164,10 +165,8 @@ to list all directories where you can place the addons' folders.
 
 # Addons
 Officially supported addons can be found in the ['addons' directory](https://github.com/mindstorm38/portablemc/tree/master/addons).
-To install addons you need to make a directory `addons` next to the script, and then put addons into it.
-
-To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons). You can also check
-which directories are valid to place addons with the `addon dirs` subcommand.
+To install addons you have to run `addon dirs` to get all directories where you can place addons.
+To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons).
 
 ## Fabric support
 Fabric is now supported through the addon `fabric`, you can [download it here](https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/fabric).
