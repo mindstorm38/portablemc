@@ -152,11 +152,11 @@ def load_addons():
     addons_dirs.append(path.join(path.dirname(__file__), "../addons"))
 
     if system == "Linux":
-        addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), ""))
+        addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), "portablemc", "addons"))
     elif system == "Windows":
-        addons_dirs.append(path.join(home, "AppData", "Local", ""))
+        addons_dirs.append(path.join(home, "AppData", "Local", "portablemc", "addons"))
     elif system == "Darwin":
-        addons_dirs.append(path.join(home, "Library", "Application Support", ""))
+        addons_dirs.append(path.join(home, "Library", "Application Support", "portablemc", "addons"))
 
     for addons_dir in addons_dirs:
 
