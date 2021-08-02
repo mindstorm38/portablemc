@@ -405,7 +405,26 @@ def cmd_start(ns: Namespace, ctx: CliContext):
 
         print_task("", "start.logger.loading")
         version.prepare_logger()
-        print_task("OK", "start.logger.loaded", done=True)
+
+        if ns.no_better_logging or version.logging_file is None:
+            print_task("OK", "start.logger.loaded", done=True)
+        else:
+
+            replacement = "<PatternLayout pattern=\"%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n\"/>"
+            old_logging_file = version.logging_file
+            better_logging_file = path.join(path.dirname(old_logging_file), f"portablemc-{path.basename(old_logging_file)}")
+            version.logging_file = better_logging_file
+
+            def _pretty_logger_finalize():
+                if not path.isfile(better_logging_file):
+                    with open(old_logging_file, "rt") as old_logging_fh:
+                        with open(better_logging_file, "wt") as better_logging_fh:
+                            better_logging_fh.write(old_logging_fh.read()
+                                                    .replace("<XMLLayout />", replacement)
+                                                    .replace("<LegacyXMLLayout />", replacement))
+
+            version.dl.add_callback(_pretty_logger_finalize)
+            print_task("OK", "start.logger.loaded_pretty", done=True)
 
         print_task("", "start.libraries.loading")
         version.prepare_libraries()
