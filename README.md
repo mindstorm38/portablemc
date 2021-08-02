@@ -4,7 +4,7 @@ This single-script launcher is still compatible with the official (Mojang) Minec
 in `.minecraft` and use it. The goals are speed and reliability for all Minecraft versions in a 
 stateless manner. You can now customize the launcher with addons.
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/mindstorm38/portablemc?label=stable&style=flat-square)&nbsp;&nbsp;![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/mindstorm38/portablemc?include_prereleases&label=preview&style=flat-square)&nbsp;&nbsp;![GitHub all releases](https://img.shields.io/github/downloads/mindstorm38/portablemc/total?style=flat-square)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/mindstorm38/portablemc?label=stable&style=flat-square)&nbsp;&nbsp;![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/mindstorm38/portablemc?include_prereleases&label=preview&style=flat-square)&nbsp;&nbsp;![GitHub all releases](https://img.shields.io/github/downloads/mindstorm38/portablemc/total?label=Github%20downloads&style=flat-square)&nbsp;&nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square)
 
 ### [Install now!](#installation) *[Fabric is now supported!](#fabric-support)*
 
