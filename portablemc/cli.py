@@ -149,7 +149,14 @@ def load_addons():
     home = path.expanduser("~")
     system = platform.system()
 
-    addons_dirs.append(path.join(path.dirname(__file__), "../addons"))
+    if __name__ == "__main__":
+        # In single-file mode, we need to support the addons directory directly next to the script.
+        addons_dirs.append(path.join(path.dirname(__file__), "addons"))
+    else:
+        # In development mode, we need to support addons directory in the parent directory.
+        dev_dir = path.dirname(path.dirname(__file__))
+        if path.isfile(path.join(dev_dir, ".gitignore")):
+            addons_dirs.append(path.join(dev_dir, "addons"))
 
     if system == "Linux":
         addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), "portablemc", "addons"))
