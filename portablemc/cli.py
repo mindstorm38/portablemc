@@ -272,6 +272,7 @@ def register_start_arguments(parser: ArgumentParser):
     parser.add_argument("--jvm", help=_("args.start.jvm"))
     parser.add_argument("--jvm-args", help=_("args.start.jvm_args"))
     parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
+    parser.add_argument("--anonymise", help=_("args.start.anonymise"), action="store_true")
     parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
     parser.add_argument("-l", "--login", help=_("args.start.login"))
     parser.add_argument("-m", "--microsoft", help=_("args.start.microsoft"), action="store_true")
@@ -434,7 +435,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
             start_opts.resolution = ns.resol
 
         if ns.login is not None:
-            start_opts.auth_session = prompt_authenticate(ctx, ns.login, not ns.temp_login, ns.microsoft)
+            start_opts.auth_session = prompt_authenticate(ctx, ns.login, not ns.temp_login, ns.microsoft, ns.anonymise)
             if start_opts.auth_session is None:
                 sys.exit(EXIT_AUTH_ERROR)
         else:
@@ -624,6 +625,18 @@ def format_bytes(n: int) -> str:
         return "{:5.1f}GB".format(int(n / 100000000) / 10)
 
 
+def anonymise_email(email: str) -> str:
+    def anonymise_part(email_part: str) -> str:
+        return f"{email_part[0]}{'*' * (len(email_part) - 2)}{email_part[-1]}"
+    parts = []
+    for i, part in enumerate(email.split("@", maxsplit=1)):
+        if i == 0:
+            parts.append(anonymise_part(part))
+        else:
+            parts.append(".".join((anonymise_part(server_part) if j == 0 else server_part for j, server_part in enumerate(part.split(".", maxsplit=1)))))
+    return "@".join(parts)
+
+
 _term_width = 0
 _term_width_update_time = 0
 def get_term_width() -> int:
@@ -688,7 +701,7 @@ def pretty_download(dl_list: DownloadList):
 
 # Authentication
 
-def prompt_authenticate(ctx: CliContext, email: str, cache_in_db: bool, microsoft: bool) -> Optional[AuthSession]:
+def prompt_authenticate(ctx: CliContext, email: str, cache_in_db: bool, microsoft: bool, anonymise: bool = False) -> Optional[AuthSession]:
 
     """
     Prompt the user to login using the given email (or legacy username) for specific service (Microsoft or
@@ -700,7 +713,7 @@ def prompt_authenticate(ctx: CliContext, email: str, cache_in_db: bool, microsof
     auth_db.load()
 
     task_text = "auth.microsoft" if microsoft else "auth.yggdrasil"
-    task_text_args = {"email": email}
+    task_text_args = {"email": anonymise_email(email) if anonymise else email}
     print_task("", task_text, task_text_args)
 
     session = auth_db.get(email, MicrosoftAuthSession if microsoft else YggdrasilAuthSession)
@@ -937,6 +950,7 @@ messages = {
     "args.start.jvm_args": "Change the default JVM arguments.",
     "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
                                     "order to improve the log readability in the console.",
+    "args.start.anonymise": "Anonymise your email or username for authentication messages.",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
                              "not already cached, disabled by default.",
     "args.start.login": "Use a email (or deprecated username) to authenticate using Mojang services (it override --username and --uuid).",
