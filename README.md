@@ -169,7 +169,9 @@ To install addons you have to run `addon dirs` to get all directories where you 
 To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons).
 
 ## Fabric support
-Fabric is now supported through the addon `fabric`, you can [download it here](https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/fabric).
+[**Download**](https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/fabric)
+
+Fabric is now supported through the addon `fabric`.
 
 This add-on allows you to start Minecraft using FabricMC directly with the [start sub-command](#start-the-game), 
 but instead of a standard version like `1.16.5` you must use the following pattern: `fabric:<mc-version>`.
@@ -186,11 +188,18 @@ manage mods was planed but this is not possible for now due to complex APIs and 
 ![fabric animation](https://github.com/mindstorm38/portablemc/blob/master/doc/fabricmc.gif?raw=true)
 
 ## Better console
+[**Download**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/console)
+
 An addon named `console` can be used to display the Minecraft process' console, this is useful to debug the game when
-it crashes multiple times, or simply if you can to track what's going on. It can be [downloaded here](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/console).
+it crashes multiple times, or simply if you can to track what's going on.
+An overview of the console can be seen in the animated image in the fabric section just above, it provides a blue header
+section with summary of the running session and Minecraft version and lines are printed bellow it, you can then navigate
+the output buffer.
 
 ## Archives support
-An addon named `archives` allows you to launch archived Minecraft versions. This addon can be [downloaded here](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/archives).
+[**Download**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/archives)
+
+An addon named `archives` allows you to launch archived Minecraft versions.
 This addon extends the [start sub-command](#start-the-game) and you can use `arc:` prefix, for exemple `start arc:a1.1.1`
 will download, install and run the Alpha 1.1.1 version from the archives. This addon also extends the `search` subcommand
 with an argument `--archives` (`-a`) to search versions in the archives.
