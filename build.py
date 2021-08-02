@@ -62,7 +62,7 @@ def build_portable():
     print("Building single-script version of PortableMC from raw source files...")
 
     version = get_version()
-    archive_file = path.join(dist_dir, f"portablemc-{version}.zip")
+    archive_file = path.join(dist_dir, f"portablemc-single-{version}.zip")
 
     os.makedirs(dist_dir, exist_ok=True)
 
@@ -78,12 +78,8 @@ def build_portable():
                 wf.write("\n\nif __name__ == \"__main__\":\n\n")
 
                 with open(path.join(source_dir, "cli.py"), "rt", encoding="utf-8") as rf:
-                    first_import = False
                     for line in rf.readlines():
-                        if not first_import:
-                            if line.startswith("from"):
-                                first_import = True
-                        elif not line.startswith("from . import *"):
+                        if not line.startswith("from . import *"):
                             wf.write("    ")
                             wf.write(line)
 
