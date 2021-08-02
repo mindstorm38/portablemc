@@ -10,37 +10,47 @@ from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
 
-from typing import cast, Optional, TextIO, Callable
+from typing import cast, Optional, TextIO, Callable, List
 from asyncio import Queue, QueueFull, QueueEmpty
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from subprocess import Popen, PIPE
 from threading import Thread
 import asyncio
+import shutil
 
 
-class RicherAddon:
+def load(pmc):
 
-    def __init__(self, pmc):
-        self.pmc = pmc
-        self.RollingLinesWindow = RollingLinesWindow
+    Version = pmc.Version
+    Start = pmc.Start
 
-    def load(self):
+    pmc.messages.update({
+        "args.start.no_console": "Disable the process' console from the 'console' addon.",
+        "args.start.single_exit": "For richer terminal, when Minecraft process is terminated, do "
+                                  "not ask for Ctrl+C to effectively exit the terminal.",
+        "start.console.title": "Minecraft {version} • {username} • {uuid}",
+        "start.console.command_line": "Command line: {line}",
+        "start.console.confirm_close": "Minecraft process has terminated, Ctrl+C again to close terminal."
+    })
 
-        self.pmc.add_message("args.start.not_rich", "Disable the richer extension when starting the game.")
-        self.pmc.add_message("args.start.single_exit", "For richer terminal, when Minecraft process is terminated, do "
-                                                       "not ask for Ctrl+C to effectively exit the terminal.")
-        self.pmc.add_message("start.run.richer.title", "Minecraft {} • {} • {}")
-        self.pmc.add_message("start.run.richer.command_line", "Command line: {}\n")
-
-        self.pmc.mixin("register_start_arguments", self.register_start_arguments)
-        self.pmc.mixin("game_runner", self.game_runner)
-
-    def register_start_arguments(self, old, parser: ArgumentParser):
-        parser.add_argument("--not-rich", help=self.pmc.get_message("args.start.not_rich"), default=False, action="store_true")
-        parser.add_argument("--single-exit", help=self.pmc.get_message("args.start.single_exit"), default=False, action="store_true")
+    @pmc.mixin()
+    def register_start_arguments(old, parser: ArgumentParser):
+        _ = pmc.get_message
+        parser.add_argument("--no-console", help=_("args.start.no_console"), action="store_true")
+        parser.add_argument("--single-exit", help=_("args.start.single_exit"), action="store_true")
         old(parser)
 
-    def build_application(self, container: Container, keys: KeyBindings) -> Application:
+    @pmc.mixin()
+    def new_start(old, ctx: pmc.CliContext, version: Version) -> Start:
+        start = old(ctx, version)
+        old_runner = start.runner
+        def runner_wrapper(args: List[str], cwd: str):
+            bin_dir = start.args_replacements["natives_directory"]
+            runner(old_runner, bin_dir, args, cwd, ctx.ns, start)
+        start.runner = runner_wrapper
+        return start
+
+    def build_application(container: Container, keys: KeyBindings) -> Application:
         return Application(
             layout=Layout(container),
             key_bindings=keys,
@@ -50,19 +60,18 @@ class RicherAddon:
             ])
         )
 
-    def game_runner(self, old, proc_args: list, proc_cwd: str, options: dict):
+    def runner(old, bin_dir: str, args: List[str], cwd: str, ns: Namespace, start: Start) -> None:
 
-        if options["cmd_args"].not_rich:
-            old(proc_args, proc_cwd, options)
+        if ns.no_console:
+            old(args, cwd)
             return
 
-        title_text = self.pmc.get_message("start.run.richer.title",
-                                          options.get("version", "unknown_version"),
-                                          options.get("username", "anonymous"),
-                                          options.get("uuid", "uuid"))
+        _ = pmc.get_message
+
+        title_text = _("start.console.title", version=start.version.id, username=start.get_username(), uuid=start.get_uuid())
 
         buffer_window = RollingLinesWindow(400, lexer=ColoredLogLexer(), last_line_return=True)
-        buffer_window.append(self.pmc.get_message("start.run.richer.command_line", " ".join(proc_args)), "\n")
+        buffer_window.append(_("start.console.command_line", line=" ".join(args)), "")
 
         container = HSplit([
             VSplit([
@@ -77,7 +86,7 @@ class RicherAddon:
         ])
 
         keys = KeyBindings()
-        double_exit = not options["cmd_args"].single_exit
+        double_exit = not ns.single_exit
 
         @keys.add("c-c")
         def _exit(event: KeyPressEvent):
@@ -87,8 +96,8 @@ class RicherAddon:
             else:
                 process.kill()
 
-        application = self.build_application(container, keys)
-        process = Popen(proc_args, cwd=proc_cwd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True)
+        application = build_application(container, keys)
+        process = Popen(args, cwd=cwd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True)
 
         async def _run_process():
             nonlocal process
@@ -113,8 +122,9 @@ class RicherAddon:
                     buffer_window.append(*stdout_reader.poll_all(), *stderr_reader.poll_all())
                     break
             process = None
+            shutil.rmtree(bin_dir, ignore_errors=True)
             if double_exit:
-                buffer_window.append("", "Minecraft process has terminated, Ctrl+C again to close terminal.")
+                buffer_window.append("", _("start.console.confirm_close"))
 
         async def _run():
             _done, _pending = await asyncio.wait((
@@ -133,7 +143,7 @@ class RicherAddon:
 class RollingLinesWindow:
 
     def __init__(self, limit: int, *,
-                 lexer: 'Optional[Lexer]' = None,
+                 lexer: Optional[Lexer] = None,
                  wrap_lines: bool = False,
                  dont_extend_height: bool = False,
                  last_line_return: bool = False):
@@ -272,3 +282,4 @@ class ColoredLogLexer(Lexer):
                 return []
 
         return get_line
+
