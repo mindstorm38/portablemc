@@ -1053,14 +1053,17 @@ messages = {
     "start.libraries.loaded": "Loaded {count} libraries.",
     "start.jvm.loading": "Loading java... ",
     "start.jvm.loaded": "Loaded Mojang Java {version}.",
-    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, use --jvm argument to set the JVM executable of path to it.",
-    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, use --jvm argument to set the JVM executable of path to it.",
+    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
+                                                           "use --jvm argument to set the JVM executable of path to it.",
+    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, use --jvm argument to set the "
+                                                              "JVM executable of path to it.",
     "start.starting": "Starting the game...",
     "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
     "download.downloading": "Downloading",
     "download.downloaded": "Downloaded {count} files, {size} in {duration:.1f}s.",
     "download.errors": "{count} errors happened, can't continue.",
+    f"download.error.{DownloadError.CONN_ERROR}": "Connection error",
     f"download.error.{DownloadError.NOT_FOUND}": "Not found",
     f"download.error.{DownloadError.INVALID_SIZE}": "Invalid size",
     f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
