@@ -1077,19 +1077,23 @@ class DownloadList:
                     if last_entry:
                         headers["Connection"] = "close"
 
-                    conn.request("GET", entry.url, None, headers)
-                    res = conn.getresponse()
+                    size_target = 0 if entry.size is None else entry.size
                     error = None
 
-                    size_target = 0 if entry.size is None else entry.size
-
                     for _ in range(max_try_count):
+
+                        try:
+                            conn.request("GET", entry.url, None, headers)
+                            res = conn.getresponse()
+                        except ConnectionError:
+                            error = DownloadError.CONN_ERROR
+                            continue
 
                         if res.status != 200:
                             error = DownloadError.NOT_FOUND
                             continue
 
-                        sha1 = hashlib.sha1()
+                        sha1 = None if entry.sha1 is None else hashlib.sha1()
                         size = 0
 
                         os.makedirs(path.dirname(entry.dst), exist_ok=True)
@@ -1101,7 +1105,8 @@ class DownloadList:
                                 buffer_view = buffer[:read_len]
                                 size += read_len
                                 total_size += read_len
-                                sha1.update(buffer_view)
+                                if sha1 is not None:
+                                    sha1.update(buffer_view)
                                 dst_fp.write(buffer_view)
                                 if progress_callback is not None:
                                     progress.size = total_size
@@ -1198,6 +1203,7 @@ class JvmLoadingError(BaseError):
 
 class DownloadError(Exception):
 
+    CONN_ERROR = "conn_error"
     NOT_FOUND = "not_found"
     INVALID_SIZE = "invalid_size"
     INVALID_SHA1 = "invalid_sha1"
