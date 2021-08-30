@@ -800,7 +800,6 @@ class MicrosoftAuthSession(AuthSession):
             self.access_token = res["access_token"]
             self.username = res["username"]
             self.uuid = res["uuid"]
-            self.refresh_token = res["refresh_token"]
 
     @staticmethod
     def get_authentication_url(app_client_id: str, redirect_uri: str, email: str, nonce: str):
@@ -842,7 +841,7 @@ class MicrosoftAuthSession(AuthSession):
 
         # Microsoft OAuth
         _, res = cls.ms_request("https://login.live.com/oauth20_token.srf", request_token_payload, payload_url_encoded=True)
-        ms_refresh_token = res["refresh_token"]
+        ms_refresh_token = res.get("refresh_token")
 
         # Xbox Live Token
         _, res = cls.ms_request("https://user.auth.xboxlive.com/user/authenticate", {
@@ -904,7 +903,7 @@ class MicrosoftAuthSession(AuthSession):
     @classmethod
     def mc_request_profile(cls, bearer: str) -> Tuple[int, dict]:
         url = "https://api.minecraftservices.com/minecraft/profile"
-        return json_request(url, "GET", headers={"Authorization": f"Bearer {bearer}"})
+        return json_request(url, "GET", headers={"Authorization": f"Bearer {bearer}"}, ignore_error=True)
 
     @classmethod
     def base64url_decode(cls, s: str) -> bytes:
@@ -1167,9 +1166,12 @@ class JsonRequestError(BaseError):
 
     INVALID_RESPONSE_NOT_JSON = "invalid_response_not_json"
 
-    def __init__(self, code: str, details: str):
+    def __init__(self, code: str, url: str, method: str, status: int, data: bytes):
         super().__init__(code)
-        self.details = details
+        self.url = url
+        self.method = method
+        self.status = status
+        self.data = data
 
 
 class AuthError(BaseError):
@@ -1244,7 +1246,7 @@ def json_request(url: str, method: str, *,
         if ignore_error:
             return res.status, {"raw": data}
         else:
-            raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, str(res.status))
+            raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, url, method, res.status, data)
 
 
 def json_simple_request(url: str, *, ignore_error: bool = False, timeout: Optional[int] = None) -> dict:

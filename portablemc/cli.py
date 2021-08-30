@@ -490,10 +490,15 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         print_task("FAILED", f"start.jvm.error.{err.code}", done=True)
         sys.exit(EXIT_JVM_LOADING_ERROR)
     except JsonRequestError as err:
-        print_task("FAILED", f"json_request.error.{err.code}", {"details": err.details}, done=True)
+        print_task("FAILED", f"json_request.error.{err.code}", {
+            "url": err.url,
+            "method": err.method,
+            "status": err.status,
+            "data": err.data,
+        }, done=True, keep_previous=True)
         sys.exit(EXIT_JSON_REQUEST_ERROR)
     except (URLError, socket.gaierror, socket.timeout) as err:
-        print_task("FAILED", "error.socket", {"reason": str(err)}, done=True)
+        print_task("FAILED", "error.socket", {"reason": str(err)}, done=True, keep_previous=True)
         sys.exit(EXIT_FAILURE)
 
 
@@ -754,7 +759,7 @@ def prompt_authenticate(ctx: CliContext, email: str, cache_in_db: bool, microsof
                 print_task("OK", "auth.validated", task_text_args, done=True)
             return session
         except AuthError as err:
-            print_task("FAILED", f"auth.error.{err.code}", {"details": err.details}, done=True)
+            print_task("FAILED", f"auth.error.{err.code}", {"details": err.details}, done=True, keep_previous=True)
 
     print_task("..", task_text, task_text_args, done=True)
 
@@ -769,7 +774,7 @@ def prompt_authenticate(ctx: CliContext, email: str, cache_in_db: bool, microsof
         print_task("OK", "auth.logged_in", done=True)
         return session
     except AuthError as err:
-        print_task("FAILED", f"auth.error.{err.code}", {"details": err.details}, done=True)
+        print_task("FAILED", f"auth.error.{err.code}", {"details": err.details}, done=True, keep_previous=True)
         return None
 
 
@@ -931,7 +936,9 @@ def print_table(lines: List[Tuple[str, ...]], *, header: int = -1):
 
 
 _print_task_last_len = 0
-def print_task(status: Optional[str], msg_key: str, msg_args: Optional[dict] = None, *, done: bool = False):
+def print_task(status: Optional[str], msg_key: str, msg_args: Optional[dict] = None, *, done: bool = False, keep_previous: bool = False):
+    if keep_previous:
+        print()
     global _print_task_last_len
     len_limit = max(0, get_term_width() - 9)
     msg = get_message_raw(msg_key, msg_args)[:len_limit]
@@ -1004,7 +1011,7 @@ messages = {
     "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
     "cancelled": "Cancelled.",
     # Json Request
-    f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid response, not JSON: {details}",
+    f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid JSON response from {method} {url}, status: {status}, data: {data}",
     # Misc errors
     f"error.socket": "Socket error: {reason}",
     # Command search
