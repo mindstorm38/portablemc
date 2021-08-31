@@ -465,6 +465,8 @@ def cmd_start(ns: Namespace, ctx: CliContext):
             if start_opts.auth_session is None:
                 sys.exit(EXIT_AUTH_ERROR)
         else:
+            if ns.microsoft:
+                print_task("WARN", "auth.microsoft_requires_email", done=True)
             start_opts.uuid = ns.uuid
             start_opts.username = ns.username
 
@@ -1080,6 +1082,7 @@ messages = {
     "auth.validated": "Session validated for {email}.",
     "auth.caching": "Caching your session...",
     "auth.logged_in": "Logged in",
+    "auth.microsoft_requires_email": "Even if you are using -m (`--microsoft`), you must use `-l` argument with your Microsoft email.",
     # Auth Yggdrasil
     "auth.yggdrasil": "Authenticating {email} with Mojang...",
     "auth.yggdrasil.enter_password": "Password: ",
