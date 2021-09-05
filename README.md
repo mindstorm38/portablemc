@@ -194,8 +194,8 @@ manage mods was planed but this is not possible for now due to complex APIs and 
 An addon named `console` can be used to display the Minecraft process' console, this is useful to debug the game when
 it crashes multiple times, or simply if you can to track what's going on.
 An overview of the console can be seen in the animated image in the fabric section just above, it provides a blue header
-section with summary of the running session and Minecraft version and lines are printed bellow it, you can then navigate
-the output buffer.
+section with summary of the running session and Minecraft version, output lines are printed bellow it, you can then 
+navigate the output buffer.
 
 ## Archives support
 [**Download**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/archives)
