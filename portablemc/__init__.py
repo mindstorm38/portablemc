@@ -393,37 +393,53 @@ class Version:
         self._check_version_meta()
         jvm_version_type = self.version_meta.get("javaVersion", {}).get("component", "jre-legacy")
 
-        all_jvm_meta = json_simple_request("https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json")
-        jvm_arch_meta = all_jvm_meta.get(get_minecraft_jvm_os())
-        if jvm_arch_meta is None:
-            raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_ARCH)
-
-        jvm_meta = jvm_arch_meta.get(jvm_version_type)
-        if jvm_meta is None:
-            raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_VERSION)
-
         jvm_dir = path.join(self.context.jvm_dir, jvm_version_type)
-        jvm_manifest = json_simple_request(jvm_meta[0]["manifest"]["url"])["files"]
-        self.jvm_version = jvm_meta[0]["version"]["name"]
         self.jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if sys.platform == "win32" else "java")
 
         if not path.isfile(self.jvm_exec):
+
+            all_jvm_meta = json_simple_request("https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json")
+            jvm_arch_meta = all_jvm_meta.get(get_minecraft_jvm_os())
+            if jvm_arch_meta is None:
+                raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_ARCH)
+
+            jvm_meta = jvm_arch_meta.get(jvm_version_type)
+            if jvm_meta is None:
+                raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_VERSION)
+
+            jvm_manifest = json_simple_request(jvm_meta[0]["manifest"]["url"])["files"]
+
+            # Here we try to parse the version name given by Mojang. Some replacement and limitation in the number
+            # of numbers allows the parsing to be more compliant with the real version stored in the 'release' file.
+            self.jvm_version = ".".join(jvm_meta[0]["version"]["name"].split(".")[:3]).replace("8u51", "1.8.0_51")
 
             jvm_exec_files = []
             os.makedirs(jvm_dir, exist_ok=True)
             for jvm_file_path_suffix, jvm_file in jvm_manifest.items():
                 if jvm_file["type"] == "file":
                     jvm_file_path = path.join(jvm_dir, jvm_file_path_suffix)
-                    jvm_download_info = jvm_file["downloads"]["raw"]
-                    self.dl.append(DownloadEntry.from_meta(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix))
-                    if jvm_file.get("executable", False):
-                        jvm_exec_files.append(jvm_file_path)
+                    if not path.isfile(jvm_file_path):
+                        jvm_download_info = jvm_file["downloads"]["raw"]
+                        self.dl.append(DownloadEntry.from_meta(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix))
+                        if jvm_file.get("executable", False):
+                            jvm_exec_files.append(jvm_file_path)
 
             def finalize():
                 for exec_file in jvm_exec_files:
                     os.chmod(exec_file, 0o777)
 
             self.dl.add_callback(finalize)
+
+        else:
+
+            self.jvm_version = "unknown"
+            jvm_release = path.join(jvm_dir, "release")
+            if path.isfile(jvm_release):
+                with open(jvm_release, "rt") as jvm_release_fh:
+                    for line in jvm_release_fh.readlines():
+                        line = line.rstrip()
+                        if line.startswith("JAVA_VERSION=\"") and line[-1] == "\"":
+                            self.jvm_version = line[14:-1]
 
     def download(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
         """ Download all missing files computed in `prepare_` methods. """

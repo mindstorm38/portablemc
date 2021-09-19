@@ -1060,7 +1060,7 @@ messages = {
     "start.logger.loaded_pretty": "Loaded pretty logger.",
     "start.libraries.loading": "Loading libraries... ",
     "start.libraries.loaded": "Loaded {count} libraries.",
-    "start.jvm.loading": "Loading java... ",
+    "start.jvm.loading": "Loading Java... ",
     "start.jvm.loaded": "Loaded Mojang Java {version}.",
     f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
                                                            "use --jvm argument to set the JVM executable of path to it.",
