@@ -679,27 +679,35 @@ class Start:
 
 class VersionManifest:
 
-    def __init__(self, data: dict):
-        self.data = data
+    def __init__(self):
+        self.data: Optional[dict] = None
 
-    @classmethod
-    def load_from_url(cls):
-        """ Load the version manifest from the official URL. Can raise `JsonRequestError` if failed. """
-        return cls(json_simple_request("https://launchermeta.mojang.com/mc/game/version_manifest.json"))
+    def _ensure_data(self) -> dict:
+        if self.data is None:
+            self.data = json_simple_request("https://launchermeta.mojang.com/mc/game/version_manifest.json")
+        return self.data
+
+    # @classmethod
+    # def load_from_url(cls):
+    #     """ Load the version manifest from the official URL. Can raise `JsonRequestError` if failed. """
+    #     return cls(json_simple_request("https://launchermeta.mojang.com/mc/game/version_manifest.json"))
 
     def filter_latest(self, version: str) -> Tuple[str, bool]:
-        latest = self.data["latest"].get(version)
-        return (version, False) if latest is None else (latest, True)
+        if version in ("release", "snapshot"):
+            latest = self._ensure_data()["latest"].get(version)
+            if latest is not None:
+                return latest, True
+        return version, False
 
     def get_version(self, version: str) -> Optional[dict]:
         version, _alias = self.filter_latest(version)
-        for version_data in self.data["versions"]:
+        for version_data in self._ensure_data()["versions"]:
             if version_data["id"] == version:
                 return version_data
         return None
 
     def all_versions(self) -> list:
-        return self.data["versions"]
+        return self._ensure_data()["versions"]
 
 
 class AuthSession:

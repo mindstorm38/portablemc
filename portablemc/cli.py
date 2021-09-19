@@ -602,7 +602,7 @@ def new_context(ns: Namespace) -> CliContext:
 
 
 def load_version_manifest(_ctx: CliContext) -> VersionManifest:
-    return VersionManifest.load_from_url()
+    return VersionManifest()
 
 
 def new_auth_database(ctx: CliContext) -> AuthDatabase:
@@ -1015,7 +1015,7 @@ messages = {
     # Json Request
     f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid JSON response from {method} {url}, status: {status}, data: {data}",
     # Misc errors
-    f"error.socket": "Socket error: {reason}",
+    f"error.socket": "This operation requires an operational network, but a socket error happened: {reason}",
     # Command search
     "search.type": "Type",
     "search.name": "Identifier",
