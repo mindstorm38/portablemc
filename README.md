@@ -112,14 +112,15 @@ are used for it. **These two arguments are overwritten by the `-l` (`--login`) a
 The launcher uses Java Virtual Machine to run the game, by default the launcher downloads and uses the official JVM 
 [distributed by Mojang](https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json)
 which is adapted to the running version. The JVM is installed in a sub-directory called `jvm` inside the main directory. 
-You can change it by providing a path to the `java` binary with the `--jvm <path_to/bin/java>` argument. By default, the launcher starts the JVM with default arguments, 
-these are the following and are the same as the Mojang launcher:
+You can change it by providing a path to the `java` binary with the `--jvm <path_to/bin/java>` argument. By default, the
+launcher starts the JVM with default arguments, these are the following and are the same as the Mojang launcher:
 
 ```
 -Xmx2G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M
 ```
 
-You can change these arguments using the `--jvm-args <args>`.
+You can change these arguments using the `--jvm-args <args>`, **please always quote your set of arguments**, this set must
+be one argument for PMC. For example `--jvm-args "-Xmx2G -XX:+UnlockExperimentalVMOptions"`.
 
 ### Auto connect to a server
 Since Minecraft 1.6 *(at least, need further tests to confirm)* we can start the game and automatically
@@ -193,8 +194,8 @@ manage mods was planed but this is not possible for now due to complex APIs and 
 An addon named `console` can be used to display the Minecraft process' console, this is useful to debug the game when
 it crashes multiple times, or simply if you can to track what's going on.
 An overview of the console can be seen in the animated image in the fabric section just above, it provides a blue header
-section with summary of the running session and Minecraft version and lines are printed bellow it, you can then navigate
-the output buffer.
+section with summary of the running session and Minecraft version, output lines are printed bellow it, you can then 
+navigate the output buffer.
 
 ## Archives support
 [**Download**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/archives)
