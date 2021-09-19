@@ -314,7 +314,7 @@ class Version:
         self._check_version_meta()
 
         if self.version_jar_file is None:
-            raise ValueError("The version JAR file is not ")
+            raise ValueError("The version JAR file must be prepared before calling this method.")
 
         self.classpath_libs.clear()
         self.classpath_libs.append(self.version_jar_file)
