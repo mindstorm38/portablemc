@@ -976,6 +976,8 @@ class AuthDatabase:
             pass
 
     def save(self):
+        if not path.isfile(self.filename):
+            os.makedirs(path.dirname(self.filename), exist_ok=True)
         with open(self.filename, "wt") as fp:
             data = {}
             for typ, sessions in self.sessions.items():
