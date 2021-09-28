@@ -1341,7 +1341,10 @@ def interpret_args(args: list, features: dict, dst: List[str]):
 
 
 def replace_vars(txt: str, replacements: Dict[str, str]) -> str:
-    return txt.replace("${", "{").format_map(replacements)
+    try:
+        return txt.replace("${", "{").format_map(replacements)
+    except KeyError:
+        return txt
 
 
 def replace_list_vars(lst: List[str], replacements: Dict[str, str]) -> Generator[str, None, None]:
