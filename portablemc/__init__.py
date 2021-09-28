@@ -33,6 +33,7 @@ import hashlib
 import shutil
 import base64
 import json
+import sys
 import os
 import re
 
@@ -416,6 +417,7 @@ class Version:
                 json.dump(jvm_manifest, jvm_manifest_fp, indent=2)
 
         jvm_files = jvm_manifest["files"]
+        self.jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if sys.platform == "win32" else "java")
         self.jvm_version = jvm_manifest.get("version", "unknown")
 
         jvm_exec_files = []
