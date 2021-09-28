@@ -33,7 +33,6 @@ import hashlib
 import shutil
 import base64
 import json
-import sys
 import os
 import re
 
@@ -187,7 +186,7 @@ class Version:
 
     def _ensure_version_manifest(self) -> 'VersionManifest':
         if self.manifest is None:
-            self.manifest = VersionManifest.load_from_url()
+            self.manifest = VersionManifest()
         return self.manifest
 
     def _check_version_meta(self):
@@ -394,9 +393,12 @@ class Version:
         jvm_version_type = self.version_meta.get("javaVersion", {}).get("component", "jre-legacy")
 
         jvm_dir = path.join(self.context.jvm_dir, jvm_version_type)
-        self.jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if sys.platform == "win32" else "java")
+        jvm_manifest_file = path.join(self.context.jvm_dir, f"{jvm_version_type}.json")
 
-        if not path.isfile(self.jvm_exec):
+        try:
+            with open(jvm_manifest_file, "rt") as jvm_manifest_fp:
+                jvm_manifest = json.load(jvm_manifest_fp)
+        except (OSError, JSONDecodeError):
 
             all_jvm_meta = json_simple_request("https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json")
             jvm_arch_meta = all_jvm_meta.get(get_minecraft_jvm_os())
@@ -407,39 +409,31 @@ class Version:
             if jvm_meta is None:
                 raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_VERSION)
 
-            jvm_manifest = json_simple_request(jvm_meta[0]["manifest"]["url"])["files"]
+            jvm_manifest = json_simple_request(jvm_meta[0]["manifest"]["url"])
+            jvm_manifest["version"] = jvm_meta[0]["version"]["name"]
 
-            # Here we try to parse the version name given by Mojang. Some replacement and limitation in the number
-            # of numbers allows the parsing to be more compliant with the real version stored in the 'release' file.
-            self.jvm_version = ".".join(jvm_meta[0]["version"]["name"].split(".")[:3]).replace("8u51", "1.8.0_51")
+            with open(jvm_manifest_file, "wt") as jvm_manifest_fp:
+                json.dump(jvm_manifest, jvm_manifest_fp, indent=2)
 
-            jvm_exec_files = []
-            os.makedirs(jvm_dir, exist_ok=True)
-            for jvm_file_path_suffix, jvm_file in jvm_manifest.items():
-                if jvm_file["type"] == "file":
-                    jvm_file_path = path.join(jvm_dir, jvm_file_path_suffix)
-                    if not path.isfile(jvm_file_path):
-                        jvm_download_info = jvm_file["downloads"]["raw"]
-                        self.dl.append(DownloadEntry.from_meta(jvm_download_info, jvm_file_path, name=jvm_file_path_suffix))
-                        if jvm_file.get("executable", False):
-                            jvm_exec_files.append(jvm_file_path)
+        jvm_files = jvm_manifest["files"]
+        self.jvm_version = jvm_manifest.get("version", "unknown")
 
+        jvm_exec_files = []
+        os.makedirs(jvm_dir, exist_ok=True)
+        for jvm_file_path_prefix, jvm_file in jvm_files.items():
+            if jvm_file["type"] == "file":
+                jvm_file_path = path.join(jvm_dir, jvm_file_path_prefix)
+                jvm_download_info = jvm_file["downloads"]["raw"]
+                if not path.isfile(jvm_file_path) or path.getsize(jvm_file_path) != jvm_download_info["size"]:
+                    self.dl.append(DownloadEntry.from_meta(jvm_download_info, jvm_file_path, name=jvm_file_path_prefix))
+                    if jvm_file.get("executable", False):
+                        jvm_exec_files.append(jvm_file_path)
+
+        if len(jvm_exec_files):
             def finalize():
                 for exec_file in jvm_exec_files:
                     os.chmod(exec_file, 0o777)
-
             self.dl.add_callback(finalize)
-
-        else:
-
-            self.jvm_version = "unknown"
-            jvm_release = path.join(jvm_dir, "release")
-            if path.isfile(jvm_release):
-                with open(jvm_release, "rt") as jvm_release_fh:
-                    for line in jvm_release_fh.readlines():
-                        line = line.rstrip()
-                        if line.startswith("JAVA_VERSION=\"") and line[-1] == "\"":
-                            self.jvm_version = line[14:-1]
 
     def download(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
         """ Download all missing files computed in `prepare_` methods. """
