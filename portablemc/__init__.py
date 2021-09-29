@@ -568,7 +568,7 @@ class Start:
             "assets_index_name": self.version.assets_index_version,
             "auth_uuid": uuid,
             "auth_access_token": "" if opts.auth_session is None else opts.auth_session.format_token_argument(False),
-            "user_type": "mojang",
+            "user_type": "" if opts.auth_session is None else opts.auth_session.user_type,
             "version_type": self.version.version_meta.get("type", ""),
             # Game (legacy)
             "auth_session": "" if opts.auth_session is None else opts.auth_session.format_token_argument(True),
@@ -709,6 +709,7 @@ class VersionManifest:
 class AuthSession:
 
     type = "raw"
+    user_type = ""
     fields = "access_token", "username", "uuid"
 
     def __init__(self, access_token: str, username: str, uuid: str):
@@ -732,6 +733,7 @@ class AuthSession:
 class YggdrasilAuthSession(AuthSession):
 
     type = "yggdrasil"
+    user_type = "mojang"
     fields = "access_token", "username", "uuid", "client_token"
 
     def __init__(self, access_token: str, username: str, uuid: str, client_token: str):
@@ -785,6 +787,7 @@ class YggdrasilAuthSession(AuthSession):
 class MicrosoftAuthSession(AuthSession):
 
     type = "microsoft"
+    user_type = "msa"
     fields = "access_token", "username", "uuid", "refresh_token", "client_id", "redirect_uri"
 
     def __init__(self, access_token: str, username: str, uuid: str, refresh_token: str, client_id: str, redirect_uri: str):
