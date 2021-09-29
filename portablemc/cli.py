@@ -766,7 +766,10 @@ def prompt_authenticate(ctx: CliContext, email: str, cache_in_db: bool, microsof
     print_task("..", task_text, task_text_args, done=True)
 
     try:
-        session = prompt_microsoft_authenticate(email) if microsoft else prompt_yggdrasil_authenticate(email)
+        if microsoft:
+            session = prompt_microsoft_authenticate(auth_db.get_client_id(), email)
+        else:
+            session = prompt_yggdrasil_authenticate(auth_db.get_client_id(), email)
         if session is None:
             return None
         if cache_in_db:
@@ -780,27 +783,27 @@ def prompt_authenticate(ctx: CliContext, email: str, cache_in_db: bool, microsof
         return None
 
 
-def prompt_yggdrasil_authenticate(email_or_username: str) -> Optional[YggdrasilAuthSession]:
+def prompt_yggdrasil_authenticate(client_id: str, email_or_username: str) -> Optional[YggdrasilAuthSession]:
     print_task(None, "auth.yggdrasil.enter_password")
     password = prompt(password=True)
     if password is None:
         print_task("FAILED", "cancelled")
         return None
     else:
-        return YggdrasilAuthSession.authenticate(email_or_username, password)
+        return YggdrasilAuthSession.authenticate(client_id, email_or_username, password)
 
 
-def prompt_microsoft_authenticate(email: str) -> Optional[MicrosoftAuthSession]:
+def prompt_microsoft_authenticate(client_id: str, email: str) -> Optional[MicrosoftAuthSession]:
 
     server_port = 12782
-    client_id = MS_AZURE_APP_ID
+    app_id = MS_AZURE_APP_ID
     redirect_auth = "http://localhost:{}".format(server_port)
     code_redirect_uri = "{}/code".format(redirect_auth)
     exit_redirect_uri = "{}/exit".format(redirect_auth)
 
     nonce = uuid.uuid4().hex
 
-    if not webbrowser.open(MicrosoftAuthSession.get_authentication_url(client_id, code_redirect_uri, email, nonce)):
+    if not webbrowser.open(MicrosoftAuthSession.get_authentication_url(app_id, code_redirect_uri, email, nonce)):
         print_task("FAILED", "auth.microsoft.no_browser", done=True)
         return None
 
@@ -837,7 +840,7 @@ def prompt_microsoft_authenticate(email: str) -> Optional[MicrosoftAuthSession]:
                     self.send_response(307)
                     # We logout the user directly after authorization, this just clear the browser cache to allow
                     # another user to authenticate with another email after. This doesn't invalide the access token.
-                    self.send_header("Location", MicrosoftAuthSession.get_logout_url(client_id, exit_redirect_uri))
+                    self.send_header("Location", MicrosoftAuthSession.get_logout_url(app_id, exit_redirect_uri))
                     auth_server.ms_auth_id_token = qs["id_token"][0]
                     auth_server.ms_auth_code = qs["code"][0]
                     self.send_auth_response("Redirecting...")
@@ -877,7 +880,7 @@ def prompt_microsoft_authenticate(email: str) -> Optional[MicrosoftAuthSession]:
     else:
         print_task("", "auth.microsoft.processing")
         if MicrosoftAuthSession.check_token_id(server.ms_auth_id_token, email, nonce):
-            return MicrosoftAuthSession.authenticate(client_id, server.ms_auth_code, code_redirect_uri)
+            return MicrosoftAuthSession.authenticate(client_id, app_id, server.ms_auth_code, code_redirect_uri)
         else:
             print_task("FAILED", "auth.microsoft.incoherent_dat", done=True)
             return None

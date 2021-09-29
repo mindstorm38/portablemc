@@ -568,6 +568,8 @@ class Start:
             "assets_index_name": self.version.assets_index_version,
             "auth_uuid": uuid,
             "auth_access_token": "" if opts.auth_session is None else opts.auth_session.format_token_argument(False),
+            "auth_xuid": "" if opts.auth_session is None else opts.auth_session.get_xuid(),
+            "clientId": "" if opts.auth_session is None else opts.auth_session.client_id,
             "user_type": "" if opts.auth_session is None else opts.auth_session.user_type,
             "version_type": self.version.version_meta.get("type", ""),
             # Game (legacy)
@@ -710,15 +712,24 @@ class AuthSession:
 
     type = "raw"
     user_type = ""
-    fields = "access_token", "username", "uuid"
+    fields = "access_token", "username", "uuid", "client_id"
 
-    def __init__(self, access_token: str, username: str, uuid: str):
-        self.access_token = access_token
-        self.username = username
-        self.uuid = uuid
+    @classmethod
+    def fix_data(cls, data: dict):
+        pass
+
+    def __init__(self):
+        self.access_token = ""
+        self.username = ""
+        self.uuid = ""
+        self.client_id = ""
 
     def format_token_argument(self, legacy: bool) -> str:
         return f"token:{self.access_token}:{self.uuid}" if legacy else self.access_token
+
+    def get_xuid(self) -> str:
+        """ Getter specific to Microsoft, but common to auth sessions because it's used in `Start.prepare`. """
+        return ""
 
     def validate(self) -> bool:
         return True
@@ -734,22 +745,27 @@ class YggdrasilAuthSession(AuthSession):
 
     type = "yggdrasil"
     user_type = "mojang"
-    fields = "access_token", "username", "uuid", "client_token"
+    fields = "access_token", "username", "uuid", "client_id"
 
-    def __init__(self, access_token: str, username: str, uuid: str, client_token: str):
-        super().__init__(access_token, username, uuid)
-        self.client_token = client_token
+    @classmethod
+    def fix_data(cls, data: dict):
+        client_token = data.pop("client_token")
+        if client_token is not None:
+            data["client_id"] = client_token
+
+    def __init__(self):
+        super().__init__()
 
     def validate(self) -> bool:
         return self.request("validate", {
             "accessToken": self.access_token,
-            "clientToken": self.client_token
+            "clientToken": self.client_id
         }, False)[0] == 204
 
     def refresh(self):
         _, res = self.request("refresh", {
             "accessToken": self.access_token,
-            "clientToken": self.client_token
+            "clientToken": self.client_id
         })
         self.access_token = res["accessToken"]
         self.username = res["selectedProfile"]["name"]  # Refresh username if renamed (does it works? to check.).
@@ -757,11 +773,11 @@ class YggdrasilAuthSession(AuthSession):
     def invalidate(self):
         self.request("invalidate", {
             "accessToken": self.access_token,
-            "clientToken": self.client_token
+            "clientToken": self.client_id
         }, False)
 
     @classmethod
-    def authenticate(cls, email: str, password: str) -> 'YggdrasilAuthSession':
+    def authenticate(cls, client_id: str, email: str, password: str) -> 'YggdrasilAuthSession':
         _, res = cls.request("authenticate", {
             "agent": {
                 "name": "Minecraft",
@@ -769,9 +785,14 @@ class YggdrasilAuthSession(AuthSession):
             },
             "username": email,
             "password": password,
-            "clientToken": uuid4().hex
+            "clientToken": client_id
         })
-        return cls(res["accessToken"], res["selectedProfile"]["name"], res["selectedProfile"]["id"], res["clientToken"])
+        sess = cls()
+        sess.access_token = res["accessToken"]
+        sess.username = res["selectedProfile"]["name"]
+        sess.uuid = res["selectedProfile"]["id"]
+        sess.client_id = res["clientToken"]
+        return sess
 
     @classmethod
     def request(cls, req: str, payload: dict, error: bool = True) -> Tuple[int, dict]:
@@ -788,14 +809,25 @@ class MicrosoftAuthSession(AuthSession):
 
     type = "microsoft"
     user_type = "msa"
-    fields = "access_token", "username", "uuid", "refresh_token", "client_id", "redirect_uri"
+    fields = "access_token", "username", "uuid", "client_id", "refresh_token", "app_id", "redirect_uri", "xuid"
 
-    def __init__(self, access_token: str, username: str, uuid: str, refresh_token: str, client_id: str, redirect_uri: str):
-        super().__init__(access_token, username, uuid)
-        self.refresh_token = refresh_token
-        self.client_id = client_id
-        self.redirect_uri = redirect_uri
+    @classmethod
+    def fix_data(cls, data: dict):
+        if "app_id" not in data:
+            client_id = data.pop("client_id")
+            if client_id is not None:
+                data["app_id"] = client_id
+
+    def __init__(self):
+        super().__init__()
+        self.refresh_token = ""
+        self.app_id = ""
+        self.redirect_uri = ""
+        self.xuid = ""
         self._new_username: Optional[str] = None
+
+    def get_xuid(self) -> str:
+        return self.xuid
 
     def validate(self) -> bool:
         self._new_username = None
@@ -814,7 +846,7 @@ class MicrosoftAuthSession(AuthSession):
             self._new_username = None
         else:
             res = self.authenticate_base({
-                "client_id": self.client_id,
+                "client_id": self.app_id,
                 "redirect_uri": self.redirect_uri,
                 "refresh_token": self.refresh_token,
                 "grant_type": "refresh_token",
@@ -825,9 +857,9 @@ class MicrosoftAuthSession(AuthSession):
             self.uuid = res["uuid"]
 
     @staticmethod
-    def get_authentication_url(app_client_id: str, redirect_uri: str, email: str, nonce: str):
+    def get_authentication_url(app_id: str, redirect_uri: str, email: str, nonce: str):
         return "https://login.live.com/oauth20_authorize.srf?{}".format(url_parse.urlencode({
-            "client_id": app_client_id,
+            "client_id": app_id,
             "redirect_uri": redirect_uri,
             "response_type": "code id_token",
             "scope": "xboxlive.signin offline_access openid email",
@@ -837,27 +869,36 @@ class MicrosoftAuthSession(AuthSession):
         }))
 
     @staticmethod
-    def get_logout_url(app_client_id: str, redirect_uri: str):
+    def get_logout_url(app_id: str, redirect_uri: str):
         return "https://login.live.com/oauth20_logout.srf?{}".format(url_parse.urlencode({
-            "client_id": app_client_id,
+            "client_id": app_id,
             "redirect_uri": redirect_uri
         }))
 
     @classmethod
     def check_token_id(cls, token_id: str, email: str, nonce: str) -> bool:
-        id_token_payload = json.loads(cls.base64url_decode(token_id.split(".")[1]))
+        id_token_payload = cls.decode_jwt_payload(token_id)
         return id_token_payload["nonce"] == nonce and id_token_payload["email"] == email
 
     @classmethod
-    def authenticate(cls, app_client_id: str, code: str, redirect_uri: str) -> 'MicrosoftAuthSession':
+    def authenticate(cls, client_id: str, app_id: str, code: str, redirect_uri: str) -> 'MicrosoftAuthSession':
         res = cls.authenticate_base({
-            "client_id": app_client_id,
+            "client_id": app_id,
             "redirect_uri": redirect_uri,
             "code": code,
             "grant_type": "authorization_code",
             "scope": "xboxlive.signin"
         })
-        return cls(res["access_token"], res["username"], res["uuid"], res["refresh_token"], app_client_id, redirect_uri)
+        sess = cls()
+        sess.access_token = res["access_token"]
+        sess.username = res["username"]
+        sess.uuid = res["uuid"]
+        sess.client_id = client_id
+        sess.refresh_token = res["refresh_token"]
+        sess.app_id = app_id
+        sess.redirect_uri = redirect_uri
+        sess.xuid = cls.decode_jwt_payload(res["access_token"])["xuid"]
+        return sess
 
     @classmethod
     def authenticate_base(cls, request_token_payload: dict) -> dict:
@@ -935,6 +976,10 @@ class MicrosoftAuthSession(AuthSession):
             s += "=" * (4 - rem)
         return base64.urlsafe_b64decode(s)
 
+    @classmethod
+    def decode_jwt_payload(cls, jwt: str) -> dict:
+        return json.loads(cls.base64url_decode(jwt.split(".")[1]))
+
 
 class AuthDatabase:
 
@@ -947,6 +992,7 @@ class AuthDatabase:
         self.filename = filename
         self.legacy_filename = legacy_filename
         self.sessions: Dict[str, Dict[str, AuthSession]] = {}
+        self.client_id: Optional[str] = None
 
     def load(self):
         self.sessions.clear()
@@ -955,17 +1001,19 @@ class AuthDatabase:
         try:
             with open(self.filename, "rb") as fp:
                 data = json.load(fp)
-                for typ, typ_data in data.items():
-                    if typ not in self.types:
-                        continue
-                    sess_type = self.types[typ]
-                    sessions = self.sessions[typ] = {}
-                    sessions_data = typ_data["sessions"]
-                    for email, sess_data in sessions_data.items():
-                        sess_params = []
-                        for field in sess_type.fields:
-                            sess_params.append(sess_data.get(field, ""))
-                        sessions[email] = sess_type(*sess_params)
+                self.client_id = data.get("client_id")
+                for typ, sess_type in self.types.items():
+                    typ_data = data.get(typ)
+                    if typ_data is not None:
+                        sessions = self.sessions[typ] = {}
+                        sessions_data = typ_data["sessions"]
+                        for email, sess_data in sessions_data.items():
+                            # Use class method fix_data to migrate data from older versions of the auth database.
+                            sess_type.fix_data(sess_data)
+                            sess = sess_type()
+                            for field in sess_type.fields:
+                                setattr(sess, field, sess_data.get(field, ""))
+                            sessions[email] = sess
         except (OSError, KeyError, TypeError, JSONDecodeError):
             pass
 
@@ -975,7 +1023,12 @@ class AuthDatabase:
                 for line in fp.readlines():
                     parts = line.split(" ")
                     if len(parts) == 5:
-                        self.put(parts[0], YggdrasilAuthSession(parts[4], parts[2], parts[3], parts[1]))
+                        sess = YggdrasilAuthSession()
+                        sess.access_token = parts[4]
+                        sess.username = parts[2]
+                        sess.uuid = parts[3]
+                        sess.client_id = parts[1]
+                        self.put(parts[0], sess)
             os.remove(self.legacy_filename)
         except OSError:
             pass
@@ -985,6 +1038,8 @@ class AuthDatabase:
             os.makedirs(path.dirname(self.filename), exist_ok=True)
         with open(self.filename, "wt") as fp:
             data = {}
+            if self.client_id is not None:
+                data["client_id"] = self.client_id
             for typ, sessions in self.sessions.items():
                 if typ not in self.types:
                     continue
@@ -1016,6 +1071,11 @@ class AuthDatabase:
             if session is not None:
                 del sessions[email]
                 return session
+
+    def get_client_id(self) -> str:
+        if self.client_id is None or len(self.client_id) != 36:
+            self.client_id = str(uuid4())
+        return self.client_id
 
 
 class DownloadEntry:
