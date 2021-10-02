@@ -569,7 +569,7 @@ class Start:
             "auth_uuid": uuid,
             "auth_access_token": "" if opts.auth_session is None else opts.auth_session.format_token_argument(False),
             "auth_xuid": "" if opts.auth_session is None else opts.auth_session.get_xuid(),
-            "clientId": "" if opts.auth_session is None else opts.auth_session.client_id,
+            "clientid": "" if opts.auth_session is None else opts.auth_session.client_id,
             "user_type": "" if opts.auth_session is None else opts.auth_session.user_type,
             "version_type": self.version.version_meta.get("type", ""),
             # Game (legacy)
@@ -817,6 +817,10 @@ class MicrosoftAuthSession(AuthSession):
             client_id = data.pop("client_id")
             if client_id is not None:
                 data["app_id"] = client_id
+        if "client_id" not in data or not len(data["client_id"]):
+            data["client_id"] = str(uuid4())
+        if "xuid" not in data:
+            data["xuid"] = cls.decode_jwt_payload(data["access_token"])["xuid"]
 
     def __init__(self):
         super().__init__()
