@@ -58,6 +58,8 @@ EXIT_JVM_LOADING_ERROR = 19
 AUTH_DB_FILE_NAME = "portablemc_auth.json"
 AUTH_DB_LEGACY_FILE_NAME = "portablemc_tokens"
 
+ENV_ADDONS_PATH = "PMC_ADDONS_PATH"
+
 MS_AZURE_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
 
 JVM_ARGS_DEFAULT = ["-Xmx2G",
@@ -164,6 +166,12 @@ def load_addons():
         addons_dirs.append(path.join(home, "AppData", "Local", "portablemc", "addons"))
     elif system == "Darwin":
         addons_dirs.append(path.join(home, "Library", "Application Support", "portablemc", "addons"))
+
+    env_path = os.getenv(ENV_ADDONS_PATH)
+    if env_path is not None:
+        for addon_path in env_path.split(path.pathsep):
+            if len(addon_path):
+                addons_dirs.append(path.abspath(addon_path))
 
     for addons_dir in addons_dirs:
 
@@ -591,8 +599,11 @@ def cmd_addon_show(ns: Namespace, _ctx: CliContext):
 def cmd_addon_dirs(_ns: Namespace, _ctx: CliContext):
     print_message("addon.dirs.title")
     for addons_dir in addons_dirs:
-        msg_args = {"path": path.abspath(addons_dir)}
-        print_message("addon.dirs.entry" if path.isdir(addons_dir) else "addon.dirs.entry.not_existing", msg_args)
+        print_message("addon.dirs.entry", {"path": path.abspath(addons_dir)}, end="")
+        if not path.isdir(addons_dir):
+            print_message("addon.dirs.attr.not_existing", end="", critical=True)
+        print()
+    print_message("addon.dirs.path_env_info")
 
 
 # Constructors to override
@@ -1046,8 +1057,9 @@ messages = {
     "addon.show.requires": "Requires:",
     # Command addon dirs
     "addon.dirs.title": "You can place your addons in the following directories:",
-    "addon.dirs.entry": "  {path}",
-    "addon.dirs.entry.not_existing": "  {path} (not existing)",
+    "addon.dirs.entry": "- {path}",
+    "addon.dirs.attr.not_existing": " (not existing)",
+    "addon.dirs.path_env_info": f"  (define environment variable '{ENV_ADDONS_PATH}' to add paths here)",
     # Command start
     "start.version.resolving": "Resolving version {version}... ",
     "start.version.resolved": "Resolved version {version}.",
@@ -1067,8 +1079,8 @@ messages = {
     "start.jvm.loaded": "Loaded Mojang Java {version}.",
     f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
                                                            "use --jvm argument to set the JVM executable of path to it.",
-    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, use --jvm argument to set the "
-                                                              "JVM executable of path to it.",
+    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, use --jvm argument to set "
+                                                              "the JVM executable of path to it.",
     "start.starting": "Starting the game...",
     "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
@@ -1085,7 +1097,8 @@ messages = {
     "auth.validated": "Session validated for {email}.",
     "auth.caching": "Caching your session...",
     "auth.logged_in": "Logged in",
-    "auth.microsoft_requires_email": "Even if you are using -m (`--microsoft`), you must use `-l` argument with your Microsoft email.",
+    "auth.microsoft_requires_email": "Even if you are using -m (`--microsoft`), you must use `-l` argument with your "
+                                     "Microsoft email.",
     # Auth Yggdrasil
     "auth.yggdrasil": "Authenticating {email} with Mojang...",
     "auth.yggdrasil.enter_password": "Password: ",
