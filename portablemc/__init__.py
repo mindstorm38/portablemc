@@ -413,6 +413,7 @@ class Version:
             jvm_manifest = json_simple_request(jvm_meta[0]["manifest"]["url"])
             jvm_manifest["version"] = jvm_meta[0]["version"]["name"]
 
+            os.makedirs(self.context.jvm_dir, exist_ok=True)
             with open(jvm_manifest_file, "wt") as jvm_manifest_fp:
                 json.dump(jvm_manifest, jvm_manifest_fp, indent=2)
 
