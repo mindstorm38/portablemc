@@ -23,10 +23,10 @@ from typing import cast, Generator, Callable, Optional, Tuple, Dict, Type, List
 from http.client import HTTPConnection, HTTPSConnection, HTTPResponse
 from urllib import parse as url_parse, request as url_request
 from urllib.request import Request as UrlRequest
+from uuid import uuid4, uuid5, UUID
 from urllib.error import HTTPError
 from json import JSONDecodeError
 from zipfile import ZipFile
-from uuid import uuid4
 from os import path
 import platform
 import hashlib
@@ -55,7 +55,7 @@ __all__ = [
 
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "2.0.5"
+LAUNCHER_VERSION = "2.0.6-snapshot"
 LAUNCHER_AUTHORS = ["Théo Rozier <contact@theorozier.fr>", "Github contributors"]
 LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021  Théo Rozier"
 LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
@@ -556,8 +556,20 @@ class Start:
             uuid = opts.auth_session.uuid
             username = opts.auth_session.username
         else:
-            uuid = uuid4().hex if opts.uuid is None else opts.uuid.replace("-", "").lower()
-            username = uuid[:8] if opts.username is None else opts.username[:16]  # Max username length is 16
+            namespace_hash = UUID("8df5a464-38de-11ec-aa66-3fd636ee2ed7")
+            username = None
+            if opts.uuid is None:
+                if opts.username is None:
+                    uuid = uuid5(namespace_hash, platform.node()).hex
+                else:
+                    username = opts.username[:16]
+                    uuid = uuid5(namespace_hash, username).hex
+            else:
+                uuid = opts.uuid.replace("-", "").lower()
+            if username is None:
+                username = uuid[:8]
+            # uuid = uuid4().hex if opts.uuid is None else opts.uuid.replace("-", "").lower()
+            # username = uuid[:8] if opts.username is None else opts.username[:16]  # Max username length is 16
 
         # Arguments replacements
         self.args_replacements = {
