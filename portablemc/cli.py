@@ -638,11 +638,18 @@ def new_start_options(_ctx: CliContext) -> StartOptions:
 
 # CLI utilities
 
-def mixin(name: Optional[str] = None, into: Optional[object] = None):
+def mixin(name: Optional[str] = None, into: Optional[object] = None, allow_define: bool = True):
     def mixin_decorator(func):
         orig_obj = into or sys.modules[__name__]
         orig_name = name or func.__name__
-        orig_func = getattr(orig_obj, orig_name)
+        orig_func = getattr(orig_obj, orig_name, None)
+        if orig_func is None:
+            if allow_define:
+                def _default_orig_func(*_args, **_kwargs):
+                    pass
+                orig_func = _default_orig_func
+            else:
+                raise ValueError(f"The function '{orig_obj}.{orig_name}' you are trying to mixin does not exists.")
         def wrapper(*args, **kwargs):
             return func(orig_func, *args, **kwargs)
         setattr(orig_obj, orig_name, wrapper)
