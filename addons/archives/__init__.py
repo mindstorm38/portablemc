@@ -161,6 +161,11 @@ def load(pmc):
                 old_prepare(opts)
                 start.jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
                 start.jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
+        elif (len(version_id) == 3 or (len(version_id) > 3 and version_id[3] == ".")) and version_id[0:2] == "1." and ord("0") <= ord(version_id[2]) <= ord("5"):
+            @pmc.mixin(into=start)
+            def prepare(old_prepare, opts: StartOptions):
+                old_prepare(opts)
+                start.jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
 
         return start
 
