@@ -720,7 +720,7 @@ def pretty_download(dl_list: DownloadList):
         if last_print_time is None or (now - last_print_time) > 0.1:
             last_print_time = now
             speed = format_bytes(int(progress.size / (now - start_time)))
-            percentage = min(100.0, progress.size / progress.total * 100.0)
+            percentage = 100.0 if progress.total == 0 else min(100.0, progress.size / progress.total * 100.0)
             entries = ", ".join((entry.name for entry in progress.entries))
             path_len = max(0, min(80, get_term_width()) - non_path_len - len(speed))
             print(f"[      ] {dl_text} {entries[:path_len].ljust(path_len)} {percentage:6.2f}% {speed}/s\r", end="")
