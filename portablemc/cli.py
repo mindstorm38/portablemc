@@ -659,16 +659,21 @@ def format_iso_date(raw: Union[str, float]) -> str:
         return datetime.fromisoformat(str(raw)).strftime("%c")
 
 
+def format_number(n: int) -> str:
+    """ Return a number with suffix k, M, G or nothing. The string is always 6 chars unless the size exceed 1 TB. """
+    if n < 1000:
+        return "{:6d}".format(int(n))
+    elif n < 1000000:
+        return "{:5.1f}k".format(int(n / 100) / 10)
+    elif n < 1000000000:
+        return "{:5.1f}M".format(int(n / 100000) / 10)
+    else:
+        return "{:5.1f}G".format(int(n / 100000000) / 10)
+
+
 def format_bytes(n: int) -> str:
     """ Return a byte with suffix B, kB, MB and GB. The string is always 7 chars unless the size exceed 1 TB. """
-    if n < 1000:
-        return "{:6d}B".format(int(n))
-    elif n < 1000000:
-        return "{:5.1f}kB".format(int(n / 100) / 10)
-    elif n < 1000000000:
-        return "{:5.1f}MB".format(int(n / 100000) / 10)
-    else:
-        return "{:5.1f}GB".format(int(n / 100000000) / 10)
+    return f"{format_number(n)}B"
 
 
 def anonymise_email(email: str) -> str:
