@@ -1221,6 +1221,11 @@ class DownloadList:
                         elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
                             error = DownloadError.INVALID_SHA1
                         else:
+                            if entry.size is None:
+                                entry.size = size  # Enforce entry size from the effective downloaded size.
+                                self.size += size
+                            if entry.sha1 is None:
+                                entry.sha1 = sha1.hexdigest()  # Enforce entry sha1.
                             break
 
                         total_size -= size  # If error happened, subtract the size and restart from latest total_size.
