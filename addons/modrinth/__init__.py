@@ -30,6 +30,8 @@ def load(pmc):
         parser.add_argument("query", nargs="?")
 
     def register_modr_install_arguments(parser: ArgumentParser):
+        _ = pmc.get_message
+        # parser.add_argument("--type", help=_("args.modrinth.install."), default="release")
         parser.add_argument("specifier", nargs="+")
 
     @pmc.mixin()
