@@ -314,6 +314,7 @@ def register_show_arguments(parser: ArgumentParser):
     subparsers.required = True
     subparsers.add_parser("about", help=_("args.show.about"))
     subparsers.add_parser("auth", help=_("args.show.auth"))
+    subparsers.add_parser("lang", help=_("args.show.lang"))
 
 
 def register_addon_arguments(parser: ArgumentParser):
@@ -350,6 +351,7 @@ def get_command_handlers():
         "show": {
             "about": cmd_show_about,
             "auth": cmd_show_auth,
+            "lang": cmd_show_lang,
         },
         "addon": {
             "list": cmd_addon_list,
@@ -553,6 +555,15 @@ def cmd_show_auth(_ns: Namespace, ctx: CliContext):
     print_table(lines, header=0)
 
 
+def cmd_show_lang(_ns: Namespace, _ctx: CliContext):
+    lines = []
+    for key, msg in messages.items():
+        lines.append((key, ellipsis_str(msg, 50)))
+    lines.sort(key=lambda tup: tup[0])
+    lines.insert(0, ("Key", "Message"))  # Intentionally not i18n for now
+    print_table(lines, header=0)
+
+
 def cmd_addon_list(_ns: Namespace, _ctx: CliContext):
 
     _ = get_message
@@ -674,6 +685,10 @@ def format_number(n: int) -> str:
 def format_bytes(n: int) -> str:
     """ Return a byte with suffix B, kB, MB and GB. The string is always 7 chars unless the size exceed 1 TB. """
     return f"{format_number(n)}B"
+
+
+def ellipsis_str(string: str, length: int) -> str:
+    return f"{string[:(length - 3)]}..." if len(string) > length else string
 
 
 def anonymise_email(email: str) -> str:
@@ -1025,6 +1040,7 @@ messages = {
     "args.show": "Show and debug various data.",
     "args.show.about": "Display authors, version and license of PortableMC.",
     "args.show.auth": "Debug the authentication database and supported services.",
+    "args.show.lang": "Debug the language mappings used for messages translation.",
     # Args addon
     "args.addon": "Addons management subcommands.",
     "args.addon.list": "List addons.",
