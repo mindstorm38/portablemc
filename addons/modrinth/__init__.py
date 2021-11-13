@@ -3,6 +3,10 @@ import urllib.parse as urlparse
 from typing import List
 from os import path
 import sys
+import os
+
+from json import JSONDecodeError
+import json
 
 
 def load(pmc):
@@ -22,7 +26,9 @@ def load(pmc):
         subparsers = parser.add_subparsers(title="subcommands", dest="modr_subcommand")
         subparsers.required = True
         register_modr_search_arguments(subparsers.add_parser("search", help=_("args.modrinth.search")))
-        register_modr_install_arguments(subparsers.add_parser("install", help=_("args.modrinth.about")))
+        register_modr_install_arguments(subparsers.add_parser("install", help=_("args.modrinth.install")))
+        register_modr_status_arguments(subparsers.add_parser("status", help=_("args.modrinth.status")))
+        register_modr_activate_arguments(subparsers.add_parser("activate", help=_("args.modrinth.activate")))
 
     def register_modr_search_arguments(parser: ArgumentParser):
         _ = pmc.get_message
@@ -32,14 +38,24 @@ def load(pmc):
     def register_modr_install_arguments(parser: ArgumentParser):
         _ = pmc.get_message
         # parser.add_argument("--type", help=_("args.modrinth.install."), default="release")
+        parser.add_argument("-y", "--yes", help=_("args.modrinth.install.yes"), action="store_true")
         parser.add_argument("specifier", nargs="+")
+
+    def register_modr_status_arguments(_parser: ArgumentParser):
+        pass
+
+    def register_modr_activate_arguments(parser: ArgumentParser):
+        _ = pmc.get_message
+        parser.add_argument("pack_id", nargs="+", help=_("args.modrinth.activate.pack_id"))
 
     @pmc.mixin()
     def get_command_handlers(old):
         handlers = old()
         handlers["modr"] = {
             "search": cmd_modr_search,
-            "install": cmd_modr_install
+            "install": cmd_modr_install,
+            "status": cmd_modr_status,
+            "activate": cmd_modr_activate,
         }
         return handlers
 
@@ -70,7 +86,7 @@ def load(pmc):
             lines.append((
                 f"{data_offset + i + 1}",
                 hit["slug"],
-                add_string_ellipsis(hit["title"], 24),
+                pmc.ellipsis_str(hit["title"], 24),
                 hit["author"],
                 pmc.format_number(hit["downloads"]).lstrip()
             ))
@@ -82,8 +98,18 @@ def load(pmc):
     def cmd_modr_install(ns: Namespace, ctx: CliContext):
 
         specifiers: List[str] = ns.specifier
+        yes: bool = ns.yes
+
         mods_dir = path.join(ctx.work_dir, "mods")
         dl_list = DownloadList()
+
+        groups = set()
+
+        metadata = read_meta_file(ctx)
+        metadata_activated = metadata.get("activated", [])
+        metadata_packs = metadata.get("packs")
+        if metadata_packs is None:
+            metadata_packs = metadata["packs"] = {}
 
         for specifier in specifiers:
 
@@ -110,7 +136,7 @@ def load(pmc):
                             mod_game_version = mod_game_version[:dash_index]
 
             task_msg_args = {"specifier": specifier}
-            pmc.print_task("", "modrinth.install.working", task_msg_args)
+            pmc.print_task("", "modrinth.install.searching", task_msg_args)
 
             # Requesting API for all available versions
             mod_data = request_api_v1(f"mod/{mod_slug_or_id}")
@@ -168,46 +194,146 @@ def load(pmc):
             selected_file = selected_version_data["files"][0]
             selected_file_sha1 = selected_file["hashes"].get("sha1")
 
-            dst_file_name = f"{mod_slug}-{mod_loader}-{mod_game_version}-{mod_artifact_id}.jar"
-            dst_file_path = path.join(mods_dir, f"{mod_game_version}-{mod_loader}", dst_file_name)
+            dst_dir = f"{mod_game_version}-{mod_loader}"
+            dst_file_name = f"{mod_slug}-{mod_game_version}-{mod_loader}-{mod_artifact_id}.jar"
+            dst_file_path = path.join(mods_dir, dst_dir, dst_file_name)
 
-            dl_entry = DownloadEntry(selected_file["url"], dst_file_path, sha1=selected_file_sha1, name=dst_file_name)
-            dl_list.append(dl_entry)
+            # Add to meta
+            metadata_pack = metadata_packs.get(dst_dir)
+            if metadata_pack is None:
+                metadata_pack = metadata_packs[dst_dir] = {}
 
-            pmc.print_task("OK", "modrinth.install.resolved", {
-                "specifier": f"{mod_slug}/{mod_artifact_id}@{mod_game_version}-{mod_loader}"
+            mod_status = ""
+            mod_must_install = True
+            metadata_mod_file = metadata_pack.get(mod_slug)
+            if metadata_mod_file is not None:
+                if metadata_mod_file == dst_file_name:
+                    mod_status = pmc.get_message("modrinth.install.already_installed")
+                    mod_must_install = False
+                else:
+                    mod_status = pmc.get_message("modrinth.install.already_installed_another_version")
+                    old_file_path = path.join(mods_dir, dst_dir, metadata_mod_file)
+                    os.remove(old_file_path)
+
+            pmc.print_task("OK", "modrinth.install.found", {
+                "specifier": mod_slug,
+                "artifact_id": mod_artifact_id,
+                "loader": mod_loader,
+                "game_version": mod_game_version,
+                "status": mod_status
             }, done=True)
+
+            if mod_must_install:
+
+                metadata_pack[mod_slug] = dst_file_name
+
+                dl_entry = DownloadEntry(selected_file["url"], dst_file_path, sha1=selected_file_sha1, name=dst_file_name)
+                dl_list.append(dl_entry)
+
+                # Add the game version and mod loader to groups set
+                groups.add((mod_loader, mod_game_version))
+
+                # If the pack (dest. directory) is currently activated
+                if dst_dir in metadata_activated:
+                    mod_link = path.join(mods_dir, dst_file_name)
+                    def _link_mod():
+                        os.symlink(dst_file_path, mod_link)
+                    dl_list.add_callback(_link_mod)
+
+        if len(groups) == 0:
+            pmc.print_task(None, "modrinth.install.everything_already_installed", done=True)
+            sys.exit(pmc.EXIT_OK)
+        if not yes:
+            if len(groups) > 1:
+                # If there is more that one
+                pmc.print_task(None, "modrinth.install.confirm_download_multiple_game_versions")
+                print(" [y/N] ", end="")
+                if pmc.prompt().lower() != "y":
+                    pmc.print_task(None, "modrinth.install.abort", done=True)
+                    sys.exit(pmc.EXIT_FAILURE)
+            else:
+                pmc.print_task(None, "modrinth.install.confirm_download")
+                print(" [Y/n] ", end="")
+                if pmc.prompt().lower() == "n":
+                    pmc.print_task(None, "modrinth.install.abort", done=True)
+                    sys.exit(pmc.EXIT_FAILURE)
 
         # Start download
         pmc.pretty_download(dl_list)
 
-        # TODO: Syntax
-        # <mod_id>[/<mod_artifact_id>][@<game_version_id>[-<forge|fabric>]]
-        #
-        # sodium@1.17.1
-        # sodium@1.17.1-fabric
-        # sodium/mc1.17.1-0.3.2
-        #
-        # sodium/mc1.16.3-0.1.0
-        # sodium/mc1.16.3-0.1.0@1.16.5
-        # sodium/mc1.16.3-0.1.0@1.16.3
-        # sodium/mc1.16.3-0.1.0@1.16.5-fabric
-        #
-        # File structure will be like this:
-        # + mods
-        #   + fabric-1.17.1
-        #     + sodium-fabric-mc1.17.1-0.3.2.jar
-        #   + fabric-1.16.5
-        #     + sodium-fabric-mc1.16.3-0.1.0.jar
-        #   + fabric-1.16.3
-        #     + sodium-fabric-mc1.16.3-0.1.0.jar
+        # Update meta
+        write_meta_file(ctx, metadata)
 
-    def request_api_v1(path: str) -> dict:
+        sys.exit(pmc.EXIT_OK)
+
+    def cmd_modr_status(_ns: Namespace, ctx: CliContext):
+
+        _ = pmc.get_message
+
+        metadata = read_meta_file(ctx)
+        metadata_packs = metadata.get("packs", {})
+        metadata_activated = metadata.get("activated", [])
+
+        packs_table = [(
+            _("modrinth.status.packs.id"),
+            _("modrinth.status.packs.mods_count"),
+            _("modrinth.status.packs.activated"),
+        )]
+
+        for pack_id, mods in metadata_packs.items():
+            packs_table.append((pack_id, str(len(mods)), "yes" if pack_id in metadata_activated else "no"))
+
+        pmc.print_table(packs_table, header=0)
+
+    def cmd_modr_activate(ns: Namespace, ctx: CliContext):
+
+        pack_ids: List[str] = ns.pack_id
+
+        metadata = read_meta_file(ctx)
+        metadata_packs = metadata.get("packs", {})
+
+        metadata_activated = metadata.get("activated")
+        if metadata_activated is None:
+            metadata_activated = metadata["activated"] = []
+
+        for pack_id in pack_ids:
+
+            if pack_id in metadata_activated:
+                pmc.print_task("OK", "modrinth.activate.already_activated", {"pack_id": pack_id}, done=True)
+                sys.exit(pmc.EXIT_OK)
+            else:
+                metadata_pack = metadata_packs.get(pack_id)
+                if metadata_pack is None:
+                    pmc.print_task("FAILED", "modrinth.activate.not_found", {"pack_id": pack_id}, done=True)
+                    sys.exit(pmc.EXIT_FAILURE)
+                else:
+                    metadata_activated.append(pack_id)
+                    for mod_id, mod_file in metadata_pack.items():
+                        pmc.print_task("..", "modrinth.activate.linking", {"file_name": mod_file})
+                        mod_path = path.join(ctx.work_dir, "mods", pack_id, mod_file)
+                        mod_link_path = path.join(ctx.work_dir, "mods", mod_file)
+                        os.symlink(mod_path, mod_link_path)
+                    pmc.print_task("OK", "modrinth.activate.success", {"pack_id": pack_id}, done=True)
+
+        write_meta_file(ctx, metadata)
+
+    def request_api_v1(pth: str) -> dict:
         # print(f"https://api.modrinth.com/api/v1/{path}")
-        return pmc.json_simple_request(f"https://api.modrinth.com/api/v1/{path}")
+        return pmc.json_simple_request(f"https://api.modrinth.com/api/v1/{pth}")
 
-    def add_string_ellipsis(s: str, l: int) -> str:
-        return f"{s[:(l - 3)]}..." if len(s) > l else s
+    def get_meta_file(ctx: CliContext) -> str:
+        return path.join(ctx.work_dir, "mods", "portablemc_modrinth.json")
+
+    def read_meta_file(ctx: CliContext) -> dict:
+        try:
+            with open(get_meta_file(ctx), "rt") as meta_fp:
+                return json.load(meta_fp)
+        except (OSError, JSONDecodeError):
+            return {}
+
+    def write_meta_file(ctx: CliContext, data: dict):
+        with open(get_meta_file(ctx), "wt") as meta_fp:
+            json.dump(data, meta_fp, indent=2)
 
     # Messages
 
@@ -215,14 +341,21 @@ def load(pmc):
         "args.modrinth": "Modrinth mods manager for Fabric and Forge.",
         "args.modrinth.search": "Search for mods.",
         "args.modrinth.search.offset": "The offset within the results (defaults to 0).",
-        "args.modrinth.install": "Install mods.",
+        "args.modrinth.install": "Install mods (a list of the following syntax: "
+                                 "<mod_id>[/<mod_artifact_id>][@<game_version_id>[-<forge|fabric>]]).",
+        "args.modrinth.install.yes": "Do not ask for confirmation of installation.",
+        "args.modrinth.status": "Show current status of the mods directory and the list of installed versions or mod packs.",
+        "args.modrinth.activate": "Active a version or mod pack.",
+        "args.modrinth.activate.pack_id": "The pack id, you can find installed pack list using 'modr status'.",
         "modrinth.searching.index": "N°",
         "modrinth.searching.id": "Identifier",
         "modrinth.searching.name": "Name",
         "modrinth.searching.author": "Author",
         "modrinth.searching.downloads": "Downloads",
-        "modrinth.install.working": "Fetching mod {specifier}...",
-        "modrinth.install.resolved": "Resolved mod {specifier}.",
+        "modrinth.install.searching": "Searching mod {specifier}...",
+        "modrinth.install.found": "Found mod {specifier} ({artifact_id}) for {loader} on {game_version}. {status}",
+        "modrinth.install.already_installed": "Already installed.",
+        "modrinth.install.already_installed_another_version": "Already installed another version, overriding.",
         "modrinth.install.not_found": "Mod {specifier} not found.",
         "modrinth.install.requested_version_not_supported": "Found artifact {artifact} for mod {slug}, expected "
                                                             "{requested_version} version but {supported_versions} "
@@ -230,4 +363,16 @@ def load(pmc):
         "modrinth.install.requested_loader_not_supported": "Found artifact {artifact} for mod {slug}, expected "
                                                            "{requested_loader} loader but {supported_loaders} "
                                                            "are supported by the mod.",
+        "modrinth.install.confirm_download": "Confirm download?",
+        "modrinth.install.confirm_download_multiple_game_versions": "Found multiple loaders and/or games versions. "
+                                                                    "Confirm download?",
+        "modrinth.install.abort": "Abort install.",
+        "modrinth.install.everything_already_installed": "Everything is already installed.",
+        "modrinth.status.packs.id": "Pack ID",
+        "modrinth.status.packs.mods_count": "Mods count",
+        "modrinth.status.packs.activated": "Activated",
+        "modrinth.activate.already_activated": "Pack {pack_id} is already activated.",
+        "modrinth.activate.not_found": "Pack {pack_id} was not found.",
+        "modrinth.activate.linking": "Linking {file_name}...",
+        "modrinth.activate.success": "Activated pack {pack_id}."
     })
