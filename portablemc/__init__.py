@@ -1224,8 +1224,6 @@ class DownloadList:
                             if entry.size is None:
                                 entry.size = size  # Enforce entry size from the effective downloaded size.
                                 self.size += size
-                            if entry.sha1 is None:
-                                entry.sha1 = sha1.hexdigest()  # Enforce entry sha1.
                             break
 
                         total_size -= size  # If error happened, subtract the size and restart from latest total_size.
