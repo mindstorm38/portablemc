@@ -1,6 +1,6 @@
 from argparse import ArgumentParser, Namespace
+from typing import List, Dict, Optional
 import urllib.parse as urlparse
-from typing import List
 from os import path
 import sys
 import os
@@ -28,7 +28,9 @@ def load(pmc):
         register_modr_search_arguments(subparsers.add_parser("search", help=_("args.modrinth.search")))
         register_modr_install_arguments(subparsers.add_parser("install", help=_("args.modrinth.install")))
         register_modr_status_arguments(subparsers.add_parser("status", help=_("args.modrinth.status")))
-        register_modr_activate_arguments(subparsers.add_parser("activate", help=_("args.modrinth.activate")))
+        register_modr_link_arguments(subparsers.add_parser("link", help=_("args.modrinth.link")))
+        register_modr_unlink_arguments(subparsers.add_parser("unlink", help=_("args.modrinth.unlink")))
+        register_modr_purge_arguments(subparsers.add_parser("purge", help=_("args.modrinth.purge")))
 
     def register_modr_search_arguments(parser: ArgumentParser):
         _ = pmc.get_message
@@ -37,16 +39,23 @@ def load(pmc):
 
     def register_modr_install_arguments(parser: ArgumentParser):
         _ = pmc.get_message
-        # parser.add_argument("--type", help=_("args.modrinth.install."), default="release")
         parser.add_argument("-y", "--yes", help=_("args.modrinth.install.yes"), action="store_true")
         parser.add_argument("specifier", nargs="+")
 
     def register_modr_status_arguments(_parser: ArgumentParser):
         pass
 
-    def register_modr_activate_arguments(parser: ArgumentParser):
+    def register_modr_link_arguments(parser: ArgumentParser):
         _ = pmc.get_message
-        parser.add_argument("pack_id", nargs="+", help=_("args.modrinth.activate.pack_id"))
+        parser.add_argument("-o", "--override", help=_("args.modrinth.link.override"), action="store_true")
+        parser.add_argument("pack_id", nargs="+", help=_("args.modrinth.link.pack_id"))
+
+    def register_modr_unlink_arguments(parser: ArgumentParser):
+        _ = pmc.get_message
+        parser.add_argument("pack_id", nargs="+", help=_("args.modrinth.link.pack_id"))
+
+    def register_modr_purge_arguments(parser: ArgumentParser):
+        pass
 
     @pmc.mixin()
     def get_command_handlers(old):
@@ -55,7 +64,9 @@ def load(pmc):
             "search": cmd_modr_search,
             "install": cmd_modr_install,
             "status": cmd_modr_status,
-            "activate": cmd_modr_activate,
+            "link": cmd_modr_link,
+            "unlink": cmd_modr_unlink,
+            "purge": cmd_modr_purge
         }
         return handlers
 
@@ -106,10 +117,6 @@ def load(pmc):
         groups = set()
 
         metadata = read_meta_file(ctx)
-        metadata_activated = metadata.get("activated", [])
-        metadata_packs = metadata.get("packs")
-        if metadata_packs is None:
-            metadata_packs = metadata["packs"] = {}
 
         for specifier in specifiers:
 
@@ -195,17 +202,12 @@ def load(pmc):
             selected_file_sha1 = selected_file["hashes"].get("sha1")
 
             dst_dir = f"{mod_game_version}-{mod_loader}"
-            dst_file_name = f"{mod_slug}-{mod_game_version}-{mod_loader}-{mod_artifact_id}.jar"
+            dst_file_name = f"{mod_slug}-{mod_artifact_id}-{mod_game_version}-{mod_loader}.jar"
             dst_file_path = path.join(mods_dir, dst_dir, dst_file_name)
-
-            # Add to meta
-            metadata_pack = metadata_packs.get(dst_dir)
-            if metadata_pack is None:
-                metadata_pack = metadata_packs[dst_dir] = {}
 
             mod_status = ""
             mod_must_install = True
-            metadata_mod_file = metadata_pack.get(mod_slug)
+            metadata_mod_file = metadata.get_mod(dst_dir, mod_slug)
             if metadata_mod_file is not None:
                 if metadata_mod_file == dst_file_name:
                     mod_status = pmc.get_message("modrinth.install.already_installed")
@@ -225,7 +227,7 @@ def load(pmc):
 
             if mod_must_install:
 
-                metadata_pack[mod_slug] = dst_file_name
+                metadata.add_mod(dst_dir, mod_slug, dst_file_name)
 
                 dl_entry = DownloadEntry(selected_file["url"], dst_file_path, sha1=selected_file_sha1, name=dst_file_name)
                 dl_list.append(dl_entry)
@@ -234,7 +236,7 @@ def load(pmc):
                 groups.add((mod_loader, mod_game_version))
 
                 # If the pack (dest. directory) is currently activated
-                if dst_dir in metadata_activated:
+                if metadata.is_linked(dst_dir):
                     mod_link = path.join(mods_dir, dst_file_name)
                     def _link_mod():
                         os.symlink(dst_file_path, mod_link)
@@ -271,69 +273,144 @@ def load(pmc):
         _ = pmc.get_message
 
         metadata = read_meta_file(ctx)
-        metadata_packs = metadata.get("packs", {})
-        metadata_activated = metadata.get("activated", [])
 
         packs_table = [(
             _("modrinth.status.packs.id"),
             _("modrinth.status.packs.mods_count"),
-            _("modrinth.status.packs.activated"),
+            _("modrinth.status.packs.linked"),
         )]
 
-        for pack_id, mods in metadata_packs.items():
-            packs_table.append((pack_id, str(len(mods)), "yes" if pack_id in metadata_activated else "no"))
+        for pack_id in metadata.list_packs():
+            packs_table.append((
+                pack_id,
+                str(len(metadata.get_mods(pack_id))),
+                "yes" if metadata.is_linked(pack_id) else "no"
+            ))
 
         pmc.print_table(packs_table, header=0)
+        sys.exit(pmc.EXIT_OK)
 
-    def cmd_modr_activate(ns: Namespace, ctx: CliContext):
+    def cmd_modr_link(ns: Namespace, ctx: CliContext):
 
         pack_ids: List[str] = ns.pack_id
-
         metadata = read_meta_file(ctx)
-        metadata_packs = metadata.get("packs", {})
 
-        metadata_activated = metadata.get("activated")
-        if metadata_activated is None:
-            metadata_activated = metadata["activated"] = []
+        if ns.override:
+            unlink_all_packs(ctx, metadata)
 
         for pack_id in pack_ids:
-
-            if pack_id in metadata_activated:
-                pmc.print_task("OK", "modrinth.activate.already_activated", {"pack_id": pack_id}, done=True)
-                sys.exit(pmc.EXIT_OK)
+            if metadata.is_linked(pack_id):
+                pmc.print_message("modrinth.link.already_linked", {"pack_id": pack_id})
             else:
-                metadata_pack = metadata_packs.get(pack_id)
+                metadata_pack = metadata.get_mods(pack_id)
                 if metadata_pack is None:
-                    pmc.print_task("FAILED", "modrinth.activate.not_found", {"pack_id": pack_id}, done=True)
-                    sys.exit(pmc.EXIT_FAILURE)
+                    pmc.print_message("modrinth.link.not_found", {"pack_id": pack_id})
                 else:
-                    metadata_activated.append(pack_id)
+                    metadata.set_linked(pack_id, True)
                     for mod_id, mod_file in metadata_pack.items():
-                        pmc.print_task("..", "modrinth.activate.linking", {"file_name": mod_file})
+                        pmc.print_message("modrinth.link.linking", {"file_name": mod_file})
                         mod_path = path.join(ctx.work_dir, "mods", pack_id, mod_file)
                         mod_link_path = path.join(ctx.work_dir, "mods", mod_file)
                         os.symlink(mod_path, mod_link_path)
-                    pmc.print_task("OK", "modrinth.activate.success", {"pack_id": pack_id}, done=True)
+                    pmc.print_message("modrinth.link.success", {"pack_id": pack_id})
 
         write_meta_file(ctx, metadata)
+        sys.exit(pmc.EXIT_OK)
+
+    def cmd_modr_unlink(ns: Namespace, ctx: CliContext):
+
+        pack_ids: List[str] = ns.pack_id
+        metadata = read_meta_file(ctx)
+
+        for pack_id in pack_ids:
+            if metadata.is_linked(pack_id):
+                unlink_pack(ctx, metadata, pack_id)
+            elif metadata.has_pack(pack_id):
+                pmc.print_message("modrinth.unlink.already_unlinked", {"pack_id": pack_id})
+            else:
+                pmc.print_message("modrinth.unlink.not_found", {"pack_id": pack_id})
+
+        write_meta_file(ctx, metadata)
+        sys.exit(pmc.EXIT_OK)
+
+    def cmd_modr_purge(_ns: Namespace, ctx: CliContext):
+        metadata = read_meta_file(ctx)
+        unlink_all_packs(ctx, metadata)
+        write_meta_file(ctx, metadata)
+
+    def unlink_all_packs(ctx: CliContext, metadata: 'StatusMeta'):
+        # Internal purge function
+        for pack_id in metadata.list_packs():
+            if metadata.is_linked(pack_id):
+                unlink_pack(ctx, metadata, pack_id)
+
+    def unlink_pack(ctx: CliContext, metadata: 'StatusMeta', pack_id: str):
+        # Internal function
+        for mod_file in metadata.get_mods(pack_id).values():
+            pmc.print_message("modrinth.unlink.unlinking", {"file_name": mod_file})
+            try:
+                os.unlink(path.join(ctx.work_dir, "mods", mod_file))
+            except OSError:
+                pass
+        metadata.set_linked(pack_id, False)
+        pmc.print_message("modrinth.unlink.success", {"pack_id": pack_id})
 
     def request_api_v1(pth: str) -> dict:
-        # print(f"https://api.modrinth.com/api/v1/{path}")
         return pmc.json_simple_request(f"https://api.modrinth.com/api/v1/{pth}")
+
+    class StatusMeta:
+
+        def __init__(self, data):
+            self.data = data
+
+        def add_mod(self, pack_id: str, mod_id: str, mod_file: str):
+            packs = self.data.get("packs")
+            if packs is None:
+                packs = self.data["packs"] = {}
+            pack = packs.get(pack_id)
+            if pack is None:
+                pack = packs[pack_id] = {}
+            mods = pack.get("mods")
+            if mods is None:
+                mods = pack["mods"] = {}
+            mods[mod_id] = mod_file
+
+        def has_pack(self, pack_id: str) -> bool:
+            return pack_id in self.data.get("packs", {})
+
+        def list_packs(self) -> List[str]:
+            return list(self.data.get("packs", {}).keys())
+
+        def get_mods(self, pack_id: str) -> Optional[Dict[str, str]]:
+            pack = self.data.get("packs", {}).get(pack_id)
+            return None if pack is None else pack.get("mods", {})
+
+        def get_mod(self, pack_id: str, mod_id: str) -> Optional[str]:
+            mods = self.get_mods(pack_id)
+            return None if mods is None else mods.get(mod_id)
+
+        def is_linked(self, pack_id: str) -> bool:
+            return self.data.get("packs", {}).get(pack_id, {}).get("linked", False)
+
+        def set_linked(self, pack_id: str, active: bool):
+            pack = self.data.get("packs", {}).get(pack_id)
+            if pack is not None:
+                pack["linked"] = active
 
     def get_meta_file(ctx: CliContext) -> str:
         return path.join(ctx.work_dir, "mods", "portablemc_modrinth.json")
 
-    def read_meta_file(ctx: CliContext) -> dict:
+    def read_meta_file(ctx: CliContext) -> StatusMeta:
         try:
             with open(get_meta_file(ctx), "rt") as meta_fp:
-                return json.load(meta_fp)
+                return StatusMeta(json.load(meta_fp))
         except (OSError, JSONDecodeError):
-            return {}
+            return StatusMeta({})
 
-    def write_meta_file(ctx: CliContext, data: dict):
+    def write_meta_file(ctx: CliContext, meta: StatusMeta):
         with open(get_meta_file(ctx), "wt") as meta_fp:
-            json.dump(data, meta_fp, indent=2)
+            json.dump(meta.data, meta_fp, indent=2)
+
 
     # Messages
 
@@ -345,8 +422,11 @@ def load(pmc):
                                  "<mod_id>[/<mod_artifact_id>][@<game_version_id>[-<forge|fabric>]]).",
         "args.modrinth.install.yes": "Do not ask for confirmation of installation.",
         "args.modrinth.status": "Show current status of the mods directory and the list of installed versions or mod packs.",
-        "args.modrinth.activate": "Active a version or mod pack.",
-        "args.modrinth.activate.pack_id": "The pack id, you can find installed pack list using 'modr status'.",
+        "args.modrinth.link": "Link a mod pack.",
+        "args.modrinth.link.pack_id": "The pack id, you can find installed pack list using 'modr status'.",
+        "args.modrinth.link.override": "Unlinking all previous packs before linking.",
+        "args.modrinth.unlink": "Unlink a mod pack.",
+        "args.modrinth.purge": "Unlink all mod packs.",
         "modrinth.searching.index": "N°",
         "modrinth.searching.id": "Identifier",
         "modrinth.searching.name": "Name",
@@ -370,9 +450,13 @@ def load(pmc):
         "modrinth.install.everything_already_installed": "Everything is already installed.",
         "modrinth.status.packs.id": "Pack ID",
         "modrinth.status.packs.mods_count": "Mods count",
-        "modrinth.status.packs.activated": "Activated",
-        "modrinth.activate.already_activated": "Pack {pack_id} is already activated.",
-        "modrinth.activate.not_found": "Pack {pack_id} was not found.",
-        "modrinth.activate.linking": "Linking {file_name}...",
-        "modrinth.activate.success": "Activated pack {pack_id}."
+        "modrinth.status.packs.linked": "Linked",
+        "modrinth.link.already_linked": "Pack {pack_id} is already linked.",
+        "modrinth.link.not_found": "Pack {pack_id} was not found.",
+        "modrinth.link.linking": "Linking {file_name}",
+        "modrinth.link.success": "Linked pack {pack_id}.",
+        "modrinth.unlink.already_unlinked": "Pack {pack_id} is already unlinked.",
+        "modrinth.unlink.not_found": "Pack {pack_id} was not found, it cannot be unlinked.",
+        "modrinth.unlink.unlinking": "Unlinking {file_name}",
+        "modrinth.unlink.success": "Unlinked pack {pack_id}.",
     })
