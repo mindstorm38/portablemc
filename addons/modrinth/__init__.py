@@ -97,7 +97,7 @@ def load(pmc):
             lines.append((
                 f"{data_offset + i + 1}",
                 hit["slug"] or hit["mod_id"][6:],
-                pmc.ellipsis_str(hit["title"], 24),
+                hit["title"],
                 hit["author"],
                 pmc.format_number(hit["downloads"]).lstrip()
             ))

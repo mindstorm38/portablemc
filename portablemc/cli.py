@@ -558,7 +558,7 @@ def cmd_show_auth(_ns: Namespace, ctx: CliContext):
 def cmd_show_lang(_ns: Namespace, _ctx: CliContext):
     lines = []
     for key, msg in messages.items():
-        lines.append((key, ellipsis_str(msg, 50)))
+        lines.append((key, msg))
     lines.sort(key=lambda tup: tup[0])
     lines.insert(0, ("Key", "Message"))  # Intentionally not i18n for now
     print_table(lines, header=0)
@@ -952,10 +952,13 @@ def prompt(password: bool = False) -> Optional[str]:
 
 
 def print_table(lines: List[Tuple[str, ...]], *, header: int = -1):
+
     if not len(lines):
         return
+
     columns_count = len(lines[0])
     columns_length = [0] * columns_count
+
     for line in lines:
         if len(line) != columns_count:
             raise ValueError(f"Inconsistent cell count '{line}', expected {columns_count}.")
@@ -963,11 +966,29 @@ def print_table(lines: List[Tuple[str, ...]], *, header: int = -1):
             cell_len = len(cell)
             if columns_length[i] < cell_len:
                 columns_length[i] = cell_len
+
+    print(f"{columns_length=}")
+
+    total_length = 1 + sum(x + 3 for x in columns_length)
+    max_length = get_term_width() - 1
+    print(f"{total_length=}, {max_length=}")
+    if total_length > max_length:
+        overflow_length = total_length - max_length
+        total_cell_length = sum(columns_length)
+        print(f"{overflow_length=}, {total_cell_length=}")
+        for i in range(columns_count):
+            cell_overflow_length = int(columns_length[i] / total_cell_length * overflow_length)
+            print(f"#{i}   {cell_overflow_length=}")
+            overflow_length -= cell_overflow_length
+            columns_length[i] -= cell_overflow_length
+            if i == columns_count - 1:
+                columns_length[i] -= overflow_length
+
     format_string = "│ {} │".format(" │ ".join((f"{{:{length}s}}" for length in columns_length)))
     columns_lines = ["─" * length for length in columns_length]
     print("┌─{}─┐".format("─┬─".join(columns_lines)))
     for i, line in enumerate(lines):
-        print(format_string.format(*line))
+        print(format_string.format(*(ellipsis_str(cell, columns_length[j]) for j, cell in enumerate(line))))
         if i == header:
             print("├─{}─┤".format("─┼─".join(columns_lines)))
     print("└─{}─┘".format("─┴─".join(columns_lines)))
