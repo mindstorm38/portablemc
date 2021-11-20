@@ -30,6 +30,7 @@ stateless manner. You can now customize the launcher with addons.
   - [Fabric support](#fabric-support)
   - [Better console](#better-console)
   - [Archives support](#archives-support)
+  - [Modrinth mod management](#modrinth-mod-management-wip)
 
 # Installation
 The launcher can be installed in several ways, including Python Package Index *(PyPI)* or manually using the 
@@ -170,7 +171,7 @@ To install addons you have to run `addon dirs` to get all directories where you 
 To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons).
 
 ## Fabric support
-[**Download**](https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/fabric)
+[**Download (1.0.0)**](https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/fabric)
 
 Fabric is now supported through the addon `fabric`.
 
@@ -189,7 +190,7 @@ manage mods was planed but this is not possible for now due to complex APIs and 
 ![fabric animation](https://github.com/mindstorm38/portablemc/blob/master/doc/fabricmc.gif?raw=true)
 
 ## Better console
-[**Download**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/console)
+[**Download (1.0.0)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/console)
 
 An addon named `console` can be used to display the Minecraft process' console, this is useful to debug the game when
 it crashes multiple times, or simply if you can to track what's going on.
@@ -198,7 +199,7 @@ section with summary of the running session and Minecraft version, output lines 
 navigate the output buffer.
 
 ## Archives support
-[**Download**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/archives)
+[**Download (1.0.0)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/archives)
 
 An addon named `archives` allows you to launch archived Minecraft versions.
 This addon extends the [start sub-command](#start-the-game) and you can use `arc:` prefix, for exemple `start arc:a1.1.1`
@@ -213,3 +214,13 @@ All types of archived versions are supported:
 - [Infdev](https://archive.org/details/Minecraft-JE-Infdev)
 - [Alpha](https://archive.org/details/Minecraft-JE-Alpha)
 - [Beta](https://archive.org/details/Minecraft-JE-Beta)
+
+## Modrinth mod management (W.I.P.)
+[**Download (1.0.0-pre1)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/modrinth)
+
+An addon named `modrinth` that provides a sub-command `modr` to manage mod installation in the `mods` directory used
+by Fabric and Forge mod loaders. This addon is based on the Modrinth API, which is an open-source mods' distribution
+platform. Owners choose or not to put their mod on Modrinth so some popular mods cannot be found, but most recent 
+ones like CaffeineMC's mods (sodium, hydrogen) are available. Some Forge mods are also available.
+
+Use the `portablemc modr -h` to get general help message.
