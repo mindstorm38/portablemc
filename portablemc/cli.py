@@ -967,18 +967,13 @@ def print_table(lines: List[Tuple[str, ...]], *, header: int = -1):
             if columns_length[i] < cell_len:
                 columns_length[i] = cell_len
 
-    print(f"{columns_length=}")
-
     total_length = 1 + sum(x + 3 for x in columns_length)
     max_length = get_term_width() - 1
-    print(f"{total_length=}, {max_length=}")
     if total_length > max_length:
         overflow_length = total_length - max_length
         total_cell_length = sum(columns_length)
-        print(f"{overflow_length=}, {total_cell_length=}")
         for i in range(columns_count):
             cell_overflow_length = int(columns_length[i] / total_cell_length * overflow_length)
-            print(f"#{i}   {cell_overflow_length=}")
             overflow_length -= cell_overflow_length
             columns_length[i] -= cell_overflow_length
             if i == columns_count - 1:
