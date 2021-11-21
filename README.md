@@ -216,7 +216,7 @@ All types of archived versions are supported:
 - [Beta](https://archive.org/details/Minecraft-JE-Beta)
 
 ## Modrinth mod management (W.I.P.)
-[**Download (1.0.0-pre1)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/modrinth)
+[**Download (1.0.0-pre2)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/modrinth)
 
 An addon named `modrinth` that provides a sub-command `modr` to manage mod installation in the `mods` directory used
 by Fabric and Forge mod loaders. This addon is based on the Modrinth API, which is an open-source mods' distribution
