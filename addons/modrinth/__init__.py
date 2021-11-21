@@ -1,5 +1,5 @@
+from typing import List, Dict, Optional, Iterable
 from argparse import ArgumentParser, Namespace
-from typing import List, Dict, Optional
 import urllib.parse as urlparse
 from os import path
 import sys
@@ -48,6 +48,7 @@ def load(pmc):
     def register_modr_link_arguments(parser: ArgumentParser):
         _ = pmc.get_message
         parser.add_argument("-o", "--override", help=_("args.modrinth.link.override"), action="store_true")
+        parser.add_argument("--allow-collision", help=_("args.modrinth.link.allow_collision"), action="store_true")
         parser.add_argument("pack_id", nargs="+", help=_("args.modrinth.link.pack_id"))
 
     def register_modr_unlink_arguments(parser: ArgumentParser):
@@ -288,6 +289,20 @@ def load(pmc):
             ))
 
         pmc.print_table(packs_table, header=0)
+
+        mods_table = [(
+            _("modrinth.status.mods.pack_id"),
+            _("modrinth.status.mods.mod_id"),
+            _("modrinth.status.mods.mod_file"),
+        )]
+
+        for pack_id in metadata.list_packs():
+            if metadata.is_linked(pack_id):
+                for mod_id, mod_file in metadata.get_mods(pack_id).items():
+                    mods_table.append((pack_id, mod_id, mod_file))
+
+        pmc.print_table(mods_table, header=0)
+
         sys.exit(pmc.EXIT_OK)
 
     def cmd_modr_link(ns: Namespace, ctx: CliContext):
@@ -302,17 +317,34 @@ def load(pmc):
             if metadata.is_linked(pack_id):
                 pmc.print_message("modrinth.link.already_linked", {"pack_id": pack_id})
             else:
-                metadata_pack = metadata.get_mods(pack_id)
-                if metadata_pack is None:
+                pack_mods = metadata.get_mods(pack_id)
+                if pack_mods is None:
                     pmc.print_message("modrinth.link.not_found", {"pack_id": pack_id})
                 else:
-                    metadata.set_linked(pack_id, True)
-                    for mod_id, mod_file in metadata_pack.items():
-                        pmc.print_message("modrinth.link.linking", {"file_name": mod_file})
-                        mod_path = path.join(ctx.work_dir, "mods", pack_id, mod_file)
-                        mod_link_path = path.join(ctx.work_dir, "mods", mod_file)
-                        os.symlink(mod_path, mod_link_path)
-                    pmc.print_message("modrinth.link.success", {"pack_id": pack_id})
+                    colliding = False
+                    if not ns.allow_collision:
+                        for mod_id in pack_mods.keys():
+                            for pack_id_with_mod in metadata.get_packs_with_mod(mod_id):
+                                if metadata.is_linked(pack_id_with_mod):
+                                    colliding = True
+                                    pmc.print_message("modrinth.link.mod_collision", {
+                                        "pack_id": pack_id,
+                                        "colliding_pack_id": pack_id_with_mod,
+                                        "colliding_mod_id": mod_id
+                                    })
+                    if not colliding:
+                        try:
+                            for mod_id, mod_file in pack_mods.items():
+                                mod_path = path.join(ctx.work_dir, "mods", pack_id, mod_file)
+                                mod_link_path = path.join(ctx.work_dir, "mods", mod_file)
+                                os.symlink(mod_path, mod_link_path)
+                                pmc.print_message("modrinth.link.linked", {"file_name": mod_file})
+                            metadata.set_linked(pack_id, True)
+                            pmc.print_message("modrinth.link.success", {"pack_id": pack_id})
+                        except OSError as e:
+                            if hasattr(e, "winerror") and e.winerror == 1314:
+                                pmc.print_message("modrinth.link.win_missing_privilege", critical=True)
+                                sys.exit(pmc.EXIT_FAILURE)
 
         write_meta_file(ctx, metadata)
         sys.exit(pmc.EXIT_OK)
@@ -389,6 +421,12 @@ def load(pmc):
             mods = self.get_mods(pack_id)
             return None if mods is None else mods.get(mod_id)
 
+        def get_packs_with_mod(self, mod_id: str) -> Iterable[str]:
+            for pack_id, pack_data in self.data.get("packs", {}).items():
+                if mod_id in pack_data.get("mods", {}):
+                    yield pack_id
+                    continue
+
         def is_linked(self, pack_id: str) -> bool:
             return self.data.get("packs", {}).get(pack_id, {}).get("linked", False)
 
@@ -425,6 +463,7 @@ def load(pmc):
         "args.modrinth.link": "Link a mod pack.",
         "args.modrinth.link.pack_id": "The pack id, you can find installed pack list using 'modr status'.",
         "args.modrinth.link.override": "Unlinking all previous packs before linking.",
+        "args.modrinth.link.allow_collision": "Allow the pack to install if one of its mod is already linked by another pack.",
         "args.modrinth.unlink": "Unlink a mod pack.",
         "args.modrinth.purge": "Unlink all mod packs.",
         "modrinth.searching.index": "N°",
@@ -451,10 +490,18 @@ def load(pmc):
         "modrinth.status.packs.id": "Pack ID",
         "modrinth.status.packs.mods_count": "Mods count",
         "modrinth.status.packs.linked": "Linked",
+        "modrinth.status.mods.pack_id": "Linked pack ID",
+        "modrinth.status.mods.mod_id": "Mod ID",
+        "modrinth.status.mods.mod_file": "Mod file",
         "modrinth.link.already_linked": "Pack {pack_id} is already linked.",
         "modrinth.link.not_found": "Pack {pack_id} was not found.",
-        "modrinth.link.linking": "Linking {file_name}",
+        "modrinth.link.mod_collision": "Mod {colliding_mod_id} is already linked from the pack {colliding_pack_id}, "
+                                       "could not link {pack_id}. Use --allow-collision flag to disable this check.",
+        "modrinth.link.linked": "Linked {file_name}",
         "modrinth.link.success": "Linked pack {pack_id}.",
+        "modrinth.link.win_missing_privilege": "Missing symbolic links privilege, this is specific to Windows. Run it "
+                                               "in administrator mode or search on the web how to enable this "
+                                               "privilege. A workaround might be implemented in the future.",
         "modrinth.unlink.already_unlinked": "Pack {pack_id} is already unlinked.",
         "modrinth.unlink.not_found": "Pack {pack_id} was not found, it cannot be unlinked.",
         "modrinth.unlink.unlinking": "Unlinking {file_name}",
