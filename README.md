@@ -31,6 +31,7 @@ stateless manner. You can now customize the launcher with addons.
   - [Better console](#better-console)
   - [Archives support](#archives-support)
   - [Modrinth mod management](#modrinth-mod-management-wip)
+- [Contributors](#contributors)
 
 # Installation
 The launcher can be installed in several ways, including Python Package Index *(PyPI)* or manually using the 
@@ -224,3 +225,10 @@ platform. Owners choose or not to put their mod on Modrinth so some popular mods
 ones like CaffeineMC's mods (sodium, hydrogen) are available. Some Forge mods are also available.
 
 Use the `portablemc modr -h` to get general help message.
+
+# Contributors
+This launcher would not be as functional without the contributors, and in particular the following for their bug reports
+and suggestions to make the launcher better: [GoodDay360](https://github.com/GoodDay360) and [Ristovski](https://github.com/Ristovski).
+
+There must be a lot of hidden issues, if you want to contribute you just have to install and test the launcher, and
+report every issue you encounter, do not hesitate!
