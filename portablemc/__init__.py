@@ -762,9 +762,8 @@ class YggdrasilAuthSession(AuthSession):
 
     @classmethod
     def fix_data(cls, data: dict):
-        client_token = data.pop("client_token")
-        if client_token is not None:
-            data["client_id"] = client_token
+        if "client_token" in data:
+            data["client_id"] = data.pop("client_token")
 
     def __init__(self):
         super().__init__()
@@ -826,10 +825,8 @@ class MicrosoftAuthSession(AuthSession):
 
     @classmethod
     def fix_data(cls, data: dict):
-        if "app_id" not in data:
-            client_id = data.pop("client_id")
-            if client_id is not None:
-                data["app_id"] = client_id
+        if "app_id" not in data and "client_id" in data:
+            data["app_id"] = data.pop("client_id")
         if "client_id" not in data or not len(data["client_id"]):
             data["client_id"] = str(uuid4())
         if "xuid" not in data:
