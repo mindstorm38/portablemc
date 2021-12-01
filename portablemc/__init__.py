@@ -557,19 +557,16 @@ class Start:
             username = opts.auth_session.username
         else:
             namespace_hash = UUID("8df5a464-38de-11ec-aa66-3fd636ee2ed7")
-            username = None
-            if opts.uuid is None:
-                if opts.username is None:
-                    uuid = uuid5(namespace_hash, platform.node()).hex
-                else:
-                    username = opts.username[:16]
-                    uuid = uuid5(namespace_hash, username).hex
-            else:
-                uuid = opts.uuid.replace("-", "").lower()
-            if username is None:
+            uuid_valid = opts.uuid is not None and len(opts.uuid) == 32
+            if uuid_valid:
+                uuid = opts.uuid
+                username = uuid[:8] if opts.username is None else opts.username[:16]
+            elif opts.username is None:
+                uuid = uuid5(namespace_hash, platform.node()).hex
                 username = uuid[:8]
-            # uuid = uuid4().hex if opts.uuid is None else opts.uuid.replace("-", "").lower()
-            # username = uuid[:8] if opts.username is None else opts.username[:16]  # Max username length is 16
+            else:
+                username = opts.username[:16]
+                uuid = uuid5(namespace_hash, username).hex
 
         # Arguments replacements
         self.args_replacements = {
