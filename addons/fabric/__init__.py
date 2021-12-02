@@ -94,7 +94,10 @@ def load(pmc):
                     "type": get_version_type(manifest, game_version),
                     "mainClass": loader_launcher_meta["mainClass"]["client"],
                     "arguments": {
-                        "game": []
+                        "game": [],
+                        "jvm": [
+                            # TODO: Might add "-DFabricMcEmu= net.minecraft.client.main.Main " in the future.
+                        ]
                     },
                     "libraries": version_libraries
                 }
