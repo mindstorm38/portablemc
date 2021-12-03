@@ -916,6 +916,10 @@ class MicrosoftAuthSession(AuthSession):
 
         # Microsoft OAuth
         _, res = cls.ms_request("https://login.live.com/oauth20_token.srf", request_token_payload, payload_url_encoded=True)
+
+        if "error" in res:
+            raise AuthError(AuthError.MICROSOFT_OUTDATED_TOKEN)
+
         ms_refresh_token = res.get("refresh_token")
 
         # Xbox Live Token
