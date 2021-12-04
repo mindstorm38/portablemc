@@ -260,6 +260,11 @@ def get_addon(id_: str) -> Optional[CliAddon]:
     return addons.get(id_)
 
 
+def get_addon_mod(id_: str) -> Optional[ModuleType]:
+    addon = addons.get(id_)
+    return None if addon is None else addon.module
+
+
 # CLI Parser
 
 def register_arguments() -> ArgumentParser:
