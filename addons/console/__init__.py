@@ -18,20 +18,12 @@ from threading import Thread
 import asyncio
 import shutil
 
+from portablemc import Version, Start, cli as pmc
 
-def load(pmc):
 
-    Version = pmc.Version
-    Start = pmc.Start
+def load(_pmc):
 
-    pmc.messages.update({
-        "args.start.no_console": "Disable the process' console from the 'console' addon.",
-        "args.start.single_exit": "For richer terminal, when Minecraft process is terminated, do "
-                                  "not ask for Ctrl+C to effectively exit the terminal.",
-        "start.console.title": "Minecraft {version} • {username} • {uuid}",
-        "start.console.command_line": "Command line: {line}",
-        "start.console.confirm_close": "Minecraft process has terminated, Ctrl+C again to close terminal."
-    })
+    # Private mixins
 
     @pmc.mixin()
     def register_start_arguments(old, parser: ArgumentParser):
@@ -50,94 +42,107 @@ def load(pmc):
         start.runner = runner_wrapper
         return start
 
-    def build_application(container: Container, keys: KeyBindings) -> Application:
-        return Application(
-            layout=Layout(container),
-            key_bindings=keys,
-            full_screen=True,
-            style=Style([
-                ("header", "bg:#005fff fg:black")
-            ])
-        )
+    # Messages
 
-    def runner(old, bin_dir: str, args: List[str], cwd: str, ns: Namespace, start: Start) -> None:
+    pmc.messages.update({
+        "args.start.no_console": "Disable the process' console from the 'console' addon.",
+        "args.start.single_exit": "For richer terminal, when Minecraft process is terminated, do "
+                                  "not ask for Ctrl+C to effectively exit the terminal.",
+        "start.console.title": "Minecraft {version} • {username} • {uuid}",
+        "start.console.command_line": "Command line: {line}",
+        "start.console.confirm_close": "Minecraft process has terminated, Ctrl+C again to close terminal."
+    })
 
-        if ns.no_console:
-            old(args, cwd)
-            return
 
-        _ = pmc.get_message
-
-        title_text = _("start.console.title", version=start.version.id, username=start.get_username(), uuid=start.get_uuid())
-
-        buffer_window = RollingLinesWindow(400, lexer=ColoredLogLexer(), last_line_return=True)
-        buffer_window.append(_("start.console.command_line", line=" ".join(args)), "")
-
-        container = HSplit([
-            VSplit([
-                Window(width=2),
-                Window(FormattedTextControl(text=title_text)),
-            ], height=1, style="class:header"),
-            VSplit([
-                Window(width=1),
-                buffer_window,
-                Window(width=1)
-            ])
+def build_application(container: Container, keys: KeyBindings) -> Application:
+    return Application(
+        layout=Layout(container),
+        key_bindings=keys,
+        full_screen=True,
+        style=Style([
+            ("header", "bg:#005fff fg:black")
         ])
+    )
 
-        keys = KeyBindings()
-        double_exit = not ns.single_exit
 
-        @keys.add("c-c")
-        def _exit(event: KeyPressEvent):
-            nonlocal process
-            if not double_exit or process is None:
-                event.app.exit()
+def runner(old, bin_dir: str, args: List[str], cwd: str, ns: Namespace, start: Start) -> None:
+
+    if ns.no_console:
+        old(args, cwd)
+        return
+
+    _ = pmc.get_message
+
+    title_text = _("start.console.title", version=start.version.id, username=start.get_username(), uuid=start.get_uuid())
+
+    buffer_window = RollingLinesWindow(400, lexer=ColoredLogLexer(), last_line_return=True)
+    buffer_window.append(_("start.console.command_line", line=" ".join(args)), "")
+
+    container = HSplit([
+        VSplit([
+            Window(width=2),
+            Window(FormattedTextControl(text=title_text)),
+        ], height=1, style="class:header"),
+        VSplit([
+            Window(width=1),
+            buffer_window,
+            Window(width=1)
+        ])
+    ])
+
+    keys = KeyBindings()
+    double_exit = not ns.single_exit
+
+    @keys.add("c-c")
+    def _exit(event: KeyPressEvent):
+        nonlocal process
+        if not double_exit or process is None:
+            event.app.exit()
+        else:
+            process.kill()
+
+    application = build_application(container, keys)
+    process = Popen(args, cwd=cwd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True)
+
+    async def _run_process():
+        nonlocal process
+        stdout_reader = ThreadedProcessReader(cast(TextIO, process.stdout))
+        stderr_reader = ThreadedProcessReader(cast(TextIO, process.stderr))
+        while True:
+            code = process.poll()
+            if code is None:
+                done, pending = await asyncio.wait((
+                    stdout_reader.poll(),
+                    stderr_reader.poll()
+                ), return_when=asyncio.FIRST_COMPLETED)
+                for done_task in done:
+                    line = done_task.result()
+                    if line is not None:
+                        buffer_window.append(line)
+                for pending_task in pending:
+                    pending_task.cancel()
             else:
-                process.kill()
+                stdout_reader.wait_until_closed()
+                stderr_reader.wait_until_closed()
+                buffer_window.append(*stdout_reader.poll_all(), *stderr_reader.poll_all())
+                break
+        process = None
+        shutil.rmtree(bin_dir, ignore_errors=True)
+        if double_exit:
+            buffer_window.append("", _("start.console.confirm_close"))
 
-        application = build_application(container, keys)
-        process = Popen(args, cwd=cwd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True)
+    async def _run():
+        _done, _pending = await asyncio.wait((
+            _run_process(),
+            application.run_async()
+        ), return_when=asyncio.ALL_COMPLETED if double_exit else asyncio.FIRST_COMPLETED)
+        if process is not None:
+            process.kill()
+            process.wait(timeout=5)
+        if application.is_running:
+            application.exit()
 
-        async def _run_process():
-            nonlocal process
-            stdout_reader = ThreadedProcessReader(cast(TextIO, process.stdout))
-            stderr_reader = ThreadedProcessReader(cast(TextIO, process.stderr))
-            while True:
-                code = process.poll()
-                if code is None:
-                    done, pending = await asyncio.wait((
-                        stdout_reader.poll(),
-                        stderr_reader.poll()
-                    ), return_when=asyncio.FIRST_COMPLETED)
-                    for done_task in done:
-                        line = done_task.result()
-                        if line is not None:
-                            buffer_window.append(line)
-                    for pending_task in pending:
-                        pending_task.cancel()
-                else:
-                    stdout_reader.wait_until_closed()
-                    stderr_reader.wait_until_closed()
-                    buffer_window.append(*stdout_reader.poll_all(), *stderr_reader.poll_all())
-                    break
-            process = None
-            shutil.rmtree(bin_dir, ignore_errors=True)
-            if double_exit:
-                buffer_window.append("", _("start.console.confirm_close"))
-
-        async def _run():
-            _done, _pending = await asyncio.wait((
-                _run_process(),
-                application.run_async()
-            ), return_when=asyncio.ALL_COMPLETED if double_exit else asyncio.FIRST_COMPLETED)
-            if process is not None:
-                process.kill()
-                process.wait(timeout=5)
-            if application.is_running:
-                application.exit()
-
-        asyncio.get_event_loop().run_until_complete(_run())
+    asyncio.get_event_loop().run_until_complete(_run())
 
 
 class RollingLinesWindow:

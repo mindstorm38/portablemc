@@ -1,6 +1,6 @@
 {
   "name": "Console",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "authors": ["Théo Rozier"],
   "description": "Provide an interactive console for the Minecraft process' output. Also provide an API for other addons to customize the UI.",
   "requires": {

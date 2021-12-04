@@ -8,21 +8,23 @@ import sys
 import os
 
 
-def load(pmc):
+from portablemc import Version, StartOptions, Start, cli as pmc
+from portablemc.cli import CliContext
 
-    Version = pmc.Version
-    StartOptions = pmc.StartOptions
-    Start = pmc.Start
-    CliContext = pmc.CliContext
 
-    archive_items = {
-        "beta": "Minecraft-JE-Beta",
-        "alpha": "Minecraft-JE-Alpha",
-        "infdev": "Minecraft-JE-Infdev",
-        "indev": "Minecraft-JE-Indev",
-        "classic": "Minecraft-JE-Classic",
-        "rubydung": "Minecraft-JE-Pre-Classic",
-    }
+ARCHIVE_ITEMS = {
+    "beta": "Minecraft-JE-Beta",
+    "alpha": "Minecraft-JE-Alpha",
+    "infdev": "Minecraft-JE-Infdev",
+    "indev": "Minecraft-JE-Indev",
+    "classic": "Minecraft-JE-Classic",
+    "rubydung": "Minecraft-JE-Pre-Classic",
+}
+
+
+def load(_pmc):
+
+    # Private mixins
 
     @pmc.mixin()
     def register_search_arguments(old, parser: ArgumentParser):
@@ -46,7 +48,7 @@ def load(pmc):
         _ = pmc.get_message
         table = []
         search = ns.input
-        item_id_single = archive_items.get(search)
+        item_id_single = ARCHIVE_ITEMS.get(search)
         no_version = (item_id_single is not None or search is None)
 
         def internal_search(version_type: str, item_id: str):
@@ -61,13 +63,14 @@ def load(pmc):
                             version_type,
                             version_id,
                             pmc.format_iso_date(float(file["mtime"])),
-                            _("search.flags.local") if ctx.has_version_metadata(get_archive_version_id(version_id)) else ""
+                            _("search.flags.local") if ctx.has_version_metadata(
+                                get_archive_version_id(version_id)) else ""
                         ))
 
         if item_id_single is not None:
             internal_search(search, item_id_single)
         else:
-            for version_type_, item_id_ in archive_items.items():
+            for version_type_, item_id_ in ARCHIVE_ITEMS.items():
                 internal_search(version_type_, item_id_)
 
         if len(table):
@@ -122,7 +125,7 @@ def load(pmc):
                 else:
                     raise ArchivesVersionNotFoundError(arc_version_id)
 
-                item_id = archive_items[version_type]
+                item_id = ARCHIVE_ITEMS[version_type]
                 pmc.print_task("", "start.archives.fetching_archives_org", {"item": item_id})
 
                 version_meta_url = get_archive_item_file_url(item_id, f"{arc_version_id}/{arc_version_id}.json")
@@ -169,21 +172,6 @@ def load(pmc):
 
         return start
 
-    def request_archive_item_files(item_id: str) -> list:
-        return pmc.json_simple_request(f"https://archive.org/metadata/{item_id}/files")["result"]
-
-    def get_archive_item_file_url(item_id: str, item_path: str) -> str:
-        return f"https://archive.org/download/{item_id}/{item_path}"
-
-    def get_archive_version_id(version_id: str) -> str:
-        return f"archive-{version_id}"
-
-    # Errors
-
-    class ArchivesVersionNotFoundError(Exception):
-        def __init__(self, version_id: str):
-            self.version = version_id
-
     # Messages
 
     pmc.messages.update({
@@ -196,3 +184,22 @@ def load(pmc):
         "start.archives.downloaded": "Archives version '{version}' is ready.",
         "start.archives.version_not_found": "Archives version '{version}' not found."
     })
+
+
+def request_archive_item_files(item_id: str) -> list:
+    return pmc.json_simple_request(f"https://archive.org/metadata/{item_id}/files")["result"]
+
+
+def get_archive_item_file_url(item_id: str, item_path: str) -> str:
+    return f"https://archive.org/download/{item_id}/{item_path}"
+
+
+def get_archive_version_id(version_id: str) -> str:
+    return f"archive-{version_id}"
+
+
+# Errors
+
+class ArchivesVersionNotFoundError(Exception):
+    def __init__(self, version_id: str):
+        self.version = version_id
