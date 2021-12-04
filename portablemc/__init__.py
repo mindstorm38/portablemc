@@ -474,6 +474,7 @@ class StartOptions:
         self.server_address: Optional[str] = None
         self.server_port: Optional[int] = None
         self.jvm_exec: Optional[str] = None
+        self.old_fix: bool = True  # For legacy merge sort and betacraft proxy
         self.features: Dict[str, bool] = {}  # Additional features
 
     @classmethod
@@ -524,10 +525,10 @@ class Start:
         """
         This method is used to prepare internal arguments arrays, main class and arguments variables according to the
         version of this object and the given options. After this method you can call multiple times the `start` method.
-        However before calling the `start` method you can changer `args_replacements`, `main_class`, `jvm_args`,
+        However, before calling the `start` method you can change `args_replacements`, `main_class`, `jvm_args`,
         `game_args`.\n
         This method can raise a `ValueError` if the version metadata has no `mainClass` or if no JVM executable was set
-        in the given options nor downloaded by `Version` instance. You can ignore these errors if you ensure that
+        in the given options nor downloaded by `Version` instance.
         """
 
         self._check_version()
@@ -616,6 +617,15 @@ class Start:
         # JVM argument for launch wrapper JAR path
         if self.main_class == "net.minecraft.launchwrapper.Launch":
             self.jvm_args.append(f"-Dminecraft.client.jar={self.version.version_jar_file}")
+
+        # Add old fix JVM args
+        if opts.old_fix:
+            version_split = self.version.id.split(".", 2)
+            if version_split[0].endswith("b1") or version_split[0].endswith("a1"):
+                self.jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
+                self.jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
+            elif len(version_split) >= 2 and len(version_split[1]) == 1 and ord("0") <= ord(version_split[1][0]) <= ord("5"):
+                self.jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
 
         # Game arguments
         if modern_game_args is None:

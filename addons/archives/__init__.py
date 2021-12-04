@@ -151,28 +151,28 @@ def load(_pmc):
 
         return old(ctx, version_id)
 
-    @pmc.mixin()
-    def new_start(old, ctx: CliContext, version: Version) -> Start:
-
-        start = old(ctx, version)
-
-        version_id = version.id
-        if version_id.startswith("archive-"):
-            version_id = version_id[8:]
-
-        if version_id[0] in ("a", "b"):
-            @pmc.mixin(into=start)
-            def prepare(old_prepare, opts: StartOptions):
-                old_prepare(opts)
-                start.jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
-                start.jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
-        elif (len(version_id) == 3 or (len(version_id) > 3 and version_id[3] == ".")) and version_id[0:2] == "1." and ord("0") <= ord(version_id[2]) <= ord("5"):
-            @pmc.mixin(into=start)
-            def prepare(old_prepare, opts: StartOptions):
-                old_prepare(opts)
-                start.jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
-
-        return start
+    # @pmc.mixin()
+    # def new_start(old, ctx: CliContext, version: Version) -> Start:
+    #
+    #     start = old(ctx, version)
+    #
+    #     version_id = version.id
+    #     if version_id.startswith("archive-"):
+    #         version_id = version_id[8:]
+    #
+    #     if version_id[0] in ("a", "b"):
+    #         @pmc.mixin(into=start)
+    #         def prepare(old_prepare, opts: StartOptions):
+    #             old_prepare(opts)
+    #             start.jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
+    #             start.jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
+    #     elif (len(version_id) == 3 or (len(version_id) > 3 and version_id[3] == ".")) and version_id[0:2] == "1." and ord("0") <= ord(version_id[2]) <= ord("5"):
+    #         @pmc.mixin(into=start)
+    #         def prepare(old_prepare, opts: StartOptions):
+    #             old_prepare(opts)
+    #             start.jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
+    #
+    #     return start
 
     # Messages
 
