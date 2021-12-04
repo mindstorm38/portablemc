@@ -7,7 +7,6 @@ import json
 import sys
 import os
 
-
 from portablemc import Version, StartOptions, Start, cli as pmc
 from portablemc.cli import CliContext
 
@@ -134,6 +133,9 @@ def load(_pmc):
                 status, version_meta = pmc.json_request(version_meta_url, "GET", ignore_error=True)
                 if status != 200:
                     raise ArchivesVersionNotFoundError(arc_version_id)
+
+                # Update the meta id to the real directory name.
+                version_meta["id"] = arc_version_id
 
                 os.makedirs(version_dir, exist_ok=True)
                 with open(version_meta_file, "wt") as version_meta_fh:
