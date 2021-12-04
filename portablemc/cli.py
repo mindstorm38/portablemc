@@ -303,6 +303,7 @@ def register_start_arguments(parser: ArgumentParser):
     parser.add_argument("--jvm-args", help=_("args.start.jvm_args"))
     parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
     parser.add_argument("--anonymise", help=_("args.start.anonymise"), action="store_true")
+    parser.add_argument("--no-old-fix", help=_("args.start.no_old_fix"), action="store_true")
     parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
     parser.add_argument("-l", "--login", help=_("args.start.login"))
     parser.add_argument("-m", "--microsoft", help=_("args.start.microsoft"), action="store_true")
@@ -481,6 +482,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         start_opts.server_address = ns.server
         start_opts.server_port = ns.server_port
         start_opts.jvm_exec = ns.jvm
+        start_opts.old_fix = not ns.no_old_fix
 
         if ns.resol is not None and len(ns.resol) == 2:
             start_opts.resolution = ns.resol
@@ -1053,6 +1055,8 @@ messages = {
     "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
                                     "order to improve the log readability in the console.",
     "args.start.anonymise": "Anonymise your email or username for authentication messages.",
+    "args.start.no_old_fix": "Flag that disable fixes for old versions (legacy merge sort, betacraft proxy), "
+                             "enabled by default.",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
                              "not already cached, disabled by default.",
     "args.start.login": "Use a email (or deprecated username) to authenticate using Mojang services (it override --username and --uuid).",

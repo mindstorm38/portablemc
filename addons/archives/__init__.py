@@ -7,7 +7,7 @@ import json
 import sys
 import os
 
-from portablemc import Version, StartOptions, Start, cli as pmc
+from portablemc import Version, cli as pmc
 from portablemc.cli import CliContext
 
 
@@ -31,12 +31,12 @@ def load(_pmc):
         parser.add_argument("-a", "--archives", help=_("args.search.archives"), action="store_true")
         old(parser)
 
-    @pmc.mixin()
-    def register_start_arguments(old, parser: ArgumentParser):
-        _ = pmc.get_message
-        # parser.add_argument("--archives-prefix", help=_("args.start.archives_prefix"), default="archive", metavar="PREFIX")
-        parser.add_argument("--no-old-fix", help=_("args.start.no_old_fix"), action="store_true")
-        old(parser)
+    # @pmc.mixin()
+    # def register_start_arguments(old, parser: ArgumentParser):
+    #     _ = pmc.get_message
+    #     # parser.add_argument("--archives-prefix", help=_("args.start.archives_prefix"), default="archive", metavar="PREFIX")
+    #     # parser.add_argument("--no-old-fix", help=_("args.start.no_old_fix"), action="store_true")
+    #     old(parser)
 
     @pmc.mixin()
     def cmd_search(old, ns: Namespace, ctx: CliContext):
@@ -178,8 +178,8 @@ def load(_pmc):
 
     pmc.messages.update({
         "args.search.archives": "Search in archives versions (this disable the --local argument).",
-        "args.start.archives_prefix": "Change the prefix of the version ID when starting archives versions.",
-        "args.start.no_old_fix": "Put this flag to disable the fixes for old versions (legacy merge sort, betacraft proxy).",
+        # "args.start.archives_prefix": "Change the prefix of the version ID when starting archives versions.",
+        # "args.start.no_old_fix": "Put this flag to disable the fixes for old versions (legacy merge sort, betacraft proxy).",
         "start.archives.fetching": "Fetching archives for version '{version}'...",
         "start.archives.fetching_archives_org": "Fetching archive.org for item '{item}'...",
         "start.archives.downloading_jar": "Downloading version JAR from archives...",
