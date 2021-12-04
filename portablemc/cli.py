@@ -19,7 +19,6 @@
 CLI module for PortableMC, it provides an entry point to start Minecraft with arguments.\n
 The `__main__.py` wrapper can call the entry point from the `python -m portablemc` command.
 """
-
 from typing import cast, Union, Any, List, Dict, Optional, Type, Tuple
 from argparse import ArgumentParser, Namespace, HelpFormatter
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -167,12 +166,24 @@ def load_addons():
     elif system == "Darwin":
         addons_dirs.append(path.join(home, "Library", "Application Support", "portablemc", "addons"))
 
+    # Additional addons directories from env var.
     env_path = os.getenv(ENV_ADDONS_PATH)
     if env_path is not None:
         for addon_path in env_path.split(path.pathsep):
             if len(addon_path):
                 addons_dirs.append(path.abspath(addon_path))
 
+    # Here we enforce definition of 'portablemc' and 'portablemc.cli' if we are not running
+    # an PMC installation (via PIP for example). In case of single-script version, modules
+    # 'portablemc' and 'portablemc.cli' are the same, and we create an artificial 'cli'
+    # constant pointing to itself, to avoid import errors when importing global 'cli'.
+    self_module = sys.modules[__name__]
+    if "portablemc" not in sys.modules:
+        self_module.cli = self_module
+        sys.modules["portablemc"] = self_module
+        sys.modules["portablemc.cli"] = self_module
+
+    # Load addons.
     for addons_dir in addons_dirs:
 
         if not path.isdir(addons_dir):
@@ -240,10 +251,9 @@ def load_addons():
                         print_message("addon.unknown_error", {"addon": addon_id}, trace=True, critical=True)
                     del sys.modules[module_name]
 
-    self_module = sys.modules[__name__]
     for addon_id, addon in addons.items():
         if hasattr(addon.module, "load") and callable(addon.module.load):
-            addon.module.load(self_module)
+            addon.module.load(self_module)  # TODO: PMC module will no longer be passed as argument in the future.
 
 
 def get_addon(id_: str) -> Optional[CliAddon]:
@@ -656,8 +666,8 @@ def mixin(name: Optional[str] = None, into: Optional[object] = None):
         orig_func = getattr(orig_obj, orig_name, None)
         if orig_func is None:
             raise ValueError(f"The function '{orig_obj}.{orig_name}' you are trying to mixin does not exists.")
-        def wrapper(*args, **kwargs):
-            return func(orig_func, *args, **kwargs)
+        def wrapper(*w_args, **w_kwargs):
+            return func(orig_func, *w_args, **w_kwargs)
         setattr(orig_obj, orig_name, wrapper)
         return func
     return mixin_decorator
