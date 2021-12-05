@@ -150,8 +150,8 @@ class Version:
         context.\n
         This method will load the official Mojang version manifest, however you can set the `manifest` attribute of this
         object before with a custom manifest if you want to support more versions.\n
-        If any version in the inherit tree is not found, a `VersionError` is raised with `VersionError.NOT_FOUND` and
-        the version ID as argument.\n
+        If any version in the 'inheritsFrom' tree is not found, a `VersionError` is raised with `VersionError.NOT_FOUND`
+        and the version ID as argument.\n
         This method can raise `JsonRequestError` for any error for requests to JSON file.
         """
 
@@ -1013,7 +1013,7 @@ class AuthDatabase:
         MicrosoftAuthSession.type: MicrosoftAuthSession
     }
 
-    def __init__(self, filename: str, legacy_filename: str):
+    def __init__(self, filename: str, legacy_filename: Optional[str] = None):
         self.filename = filename
         self.legacy_filename = legacy_filename
         self.sessions: Dict[str, Dict[str, AuthSession]] = {}
@@ -1043,20 +1043,21 @@ class AuthDatabase:
             pass
 
     def _load_legacy_and_delete(self):
-        try:
-            with open(self.legacy_filename, "rt") as fp:
-                for line in fp.readlines():
-                    parts = line.split(" ")
-                    if len(parts) == 5:
-                        sess = YggdrasilAuthSession()
-                        sess.access_token = parts[4]
-                        sess.username = parts[2]
-                        sess.uuid = parts[3]
-                        sess.client_id = parts[1]
-                        self.put(parts[0], sess)
-            os.remove(self.legacy_filename)
-        except OSError:
-            pass
+        if self.legacy_filename is not None:
+            try:
+                with open(self.legacy_filename, "rt") as fp:
+                    for line in fp.readlines():
+                        parts = line.split(" ")
+                        if len(parts) == 5:
+                            sess = YggdrasilAuthSession()
+                            sess.access_token = parts[4]
+                            sess.username = parts[2]
+                            sess.uuid = parts[3]
+                            sess.client_id = parts[1]
+                            self.put(parts[0], sess)
+                os.remove(self.legacy_filename)
+            except OSError:
+                pass
 
     def save(self):
         if not path.isfile(self.filename):
