@@ -8,7 +8,7 @@ stateless manner. You can now customize the launcher with addons.
 
 ### [Install now!](#installation) *[Fabric is now supported!](#fabric-support)*
 
-![illustration](https://github.com/mindstorm38/portablemc/blob/master/doc/illustration.png?raw=true)
+![illustration](doc/assets/illustration.png)
 
 *This launcher is tested for Python 3.6, 3.7, 3.8, 3.9, further testing using other versions are welcome.*
 
@@ -32,6 +32,7 @@ stateless manner. You can now customize the launcher with addons.
   - [Archives support](#archives-support)
   - [Modrinth mod management](#modrinth-mod-management-wip)
 - [Contributors](#contributors)
+- [API Documentation ↗](doc/API.md)
 
 # Installation
 The launcher can be installed in several ways, including Python Package Index *(PyPI)* or manually using the 
@@ -188,7 +189,7 @@ You can also specify the loader version in addition using the following pattern:
 ***For now, mods must be installed manually in the standard `mods` directory, an additional command to install and 
 manage mods was planed but this is not possible for now due to complex APIs and mods management by Fabric.***
 
-![fabric animation](https://github.com/mindstorm38/portablemc/blob/master/doc/fabricmc.gif?raw=true)
+![fabric animation](doc/assets/fabricmc.gif)
 
 ## Better console
 [**Download (1.1.0)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/console)
