@@ -1146,6 +1146,8 @@ class DownloadList:
     def reset(self):
         self.entries.clear()
         self.callbacks.clear()
+        self.count = 0
+        self.size = 0
 
     def add_callback(self, callback: Callable[[], None]):
         self.callbacks.append(callback)
