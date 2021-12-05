@@ -429,8 +429,8 @@ class Version:
                 jvm_download_info = jvm_file["downloads"]["raw"]
                 if not path.isfile(jvm_file_path) or path.getsize(jvm_file_path) != jvm_download_info["size"]:
                     self.dl.append(DownloadEntry.from_meta(jvm_download_info, jvm_file_path, name=jvm_file_path_prefix))
-                    if jvm_file.get("executable", False):
-                        jvm_exec_files.append(jvm_file_path)
+                if jvm_file.get("executable", False):
+                    jvm_exec_files.append(jvm_file_path)
 
         if len(jvm_exec_files):
             def finalize():
