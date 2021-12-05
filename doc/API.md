@@ -15,6 +15,9 @@ what they are used. Many classes and method provides docstring that describe sig
   - [YggdrasilAuthSession](#yggdrasilauthsession)
   - [MicrosoftAuthSession](#microsoftauthsession)
   - [AuthDatabase](#authdatabase)
+- [Download](#download)
+  - [DownloadEntry](#downloadentry)
+  - [DownloadList](#downloadlist)
 
 ## Core concepts
 
@@ -122,3 +125,15 @@ An object linked to a database file, with explicit methods `load()`, `save()` an
 - `remove(email, sess_type)`, same as `get` but to remove a session from the database, returning it if existing.
 - `get_client_id()`, can also be used to get a unique client ID (unique for the database) that you can use as a
   `client_id` for `authenticate` methods.
+
+## Download
+A utility API that provides efficient download for sets of files.
+
+### DownloadEntry
+An object that defines a single file to download, you should define when possible the expected size and/or SHA-1 hash
+of the file. You can also define a display name for CLI or interfaces.
+
+### DownloadList
+A dynamic/growable list of [DownloadEntry](#downloadentry), when adding a download entry, public attributes `count`
+and `size` and updated. You can also add callbacks functions that will be called if a download is successful. To
+start the download, use `download_files(...)`.
