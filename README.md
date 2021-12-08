@@ -33,6 +33,7 @@ stateless manner. You can now customize the launcher with addons.
   - [Modrinth mod management](#modrinth-mod-management-wip)
 - [Contributors](#contributors)
 - [API Documentation ⇗](doc/API.md)
+- [Addon API Documentation ⇗](doc/ADDON.md)
 
 # Installation
 The launcher can be installed in several ways, including Python Package Index *(PyPI)* or manually using the 
