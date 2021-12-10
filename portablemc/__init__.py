@@ -697,18 +697,54 @@ class Start:
 
 class VersionManifest:
 
-    def __init__(self):
-        self.data: Optional[dict] = None
+    def __init__(self, cache_file: Optional[str] = None, cache_timeout: Optional[float] = None):
+        self.data: Optional[float] = None
+        self.cache_timeout = cache_timeout
+        self.cache_file = cache_file
 
-    def _ensure_data(self) -> dict:
+    def _ensure_data(self) -> Optional[dict]:
+
         if self.data is None:
-            self.data = json_simple_request("https://launchermeta.mojang.com/mc/game/version_manifest.json")
-        return self.data
 
-    # @classmethod
-    # def load_from_url(cls):
-    #     """ Load the version manifest from the official URL. Can raise `JsonRequestError` if failed. """
-    #     return cls(json_simple_request("https://launchermeta.mojang.com/mc/game/version_manifest.json"))
+            # self.data = json_simple_request("https://launchermeta.mojang.com/mc/game/version_manifest.json")
+
+            headers = {}
+            cache_data = None
+
+            if self.cache_file is not None:
+                try:
+                    with open(self.cache_file, "rt") as cache_fp:
+                        cache_data = json.load(cache_fp)
+                    if "last_modified" in cache_data:
+                        headers["If-Modified-Since"] = cache_data["last_modified"]
+                except (OSError, JSONDecodeError):
+                    pass
+
+            rcv_headers = {}
+
+            if self.cache_timeout is not None and self.cache_timeout <= 0:
+                status, data = (404, {})
+            else:
+                manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
+                status, data = json_request(manifest_url, "GET", headers=headers, ignore_error=True,
+                                            timeout=self.cache_timeout, rcv_headers=rcv_headers)
+
+            if status == 200:
+                # Last-Modified
+                if "Last-Modified" in rcv_headers:
+                    data["last_modified"] = rcv_headers["Last-Modified"]
+                self.data = data
+                if self.cache_file is not None:
+                    with open(self.cache_file, "wt") as cache_fp:
+                        json.dump(data, cache_fp, indent=2)
+            else:
+                # If the status is not 200, we fall back to the cached data if it exists, if not, raise error.
+                # This can be 304 status, in this case cache_data is set so there is no problem.
+                if cache_data is None:
+                    raise VersionManifestError(VersionManifestError.NOT_FOUND)
+                self.data = cache_data
+
+        return self.data
 
     def filter_latest(self, version: str) -> Tuple[str, bool]:
         if version in ("release", "snapshot"):
@@ -1303,6 +1339,10 @@ class AuthError(BaseError):
         self.details = details
 
 
+class VersionManifestError(BaseError):
+    NOT_FOUND = "not_found"
+
+
 class VersionError(BaseError):
 
     NOT_FOUND = "not_found"
@@ -1335,13 +1375,15 @@ def json_request(url: str, method: str, *,
                  data: Optional[bytes] = None,
                  headers: Optional[dict] = None,
                  ignore_error: bool = False,
-                 timeout: Optional[float] = None) -> Tuple[int, dict]:
+                 timeout: Optional[float] = None,
+                 rcv_headers: Optional[dict] = None) -> Tuple[int, dict]:
 
     """
     Make a request for a JSON API at specified URL. Might raise `JsonRequestError` if failed.\n
     The parameter `ignore_error` can be used to ignore JSONDecodeError handling and just return a dict with a
     single key 'raw' and the raw data on failure, instead of raising an `JsonRequestError` with
     `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
+    If `rcv_headers` is defined, the dictionary is filled with response headers.
     """
 
     if headers is None:
@@ -1354,6 +1396,10 @@ def json_request(url: str, method: str, *,
         res: HTTPResponse = url_request.urlopen(req, timeout=timeout)
     except HTTPError as err:
         res = cast(HTTPResponse, err)
+
+    if rcv_headers is not None:
+        for header_name, header_value in res.getheaders():
+            rcv_headers[header_name] = header_value
 
     try:
         data = res.read()
