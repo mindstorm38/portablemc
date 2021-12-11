@@ -26,6 +26,7 @@ from urllib.request import Request as UrlRequest
 from uuid import uuid4, uuid5, UUID
 from urllib.error import HTTPError
 from json import JSONDecodeError
+from datetime import datetime
 from zipfile import ZipFile
 from os import path
 import platform
@@ -171,20 +172,34 @@ class Version:
 
         version_dir = self.context.get_version_dir(version_id)
         version_meta_file = path.join(version_dir, f"{version_id}.json")
+        version_super_meta = self._ensure_version_manifest().get_version(version_id)
 
         try:
             with open(version_meta_file, "rt") as version_meta_fp:
-                return json.load(version_meta_fp), version_dir
+                version_meta = json.load(version_meta_fp)
         except (OSError, JSONDecodeError):
-            version_super_meta = self._ensure_version_manifest().get_version(version_id)
-            if version_super_meta is not None:
-                content = json_simple_request(version_super_meta["url"])
-                os.makedirs(version_dir, exist_ok=True)
-                with open(version_meta_file, "wt") as version_meta_fp:
-                    json.dump(content, version_meta_fp, indent=2)
-                return content, version_dir
-            else:
+            version_meta = None
+
+        if version_meta is None:
+            if version_super_meta is None:
                 raise VersionError(VersionError.NOT_FOUND, version_id)
+        elif version_super_meta is None:
+            return version_meta, version_dir
+        else:
+            installed_time = datetime.fromisoformat(version_meta["time"])
+            expected_time = datetime.fromisoformat(version_super_meta["time"])
+            if installed_time >= expected_time:
+                return version_meta, version_dir
+            else:
+                # Backup the old metadata file, it can be useful to debug.
+                shutil.copyfile(version_meta_file, f"{version_meta_file}.{installed_time.timestamp()}")
+
+        content = json_simple_request(version_super_meta["url"])
+        content["time"] = version_super_meta["time"]  # Last update time, must be the same as manifest to update.
+        os.makedirs(version_dir, exist_ok=True)
+        with open(version_meta_file, "wt") as version_meta_fp:
+            json.dump(content, version_meta_fp, indent=2)
+        return content, version_dir
 
     def _ensure_version_manifest(self) -> 'VersionManifest':
         if self.manifest is None:
@@ -736,6 +751,7 @@ class VersionManifest:
                     data["last_modified"] = rcv_headers["Last-Modified"]
                 self.data = data
                 if self.cache_file is not None:
+                    os.makedirs(path.dirname(self.cache_file), exist_ok=True)
                     with open(self.cache_file, "wt") as cache_fp:
                         json.dump(data, cache_fp, indent=2)
             else:
