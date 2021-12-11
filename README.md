@@ -8,6 +8,9 @@ stateless manner. You can now customize the launcher with addons.
 
 ### [Install now!](#installation) *[Fabric is now supported!](#fabric-support)*
 
+**The launcher is safe to Log4j exploit since v2.2.0, if you are running an older please update or read the
+following issue for a temporary fix [#52](https://github.com/mindstorm38/portablemc/issues/52).**
+
 ![illustration](doc/assets/illustration.png)
 
 *This launcher is tested for Python 3.6, 3.7, 3.8, 3.9, further testing using other versions are welcome.*
