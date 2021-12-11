@@ -12,12 +12,14 @@ what they are used. Many classes and method provides docstring that describe sig
   - [Start](#start)
 - [Authentication](#authentication)
   - [AuthSession](#authsession)
+  - [AuthDatabase](#authdatabase)
   - [YggdrasilAuthSession](#yggdrasilauthsession)
   - [MicrosoftAuthSession](#microsoftauthsession)
-  - [AuthDatabase](#authdatabase)
 - [Download](#download)
   - [DownloadEntry](#downloadentry)
   - [DownloadList](#downloadlist)
+
+> Examples in this documentation are using linux paths and can reference variables defined in previous examples.
 
 ## Core concepts
 
@@ -36,11 +38,51 @@ version, a context stores paths to the following directories:
 
 After constructing a context, all these attributes can be changed as you want.
 
+```python
+from portablemc import Context
+
+main_dir = "/opt/minecraft"
+work_dir = "/home/john/minecraft"
+ctx = Context(main_dir, work_dir)
+print(ctx.work_dir)  # "/home/foo/minecraft"
+print(ctx.versions_dir)  # "/opt/minecraft/versions"
+print(ctx.assets_dir)  # "/opt/minecraft/assets"
+print(ctx.libraries_dir)  # "/opt/minecraft/libraries"
+print(ctx.jvm_dir)  # "/opt/minecraft/jvm"
+print(ctx.bin_dir)  # "/home/foo/minecraft/bin"
+
+# All these fields can be independently modified.
+```
+
 ### VersionManifest
 A version manifest is an object that describes all online-available versions and how to download them. It also
 gives the identifier of the latest snapshot and release. By default, this object will get its internal data
 from `https://launchermeta.mojang.com/mc/game/version_manifest.json`, you can change this by extending the
 class.
+
+Since v2.2.0, it's also possible to use a cache file, the implementation then use `If-Modified-Since` HTTP 
+header to avoid download the manifest many times a day.
+
+```python
+from portablemc import VersionManifest
+
+cache_file = "/home/foo/minecraft/manifest.json"
+cache_timeout = 5.0  # Maximum time when requesting online manifest
+# cache_timeout = 0  # To disable online request, only local manifest is requested.
+manifest = VersionManifest(cache_file, cache_timeout)
+
+print(manifest.filter_latest("release"))   # ("1.18.1", True)   True = aliased, load the manifest
+print(manifest.filter_latest("snapshot"))  # ("21w44a", True)
+print(manifest.filter_latest("1.17.1"))    # ("1.17.1", False)  False = not aliased, doesn't load the manifest
+print(manifest.filter_latest("21w42a"))    # ("21w42a", False) 
+
+# Following method always load the manifest.
+print(manifest.get_version("release"))
+print(manifest.get_version("1.18.1"))
+# Both outputs: {'id': '1.18.1', 'type': 'release', 'url': '.../1.18.1.json', 'time': '2021-12-10T08:26:34+00:00', 'releaseTime': '2021-12-10T08:23:00+00:00'}
+
+# If 'cache_timeout == 0', an error of type 'VersionManifestError' can be raised if not local copy exists.
+```
 
 ### Version
 A version object in PMC is used to keep track of the installation of a version, this object is constructed
@@ -66,6 +108,24 @@ After download is complete, you can use the `start` method to directly start the
 
 > Note that installing JVM is not required to launch the game.
 
+```python
+from portablemc import Version, VersionError, JvmLoadingError, DownloadError
+
+version_id = manifest.filter_latest("release")  # Assume that '1.18.1' got returned.
+version = Version(ctx, version_id)
+
+try:
+    version.install(jvm=True)
+    # Here, if not exception has been raised, the version is installed in directories 
+    # specified by the context 'ctx'.
+except VersionError as e:
+    print(f"Version '{e.version}' not found.")
+except JvmLoadingError as e:
+    print(f"No JVM found for you system.")
+except DownloadError as e:
+    print(f"Failed files: {e.fails}")
+```
+
 ### StartOptions
 A named tuple with options for starting the game, used when preparing process arguments. The following options
 are available:
@@ -80,9 +140,20 @@ are available:
 - `server_port`, an optional server port, only used by the game if `server_address``is defined (available since 1.6).
 - `jvm_exec`, an optional JVM executable, by default it use the `jvm_exec` from the [Version](#version) object.
 - `old_fix`, enable JVM arguments that partially fix the game in alpha, beta, and release between 1.0 and 1.5
-  (included).
+  (included), enabled by default.
 - `features`, a dictionary where you can define additional features, features are used to optionally change arguments
   version metadata files.
+
+> In the future, uuid and username could be integrated in a specific "offline auth session".
+
+```python
+from portablemc import StartOptions
+
+start_opts = StartOptions()
+start_opts.disable_multiplayer = True
+start_opts.username = "XxX_JohnDoe_XxX"
+start_opts.resolution = (700, 500)
+```
 
 ### Start
 A start object is can be used to prepare arguments before starting the game, it is constructed with a 
@@ -90,6 +161,14 @@ A start object is can be used to prepare arguments before starting the game, it 
 After that you can use the `start()` method.
 
 Start objects can be further customized to change the process runner or the binary directory path.
+
+```python
+from portablemc import Start
+
+start = Start(version)
+start.prepare(start_opts)
+start.start()
+```
 
 ## Authentication
 
@@ -100,9 +179,43 @@ is designed to be serialized and deserialized into a [AuthDatabase](#authdatabas
 for retro-compatibility of the database. Actual objects can be used in [StartOptions](#startoptions) to allows
 client to have their skin and connect to online-mode servers.
 
+### AuthDatabase
+An object linked to a database file, with explicit methods `load()`, `save()` and methods to manage its content:
+- `get(email, sess_type)`, get a session by its email, and the session type (directly give the class).
+- `put(email, sess)`, put a session in the database.
+- `remove(email, sess_type)`, same as `get` but to remove a session from the database, returning it if existing.
+- `get_client_id()`, can also be used to get a unique client ID (unique for the database) that you can use as a
+  `client_id` for `authenticate` methods.
+
+```python
+from portablemc import AuthDatabase
+
+auth_db = AuthDatabase("/home/foo/minecraft/")
+auth_db.load()
+
+# More examples for each type of session in the following sections.
+```
+
 ### YggdrasilAuthSession
 Implementation of the Yggdrasil (Mojang one) authentication protocol. Use `authenticate(client_id, email, password)`
 to get a session object.
+
+```python
+from portablemc import YggdrasilAuthSession, AuthError
+
+try:
+    sess = YggdrasilAuthSession.authenticate(auth_db.get_client_id(), "foo.bar@example.com", "foobar")
+    auth_db.put("foo.bar@example.com", sess)
+    auth_db.save()
+except AuthError:
+    print("Failed to authenticate.")
+
+# And later...
+sess = auth_db.get("foo.bar@example.com", YggdrasilAuthSession)
+# Or:
+sess = auth_db.remove("foo.bar@example.com", YggdrasilAuthSession)
+auth_db.save()
+```
 
 ### MicrosoftAuthSession
 Implementation of the Microsoft authentication protocol. This authentication protocol is a bit more complicated and
@@ -118,14 +231,6 @@ email and nonce given in `get_authentication_url`.
 
 Finally, you can use `authenticate(client_id, app_id, code, redirect_uri)` to get a session object.
 
-### AuthDatabase
-An object linked to a database file, with explicit methods `load()`, `save()` and methods to manage its content:
-- `get(email, sess_type)`, get a session by its email, and the session type (directly give the class).
-- `put(email, sess)`, put a session in the database.
-- `remove(email, sess_type)`, same as `get` but to remove a session from the database, returning it if existing.
-- `get_client_id()`, can also be used to get a unique client ID (unique for the database) that you can use as a
-  `client_id` for `authenticate` methods.
-
 ## Download
 A utility API that provides efficient download for sets of files.
 
@@ -137,3 +242,12 @@ of the file. You can also define a display name for CLI or interfaces.
 A dynamic/growable list of [DownloadEntry](#downloadentry), when adding a download entry, public attributes `count`
 and `size` and updated. You can also add callbacks functions that will be called if a download is successful. To
 start the download, use `download_files(...)`.
+
+```python
+from portablemc import DownloadList, DownloadEntry
+
+dl_list = DownloadList()
+dl_list.append(DownloadEntry("https://example.com/file1", "/tmp/file1"))
+dl_list.append(DownloadEntry("http://example.com/file2", "/tmp/file2"))
+dl_list.download_files()
+```
