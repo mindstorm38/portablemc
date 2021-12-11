@@ -56,6 +56,7 @@ EXIT_JVM_LOADING_ERROR = 19
 
 AUTH_DB_FILE_NAME = "portablemc_auth.json"
 AUTH_DB_LEGACY_FILE_NAME = "portablemc_tokens"
+MANIFEST_CACHE_FILE_NAME = "portablemc_version_manifest.json"
 
 ENV_ADDONS_PATH = "PMC_ADDONS_PATH"
 
@@ -437,26 +438,29 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         print_task("OK", "start.assets.checked", {"count": version.assets_count}, done=True)
 
         print_task("", "start.logger.loading")
+        start_dl_count = version.dl.count
         version.prepare_logger()
+        end_dl_count = version.dl.count
 
         if ns.no_better_logging or version.logging_file is None:
             print_task("OK", "start.logger.loaded", done=True)
         else:
-
-            replacement = "<PatternLayout pattern=\"%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n\"/>"
             old_logging_file = version.logging_file
             better_logging_file = path.join(path.dirname(old_logging_file), f"portablemc-{path.basename(old_logging_file)}")
             version.logging_file = better_logging_file
-
-            def _pretty_logger_finalize():
-                if not path.isfile(better_logging_file):
+            if end_dl_count != start_dl_count:
+                # Download entries count has changed while calling prepare_logger(),
+                # we must add a callback to update the pretty logging configuration.
+                def _pretty_logger_finalize():
                     with open(old_logging_file, "rt") as old_logging_fh:
                         with open(better_logging_file, "wt") as better_logging_fh:
-                            better_logging_fh.write(old_logging_fh.read()
-                                                    .replace("<XMLLayout />", replacement)
-                                                    .replace("<LegacyXMLLayout />", replacement))
-
-            version.dl.add_callback(_pretty_logger_finalize)
+                            src = old_logging_fh.read()
+                            layout_start = src.find("<PatternLayout")
+                            layout_end = src.find("\n", layout_start)
+                            repl = src[layout_start:layout_end]
+                            src = src.replace("<XMLLayout />", repl).replace("<LegacyXMLLayout />", repl)
+                            better_logging_fh.write(src)
+                version.dl.add_callback(_pretty_logger_finalize)
             print_task("OK", "start.logger.loaded_pretty", done=True)
 
         print_task("", "start.libraries.loading")
@@ -512,6 +516,9 @@ def cmd_start(ns: Namespace, ctx: CliContext):
 
         sys.exit(EXIT_OK)
 
+    except VersionManifestError as err:
+        print_task("FAILED", f"version_manifest.error.{err.code}", done=True)
+        sys.exit(EXIT_VERSION_NOT_FOUND)
     except VersionError as err:
         print_task("FAILED", f"start.version.error.{err.code}", {"version": err.version}, done=True)
         sys.exit(EXIT_VERSION_NOT_FOUND)
@@ -640,8 +647,8 @@ def new_context(ns: Namespace) -> CliContext:
     return CliContext(ns)
 
 
-def load_version_manifest(_ctx: CliContext) -> VersionManifest:
-    return VersionManifest()
+def load_version_manifest(ctx: CliContext) -> VersionManifest:
+    return VersionManifest(path.join(ctx.work_dir, MANIFEST_CACHE_FILE_NAME))
 
 
 def new_auth_database(ctx: CliContext) -> AuthDatabase:
@@ -1084,6 +1091,8 @@ messages = {
     # Common
     "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
     "cancelled": "Cancelled.",
+    # Version manifest error
+    f"version_manifest.error.{VersionManifestError.NOT_FOUND}": "Failed to load version manifest, timed out or not locally cached.",
     # Json Request
     f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid JSON response from {method} {url}, status: {status}, data: {data}",
     # Misc errors
