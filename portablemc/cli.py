@@ -273,6 +273,7 @@ def register_arguments() -> ArgumentParser:
     parser = ArgumentParser(allow_abbrev=False, prog="portablemc", description=_("args"))
     parser.add_argument("--main-dir", help=_("args.main_dir"))
     parser.add_argument("--work-dir", help=_("args.work_dir"))
+    parser.add_argument("--timeout", help=_("args.timeout"), type=float)
     register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
     return parser
 
@@ -648,7 +649,7 @@ def new_context(ns: Namespace) -> CliContext:
 
 
 def load_version_manifest(ctx: CliContext) -> VersionManifest:
-    return VersionManifest(path.join(ctx.work_dir, MANIFEST_CACHE_FILE_NAME))
+    return VersionManifest(path.join(ctx.work_dir, MANIFEST_CACHE_FILE_NAME), ctx.ns.timeout)
 
 
 def new_auth_database(ctx: CliContext) -> AuthDatabase:
@@ -1046,6 +1047,9 @@ messages = {
                      "saves, screenshots (and resources for legacy versions), it also store "
                      "runtime binaries and authentication. "
                      "This argument can be used or not by subcommand.",
+    "args.timeout": "Set a global timeout (in decimal seconds) that can be used by various requests done by the launcher or "
+                    "addons. A value of 0 is usually interpreted as an 'offline mode', this means that the launcher "
+                    "will try to use a cached copy of the requests' response.",
     # Args search
     "args.search": "Search for Minecraft versions.",
     "args.search.local": "Search only for local installed Minecraft versions.",
