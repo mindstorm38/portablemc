@@ -74,11 +74,15 @@ of this directory is OS-dependent, but always in your user's home directory,
 You may also need `--work-dir <path>` to change the directory where your saves, resource packs and
 all "user-specific" content is stored. This can be useful if you have a shared read-only main directory 
 (`--main-dir`) and user-specific working directory (for example in `~/.minecraft`, by default it's the
-locaton of your main directory). This launcher also stores the authentication credentials in this directory
+location of your main directory). This launcher also stores the authentication credentials in this directory
 (since launcher version 1.1.4).
 
 The two arguments `--main-dir` and `--work-dir` may or may not be used by sub commands, then you can alias
 the command and always set the main and work directory like you want.
+
+An advanced argument `--timeout <seconds>` can be used to set a global timeout value that can be freely used
+by the launcher or addons. The special value 0 is often interpreted as "please use the local cache only". For
+now, it's used by the launcher only for the version manifest fetching as it is now locally cached.
 
 ## Start the game
 The `<exec> start [arguments...] [version]` sub-command is used to prepare and launch the game. A lot
