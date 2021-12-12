@@ -449,7 +449,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
             old_logging_file = version.logging_file
             better_logging_file = path.join(path.dirname(old_logging_file), f"portablemc-{path.basename(old_logging_file)}")
             version.logging_file = better_logging_file
-            if end_dl_count != start_dl_count:
+            if end_dl_count != start_dl_count or not path.isfile(better_logging_file):
                 # Download entries count has changed while calling prepare_logger(),
                 # we must add a callback to update the pretty logging configuration.
                 def _pretty_logger_finalize():
