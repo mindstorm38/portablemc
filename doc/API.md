@@ -167,6 +167,9 @@ from portablemc import Start
 
 start = Start(version)
 start.prepare(start_opts)
+start.main_class = "my.custom.main.Class"  # If you need a custom main class to be executed
+start.jvm_args.append("-Dmy.jvm.arg=89")   # If you need to add more JVM arguments
+start.game_args.append("--example")        # If you need to add more game arguments
 start.start()
 ```
 
