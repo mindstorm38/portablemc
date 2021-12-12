@@ -208,6 +208,7 @@ from portablemc import YggdrasilAuthSession, AuthError
 
 try:
     sess = YggdrasilAuthSession.authenticate(auth_db.get_client_id(), "foo.bar@example.com", "foobar")
+    start_opts.auth_session = sess
     auth_db.put("foo.bar@example.com", sess)
     auth_db.save()
 except AuthError:
