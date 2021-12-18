@@ -46,7 +46,7 @@ __all__ = [
     "DownloadEntry", "DownloadList", "DownloadProgress", "DownloadEntryProgress",
     "BaseError", "JsonRequestError", "AuthError", "VersionManifestError", "VersionError", "JvmLoadingError",
         "DownloadError",
-    "json_request", "json_simple_request",
+    "http_request", "json_request", "json_simple_request",
     "merge_dict",
     "interpret_rule_os", "interpret_rule", "interpret_args",
     "replace_vars", "replace_list_vars",
