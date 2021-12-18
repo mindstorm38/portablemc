@@ -1388,25 +1388,27 @@ class DownloadError(Exception):
         self.fails = fails
 
 
-def json_request(url: str, method: str, *,
+def http_request(url: str, method: str, *,
                  data: Optional[bytes] = None,
                  headers: Optional[dict] = None,
-                 ignore_error: bool = False,
                  timeout: Optional[float] = None,
-                 rcv_headers: Optional[dict] = None) -> Tuple[int, dict]:
+                 rcv_headers: Optional[dict] = None) -> Tuple[int, bytes]:
 
     """
-    Make a request for a JSON API at specified URL. Might raise `JsonRequestError` if failed.\n
-    The parameter `ignore_error` can be used to ignore JSONDecodeError handling and just return a dict with a
-    single key 'raw' and the raw data on failure, instead of raising an `JsonRequestError` with
-    `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
-    If `rcv_headers` is defined, the dictionary is filled with response headers.
+    Make an HTTP request at a specified URL and retrieve raw data. This is a simpler wrapper
+    to the standard `url.request.urlopen` wrapper, it ignores HTTP error codes.
+
+    :param url: The URL to request.
+    :param method: The HTTP method to use for this request.
+    :param data: Optional data to put in the request's body.
+    :param headers: Optional headers to add to default ones.
+    :param timeout: Optional timeout for the TCP handshake.
+    :param rcv_headers: Optional received headers dictionary, populated after
+    :return: A tuple (HTTP response code, data bytes).
     """
 
     if headers is None:
         headers = {}
-    if "Accept" not in headers:
-        headers["Accept"] = "application/json"
 
     try:
         req = UrlRequest(url, data, headers, method=method)
@@ -1418,14 +1420,35 @@ def json_request(url: str, method: str, *,
         for header_name, header_value in res.getheaders():
             rcv_headers[header_name] = header_value
 
+    return res.status, res.read()
+
+
+def json_request(url: str, method: str, *,
+                 data: Optional[bytes] = None,
+                 headers: Optional[dict] = None,
+                 ignore_error: bool = False,
+                 timeout: Optional[float] = None,
+                 rcv_headers: Optional[dict] = None) -> Tuple[int, dict]:
+
+    """
+    A simple wrapper around ``http_request` function to decode returned data to JSON. If decoding fails and parameter
+    `ignore_error` is false, error `JsonRequestError` is raised with `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
+    """
+
+    if headers is None:
+        headers = {}
+    if "Accept" not in headers:
+        headers["Accept"] = "application/json"
+
+    status, data = http_request(url, method, data=data, headers=headers, timeout=timeout, rcv_headers=rcv_headers)
+
     try:
-        data = res.read()
-        return res.status, json.loads(data)
+        return status, json.loads(data)
     except JSONDecodeError:
         if ignore_error:
-            return res.status, {"raw": data}
+            return status, {"raw": data}
         else:
-            raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, url, method, res.status, data)
+            raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, url, method, status, data)
 
 
 def json_simple_request(url: str, *, ignore_error: bool = False, timeout: Optional[int] = None) -> dict:
