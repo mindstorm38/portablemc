@@ -1,0 +1,6 @@
+{
+  "name": "Forge",
+  "version": "1.0.0-pre1",
+  "authors": ["Théo Rozier"],
+  "description": "Start Minecraft using the Forge mod loader using '<exec> start forge:[<mc-version>]'."
+}
