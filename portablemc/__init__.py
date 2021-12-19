@@ -590,6 +590,7 @@ class Start:
             # Game
             "auth_player_name": username,
             "version_name": self.version.id,
+            "library_directory": self.version.context.libraries_dir,
             "game_directory": self.version.context.work_dir,
             "assets_root": self.version.context.assets_dir,
             "assets_index_name": self.version.assets_index_version,
@@ -607,6 +608,7 @@ class Start:
             "natives_directory": "",
             "launcher_name": LAUNCHER_NAME,
             "launcher_version": LAUNCHER_VERSION,
+            "classpath_separator": path.pathsep,
             "classpath": path.pathsep.join(self.version.classpath_libs)
         }
 
