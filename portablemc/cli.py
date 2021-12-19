@@ -741,10 +741,11 @@ def get_term_width() -> int:
 
 # Pretty download
 
-def pretty_download(dl_list: DownloadList):
+def pretty_download(dl_list: DownloadList) -> bool:
 
     """
-    Download a `DownloadList` with a pretty progress bar using the `print_task` function
+    Download a `DownloadList` with a pretty progress bar using the `print_task` function.
+    Returns True if no error happened.
     """
 
     start_time = time.perf_counter()
@@ -766,26 +767,29 @@ def pretty_download(dl_list: DownloadList):
             print(f"[      ] {dl_text} {entries[:path_len].ljust(path_len)} {percentage:6.2f}% {speed}/s\r", end="")
             called_once = True
 
-    def complete_task(error: bool = False):
-        if called_once:
-            result_text = get_message("download.downloaded",
-                                      count=dl_list.count,
-                                      size=format_bytes(dl_list.size).lstrip(" "),
-                                      duration=(time.perf_counter() - start_time))
-            if error:
-                result_text = get_message("download.errors", count=result_text)
+    def complete_task(errors_count: int = 0):
+        if called_once or errors_count:
+            if errors_count:
+                result_text = get_message("download.errors", count=dl_list.count, errors_count=errors_count)
+            else:
+                result_text = get_message("download.downloaded",
+                                          count=dl_list.count,
+                                          size=format_bytes(dl_list.size).lstrip(" "),
+                                          duration=(time.perf_counter() - start_time))
             result_len = max(0, min(80, get_term_width()) - 9)
-            template = "\r[FAILED] {}" if error else "\r[  OK  ] {}"
+            template = "\r[FAILED] {}" if errors_count else "\r[  OK  ] {}"
             print(template.format(result_text[:result_len].ljust(result_len)))
 
     try:
         dl_list.callbacks.insert(0, complete_task)
         dl_list.download_files(progress_callback=progress_callback)
+        return True
     except DownloadError as err:
-        complete_task(True)
-        for entry_url, entry_error in err.args[0]:
+        complete_task(len(err.fails))
+        for entry_url, entry_error in err.fails.items():
             entry_error_msg = get_message(f"download.error.{entry_error}")
             print(f"         {entry_url}: {entry_error_msg}")
+        return False
     finally:
         dl_list.callbacks.pop(0)
 
@@ -1157,7 +1161,7 @@ messages = {
     # Pretty download
     "download.downloading": "Downloading",
     "download.downloaded": "Downloaded {count} files, {size} in {duration:.1f}s.",
-    "download.errors": "{count} errors happened, can't continue.",
+    "download.errors": "Tried to download {count} files, but {errors_count} errors happened, can't continue.",
     f"download.error.{DownloadError.CONN_ERROR}": "Connection error",
     f"download.error.{DownloadError.NOT_FOUND}": "Not found",
     f"download.error.{DownloadError.INVALID_SIZE}": "Invalid size",

@@ -1,13 +1,10 @@
 from argparse import ArgumentParser
 from typing import Dict, List
+from os import path
+import os
 
-from portablemc import Version, http_request, json_simple_request, cli as pmc
+from portablemc import Version, DownloadList, DownloadEntry, http_request, json_simple_request, cli as pmc
 from portablemc.cli import CliContext
-
-
-# Forge installer types:
-# Since 1.12 -> ClientInstall action
-
 
 
 def load(_pmc):
@@ -33,16 +30,15 @@ def load(_pmc):
             game_version, _game_version_alias = manifest.filter_latest(game_version)
 
             forge_version = None
-
-            promo_versions = request_promotions()
+            promo_versions = request_promo_versions()
             for suffix in ("", "-recommended", "-latest"):
-                forge_version = promo_versions.get(f"{game_version}{suffix}")
-                if forge_version is not None:
+                tmp_forge_version = promo_versions.get(f"{game_version}{suffix}")
+                if tmp_forge_version is not None:
                     if game_version.endswith("-recommended"):
                         game_version = game_version[:-12]
                     elif game_version.endswith("-latest"):
                         game_version = game_version[:-7]
-                    forge_version = f"{game_version}-{forge_version}"
+                    forge_version = f"{game_version}-{tmp_forge_version}"
                     break
 
             if forge_version is None:
@@ -50,9 +46,16 @@ def load(_pmc):
                 forge_version = game_version
 
             version_id = f"{ctx.ns.forge_prefix}-{forge_version}"
+            version_dir = ctx.get_version_dir(version_id)
+            os.makedirs(version_dir, exist_ok=True)
 
-            print(f"{forge_version=}")
-            print(f"{version_id=}")
+            installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{forge_version}/forge-{forge_version}-installer.jar"
+            installer_file = path.join(version_dir, "installer.jar")
+
+            dl_list = DownloadList()
+            dl_list.append(DownloadEntry(installer_url, installer_file, name=f"{forge_version}-installer"))
+            if pmc.pretty_download(dl_list):
+                pass
 
             return old(ctx, version_id)
 
@@ -67,11 +70,12 @@ def load(_pmc):
 
 # Forge API
 
-def request_promotions() -> Dict[str, str]:
+def request_promo_versions() -> Dict[str, str]:
     raw = json_simple_request("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json")
     return raw["promos"]
 
-def request_versions() -> List[str]:
+
+def request_maven_versions() -> List[str]:
 
     status, raw = http_request("https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml", "GET", headers={
         "Accept": "application/xml"
