@@ -78,23 +78,37 @@ def load(_pmc):
 
             if not path.isfile(version_meta_file):
 
+                # Extract minecraft version from the full forge version
+                mc_version_id = forge_version[:max(0, forge_version.find("-"))]
+
                 os.makedirs(version_dir, exist_ok=True)
 
-                installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{forge_version}/forge-{forge_version}-installer.jar"
+                # 1.7 used to have an additional suffix with minecraft version.
                 installer_file = path.join(version_dir, "installer.jar")
+                installer_urls = [
+                    f"https://maven.minecraftforge.net/net/minecraftforge/forge/{forge_version}/forge-{forge_version}-installer.jar",
+                    f"https://maven.minecraftforge.net/net/minecraftforge/forge/{forge_version}-{mc_version_id}/forge-{forge_version}-{mc_version_id}-installer.jar"
+                ]
 
-                try:
-                    pmc.print_task("", "start.forge.installer.resolving", {"version": forge_version})
-                    dl_list = DownloadList()
-                    dl_list.append(DownloadEntry(installer_url, installer_file))
-                    dl_list.download_files()
-                    pmc.print_task("OK", "start.forge.installer.found", {"version": forge_version}, done=True)
-                except DownloadError:
+                pmc.print_task("", "start.forge.installer.resolving", {"version": forge_version})
+
+                found_installer = False
+                for installer_url in installer_urls:
+                    try:
+                        dl_list = DownloadList()
+                        dl_list.append(DownloadEntry(installer_url, installer_file))
+                        dl_list.download_files()
+                        pmc.print_task("OK", "start.forge.installer.found", {"version": forge_version}, done=True)
+                        found_installer = True
+                        break
+                    except DownloadError:
+                        pass
+
+                if not found_installer:
                     raise ForgeVersionNotFound(ForgeVersionNotFound.INSTALLER_NOT_FOUND, forge_version)
 
                 # We ensure that the parent Minecraft version JAR and metadata are
                 # downloaded because it's needed by installers.
-                mc_version_id = forge_version[:max(0, forge_version.find("-"))]
                 if len(mc_version_id):
                     try:
                         pmc.print_task("", "start.forge.vanilla.resolving", {"version": mc_version_id})
@@ -134,7 +148,7 @@ def load(_pmc):
         "start.forge.vanilla.resolving": "Preparing parent Minecraft version {version}...",
         "start.forge.vanilla.found": "Found parent Minecraft version {version}.",
         "start.forge.wrapper.running": "Running installer (can take few minutes)...",
-        "start.forge.wrapper.done": "Forge installation done!",
+        "start.forge.wrapper.done": "Forge installation done.",
         "start.forge.error.invalid_main_dir": "The main directory cannot be determined, because version directory "
                                               "and libraries directory must have the same parent directory.",
         "start.forge.error.installer_3": "This forge installer is currently not supported.",
