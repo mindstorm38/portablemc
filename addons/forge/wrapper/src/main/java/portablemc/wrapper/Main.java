@@ -22,7 +22,7 @@ public class Main {
 		
 		if (runner == null) {
 			System.out.println("error: cannot find an install runner");
-			System.exit(2);
+			System.exit(3);
 		} else {
 			System.out.println("info: using install runner " + runner.getClass().getSimpleName());
 		}
@@ -30,14 +30,14 @@ public class Main {
 		String validation = runner.validate(mainDir);
 		if (validation != null) {
 			System.out.println("error: install runner not runnable: " + validation);
-			System.exit(3);
+			System.exit(4);
 		} else {
 			System.out.println("info: install runner validated main directory");
 		}
 		
 		if (!runner.install(mainDir, args[1])) {
 			System.out.println("error: installation failed");
-			System.exit(4);
+			System.exit(5);
 		} else {
 			System.out.println("info: installation successful");
 		}
