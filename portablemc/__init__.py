@@ -220,6 +220,9 @@ class Version:
         `VersionError.JAR_NOT_FOUND` and the version ID as argument.
         """
 
+        # FIXME: The official launcher seems to use the JAR of inherited versions instead of re-downloading
+        #  the same JAR for this specific version. It's not critical but it could be changed.
+
         self._check_version_meta()
         self.version_jar_file = path.join(self.version_dir, f"{self.id}.jar")
         client_download = self.version_meta.get("downloads", {}).get("client")
