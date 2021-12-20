@@ -387,9 +387,11 @@ class Version:
                 lib_path = path.join(self.context.libraries_dir, lib_path_raw)
 
                 if not path.isfile(lib_path):
-                    lib_repo_url: Optional[str] = lib_obj.get("url")
-                    if lib_repo_url is None:
-                        continue  # If the file doesn't exists, and no server url is provided, skip.
+                    # The official launcher seems to default to their libraries CDN, it will also allows us
+                    # to prevent launch if such lib cannot be found.
+                    lib_repo_url: str = lib_obj.get("url", "https://libraries.minecraft.net/")
+                    if lib_repo_url[-1] != "/":
+                        lib_repo_url += "/"  # Let's be sure to have a '/' as last character.
                     lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=lib_dl_name)
 
             lib_libs.append(lib_path)
