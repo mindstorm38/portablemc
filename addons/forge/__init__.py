@@ -72,30 +72,42 @@ def load(_pmc):
 
             version_id = f"{ctx.ns.forge_prefix}-{forge_version}"
             version_dir = ctx.get_version_dir(version_id)
-            version_meta_file = path.join(version_dir, f"{version_id}.json")
-
             version = Version(ctx, version_id)
 
-            if not path.isfile(version_meta_file):
+            # Extract minecraft version from the full forge version
+            mc_version_id = forge_version[:max(0, forge_version.find("-"))]
 
-                # Extract minecraft version from the full forge version
-                mc_version_id = forge_version[:max(0, forge_version.find("-"))]
+            # List of possible artifacts names-version, some versions (e.g. 1.7) have the minecraft
+            # version in suffix of the version in addition to the suffix.
+            possible_artifact_versions = [forge_version, f"{forge_version}-{mc_version_id}"]
+
+            # Check if Forge should be installed, based on version meta file and potentially missing forge lib.
+            version_meta_file = path.join(version_dir, f"{version_id}.json")
+            should_install = not path.isfile(version_meta_file)
+            if not should_install:
+                should_install = True
+                local_artifact_path = path.join(ctx.libraries_dir, "net", "minecraftforge", "forge")
+                for possible_version in possible_artifact_versions:
+                    artifact_jar = path.join(local_artifact_path, possible_version, f"forge-{possible_version}.jar")
+                    if path.isfile(artifact_jar):
+                        should_install = False
+                        break
+
+            if should_install:
 
                 os.makedirs(version_dir, exist_ok=True)
 
                 # 1.7 used to have an additional suffix with minecraft version.
                 installer_file = path.join(version_dir, "installer.jar")
-                installer_urls = [
-                    f"https://maven.minecraftforge.net/net/minecraftforge/forge/{forge_version}/forge-{forge_version}-installer.jar",
-                    f"https://maven.minecraftforge.net/net/minecraftforge/forge/{forge_version}-{mc_version_id}/forge-{forge_version}-{mc_version_id}-installer.jar"
-                ]
 
                 pmc.print_task("", "start.forge.installer.resolving", {"version": forge_version})
 
                 found_installer = False
-                for installer_url in installer_urls:
+                dl_list = DownloadList()
+                for possible_version in possible_artifact_versions:
                     try:
-                        dl_list = DownloadList()
+                        installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{possible_version}/forge-{possible_version}-installer.jar"
+                        dl_list.reset()
                         dl_list.append(DownloadEntry(installer_url, installer_file))
                         dl_list.download_files()
                         pmc.print_task("OK", "start.forge.installer.found", {"version": forge_version}, done=True)
@@ -115,7 +127,8 @@ def load(_pmc):
                         mc_version = Version(ctx, mc_version_id)
                         mc_version.prepare_meta()
                         mc_version.prepare_jar()
-                        mc_version.download()
+                        # mc_version.download()  # Use pretty download??
+                        pmc.pretty_download(mc_version.dl)
                         pmc.print_task("OK", "start.forge.vanilla.found", {"version": mc_version_id}, done=True)
                     except DownloadError:
                         raise ForgeVersionNotFound(ForgeVersionNotFound.MINECRAFT_VERSION_NOT_FOUND, mc_version_id)
