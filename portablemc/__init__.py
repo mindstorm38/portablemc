@@ -1259,6 +1259,8 @@ class DownloadList:
                             continue
 
                         if res.status != 200:
+                            while res.readinto(buffer):
+                                pass  # This loop is used to skip all bytes in the stream, and allow further request.
                             error = DownloadError.NOT_FOUND
                             continue
 
