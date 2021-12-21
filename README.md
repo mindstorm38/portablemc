@@ -31,6 +31,7 @@ following issue for a temporary fix [#52](https://github.com/mindstorm38/portabl
   - [Addon sub-command](#addon-sub-command)
 - [Addons](#addons)
   - [Fabric support](#fabric-support)
+  - [Forge support](#forge-support)
   - [Better console](#better-console)
   - [Archives support](#archives-support)
   - [Modrinth mod management](#modrinth-mod-management-wip)
@@ -198,6 +199,11 @@ You can also specify the loader version in addition using the following pattern:
 manage mods was planed but this is not possible for now due to complex APIs and mods management by Fabric.***
 
 ![fabric animation](doc/assets/fabricmc.gif)
+
+## Forge support
+[**Download (1.0.0)**](https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/forge)
+
+TODO
 
 ## Better console
 [**Download (1.1.0)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/console)
