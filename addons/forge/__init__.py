@@ -88,10 +88,11 @@ def load(_pmc):
                 should_install = True
                 local_artifact_path = path.join(ctx.libraries_dir, "net", "minecraftforge", "forge")
                 for possible_version in possible_artifact_versions:
-                    artifact_jar = path.join(local_artifact_path, possible_version, f"forge-{possible_version}.jar")
-                    if path.isfile(artifact_jar):
-                        should_install = False
-                        break
+                    for possible_classifier in (possible_version, f"{possible_version}-client"):
+                        artifact_jar = path.join(local_artifact_path, possible_version, f"forge-{possible_classifier}.jar")
+                        if path.isfile(artifact_jar):
+                            should_install = False
+                            break
 
             if should_install:
 
