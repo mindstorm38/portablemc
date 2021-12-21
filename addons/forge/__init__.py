@@ -51,20 +51,24 @@ def load(_pmc):
                 game_version = "release"
 
             manifest = pmc.load_version_manifest(ctx)
-            game_version, _game_version_alias = manifest.filter_latest(game_version)
+            game_version, game_version_alias = manifest.filter_latest(game_version)
 
             forge_version = None
 
-            promo_versions = request_promo_versions()
-            for suffix in ("", "-recommended", "-latest"):
-                tmp_forge_version = promo_versions.get(f"{game_version}{suffix}")
-                if tmp_forge_version is not None:
-                    if game_version.endswith("-recommended"):
-                        game_version = game_version[:-12]
-                    elif game_version.endswith("-latest"):
-                        game_version = game_version[:-7]
-                    forge_version = f"{game_version}-{tmp_forge_version}"
-                    break
+            # If the version is an alias, we know that the version needs to be resolved from the forge
+            # promotion metadata. It's also the case if the version ends with '-recommended' or '-latest',
+            # or if the version doesn't contains a "-".
+            if game_version_alias or game_version.endswith(("-recommended", "-latest")) or "-" not in game_version:
+                promo_versions = request_promo_versions()
+                for suffix in ("", "-recommended", "-latest"):
+                    tmp_forge_version = promo_versions.get(f"{game_version}{suffix}")
+                    if tmp_forge_version is not None:
+                        if game_version.endswith("-recommended"):
+                            game_version = game_version[:-12]
+                        elif game_version.endswith("-latest"):
+                            game_version = game_version[:-7]
+                        forge_version = f"{game_version}-{tmp_forge_version}"
+                        break
 
             if forge_version is None:
                 # Test if the user has given the full forge version
