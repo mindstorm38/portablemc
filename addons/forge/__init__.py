@@ -100,8 +100,6 @@ def load(_pmc):
 
             if should_install:
 
-                os.makedirs(version_dir, exist_ok=True)
-
                 # 1.7 used to have an additional suffix with minecraft version.
                 installer_file = path.join(version_dir, "installer.jar")
 
