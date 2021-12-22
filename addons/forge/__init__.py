@@ -153,6 +153,8 @@ def load(_pmc):
                 if wrapper_completed.returncode != 0:
                     raise ForgeInstallerFailed(wrapper_completed.returncode)
 
+            pmc.print_task("INFO", "start.forge.consider_support", done=True)
+
             return version
 
         return old(ctx, version_id)
@@ -167,6 +169,7 @@ def load(_pmc):
         "start.forge.vanilla.found": "Found parent Minecraft version {version}.",
         "start.forge.wrapper.running": "Running installer (can take few minutes)...",
         "start.forge.wrapper.done": "Forge installation done.",
+        "start.forge.consider_support": "Consider supporting the forge project through https://www.patreon.com/LexManos/.",
         "start.forge.error.invalid_main_dir": "The main directory cannot be determined, because version directory "
                                               "and libraries directory must have the same parent directory.",
         "start.forge.error.installer_3": "This forge installer is currently not supported.",
