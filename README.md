@@ -6,10 +6,12 @@ stateless manner. You can now customize the launcher with addons.
 
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/mindstorm38/portablemc?label=stable&style=flat-square) &nbsp;![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/mindstorm38/portablemc?include_prereleases&label=preview&style=flat-square) &nbsp;![GitHub all releases](https://img.shields.io/github/downloads/mindstorm38/portablemc/total?label=Github%20downloads&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square) &nbsp;![Release cycle](https://img.shields.io/badge/Release%20cycle-2%2Fmonth-yellow?style=flat-square)
 
-### [Install now!](#installation) *[Fabric is now supported!](#fabric-support)*
+### [Install now!](#installation)
+
+#### ***[Fabric](/addons/fabric/README.md) and [Forge](/addons/forge/README.md) are now supported!***
 
 **The launcher is safe to Log4j exploit since v2.2.0, if you are running an older please update or read the
-following issue for a temporary fix [#52](https://github.com/mindstorm38/portablemc/issues/52).**
+following issue for a temporary fix: [#52](https://github.com/mindstorm38/portablemc/issues/52).**
 
 ![illustration](doc/assets/illustration.png)
 
@@ -30,11 +32,11 @@ following issue for a temporary fix [#52](https://github.com/mindstorm38/portabl
   - [Authentication sessions](#authentication-sessions)
   - [Addon sub-command](#addon-sub-command)
 - [Addons](#addons)
-  - [Fabric support](#fabric-support)
-  - [Forge support ⇗](/addons/forge/README.md)
-  - [Better console](#better-console)
-  - [Archives support](#archives-support)
-  - [Modrinth mod management](#modrinth-mod-management-wip)
+  - [Fabric ⇗](/addons/fabric/README.md)
+  - [Forge ⇗](/addons/forge/README.md)
+  - [Console ⇗](/addons/console/README.md)
+  - [Archives ⇗](/addons/archives/README.md)
+  - [Modrinth ⇗](/addons/modrinth/README.md)
 - [Contributors](#contributors)
 - [API Documentation ⇗](doc/API.md)
 - [Addon API Documentation ⇗](doc/ADDON.md)
@@ -177,64 +179,9 @@ The `<exec> addon list|dirs|show` sub-commands are used to list and show addons.
 to list all directories where you can place the addons' folders.
 
 # Addons
-Officially supported addons can be found in the ['addons' directory](https://github.com/mindstorm38/portablemc/tree/master/addons).
+Officially supported addons can be found in the ['addons' directory](/addons).
 To install addons you have to run `addon dirs` to get all directories where you can place addons.
 To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons).
-
-## Fabric support
-[**Download (1.1.0)**](https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/fabric)
-
-Fabric is now supported through the addon `fabric`.
-
-This add-on allows you to start Minecraft using FabricMC directly with the [start sub-command](#start-the-game), 
-but instead of a standard version like `1.16.5` you must use the following pattern: `fabric:<mc-version>`.
-Use `fabric:` to start fabric for latest release, `<mc-version>` can be a version type (`release` or `snapshot`), 
-in this case the latest version of this type is selected.
-
-For example, using the command `portablemc.py start fabric:1.16.5` will download and start the latest FabricMC mod loader for `1.16.5`.
-
-You can also specify the loader version in addition using the following pattern: `fabric:<mc-version>:<loader-version>`.
-
-***For now, mods must be installed manually in the standard `mods` directory, an additional command to install and 
-manage mods was planed but this is not possible for now due to complex APIs and mods management by Fabric.***
-
-![fabric animation](doc/assets/fabricmc.gif)
-
-## Better console
-[**Download (1.1.0)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/console)
-
-An addon named `console` can be used to display the Minecraft process' console, this is useful to debug the game when
-it crashes multiple times, or simply if you can to track what's going on.
-An overview of the console can be seen in the animated image in the fabric section just above, it provides a blue header
-section with summary of the running session and Minecraft version, output lines are printed bellow it, you can then 
-navigate the output buffer.
-
-## Archives support
-[**Download (1.1.0)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/archives)
-
-An addon named `archives` allows you to launch archived Minecraft versions.
-This addon extends the [start sub-command](#start-the-game) and you can use `arc:` prefix, for exemple `start arc:a1.1.1`
-will download, install and run the Alpha 1.1.1 version from the archives. This addon also extends the `search` subcommand
-with an argument `--archives` (`-a`) to search versions in the archives.
-
-***This addon is based on all the work done by the [Omniarchive community](https://omniarchive.net/).***
-All types of archived versions are supported:
-- [Pre-Classic (Rubydung)](https://archive.org/details/Minecraft-JE-Pre-Classic)
-- [Classic](https://archive.org/details/Minecraft-JE-Classic)
-- [Indev](https://archive.org/details/Minecraft-JE-Indev)
-- [Infdev](https://archive.org/details/Minecraft-JE-Infdev)
-- [Alpha](https://archive.org/details/Minecraft-JE-Alpha)
-- [Beta](https://archive.org/details/Minecraft-JE-Beta)
-
-## Modrinth mod management (W.I.P.)
-[**Download (1.0.0-pre3)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/modrinth)
-
-An addon named `modrinth` that provides a sub-command `modr` to manage mod installation in the `mods` directory used
-by Fabric and Forge mod loaders. This addon is based on the Modrinth API, which is an open-source mods' distribution
-platform. Owners choose or not to put their mod on Modrinth so some popular mods cannot be found, but most recent 
-ones like CaffeineMC's mods (sodium, hydrogen) are available. Some Forge mods are also available.
-
-Use the `portablemc modr -h` to get general help message.
 
 # Contributors
 This launcher would not be as functional without the contributors, and in particular the following for their bug reports

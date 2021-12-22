@@ -2,7 +2,9 @@
 The fabric add-on allows you to install and run Minecraft with fabric mod loader in a single command 
 line!
 
-### Usage
+[**Download (1.1.0)**](https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/fabric)
+
+## Usage
 This add-on extends the syntax accepted by the [start](/README.md#start-the-game) sub-command, by 
 prepending the version with `fabric:`. Almost all releases since 1.14 are supported by fabric,
 you can find more information on [fabric website](https://fabricmc.net/develop/), note the snapshots
@@ -17,7 +19,7 @@ This addon requires external HTTP accesses if:
 - if the loader version is unspecified.
 - if the specified version is not installed.
 
-### Examples
+## Examples
 ```sh
 portablemc start fabric:                # Install latest fabric loader version for latest release
 portablemc start fabric:release         # Same as above
@@ -26,5 +28,7 @@ portablemc start fabric:1.18.1:0.12.12  # Install fabric loader 0.12.12 for game
 portablemc start fabric::0.12.12        # Install fabric loader 0.12.12 for the latest release
 ```
 
-### Credits
+![fabric animation](/doc/assets/fabricmc.gif)
+
+## Credits
 - [Fabric Website](https://fabricmc.net/)
