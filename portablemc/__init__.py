@@ -46,7 +46,7 @@ __all__ = [
     "DownloadEntry", "DownloadList", "DownloadProgress", "DownloadEntryProgress",
     "BaseError", "JsonRequestError", "AuthError", "VersionManifestError", "VersionError", "JvmLoadingError",
         "DownloadError",
-    "json_request", "json_simple_request",
+    "http_request", "json_request", "json_simple_request",
     "merge_dict",
     "interpret_rule_os", "interpret_rule", "interpret_args",
     "replace_vars", "replace_list_vars",
@@ -220,6 +220,9 @@ class Version:
         `VersionError.JAR_NOT_FOUND` and the version ID as argument.
         """
 
+        # FIXME: The official launcher seems to use the JAR of inherited versions instead of re-downloading
+        #  the same JAR for this specific version. It's not critical but it could be changed.
+
         self._check_version_meta()
         self.version_jar_file = path.join(self.version_dir, f"{self.id}.jar")
         client_download = self.version_meta.get("downloads", {}).get("client")
@@ -387,9 +390,11 @@ class Version:
                 lib_path = path.join(self.context.libraries_dir, lib_path_raw)
 
                 if not path.isfile(lib_path):
-                    lib_repo_url: Optional[str] = lib_obj.get("url")
-                    if lib_repo_url is None:
-                        continue  # If the file doesn't exists, and no server url is provided, skip.
+                    # The official launcher seems to default to their libraries CDN, it will also allows us
+                    # to prevent launch if such lib cannot be found.
+                    lib_repo_url: str = lib_obj.get("url", "https://libraries.minecraft.net/")
+                    if lib_repo_url[-1] != "/":
+                        lib_repo_url += "/"  # Let's be sure to have a '/' as last character.
                     lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=lib_dl_name)
 
             lib_libs.append(lib_path)
@@ -590,6 +595,7 @@ class Start:
             # Game
             "auth_player_name": username,
             "version_name": self.version.id,
+            "library_directory": self.version.context.libraries_dir,
             "game_directory": self.version.context.work_dir,
             "assets_root": self.version.context.assets_dir,
             "assets_index_name": self.version.assets_index_version,
@@ -607,6 +613,7 @@ class Start:
             "natives_directory": "",
             "launcher_name": LAUNCHER_NAME,
             "launcher_version": LAUNCHER_VERSION,
+            "classpath_separator": path.pathsep,
             "classpath": path.pathsep.join(self.version.classpath_libs)
         }
 
@@ -1255,6 +1262,8 @@ class DownloadList:
                             continue
 
                         if res.status != 200:
+                            while res.readinto(buffer):
+                                pass  # This loop is used to skip all bytes in the stream, and allow further request.
                             error = DownloadError.NOT_FOUND
                             continue
 
@@ -1388,25 +1397,27 @@ class DownloadError(Exception):
         self.fails = fails
 
 
-def json_request(url: str, method: str, *,
+def http_request(url: str, method: str, *,
                  data: Optional[bytes] = None,
                  headers: Optional[dict] = None,
-                 ignore_error: bool = False,
                  timeout: Optional[float] = None,
-                 rcv_headers: Optional[dict] = None) -> Tuple[int, dict]:
+                 rcv_headers: Optional[dict] = None) -> Tuple[int, bytes]:
 
     """
-    Make a request for a JSON API at specified URL. Might raise `JsonRequestError` if failed.\n
-    The parameter `ignore_error` can be used to ignore JSONDecodeError handling and just return a dict with a
-    single key 'raw' and the raw data on failure, instead of raising an `JsonRequestError` with
-    `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
-    If `rcv_headers` is defined, the dictionary is filled with response headers.
+    Make an HTTP request at a specified URL and retrieve raw data. This is a simpler wrapper
+    to the standard `url.request.urlopen` wrapper, it ignores HTTP error codes.
+
+    :param url: The URL to request.
+    :param method: The HTTP method to use for this request.
+    :param data: Optional data to put in the request's body.
+    :param headers: Optional headers to add to default ones.
+    :param timeout: Optional timeout for the TCP handshake.
+    :param rcv_headers: Optional received headers dictionary, populated after
+    :return: A tuple (HTTP response code, data bytes).
     """
 
     if headers is None:
         headers = {}
-    if "Accept" not in headers:
-        headers["Accept"] = "application/json"
 
     try:
         req = UrlRequest(url, data, headers, method=method)
@@ -1418,14 +1429,35 @@ def json_request(url: str, method: str, *,
         for header_name, header_value in res.getheaders():
             rcv_headers[header_name] = header_value
 
+    return res.status, res.read()
+
+
+def json_request(url: str, method: str, *,
+                 data: Optional[bytes] = None,
+                 headers: Optional[dict] = None,
+                 ignore_error: bool = False,
+                 timeout: Optional[float] = None,
+                 rcv_headers: Optional[dict] = None) -> Tuple[int, dict]:
+
+    """
+    A simple wrapper around ``http_request` function to decode returned data to JSON. If decoding fails and parameter
+    `ignore_error` is false, error `JsonRequestError` is raised with `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
+    """
+
+    if headers is None:
+        headers = {}
+    if "Accept" not in headers:
+        headers["Accept"] = "application/json"
+
+    status, data = http_request(url, method, data=data, headers=headers, timeout=timeout, rcv_headers=rcv_headers)
+
     try:
-        data = res.read()
-        return res.status, json.loads(data)
+        return status, json.loads(data)
     except JSONDecodeError:
         if ignore_error:
-            return res.status, {"raw": data}
+            return status, {"raw": data}
         else:
-            raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, url, method, res.status, data)
+            raise JsonRequestError(JsonRequestError.INVALID_RESPONSE_NOT_JSON, url, method, status, data)
 
 
 def json_simple_request(url: str, *, ignore_error: bool = False, timeout: Optional[int] = None) -> dict:

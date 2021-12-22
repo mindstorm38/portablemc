@@ -31,6 +31,7 @@ following issue for a temporary fix [#52](https://github.com/mindstorm38/portabl
   - [Addon sub-command](#addon-sub-command)
 - [Addons](#addons)
   - [Fabric support](#fabric-support)
+  - [Forge support ⇗](/addons/forge/README.md)
   - [Better console](#better-console)
   - [Archives support](#archives-support)
   - [Modrinth mod management](#modrinth-mod-management-wip)
