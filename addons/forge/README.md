@@ -16,10 +16,11 @@ no HTTP request is made if the version is already installed.
 
 ## Examples
 ```sh
-portablemc start forge:               # Install recommended forge version for latest release
+portablemc start forge:               # Start recommended forge version for latest release
 portablemc start forge:release        # Same as above
-portablemc start forge:1.18.1         # Install recommended forge for 1.18.1
-portablemc start forge:1.18.1-39.0.7  # Install the exact forge version 1.18.1-39.0.7
+portablemc start forge:1.18.1         # Start recommended forge for 1.18.1
+portablemc start forge:1.18.1-39.0.7  # Start the exact forge version 1.18.1-39.0.7
+portablemc start --dry forge:         # Install (and exit) recommended forge version for latest release
 ```
 
 ## Credits

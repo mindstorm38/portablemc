@@ -21,9 +21,10 @@ The following repositories are used to resolve your versions:
 
 ## Examples
 ```sh
-portablemc search -a         # List all archived versions.
-portablemc search -a a1.2.0  # List all archived versions that contains the string 'a1.2.0'.
-portablemc start arc:a1.2.0  # Start the archived version of alpha 1.2.0.
+portablemc search -a                # List all archived versions.
+portablemc search -a a1.2.0         # List all archived versions that contains the string 'a1.2.0'.
+portablemc start arc:a1.2.0         # Start the archived version of alpha 1.2.0.
+portablemc start --dry arc:a1.2.0   # Install the archived version of alpha 1.2.0 if it's not already the case.
 ```
 
 ## Credits

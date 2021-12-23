@@ -21,11 +21,12 @@ This addon requires external HTTP accesses if:
 
 ## Examples
 ```sh
-portablemc start fabric:                # Install latest fabric loader version for latest release
+portablemc start fabric:                # Start latest fabric loader version for latest release
 portablemc start fabric:release         # Same as above
-portablemc start fabric:1.18.1          # Install latest fabric loader version for 1.18.1
-portablemc start fabric:1.18.1:0.12.12  # Install fabric loader 0.12.12 for game version 1.18.1
-portablemc start fabric::0.12.12        # Install fabric loader 0.12.12 for the latest release
+portablemc start fabric:1.18.1          # Start latest fabric loader version for 1.18.1
+portablemc start fabric:1.18.1:0.12.12  # Start fabric loader 0.12.12 for game version 1.18.1
+portablemc start fabric::0.12.12        # Start fabric loader 0.12.12 for the latest release
+portablemc start --dry fabric:          # Install (and exit) the latest fabric loader version for latest release
 ```
 
 ![fabric animation](/doc/assets/fabricmc.gif)
