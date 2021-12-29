@@ -729,8 +729,6 @@ class VersionManifest:
 
         if self.data is None:
 
-            # self.data = json_simple_request("https://launchermeta.mojang.com/mc/game/version_manifest.json")
-
             headers = {}
             cache_data = None
 
@@ -744,16 +742,17 @@ class VersionManifest:
                     pass
 
             rcv_headers = {}
+            status, data = (404, {})
 
-            if self.cache_timeout is not None and self.cache_timeout <= 0:
-                status, data = (404, {})
-            else:
-                manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
-                status, data = json_request(manifest_url, "GET", headers=headers, ignore_error=True,
-                                            timeout=self.cache_timeout, rcv_headers=rcv_headers)
+            if self.cache_timeout is None or self.cache_timeout > 0:
+                try:
+                    manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
+                    status, data = json_request(manifest_url, "GET", headers=headers, ignore_error=True,
+                                                timeout=self.cache_timeout, rcv_headers=rcv_headers)
+                except OSError:
+                    pass  # We silently ignore OSError (all socket errors and URL errors) and use default 404
 
             if status == 200:
-                # Last-Modified
                 if "Last-Modified" in rcv_headers:
                     data["last_modified"] = rcv_headers["Last-Modified"]
                 self.data = data
@@ -779,9 +778,12 @@ class VersionManifest:
 
     def get_version(self, version: str) -> Optional[dict]:
         version, _alias = self.filter_latest(version)
-        for version_data in self._ensure_data()["versions"]:
-            if version_data["id"] == version:
-                return version_data
+        try:
+            for version_data in self._ensure_data()["versions"]:
+                if version_data["id"] == version:
+                    return version_data
+        except VersionManifestError:
+            pass  # Silently ignore manifest errors because we want to be able to launch offline.
         return None
 
     def all_versions(self) -> list:
