@@ -724,6 +724,7 @@ class VersionManifest:
         self.data: Optional[float] = None
         self.cache_timeout = cache_timeout
         self.cache_file = cache_file
+        self.sync = False
 
     def _ensure_data(self) -> Optional[dict]:
 
@@ -756,6 +757,7 @@ class VersionManifest:
                 if "Last-Modified" in rcv_headers:
                     data["last_modified"] = rcv_headers["Last-Modified"]
                 self.data = data
+                self.sync = True
                 if self.cache_file is not None:
                     os.makedirs(path.dirname(self.cache_file), exist_ok=True)
                     with open(self.cache_file, "wt") as cache_fp:
