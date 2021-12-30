@@ -125,7 +125,7 @@ def main(args: Optional[List[str]] = None):
             parser.print_help()
             sys.exit(EXIT_WRONG_USAGE)
         elif callable(handler):
-            handler(ns, new_context(ns))
+            cmd(handler, ns)
         elif isinstance(handler, dict):
             command_attr = f"{command}_{command_attr}"
             command_handlers = handler
@@ -379,6 +379,22 @@ def get_command_handlers():
     }
 
 
+def cmd(handler, ns: Namespace):
+    try:
+        handler(ns, new_context(ns))
+    except JsonRequestError as err:
+        print_task("FAILED", f"json_request.error.{err.code}", {
+            "url": err.url,
+            "method": err.method,
+            "status": err.status,
+            "data": err.data,
+        }, done=True, keep_previous=True)
+        sys.exit(EXIT_JSON_REQUEST_ERROR)
+    except (URLError, socket.gaierror, socket.timeout) as err:
+        print_task("FAILED", "error.socket", {"reason": str(err)}, done=True, keep_previous=True)
+        sys.exit(EXIT_FAILURE)
+
+
 def cmd_search(ns: Namespace, ctx: CliContext):
 
     _ = get_message
@@ -393,15 +409,19 @@ def cmd_search(ns: Namespace, ctx: CliContext):
     else:
         manifest = load_version_manifest(ctx)
         search, alias = manifest.filter_latest(search)
-        for version_data in manifest.all_versions():
-            version_id = version_data["id"]
-            if no_version or (alias and search == version_id) or (not alias and search in version_id):
-                table.append((
-                    version_data["type"],
-                    version_id,
-                    format_iso_date(version_data["releaseTime"]),
-                    _("search.flags.local") if ctx.has_version_metadata(version_id) else ""
-                ))
+        try:
+            for version_data in manifest.all_versions():
+                version_id = version_data["id"]
+                if no_version or (alias and search == version_id) or (not alias and search in version_id):
+                    table.append((
+                        version_data["type"],
+                        version_id,
+                        format_iso_date(version_data["releaseTime"]),
+                        _("search.flags.local") if ctx.has_version_metadata(version_id) else ""
+                    ))
+        except VersionManifestError as err:
+            print_task("FAILED", f"version_manifest.error.{err.code}", done=True)
+            sys.exit(EXIT_VERSION_NOT_FOUND)
 
     if len(table):
         table.insert(0, (
@@ -526,17 +546,6 @@ def cmd_start(ns: Namespace, ctx: CliContext):
     except JvmLoadingError as err:
         print_task("FAILED", f"start.jvm.error.{err.code}", done=True)
         sys.exit(EXIT_JVM_LOADING_ERROR)
-    except JsonRequestError as err:
-        print_task("FAILED", f"json_request.error.{err.code}", {
-            "url": err.url,
-            "method": err.method,
-            "status": err.status,
-            "data": err.data,
-        }, done=True, keep_previous=True)
-        sys.exit(EXIT_JSON_REQUEST_ERROR)
-    except (URLError, socket.gaierror, socket.timeout) as err:
-        print_task("FAILED", "error.socket", {"reason": str(err)}, done=True, keep_previous=True)
-        sys.exit(EXIT_FAILURE)
 
 
 def cmd_login(ns: Namespace, ctx: CliContext):
@@ -1020,9 +1029,9 @@ def print_table(lines: List[Tuple[str, ...]], *, header: int = -1):
 
 _print_task_last_len = 0
 def print_task(status: Optional[str], msg_key: str, msg_args: Optional[dict] = None, *, done: bool = False, keep_previous: bool = False):
-    if keep_previous:
-        print()
     global _print_task_last_len
+    if keep_previous and _print_task_last_len != 0:
+        print()
     len_limit = max(0, get_term_width() - 9)
     msg = get_message_raw(msg_key, msg_args)[:len_limit]
     missing_len = max(0, _print_task_last_len - len(msg))
