@@ -63,7 +63,7 @@ ensure that the scripts directory is in your user path environment variable. On 
 directory at `%appdata%/Python/Python3X/Scripts` and add it to the user's environment variable `Path`. On UNIX
 systems this should work properly because the script is put in `~/.local/bin`.
 
-# Single-file script
+## Single-file script
 On each release, a single-file script is built and distributed on the [release page](https://github.com/mindstorm38/portablemc/releases).
 This file has not to be installed, you can just run it using `python portablemc.py [...]`, on UNIX you can start the script
 directly with `portablemc.py` because the file has a *[shebang](https://wikipedia.org/wiki/Shebang)*.
