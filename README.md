@@ -1,8 +1,7 @@
 # Portable Minecraft Launcher
 An easy-to-use portable Minecraft launcher in only one Python script!
-This single-script launcher is still compatible with the official (Mojang) Minecraft Launcher stored
-in `.minecraft` and use it. The goals are speed and reliability for all Minecraft versions in a 
-stateless manner. You can now customize the launcher with addons.
+This single-script launcher is compatible with the directory structure of the official Minecraft Launcher.
+It aims to be fast and reliable for all Minecraft versions in a stateless manner and support addons.
 
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/mindstorm38/portablemc?label=stable&style=flat-square) &nbsp;![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/mindstorm38/portablemc?include_prereleases&label=preview&style=flat-square) &nbsp;![GitHub all releases](https://img.shields.io/github/downloads/mindstorm38/portablemc/total?label=Github%20downloads&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square) &nbsp;![Release cycle](https://img.shields.io/badge/Release%20cycle-2%2Fmonth-yellow?style=flat-square)
 
@@ -42,21 +41,22 @@ following issue for a temporary fix: [#52](https://github.com/mindstorm38/portab
 - [Addon API Documentation ⇗](doc/ADDON.md)
 
 # Installation
-The launcher can be installed in several ways, including Python Package Index *(PyPI)* or manually using the 
-single-file script. Before starting, please check if your Python version is valid for the launcher by doing `python -V`, 
-the version must be greater or equal to 3.6.
+The launcher can be installed in several ways, using Python Package Index *(PyPI)* or manually running the 
+single-file script. Before starting, please check if your Python version is valid for the launcher by doing 
+`python -V`, the version must be greater or equal to 3.6 according to [semver specification](https://semver.org/),
+this launcher's version is also following the semver specification.
 
 ## Install with PIP
 The easiest way to install the launcher is to use the `pip` tool of your Python installation. On some linux distribution 
-you might have to use `pip3` instead of `pip` in order to run it on Python 3. You can also use `python -m pip` you the
+you might have to use `pip3` instead of `pip` in order to run it on Python 3. You can also use `python -m pip` if the
 `pip` command is not in the path and the python executable is.
 
 ```sh
 pip install --user portablemc
 ```
 
-We advise you to keep `--user` because this allows to install the launcher locally, it is implicit if you are not an 
-administrator and if you are, it allows not to modify other users' installation.
+We advise you to keep `--user` because this allows to install the launcher for your current user only, it is implicit 
+if you are not an administrator and if you are, it allows not to modify other users' installations.
 
 After that, you can try to show the launcher help message using `portablemc` in your terminal. If it fails, you must
 ensure that the scripts directory is in your user path environment variable. On Windows you have to search for a
@@ -69,7 +69,7 @@ This file has not to be installed, you can just run it using `python portablemc.
 directly with `portablemc.py` because the file has a *[shebang](https://wikipedia.org/wiki/Shebang)*.
 
 # Sub-commands
-Arguments are split between multiple sub-commands. For example `<exec> <sub-command>`. You can use `-h` 
+Arguments are split between multiple sub-commands. For example `portablemc <sub-command>`. You can use `-h` 
 argument to display help *(also works for every sub-commands)*.
 
 You may need to use `--main-dir <path>` if you want to change the main directory of the game. The main
@@ -87,21 +87,22 @@ The two arguments `--main-dir` and `--work-dir` may or may not be used by sub co
 the command and always set the main and work directory like you want.
 
 An advanced argument `--timeout <seconds>` can be used to set a global timeout value that can be freely used
-by the launcher or addons. The special value 0 is often interpreted as "please use the local cache only". For
+by the launcher or addons. You can use the special value 0 to force using local caches, is supported. For
 now, it's used by the launcher only for the version manifest fetching as it is now locally cached.
 
 ## Start the game
-The `<exec> start [arguments...] [version]` sub-command is used to prepare and launch the game. A lot
-of arguments allow you to control how to game will behave. The only positional argument is the version - 
-you can either specify a full version id (which you can get from the [search](#search-for-versions) 
-sub-command), or a type of version to select the latest of this type (`release` (default) or `snapshot`).
+The `portablemc start [arguments...] [version]` sub-command is used to prepare and launch the game. A lot
+of arguments allow you to control how to game will behave. The only positional argument is the version, 
+which can be either a full version id (which you can get from the [search](#search-for-versions) 
+sub-command), or a type of version to select the latest of this type (`release` (default) or `snapshot`),
+if you omit the version argument, it's equivalent to `release`.
 
 ### Authentication
 Online mode is supported by this launcher, use the `-l <email_or_username>` (`--login`) argument to
 log into your account *(login with a username is deprecated by Mojang)*. If your session is not
 cached nor valid, the launcher will ask for the password.
 
-You can now use the the `-m` (`--microsoft`) to authenticate a Microsoft account if you already had
+You can use the the `-m` (`--microsoft`) to authenticate a Microsoft account if you already had
 migrated your account. In this case the launcher will open a page in your web browser with the
 Microsoft login page.
 
@@ -137,9 +138,9 @@ You can change these arguments using the `--jvm-args <args>`, **please always qu
 be one argument for PMC. For example `--jvm-args "-Xmx2G -XX:+UnlockExperimentalVMOptions"`.
 
 ### Auto connect to a server
-Since Minecraft 1.6 *(at least, need further tests to confirm)* we can start the game and automatically
-connect to a server. To do that you can use `-s <addr>` (`--server`) for the server address 
-(e.g. `mc.hypixel.net`) and the `-p` (`--server-port`) to specify its port, by default to 25565.
+Since Minecraft 1.6 we can start the game and automatically connect to a server. To do that you can use 
+`-s <addr>` (`--server`) for the server address (e.g. `mc.hypixel.net`) and the `-p` (`--server-port`) 
+to specify its port, by default to 25565.
 
 ### Miscellaneous
 With `--dry`, the game is prepared but not started.
@@ -154,13 +155,13 @@ to avoid raw XML logging in the terminal.
 The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` are obvious *(since 1.16)*.
 
 ## Search for versions
-The `<exec> search [-l] [version]` sub-command is used to search for versions. By default, this command
+The `portablemc search [-l] [version]` sub-command is used to search for versions. By default, this command
 will search for official versions available to download, you can instead search for local versions
 using the `-l` (`--local`) flag. The search string is optional, if not given all official or local
 versions are displayed.
 
 ## Authentication sessions
-Two subcommands allow you to store or logout of sessions: `<exec> login|logout <email_or_username>`.
+Two subcommands allow you to store or logout of sessions: `portablemc login|logout <email_or_username>`.
 These subcommands don't prevent you from using the `-l` (`--login`) argument when starting the game,
 these are just here to manage the session storage.
 
@@ -175,7 +176,7 @@ in the file `portablemc_auth.json` in the working directory. In older version of
 file is automatic and irreversible (the old file is deleted).
 
 ## Addon sub-command
-The `<exec> addon list|dirs|show` sub-commands are used to list and show addons. The `addon dirs` subcommand is used
+The `portablemc addon list|dirs|show` sub-commands are used to list and show addons. The `addon dirs` subcommand is used
 to list all directories where you can place the addons' folders.
 
 # Addons
