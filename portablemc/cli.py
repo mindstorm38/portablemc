@@ -306,6 +306,7 @@ def register_start_arguments(parser: ArgumentParser):
     parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
     parser.add_argument("--anonymise", help=_("args.start.anonymise"), action="store_true")
     parser.add_argument("--no-old-fix", help=_("args.start.no_old_fix"), action="store_true")
+    parser.add_argument("--lwjgl", help=_("args.start.lwjgl"))
     parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
     parser.add_argument("-l", "--login", help=_("args.start.login"))
     parser.add_argument("-m", "--microsoft", help=_("args.start.microsoft"), action="store_true")
@@ -449,6 +450,8 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         print_task("", "start.version.resolving", {"version": version.id})
         version.prepare_meta()
         print_task("OK", "start.version.resolved", {"version": version.id}, done=True)
+
+        # TODO: ns.lwjgl
 
         print_task("", "start.version.jar.loading")
         version.prepare_jar()
@@ -1081,6 +1084,8 @@ messages = {
     "args.start.anonymise": "Anonymise your email or username for authentication messages.",
     "args.start.no_old_fix": "Flag that disable fixes for old versions (legacy merge sort, betacraft proxy), "
                              "enabled by default.",
+    "args.start.lwjgl": "Change the default LWJGL version used by Minecraft, currently supporting '3.2.3' and '3.3'. "
+                        "This argument makes additional changes in order to support additional natives architectures.",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
                              "not already cached, disabled by default.",
     "args.start.login": "Use a email (or deprecated username) to authenticate using Mojang services (it override --username and --uuid).",
