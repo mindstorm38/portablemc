@@ -1583,7 +1583,9 @@ def get_minecraft_arch() -> str:
             "amd64": "x86_64",
             "ia64": "x86_64",
             "aarch64": "arm64",
-            "aarch32": "arm32",
+            "aarch32": "arm32",  # Don't know if this value is possible
+            "armv7l": "arm32",
+            "armv6l": "arm32",
         }.get(machine, "")
     return _minecraft_arch
 
