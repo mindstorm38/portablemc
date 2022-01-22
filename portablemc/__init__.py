@@ -398,7 +398,7 @@ class Version:
                     lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=lib_dl_name)
 
             lib_libs.append(lib_path)
-            if lib_dl_entry is not None and (not path.isfile(lib_path) or path.getsize(lib_path) != lib_dl_entry.size):
+            if lib_dl_entry is not None and (not path.isfile(lib_path) or (lib_dl_entry.size is not None and path.getsize(lib_path) != lib_dl_entry.size)):
                 self.dl.append(lib_dl_entry)
 
     def prepare_jvm(self):
@@ -1181,7 +1181,7 @@ class DownloadEntry:
 
     @classmethod
     def from_meta(cls, info: dict, dst: str, *, name: Optional[str] = None) -> 'DownloadEntry':
-        return DownloadEntry(info["url"], dst, size=info["size"], sha1=info["sha1"], name=name)
+        return DownloadEntry(info["url"], dst, size=info.get("size"), sha1=info.get("sha1"), name=name)
 
 
 class DownloadList:
@@ -1568,7 +1568,15 @@ def get_minecraft_arch() -> str:
     global _minecraft_arch
     if _minecraft_arch is None:
         machine = platform.machine().lower()
-        _minecraft_arch = "x86" if machine in ("i386", "i686") else "x86_64" if machine in ("x86_64", "amd64", "ia64") else ""
+        _minecraft_arch = {
+            "i386": "x86",
+            "i686": "x86",
+            "x86_64": "x86_64",
+            "amd64": "x86_64",
+            "ia64": "x86_64",
+            "aarch64": "arm64",
+            "aarch32": "arm32",
+        }.get(machine, "")
     return _minecraft_arch
 
 
