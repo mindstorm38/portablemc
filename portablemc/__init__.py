@@ -692,11 +692,19 @@ class Start:
         import atexit
         atexit.register(cleanup)
 
+        os.makedirs(bin_dir, exist_ok=True)
         for native_lib in self.version.native_libs:
             with ZipFile(native_lib, "r") as native_zip:
                 for native_zip_info in native_zip.infolist():
-                    if can_extract_native(native_zip_info.filename):
-                        native_zip.extract(native_zip_info, bin_dir)
+                    native_name = native_zip_info.filename
+                    if can_extract_native(native_name):
+                        try:
+                            native_name = native_name[native_name.rindex("/") + 1:]
+                        except ValueError:
+                            native_name = native_name
+                        with native_zip.open(native_zip_info, "r") as native_zip_file:
+                            with open(path.join(bin_dir, native_name), "wb") as native_file:
+                                shutil.copyfileobj(native_zip_file, native_file)
 
         self.args_replacements["natives_directory"] = bin_dir
 
@@ -1605,7 +1613,8 @@ def get_minecraft_jvm_os() -> str:
 
 def can_extract_native(filename: str) -> bool:
     """ Return True if a file should be extracted to binaries directory. """
-    return not filename.startswith("META-INF") and not filename.endswith(".git") and not filename.endswith(".sha1")
+    return filename.endswith((".so", ".dll", ".dylib"))
+    # return not filename.startswith("META-INF") and not filename.endswith(".git") and not filename.endswith(".sha1")
 
 
 LEGACY_JVM_ARGUMENTS = [
