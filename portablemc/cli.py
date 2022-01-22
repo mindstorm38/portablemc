@@ -306,7 +306,7 @@ def register_start_arguments(parser: ArgumentParser):
     parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
     parser.add_argument("--anonymise", help=_("args.start.anonymise"), action="store_true")
     parser.add_argument("--no-old-fix", help=_("args.start.no_old_fix"), action="store_true")
-    parser.add_argument("--lwjgl", help=_("args.start.lwjgl"))
+    parser.add_argument("--lwjgl", help=_("args.start.lwjgl"), choices=["3.2.3", "3.3.0"])
     parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
     parser.add_argument("-l", "--login", help=_("args.start.login"))
     parser.add_argument("-m", "--microsoft", help=_("args.start.microsoft"), action="store_true")
@@ -451,7 +451,15 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         version.prepare_meta()
         print_task("OK", "start.version.resolved", {"version": version.id}, done=True)
 
-        # TODO: ns.lwjgl
+        version_meta_changes = []
+        if ns.lwjgl is not None:
+            change_lwjgl_version(version, ns.lwjgl)
+            version_meta_changes.append(f"lwjgl-{ns.lwjgl}")
+
+        if len(version_meta_changes):
+            dump_meta_name = f"{version.id}.{'.'.join(version_meta_changes)}.dump.json"
+            with open(path.join(version.version_dir, dump_meta_name), "wt") as dump_meta_fp:
+                json.dump(version.version_meta, dump_meta_fp, indent=2)
 
         print_task("", "start.version.jar.loading")
         version.prepare_jar()
@@ -682,6 +690,89 @@ def new_start(_ctx: CliContext, version: Version) -> Start:
 
 def new_start_options(_ctx: CliContext) -> StartOptions:
     return StartOptions()
+
+
+def change_lwjgl_version(version: Version, lwjgl_version: str):
+
+    lwjgl_libs = [
+        "lwjgl",
+        "lwjgl-jemalloc",
+        "lwjgl-openal",
+        "lwjgl-opengl",
+        "lwjgl-glfw",
+        "lwjgl-stb",
+        "lwjgl-tinyfd",
+    ]
+
+    if lwjgl_version == "3.2.3":
+        lwjgl_natives = {
+            "arm32": {"linux": "natives-linux-arm32"},
+            "arm64": {"linux": "natives-linux-arm64"},
+            "x86": {"windows": "natives-windows-x86"},
+            "x86_64": {"windows": "natives-windows", "linux": "natives-linux", "osx": "natives-macos"}
+        }
+    elif lwjgl_version == "3.3.0":
+        lwjgl_natives = {
+            "arm32": {"linux": "natives-linux-arm32"},
+            "arm64": {"windows": "natives-windows-arm64", "linux": "natives-linux-arm64", "osx": "natives-macos-arm64"},
+            "x86": {"windows": "natives-windows-x86"},
+            "x86_64": {"windows": "natives-windows", "linux": "natives-linux", "osx": "natives-macos"}
+        }
+    else:
+        raise ValueError(f"Unsupported LWJGL version {lwjgl_version}")
+
+    meta_libraries: list = version.version_meta["libraries"]
+
+    libraries_to_remove = []
+    for idx, lib_obj in enumerate(meta_libraries):
+        if "name" in lib_obj and lib_obj["name"].startswith("org.lwjgl:"):
+            libraries_to_remove.append(idx)
+
+    for idx_to_remove in reversed(libraries_to_remove):
+        meta_libraries.pop(idx_to_remove)
+
+    maven_repo_url = "https://repo1.maven.org/maven2"
+
+    for lwjgl_lib in lwjgl_libs:
+
+        lib_path = f"org/lwjgl/{lwjgl_lib}/{lwjgl_version}/{lwjgl_lib}-{lwjgl_version}.jar"
+        lib_url = f"{maven_repo_url}/{lib_path}"
+        lib_name = f"org.lwjgl:{lwjgl_lib}:{lwjgl_version}"
+
+        meta_libraries.append({
+            "downloads": {
+                "artifact": {
+                    "path": lib_path,
+                    "url": lib_url
+                }
+            },
+            "name": lib_name
+        })
+
+        for lwjgl_arch, lwjgl_arch_natives in lwjgl_natives.items():
+
+            arch_classifiers = {}
+
+            for lwjgl_os, lwjgl_classifier in lwjgl_arch_natives.items():
+                classifier_path = f"org/lwjgl/{lwjgl_lib}/{lwjgl_version}/{lwjgl_lib}-{lwjgl_version}-{lwjgl_classifier}.jar"
+                classifier_url = f"{maven_repo_url}/{classifier_path}"
+                arch_classifiers[lwjgl_classifier] = {
+                    "path": classifier_path,
+                    "url": classifier_url
+                }
+
+            meta_libraries.append({
+                "downloads": {
+                    "artifact": {
+                        "path": lib_path,
+                        "url": lib_url
+                    },
+                    "classifiers": arch_classifiers
+                },
+                "natives": lwjgl_arch_natives,
+                "name": lib_name,
+                "rules": [{"action": "allow", "os": {"arch": lwjgl_arch}}]
+            })
 
 
 # CLI utilities
@@ -1084,8 +1175,9 @@ messages = {
     "args.start.anonymise": "Anonymise your email or username for authentication messages.",
     "args.start.no_old_fix": "Flag that disable fixes for old versions (legacy merge sort, betacraft proxy), "
                              "enabled by default.",
-    "args.start.lwjgl": "Change the default LWJGL version used by Minecraft, currently supporting '3.2.3' and '3.3'. "
-                        "This argument makes additional changes in order to support additional natives architectures.",
+    "args.start.lwjgl": "Change the default LWJGL version used by Minecraft, currently supporting '3.2.3' and '3.3.0'. "
+                        "This argument makes additional changes in order to support additional natives architectures. "
+                        "It's not guaranteed to work with every version of Minecraft.",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
                              "not already cached, disabled by default.",
     "args.start.login": "Use a email (or deprecated username) to authenticate using Mojang services (it override --username and --uuid).",
