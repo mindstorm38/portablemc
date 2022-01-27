@@ -152,7 +152,12 @@ With `--resol <width>x<height>` you can change the resolution of the game window
 With `--no-better-logging` flag you can disable the better logging configuration used by the launcher
 to avoid raw XML logging in the terminal.
 
-The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` are obvious *(since 1.16)*.
+The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` respectively to disable multiplayer button and 
+disable in-game chat *(since 1.16)*.
+
+With `--lwjgl {3.2.3,3.3.0}` you can update the LWJGL version used when starting the game. This can be used to support
+ARM architectures, but this may only work with modern versions which are already using LWJGL 3. This argument works by 
+dynamically rewriting the version's metadata, it dumps the rewrite in the version directory.
 
 ## Search for versions
 The `portablemc search [-l] [version]` sub-command is used to search for versions. By default, this command
