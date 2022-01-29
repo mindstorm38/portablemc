@@ -451,13 +451,14 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         version.prepare_meta()
         print_task("OK", "start.version.resolved", {"version": version.id}, done=True)
 
-        version_meta_changes = []
+        version_fixes = []
         if ns.lwjgl is not None:
-            change_lwjgl_version(version, ns.lwjgl)
-            version_meta_changes.append(f"lwjgl-{ns.lwjgl}")
+            fix_lwjgl_version(version, ns.lwjgl)
+            version_fixes.append(f"lwjgl-{ns.lwjgl}")
+            print_task("OK", "start.version.fixed.lwjgl", {"version": ns.lwjgl}, done=True)
 
-        if len(version_meta_changes):
-            dump_meta_name = f"{version.id}.{'.'.join(version_meta_changes)}.dump.json"
+        if len(version_fixes):
+            dump_meta_name = f"{version.id}.{'.'.join(version_fixes)}.dump.json"
             with open(path.join(version.version_dir, dump_meta_name), "wt") as dump_meta_fp:
                 json.dump(version.version_meta, dump_meta_fp, indent=2)
 
@@ -692,7 +693,9 @@ def new_start_options(_ctx: CliContext) -> StartOptions:
     return StartOptions()
 
 
-def change_lwjgl_version(version: Version, lwjgl_version: str):
+# Dynamic fixing method
+
+def fix_lwjgl_version(version: Version, lwjgl_version: str):
 
     lwjgl_libs = [
         "lwjgl",
@@ -1244,6 +1247,7 @@ messages = {
     # Command start
     "start.version.resolving": "Resolving version {version}... ",
     "start.version.resolved": "Resolved version {version}.",
+    "start.version.fixed.lwjgl": "Fixed LWJGL version to {version}",
     "start.version.jar.loading": "Loading version JAR... ",
     "start.version.jar.loaded": "Loaded version JAR.",
     f"start.version.error.{VersionError.NOT_FOUND}": "Version {version} not found.",
