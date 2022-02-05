@@ -549,6 +549,9 @@ def cmd_start(ns: Namespace, ctx: CliContext):
 
         sys.exit(EXIT_OK)
 
+    except KeyboardInterrupt:
+        print_task(None, "error.keyboard_interrupt", done=True, keep_previous=True)
+        sys.exit(EXIT_FAILURE)
     except VersionManifestError as err:
         print_task("FAILED", f"version_manifest.error.{err.code}", done=True)
         sys.exit(EXIT_VERSION_NOT_FOUND)
@@ -870,7 +873,7 @@ def pretty_download(dl_list: DownloadList) -> bool:
             percentage = 100.0 if progress.total == 0 else min(100.0, progress.size / progress.total * 100.0)
             entries = ", ".join((entry.name for entry in progress.entries))
             path_len = max(0, min(80, get_term_width()) - non_path_len - len(speed))
-            print(f"[      ] {dl_text} {entries[:path_len].ljust(path_len)} {percentage:6.2f}% {speed}/s\r", end="")
+            print(f"\r[      ] {dl_text} {entries[:path_len].ljust(path_len)} {percentage:6.2f}% {speed}/s", end="")
             called_once = True
 
     def complete_task(errors_count: int = 0):
@@ -890,6 +893,10 @@ def pretty_download(dl_list: DownloadList) -> bool:
         dl_list.callbacks.insert(0, complete_task)
         dl_list.download_files(progress_callback=progress_callback)
         return True
+    except KeyboardInterrupt:
+        if called_once:
+            print()
+        raise
     except DownloadError as err:
         complete_task(len(err.fails))
         for entry_url, entry_error in err.fails.items():
@@ -1213,7 +1220,8 @@ messages = {
     # Json Request
     f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid JSON response from {method} {url}, status: {status}, data: {data}",
     # Misc errors
-    f"error.socket": "This operation requires an operational network, but a socket error happened: {reason}",
+    "error.socket": "This operation requires an operational network, but a socket error happened: {reason}",
+    "error.keyboard_interrupt": "Interrupted.",
     # Command search
     "search.type": "Type",
     "search.name": "Identifier",
