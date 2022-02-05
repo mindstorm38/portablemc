@@ -1252,71 +1252,80 @@ class DownloadList:
 
                 conn_type = HTTPSConnection if (host[0] == "1") else HTTPConnection
                 conn = conn_type(host[1:])
-                max_entry_idx = len(entries) - 1
-                headers["Connection"] = "keep-alive"
 
-                for i, entry in enumerate(entries):
+                try:
 
-                    last_entry = (i == max_entry_idx)
-                    if last_entry:
-                        headers["Connection"] = "close"
+                    max_entry_idx = len(entries) - 1
+                    headers["Connection"] = "keep-alive"
 
-                    size_target = 0 if entry.size is None else entry.size
-                    error = None
+                    for i, entry in enumerate(entries):
 
-                    for _ in range(max_try_count):
+                        last_entry = (i == max_entry_idx)
+                        if last_entry:
+                            headers["Connection"] = "close"
 
-                        try:
-                            conn.request("GET", entry.url, None, headers)
-                            res = conn.getresponse()
-                        except ConnectionError:
-                            error = DownloadError.CONN_ERROR
-                            continue
+                        size_target = 0 if entry.size is None else entry.size
+                        error = None
 
-                        if res.status != 200:
-                            while res.readinto(buffer):
-                                pass  # This loop is used to skip all bytes in the stream, and allow further request.
-                            error = DownloadError.NOT_FOUND
-                            continue
+                        for _ in range(max_try_count):
 
-                        sha1 = None if entry.sha1 is None else hashlib.sha1()
-                        size = 0
+                            try:
+                                conn.request("GET", entry.url, None, headers)
+                                res = conn.getresponse()
+                            except ConnectionError:
+                                error = DownloadError.CONN_ERROR
+                                continue
 
-                        os.makedirs(path.dirname(entry.dst), exist_ok=True)
-                        with open(entry.dst, "wb") as dst_fp:
-                            while True:
-                                read_len = res.readinto(buffer)
-                                if not read_len:
-                                    break
-                                buffer_view = buffer[:read_len]
-                                size += read_len
-                                total_size += read_len
-                                if sha1 is not None:
-                                    sha1.update(buffer_view)
-                                dst_fp.write(buffer_view)
-                                if progress_callback is not None:
-                                    progress.size = total_size
-                                    entry_progress.name = entry.name
-                                    entry_progress.total = size_target
-                                    entry_progress.size = size
-                                    progress_callback(progress)
+                            if res.status != 200:
+                                while res.readinto(buffer):
+                                    pass  # This loop is used to skip all bytes in the stream, and allow further request.
+                                error = DownloadError.NOT_FOUND
+                                continue
 
-                        if entry.size is not None and size != entry.size:
-                            error = DownloadError.INVALID_SIZE
-                        elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
-                            error = DownloadError.INVALID_SHA1
+                            sha1 = None if entry.sha1 is None else hashlib.sha1()
+                            size = 0
+
+                            os.makedirs(path.dirname(entry.dst), exist_ok=True)
+                            try:
+                                with open(entry.dst, "wb") as dst_fp:
+                                    while True:
+                                        read_len = res.readinto(buffer)
+                                        if not read_len:
+                                            break
+                                        buffer_view = buffer[:read_len]
+                                        size += read_len
+                                        total_size += read_len
+                                        if sha1 is not None:
+                                            sha1.update(buffer_view)
+                                        dst_fp.write(buffer_view)
+                                        if progress_callback is not None:
+                                            progress.size = total_size
+                                            entry_progress.name = entry.name
+                                            entry_progress.total = size_target
+                                            entry_progress.size = size
+                                            progress_callback(progress)
+                            except KeyboardInterrupt:
+                                if path.isfile(entry.dst):
+                                    os.remove(entry.dst)
+                                raise
+
+                            if entry.size is not None and size != entry.size:
+                                error = DownloadError.INVALID_SIZE
+                            elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
+                                error = DownloadError.INVALID_SHA1
+                            else:
+                                if entry.size is None:
+                                    entry.size = size  # Enforce entry size from the effective downloaded size.
+                                    self.size += size
+                                break
+
+                            total_size -= size  # If error happened, subtract the size and restart from latest total_size.
+
                         else:
-                            if entry.size is None:
-                                entry.size = size  # Enforce entry size from the effective downloaded size.
-                                self.size += size
-                            break
+                            fails[entry.url] = error  # If the break was not triggered, an error should be set.
 
-                        total_size -= size  # If error happened, subtract the size and restart from latest total_size.
-
-                    else:
-                        fails[entry.url] = error  # If the break was not triggered, an error should be set.
-
-                conn.close()
+                finally:
+                    conn.close()
 
             if len(fails):
                 raise DownloadError(fails)
