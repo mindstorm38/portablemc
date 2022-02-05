@@ -394,6 +394,9 @@ def cmd(handler, ns: Namespace):
     except (URLError, socket.gaierror, socket.timeout) as err:
         print_task("FAILED", "error.socket", {"reason": str(err)}, done=True, keep_previous=True)
         sys.exit(EXIT_FAILURE)
+    except KeyboardInterrupt:
+        print_task(None, "error.keyboard_interrupt", done=True, keep_previous=True)
+        sys.exit(EXIT_FAILURE)
 
 
 def cmd_search(ns: Namespace, ctx: CliContext):
@@ -549,9 +552,6 @@ def cmd_start(ns: Namespace, ctx: CliContext):
 
         sys.exit(EXIT_OK)
 
-    except KeyboardInterrupt:
-        print_task(None, "error.keyboard_interrupt", done=True, keep_previous=True)
-        sys.exit(EXIT_FAILURE)
     except VersionManifestError as err:
         print_task("FAILED", f"version_manifest.error.{err.code}", done=True)
         sys.exit(EXIT_VERSION_NOT_FOUND)
