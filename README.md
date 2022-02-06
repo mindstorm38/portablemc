@@ -14,7 +14,7 @@ following issue for a temporary fix: [#52](https://github.com/mindstorm38/portab
 
 ![illustration](doc/assets/illustration.png)
 
-*This launcher is tested for Python 3.6, 3.7, 3.8, 3.9, further testing using other versions are welcome.*
+*This launcher is tested for Python 3.6, 3.7, 3.8, 3.9, 3.10.*
 
 # Table of contents
 - [Installation](#installation)
@@ -26,6 +26,7 @@ following issue for a temporary fix: [#52](https://github.com/mindstorm38/portab
     - [Offline mode](#offline-mode)
     - [Custom JVM](#custom-jvm)
     - [Auto connect to a server](#auto-connect-to-a-server)
+    - [LWJGL version and ARM support](#lwjgl-version-and-arm-support)
     - [Miscellaneous](#miscellaneous)
   - [Search for versions](#search-for-versions)
   - [Authentication sessions](#authentication-sessions)
@@ -134,13 +135,20 @@ launcher starts the JVM with default arguments, these are the following and are 
 -Xmx2G -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M
 ```
 
-You can change these arguments using the `--jvm-args <args>`, **please always quote your set of arguments**, this set must
-be one argument for PMC. For example `--jvm-args "-Xmx2G -XX:+UnlockExperimentalVMOptions"`.
+You can change these arguments using the `--jvm-args=<args>`, **please always quote your set of arguments**, this set must
+be one argument for PMC. For example `portablemc start "--jvm-args=-Xmx2G -XX:+UnlockExperimentalVMOptions"`.
 
 ### Auto connect to a server
 Since Minecraft 1.6 we can start the game and automatically connect to a server. To do that you can use 
 `-s <addr>` (`--server`) for the server address (e.g. `mc.hypixel.net`) and the `-p` (`--server-port`) 
 to specify its port, by default to 25565.
+
+### LWJGL version and ARM support
+With `--lwjgl {3.2.3,3.3.0}` you can update the LWJGL version used when starting the game. This can be used to support
+ARM architectures, but this may only work with modern versions which are already using LWJGL 3. This argument works by 
+dynamically rewriting the version's metadata, the new metadata is dumped in the version directory. Using these versions 
+on ARM is unstable and can show you an error with `GLXBadFBConfig`, in such cases you should export the following 
+environment variable `export MESA_GL_VERSION_OVERRIDE=4.5` (more info [here](https://forum.winehq.org/viewtopic.php?f=8&t=34889)). 
 
 ### Miscellaneous
 With `--dry`, the game is prepared but not started.
@@ -154,10 +162,6 @@ to avoid raw XML logging in the terminal.
 
 The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` respectively to disable multiplayer button and 
 disable in-game chat *(since 1.16)*.
-
-With `--lwjgl {3.2.3,3.3.0}` you can update the LWJGL version used when starting the game. This can be used to support
-ARM architectures, but this may only work with modern versions which are already using LWJGL 3. This argument works by 
-dynamically rewriting the version's metadata, it dumps the rewrite in the version directory.
 
 ## Search for versions
 The `portablemc search [-l] [version]` sub-command is used to search for versions. By default, this command
@@ -191,7 +195,10 @@ To check if the addons are properly installed, you can use the ['addon list' sub
 
 # Contributors
 This launcher would not be as functional without the contributors, and in particular the following for their bug reports
-and suggestions to make the launcher better: [GoodDay360](https://github.com/GoodDay360) and [Ristovski](https://github.com/Ristovski).
+and suggestions to make the launcher better: 
+[GoodDay360](https://github.com/GoodDay360), 
+[Ristovski](https://github.com/Ristovski) and
+[GooseDeveloper](https://github.com/GooseDeveloper) (ARM support).
 
 There must be a lot of hidden issues, if you want to contribute you just have to install and test the launcher, and
 report every issue you encounter, do not hesitate!
