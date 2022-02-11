@@ -79,7 +79,7 @@ def load(_pmc):
             version = Version(ctx, version_id)
 
             # Extract minecraft version from the full forge version
-            mc_version_id = forge_version[:max(0, forge_version.find("-"))]
+            mc_version_id = forge_version[:max(0, forge_version.find("-")) or len(forge_version)]
 
             # List of possible artifacts names-version, some versions (e.g. 1.7) have the minecraft
             # version in suffix of the version in addition to the suffix.
@@ -124,22 +124,26 @@ def load(_pmc):
 
                 # We ensure that the parent Minecraft version JAR and metadata are
                 # downloaded because it's needed by installers.
-                if len(mc_version_id):
-                    try:
-                        pmc.print_task("", "start.forge.vanilla.resolving", {"version": mc_version_id})
-                        mc_version = Version(ctx, mc_version_id)
-                        mc_version.prepare_meta()
-                        mc_version.prepare_jar()
-                        # mc_version.download()  # Use pretty download??
-                        pmc.pretty_download(mc_version.dl)
-                        pmc.print_task("OK", "start.forge.vanilla.found", {"version": mc_version_id}, done=True)
-                    except DownloadError:
-                        raise ForgeVersionNotFound(ForgeVersionNotFound.MINECRAFT_VERSION_NOT_FOUND, mc_version_id)
+                # if len(mc_version_id):  # don't know why checking this
+                try:
+                    pmc.print_task("", "start.forge.vanilla.resolving", {"version": mc_version_id})
+                    mc_version = Version(ctx, mc_version_id)
+                    mc_version.prepare_meta()
+                    mc_version.prepare_jar()
+                    # If no JVM exec is set, download the default JVM for the parent MC version.
+                    jvm_exec = ctx.ns.jvm
+                    if jvm_exec is None:
+                        mc_version.prepare_jvm()
+                        jvm_exec = mc_version.jvm_exec
+                    pmc.pretty_download(mc_version.dl)
+                    pmc.print_task("OK", "start.forge.vanilla.found", {"version": mc_version_id}, done=True)
+                except DownloadError:
+                    raise ForgeVersionNotFound(ForgeVersionNotFound.MINECRAFT_VERSION_NOT_FOUND, mc_version_id)
 
                 pmc.print_task("", "start.forge.wrapper.running")
                 wrapper_jar_file = path.join(path.dirname(__file__), "wrapper", "target", "wrapper.jar")
                 wrapper_completed = subprocess.run([
-                    "java",
+                    jvm_exec,
                     "-cp", path.pathsep.join([wrapper_jar_file, installer_file]),
                     "portablemc.wrapper.Main",
                     main_dir,
