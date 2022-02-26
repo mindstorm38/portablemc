@@ -2,7 +2,7 @@
 The forge add-on allows you to install and run Minecraft with forge mod loader in a single command 
 line!
 
-[**Download (1.0.0)**](https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/forge)
+[**Download (1.0.1)**](https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/forge)
 
 ## Usage
 This add-on extends the syntax accepted by the [start](/README.md#start-the-game) sub-command, by 
@@ -13,6 +13,8 @@ forge public information, this is reflecting the "Download Latest" and "Download
 the forge website. You can also use version aliases like `release` or equivalent empty version 
 (just `forge:`). You can also give the exact forge version like `1.18.1-39.0.7`, in such cases,
 no HTTP request is made if the version is already installed.
+
+*Note that this add-on uses the same JVM used to start the game (see `--jvm` argument).*
 
 ## Examples
 ```sh
