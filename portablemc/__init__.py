@@ -52,6 +52,7 @@ __all__ = [
     "replace_vars", "replace_list_vars",
     "get_minecraft_dir", "get_minecraft_os", "get_minecraft_arch", "get_minecraft_archbits", "get_minecraft_jvm_os",
     "can_extract_native",
+    "from_iso_date",
     "LEGACY_JVM_ARGUMENTS"
 ]
 
@@ -186,8 +187,8 @@ class Version:
         elif version_super_meta is None:
             return version_meta, version_dir
         else:
-            installed_time = datetime.fromisoformat(version_meta["time"])
-            expected_time = datetime.fromisoformat(version_super_meta["time"])
+            installed_time = from_iso_date(version_meta["time"])
+            expected_time = from_iso_date(version_super_meta["time"])
             if installed_time >= expected_time:
                 return version_meta, version_dir
             else:
@@ -1626,6 +1627,21 @@ def can_extract_native(filename: str) -> bool:
     """ Return True if a file should be extracted to binaries directory. """
     return filename.endswith((".so", ".dll", ".dylib"))
     # return not filename.startswith("META-INF") and not filename.endswith(".git") and not filename.endswith(".sha1")
+
+
+def from_iso_date(raw: str) -> datetime:
+    """
+    Replacement for `datetime.fromisoformat()` which is missing from Python 3.6.
+    Currently, only a subset of the ISO format is supported, both hours, minutes and seconds
+    must be defined and the timezone, if present must contain both hours and minutes, no more.
+    """
+    from datetime import timezone, timedelta
+    tz_idx = raw.find("+")
+    dt = datetime.strptime(raw[:tz_idx], "%Y-%m-%dT%H:%M:%S")
+    if tz_idx != -1:
+        tz_dt = datetime.strptime(raw[tz_idx + 1:], "%H:%M")
+        dt = dt.replace(tzinfo=timezone(timedelta(hours=tz_dt.hour, minutes=tz_dt.minute)))
+    return dt
 
 
 LEGACY_JVM_ARGUMENTS = [

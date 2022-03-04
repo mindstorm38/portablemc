@@ -61,7 +61,7 @@ def load(_pmc):
                         table.append((
                             version_type,
                             version_id,
-                            pmc.format_iso_date(float(file["mtime"])),
+                            pmc.format_locale_date(float(file["mtime"])),
                             _("search.flags.local") if ctx.has_version_metadata(
                                 get_archive_version_id(version_id)) else ""
                         ))

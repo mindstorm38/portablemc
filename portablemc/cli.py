@@ -409,7 +409,7 @@ def cmd_search(ns: Namespace, ctx: CliContext):
     if ns.local:
         for version_id, mtime in ctx.list_versions():
             if no_version or search in version_id:
-                table.append((version_id, format_iso_date(mtime)))
+                table.append((version_id, format_locale_date(mtime)))
     else:
         manifest = load_version_manifest(ctx)
         search, alias = manifest.filter_latest(search)
@@ -420,7 +420,7 @@ def cmd_search(ns: Namespace, ctx: CliContext):
                     table.append((
                         version_data["type"],
                         version_id,
-                        format_iso_date(version_data["releaseTime"]),
+                        format_locale_date(version_data["releaseTime"]),
                         _("search.flags.local") if ctx.has_version_metadata(version_id) else ""
                     ))
         except VersionManifestError as err:
@@ -797,11 +797,11 @@ def mixin(name: Optional[str] = None, into: Optional[object] = None):
     return mixin_decorator
 
 
-def format_iso_date(raw: Union[str, float]) -> str:
+def format_locale_date(raw: Union[str, float]) -> str:
     if isinstance(raw, float):
         return datetime.fromtimestamp(raw).strftime("%c")
     else:
-        return datetime.fromisoformat(str(raw)).strftime("%c")
+        return from_iso_date(str(raw)).strftime("%c")
 
 
 def format_number(n: int) -> str:
