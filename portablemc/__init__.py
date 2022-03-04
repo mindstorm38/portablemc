@@ -1631,10 +1631,13 @@ def can_extract_native(filename: str) -> bool:
 
 def from_iso_date(raw: str) -> datetime:
     """
-    Replacement for `datetime.fromisoformat()` which is missing from Python 3.6.
+    Replacement for `datetime.fromisoformat()` which is missing from Python 3.6. This function
+    replace it if needed.
     Currently, only a subset of the ISO format is supported, both hours, minutes and seconds
     must be defined and the timezone, if present must contain both hours and minutes, no more.
     """
+    if hasattr(datetime, "fromisoformat"):
+        return datetime.fromisoformat(raw)
     from datetime import timezone, timedelta
     tz_idx = raw.find("+")
     dt = datetime.strptime(raw[:tz_idx], "%Y-%m-%dT%H:%M:%S")
