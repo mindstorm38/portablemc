@@ -8,9 +8,10 @@ import os
 from portablemc import Version, \
     DownloadList, DownloadEntry, DownloadError, \
     BaseError, \
-    http_request, json_simple_request, cli as pmc
+    http_request, json_simple_request
+from portablemc import cli as pmc
 
-from portablemc.cli import CliContext
+from portablemc import CliContext
 
 
 def load(_pmc):

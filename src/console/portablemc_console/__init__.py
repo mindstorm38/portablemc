@@ -18,7 +18,8 @@ from threading import Thread
 import asyncio
 import shutil
 
-from portablemc import Version, Start, cli as pmc
+from portablemc import Version, Start
+from portablemc import cli as pmc
 
 
 def load(_pmc):

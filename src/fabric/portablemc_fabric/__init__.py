@@ -6,8 +6,9 @@ import json
 import sys
 import os
 
-from portablemc import Version, VersionManifest, BaseError, cli as pmc
-from portablemc.cli import CliContext
+from portablemc import Version, VersionManifest, BaseError
+from portablemc import cli as pmc
+from portablemc import CliContext
 
 
 FABRIC_META_URL = "https://meta.fabricmc.net/{}"

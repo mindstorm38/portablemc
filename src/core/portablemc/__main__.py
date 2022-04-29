@@ -19,5 +19,5 @@
 
 
 if __name__ == '__main__':
-    import portablemc.cli
-    portablemc.cli.main()
+    import portablemc.core.cli
+    portablemc.core.cli.main()

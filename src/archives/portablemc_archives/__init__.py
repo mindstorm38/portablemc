@@ -7,8 +7,9 @@ import json
 import sys
 import os
 
-from portablemc import Version, cli as pmc
-from portablemc.cli import CliContext
+from portablemc import Version
+from portablemc import cli as pmc
+from portablemc import CliContext
 
 
 ARCHIVE_ITEMS = {

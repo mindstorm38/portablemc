@@ -1,6 +1,0 @@
-{
-  "name": "Modrinth",
-  "version": "1.0.0-pre3",
-  "authors": ["Théo Rozier"],
-  "description": "Handy mod management using modrinth's public API."
-}

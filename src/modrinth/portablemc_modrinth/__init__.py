@@ -8,8 +8,9 @@ import os
 from json import JSONDecodeError
 import json
 
-from portablemc import DownloadList, DownloadEntry, cli as pmc
-from portablemc.cli import CliContext
+from portablemc import DownloadList, DownloadEntry
+from portablemc import cli as pmc
+from portablemc import CliContext
 
 
 def load(_pmc):

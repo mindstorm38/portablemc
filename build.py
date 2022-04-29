@@ -53,7 +53,7 @@ def print_usage():
 
 
 def get_version() -> str:
-    data = toml.load(path.join(path.dirname(__file__), "pyproject.toml"))
+    data = toml.load(path.join(path.dirname(__file__), "portablemc/core/pyproject.toml"))
     return data["tool"]["poetry"]["version"]
 
 

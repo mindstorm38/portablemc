@@ -41,7 +41,7 @@ import time
 import sys
 import os
 
-from . import *
+from portablemc import *
 
 
 EXIT_OK = 0
@@ -161,11 +161,11 @@ def load_addons():
             addons_dirs.append(path.join(dev_dir, "addons"))
 
     if system == "Linux":
-        addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), "portablemc", "addons"))
+        addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), "", "addons"))
     elif system == "Windows":
-        addons_dirs.append(path.join(home, "AppData", "Local", "portablemc", "addons"))
+        addons_dirs.append(path.join(home, "AppData", "Local", "", "addons"))
     elif system == "Darwin":
-        addons_dirs.append(path.join(home, "Library", "Application Support", "portablemc", "addons"))
+        addons_dirs.append(path.join(home, "Library", "Application Support", "", "addons"))
 
     # Additional addons directories from env var.
     env_path = os.getenv(ENV_ADDONS_PATH)
@@ -197,7 +197,7 @@ def load_addons():
                 if not path.isdir(addon_path):
                     continue  # If not terminated with '.py' and not a dir
 
-                addon_init_path = path.join(addon_path, "__init__.py")
+                addon_init_path = path.join(addon_path, "../__init__.py")
                 addon_meta_path = path.join(addon_path, "addon.json")
                 if not path.isfile(addon_init_path) or not path.isfile(addon_meta_path):
                     continue  # If __init__.py is not found in dir
