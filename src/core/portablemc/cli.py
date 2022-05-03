@@ -1153,14 +1153,8 @@ def print_task(status: Optional[str], msg_key: str, msg_args: Optional[dict] = N
 
 messages = {
     # Addons
-    "addon.invalid_identifier": "Invalid identifier for the addon '{addon}' at '{path}'.",
-    "addon.invalid_meta": "Invalid metadata file for the addon '{addon}' defined at '{path}'.",
-    "addon.module_conflict": "The addon '{addon}' at '{addon_path}' is internally conflicting with the "
-                             "module '{module}' at '{module_path}', cannot be loaded.",
-    "addon.defined_twice": "The addon '{addon}' is defined twice, both at '{path1}' and '{path2}'.",
     "addon.import_error": "The addon '{addon}' has failed to build because some packages is missing:",
     "addon.unknown_error": "The addon '{addon}' has failed to build for unknown reason:",
-    "addon.failed_to_build": "Failed to build addon '{addon}' (contact addon's authors):",
     # Args root
     "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
             "script! This single-script launcher is still compatible with the official "
