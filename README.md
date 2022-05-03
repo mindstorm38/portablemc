@@ -203,7 +203,7 @@ This project is currently a monorepo based on Poetry, each official module is st
 We also suggest Conda (or Miniconda) for easy development together with Poetry. If you want to try you can use the following commands:
 ```console
 # You can use any version of Python here from 3.6 to test compatibility of the launcher.
-conda create -n pmc python=3.10 pip
+conda create -n pmc python=3.10 pip poetry
 # This line is optional if you don't have any user site-packages in your host installation, if not it allows to isolate pip. This is useful to avoid conflicts with conda-installed packages.
 conda env config vars set PYTHONNOUSERSITE=1 -n pmc
 ```
