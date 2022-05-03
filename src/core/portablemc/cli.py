@@ -22,24 +22,19 @@ The `__main__.py` wrapper can call the entry point from the `python -m portablem
 from typing import cast, Union, Any, List, Dict, Optional, Type, Tuple
 from argparse import ArgumentParser, Namespace, HelpFormatter
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from importlib.machinery import SourceFileLoader
 from urllib import parse as url_parse
 from urllib.error import URLError
-from json import JSONDecodeError
 from datetime import datetime
 from types import ModuleType
-import importlib.util
 from os import path
 import webbrowser
 import traceback
-import platform
 import socket
 import shutil
 import uuid
 import json
 import time
 import sys
-import os
 
 from portablemc import *
 
@@ -77,30 +72,26 @@ class CliContext(Context):
         self.ns = ns
 
 
-class CliAddonMeta:
-
-    __slots__ = ("id", "data", "name", "version", "authors", "description", "requires")
-
-    def __init__(self, data: Dict[str, Any], addon_id: str):
-        self.id = addon_id
-        self.data = data
-        self.name = str(self.data.get("name", addon_id))
-        self.version = str(self.data.get("version", "n/a"))
-        self.authors = self.data.get("authors")
-        self.description = str(self.data.get("description", "n/a"))
-        self.requires = self.data.get("requires")
-        if not isinstance(self.authors, list):
-            self.authors: List[str] = []
-        if not isinstance(self.requires, dict):
-            self.requires: Dict[str, str] = {}
-
-
 class CliAddon:
-    __slots__ = ("module", "meta")
-    def __init__(self, module: ModuleType, meta: CliAddonMeta):
+
+    __slots__ = ("module", "id", "meta")
+
+    def __init__(self, module: ModuleType, id_: str, meta: dict):
         self.module = module
+        self.id = id_
         self.meta = meta
 
+    def get_version(self) -> str:
+        return self.meta.get("Version", "")
+
+    def get_authors(self) -> str:
+        from itertools import zip_longest
+        names = self.meta.get("Author", "").split(", ")
+        emails = self.meta.get("Author-email", "").split(", ")
+        return ", ".join(map(lambda t: f"{t[0]} <{t[1]}>", zip_longest(names, emails, "")))
+
+    def get_description(self) -> str:
+        return self.meta.get("Summary", "")
 
 class CliInstallError(BaseError):
     NOT_FOUND = "not_found"
@@ -110,6 +101,13 @@ class CliInstallError(BaseError):
 
 
 def main(args: Optional[List[str]] = None):
+
+    """
+    Main entry point of the CLI. This function is composed of three steps:
+    - Register command-line arguments
+    - Parsing arguments
+    - Executing command
+    """
 
     load_addons()
 
@@ -137,124 +135,139 @@ def main(args: Optional[List[str]] = None):
 
 addons: Dict[str, CliAddon] = {}
 addons_dirs: List[str] = []
-addons_loaded: bool = False
 
 def load_addons():
 
-    global addons, addons_loaded, addons_dirs
+    global addons, addons_dirs
 
-    if addons_loaded:
-        raise ValueError("Addons already loaded.")
+    prefix = "portablemc_"
 
-    addons_loaded = True
+    try:
+        from importlib.metadata import metadata
+    except ImportError:
+        metadata = lambda _0: {}
 
-    home = path.expanduser("~")
-    system = platform.system()
+    import importlib
+    import pkgutil
 
-    if __name__ == "__main__":
-        # In single-file mode, we need to support the addons directory directly next to the script.
-        addons_dirs.append(path.join(path.dirname(__file__), "addons"))
-    else:
-        # In development mode, we need to support addons directory in the parent directory.
-        dev_dir = path.dirname(path.dirname(__file__))
-        if path.isfile(path.join(dev_dir, ".gitignore")):
-            addons_dirs.append(path.join(dev_dir, "addons"))
-
-    if system == "Linux":
-        addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), "", "addons"))
-    elif system == "Windows":
-        addons_dirs.append(path.join(home, "AppData", "Local", "", "addons"))
-    elif system == "Darwin":
-        addons_dirs.append(path.join(home, "Library", "Application Support", "", "addons"))
-
-    # Additional addons directories from env var.
-    env_path = os.getenv(ENV_ADDONS_PATH)
-    if env_path is not None:
-        for addon_path in env_path.split(path.pathsep):
-            if len(addon_path):
-                addons_dirs.append(path.abspath(addon_path))
-
-    # Here we enforce definition of 'portablemc' and 'portablemc.cli' if we are not running
-    # an PMC installation (via PIP for example). In case of single-script version, modules
-    # 'portablemc' and 'portablemc.cli' are the same, and we create an artificial 'cli'
-    # constant pointing to itself, to avoid import errors when importing global 'cli'.
-    self_module = sys.modules[__name__]
-    if "portablemc" not in sys.modules:
-        self_module.cli = self_module
-        sys.modules["portablemc"] = self_module
-        sys.modules["portablemc.cli"] = self_module
-
-    # Load addons.
-    for addons_dir in addons_dirs:
-
-        if not path.isdir(addons_dir):
-            continue
-
-        for addon_id in os.listdir(addons_dir):
-            if not addon_id.endswith(".dis") and addon_id != "__pycache__":
-
-                addon_path = path.join(addons_dir, addon_id)
-                if not path.isdir(addon_path):
-                    continue  # If not terminated with '.py' and not a dir
-
-                addon_init_path = path.join(addon_path, "../__init__.py")
-                addon_meta_path = path.join(addon_path, "addon.json")
-                if not path.isfile(addon_init_path) or not path.isfile(addon_meta_path):
-                    continue  # If __init__.py is not found in dir
-
-                if not addon_id.isidentifier():
-                    print_message("addon.invalid_identifier", {"addon": addon_id, "path": addon_path}, critical=True)
-                    continue
-
-                with open(addon_meta_path, "rb") as addon_meta_fp:
-                    try:
-                        addon_meta = json.load(addon_meta_fp)
-                        if not isinstance(addon_meta, dict):
-                            print_message("addon.invalid_meta", {"addon": addon_id, "path": addon_meta_path}, critical=True)
-                            continue
-                    except JSONDecodeError:
-                        print_message("addon.invalid_meta", {"addon": addon_id, "path": addon_meta_path}, trace=True, critical=True)
-                        continue
-
-                existing_module = addons.get(addon_id)
-                if existing_module is not None:
-                    print_message("addon.defined_twice", {
-                        "addon": addon_id,
-                        "path1": path.dirname(existing_module.__file__),
-                        "path2": addon_path
-                    }, critical=True)
-                    continue
-
-                module_name = f"_pmc_addon_{addon_id}"
-                existing_module = sys.modules.get(module_name)
-                if existing_module is not None:
-                    print_message("addon.module_conflict", {
-                        "addon": addon_id,
-                        "addon_path": addon_path,
-                        "module": module_name,
-                        "module_path": path.dirname(existing_module.__file__)
-                    }, critical=True)
-                    continue
-
-                loader = SourceFileLoader(module_name, addon_init_path)
-                spec = importlib.util.spec_from_file_location(module_name, addon_init_path, loader=loader,
-                                                              submodule_search_locations=[addon_path])
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = module
-
-                try:
-                    loader.exec_module(module)
-                    addons[addon_id] = CliAddon(module, CliAddonMeta(addon_meta, addon_id))
-                except Exception as e:
-                    if isinstance(e, ImportError):
-                        print_message("addon.import_error", {"addon": addon_id}, trace=True, critical=True)
-                    else:
-                        print_message("addon.unknown_error", {"addon": addon_id}, trace=True, critical=True)
-                    del sys.modules[module_name]
+    for pkg in pkgutil.iter_modules():
+        if pkg.name.startswith(prefix) and len(pkg.name) > len(prefix):
+            try:
+                addon_module = importlib.import_module(pkg.name)
+                addon_id = pkg.name[len(prefix):]
+                addons[addon_id] = CliAddon(addon_module, addon_id, dict(metadata(pkg.name)))
+            except ImportError:
+                print_message("addon.import_error", {"addon": pkg.name}, trace=True, critical=True)
+            except (Exception,):
+                print_message("addon.unknown_error", {"addon": pkg.name}, trace=True, critical=True)
 
     for addon_id, addon in addons.items():
         if hasattr(addon.module, "load") and callable(addon.module.load):
-            addon.module.load(self_module)  # TODO: PMC module will no longer be passed as argument in the future.
+            addon.module.load()
+
+    # home = path.expanduser("~")
+    # system = platform.system()
+    #
+    # if __name__ == "__main__":
+    #     # In single-file mode, we need to support the addons directory directly next to the script.
+    #     addons_dirs.append(path.join(path.dirname(__file__), "addons"))
+    # else:
+    #     # In development mode, we need to support addons directory in the parent directory.
+    #     dev_dir = path.dirname(path.dirname(__file__))
+    #     if path.isfile(path.join(dev_dir, ".gitignore")):
+    #         addons_dirs.append(path.join(dev_dir, "addons"))
+    #
+    # if system == "Linux":
+    #     addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), "", "addons"))
+    # elif system == "Windows":
+    #     addons_dirs.append(path.join(home, "AppData", "Local", "", "addons"))
+    # elif system == "Darwin":
+    #     addons_dirs.append(path.join(home, "Library", "Application Support", "", "addons"))
+    #
+    # # Additional addons directories from env var.
+    # env_path = os.getenv(ENV_ADDONS_PATH)
+    # if env_path is not None:
+    #     for addon_path in env_path.split(path.pathsep):
+    #         if len(addon_path):
+    #             addons_dirs.append(path.abspath(addon_path))
+    #
+    # # Here we enforce definition of 'portablemc' and 'portablemc.cli' if we are not running
+    # # an PMC installation (via PIP for example). In case of single-script version, modules
+    # # 'portablemc' and 'portablemc.cli' are the same, and we create an artificial 'cli'
+    # # constant pointing to itself, to avoid import errors when importing global 'cli'.
+    # self_module = sys.modules[__name__]
+    # if "portablemc" not in sys.modules:
+    #     self_module.cli = self_module
+    #     sys.modules["portablemc"] = self_module
+    #     sys.modules["portablemc.cli"] = self_module
+    #
+    # # Load addons.
+    # for addons_dir in addons_dirs:
+    #
+    #     if not path.isdir(addons_dir):
+    #         continue
+    #
+    #     for addon_id in os.listdir(addons_dir):
+    #         if not addon_id.endswith(".dis") and addon_id != "__pycache__":
+    #
+    #             addon_path = path.join(addons_dir, addon_id)
+    #             if not path.isdir(addon_path):
+    #                 continue  # If not terminated with '.py' and not a dir
+    #
+    #             addon_init_path = path.join(addon_path, "../__init__.py")
+    #             addon_meta_path = path.join(addon_path, "addon.json")
+    #             if not path.isfile(addon_init_path) or not path.isfile(addon_meta_path):
+    #                 continue  # If __init__.py is not found in dir
+    #
+    #             if not addon_id.isidentifier():
+    #                 print_message("addon.invalid_identifier", {"addon": addon_id, "path": addon_path}, critical=True)
+    #                 continue
+    #
+    #             with open(addon_meta_path, "rb") as addon_meta_fp:
+    #                 try:
+    #                     addon_meta = json.load(addon_meta_fp)
+    #                     if not isinstance(addon_meta, dict):
+    #                         print_message("addon.invalid_meta", {"addon": addon_id, "path": addon_meta_path}, critical=True)
+    #                         continue
+    #                 except JSONDecodeError:
+    #                     print_message("addon.invalid_meta", {"addon": addon_id, "path": addon_meta_path}, trace=True, critical=True)
+    #                     continue
+    #
+    #             existing_module = addons.get(addon_id)
+    #             if existing_module is not None:
+    #                 print_message("addon.defined_twice", {
+    #                     "addon": addon_id,
+    #                     "path1": path.dirname(existing_module.__file__),
+    #                     "path2": addon_path
+    #                 }, critical=True)
+    #                 continue
+    #
+    #             module_name = f"_pmc_addon_{addon_id}"
+    #             existing_module = sys.modules.get(module_name)
+    #             if existing_module is not None:
+    #                 print_message("addon.module_conflict", {
+    #                     "addon": addon_id,
+    #                     "addon_path": addon_path,
+    #                     "module": module_name,
+    #                     "module_path": path.dirname(existing_module.__file__)
+    #                 }, critical=True)
+    #                 continue
+    #
+    #             loader = SourceFileLoader(module_name, addon_init_path)
+    #             spec = importlib.util.spec_from_file_location(module_name, addon_init_path, loader=loader,
+    #                                                           submodule_search_locations=[addon_path])
+    #             module = importlib.util.module_from_spec(spec)
+    #             sys.modules[module_name] = module
+    #
+    #             try:
+    #                 loader.exec_module(module)
+    #                 addons[addon_id] = CliAddon(module, CliAddonMeta(addon_meta, addon_id))
+    #             except Exception as e:
+    #                 if isinstance(e, ImportError):
+    #                     print_message("addon.import_error", {"addon": addon_id}, trace=True, critical=True)
+    #                 else:
+    #                     print_message("addon.unknown_error", {"addon": addon_id}, trace=True, critical=True)
+    #                 del sys.modules[module_name]
 
 
 def get_addon(id_: str) -> Optional[CliAddon]:
@@ -619,17 +632,20 @@ def cmd_addon_list(_ns: Namespace, _ctx: CliContext):
 
     lines = [(
         _("addon.list.id", count=len(addons)),
-        _("addon.list.name"),
         _("addon.list.version"),
         _("addon.list.authors"),
     )]
 
+    from itertools import zip_longest
+
     for addon_id, addon in addons.items():
+        names = addon.meta.get("Author", "").split(", ")
+        emails = addon.meta.get("Author-email", "").split(", ")
+        authors = ", ".join(map(lambda t: f"{t[0]} <{t[1]}>", zip_longest(names, emails, "")))
         lines.append((
             addon_id,
-            addon.meta.name,
-            addon.meta.version,
-            ", ".join(addon.meta.authors)
+            addon.meta.get("Version", "unknown"),
+            authors
         ))
 
     print_table(lines, header=0)
@@ -645,14 +661,9 @@ def cmd_addon_show(ns: Namespace, _ctx: CliContext):
         sys.exit(EXIT_FAILURE)
     else:
         _ = get_message
-        print_message("addon.show.name", {"name": addon.meta.name})
-        print_message("addon.show.version", {"version": addon.meta.version})
-        print_message("addon.show.authors", {"authors": ", ".join(addon.meta.authors)})
-        print_message("addon.show.description", {"description": addon.meta.description})
-        if len(addon.meta.requires):
-            print_message("addon.show.requires")
-            for requirement, version in addon.meta.requires.items():
-                print(f"   {requirement}: {version}")
+        print_message("addon.show.version", {"version": addon.get_version()})
+        print_message("addon.show.authors", {"authors": addon.get_authors()})
+        print_message("addon.show.description", {"description": addon.get_description()})
         sys.exit(EXIT_OK)
 
 
@@ -1237,16 +1248,13 @@ messages = {
     "logout.unknown_session": "No session for {email}.",
     # Command addon list
     "addon.list.id": "ID ({count})",
-    "addon.list.name": "Name",
     "addon.list.version": "Version",
     "addon.list.authors": "Authors",
     # Command addon show
     "addon.show.not_found": "Addon '{addon}' not found.",
-    "addon.show.name": "Name: {name}",
     "addon.show.version": "Version: {version}",
     "addon.show.authors": "Authors: {authors}",
     "addon.show.description": "Description: {description}",
-    "addon.show.requires": "Requires:",
     # Command addon dirs
     "addon.dirs.title": "You can place your addons in the following directories:",
     "addon.dirs.entry": "- {path}",
