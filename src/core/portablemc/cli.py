@@ -19,6 +19,7 @@
 CLI module for PortableMC, it provides an entry point to start Minecraft with arguments.\n
 The `__main__.py` wrapper can call the entry point from the `python -m portablemc` command.
 """
+
 from typing import cast, Union, Any, List, Dict, Optional, Type, Tuple
 from argparse import ArgumentParser, Namespace, HelpFormatter
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -28,11 +29,8 @@ from datetime import datetime
 from types import ModuleType
 from os import path
 import webbrowser
-import traceback
 import socket
 import shutil
-import uuid
-import json
 import time
 import sys
 
@@ -476,6 +474,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         if len(version_fixes):
             dump_meta_name = f"{version.id}.{'.'.join(version_fixes)}.dump.json"
             with open(path.join(version.version_dir, dump_meta_name), "wt") as dump_meta_fp:
+                import json
                 json.dump(version.version_meta, dump_meta_fp, indent=2)
 
         print_task("", "start.version.jar.loading")
@@ -635,8 +634,6 @@ def cmd_addon_list(_ns: Namespace, _ctx: CliContext):
         _("addon.list.version"),
         _("addon.list.authors"),
     )]
-
-    from itertools import zip_longest
 
     for addon_id, addon in addons.items():
         lines.append((
@@ -984,6 +981,7 @@ def prompt_microsoft_authenticate(client_id: str, email: str) -> Optional[Micros
     code_redirect_uri = "{}/code".format(redirect_auth)
     exit_redirect_uri = "{}/exit".format(redirect_auth)
 
+    import uuid
     nonce = uuid.uuid4().hex
 
     if not webbrowser.open(MicrosoftAuthSession.get_authentication_url(app_id, code_redirect_uri, email, nonce)):
@@ -1085,6 +1083,7 @@ def print_message(key: str, kwargs: Optional[dict] = None, *, end: str = "\n", t
         print("\033[31m", end="")
     print(get_message_raw(key, kwargs), end=end)
     if trace:
+        import traceback
         traceback.print_exc()
     if critical:
         print("\033[0m", end="")
