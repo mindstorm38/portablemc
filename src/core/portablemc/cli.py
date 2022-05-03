@@ -639,13 +639,10 @@ def cmd_addon_list(_ns: Namespace, _ctx: CliContext):
     from itertools import zip_longest
 
     for addon_id, addon in addons.items():
-        names = addon.meta.get("Author", "").split(", ")
-        emails = addon.meta.get("Author-email", "").split(", ")
-        authors = ", ".join(map(lambda t: f"{t[0]} <{t[1]}>", zip_longest(names, emails, "")))
         lines.append((
             addon_id,
-            addon.meta.get("Version", "unknown"),
-            authors
+            addon.get_version(),
+            addon.get_authors()
         ))
 
     print_table(lines, header=0)
