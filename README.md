@@ -37,7 +37,9 @@ following issue for a temporary fix: [#52](https://github.com/mindstorm38/portab
   - [Console ⇗](/addons/console/README.md)
   - [Archives ⇗](/addons/archives/README.md)
   - [Modrinth ⇗](/addons/modrinth/README.md)
-- [Contributors](#contributors)
+- [Contribute](#contribute)
+  - [Setup environment](#setup-environment)
+  - [Contributors](#contributors)
 - [API Documentation ⇗](doc/API.md)
 - [Addon API Documentation ⇗](doc/ADDON.md)
 
@@ -193,7 +195,32 @@ Officially supported addons can be found in the ['addons' directory](/addons).
 To install addons you have to run `addon dirs` to get all directories where you can place addons.
 To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons).
 
-# Contributors
+# Contribute
+
+## Setup environment
+This project is currently a monorepo based on Poetry, each official module is stored in the [src](src/) directory, the main and mandatory module is [core](src/core). The other modules are official add-ons.
+
+We also suggest Conda (or Miniconda) for easy development together with Poetry. If you want to try you can use the following commands:
+```console
+# You can use any version of Python here from 3.6 to test compatibility of the launcher.
+conda create -n pmc python=3.10 pip
+# This line is optional if you don't have any user site-packages in your host installation, if not it allows to isolate pip. This is useful to avoid conflicts with conda-installed packages.
+conda env config vars set PYTHONNOUSERSITE=1 -n pmc
+```
+
+On you have a conda environment setup, you can use on each module you want to test.
+```console
+# Assume we are in the project's directory.
+# First, we need to activate the environment.
+conda activate pmc
+# Then, go to the module you want to install in development mode, and then install it.
+cd src/core
+poetry install
+# Now, you can test the development version of the launcher.
+portablemc --help
+```
+
+## Contributors
 This launcher would not be as functional without the contributors, and in particular the following for their bug reports
 and suggestions to make the launcher better: 
 [GoodDay360](https://github.com/GoodDay360), 
