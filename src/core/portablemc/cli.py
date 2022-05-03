@@ -132,11 +132,10 @@ def main(args: Optional[List[str]] = None):
 # Addons
 
 addons: Dict[str, CliAddon] = {}
-addons_dirs: List[str] = []
 
 def load_addons():
 
-    global addons, addons_dirs
+    global addons
 
     prefix = "portablemc_"
 
@@ -162,110 +161,6 @@ def load_addons():
     for addon_id, addon in addons.items():
         if hasattr(addon.module, "load") and callable(addon.module.load):
             addon.module.load()
-
-    # home = path.expanduser("~")
-    # system = platform.system()
-    #
-    # if __name__ == "__main__":
-    #     # In single-file mode, we need to support the addons directory directly next to the script.
-    #     addons_dirs.append(path.join(path.dirname(__file__), "addons"))
-    # else:
-    #     # In development mode, we need to support addons directory in the parent directory.
-    #     dev_dir = path.dirname(path.dirname(__file__))
-    #     if path.isfile(path.join(dev_dir, ".gitignore")):
-    #         addons_dirs.append(path.join(dev_dir, "addons"))
-    #
-    # if system == "Linux":
-    #     addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), "", "addons"))
-    # elif system == "Windows":
-    #     addons_dirs.append(path.join(home, "AppData", "Local", "", "addons"))
-    # elif system == "Darwin":
-    #     addons_dirs.append(path.join(home, "Library", "Application Support", "", "addons"))
-    #
-    # # Additional addons directories from env var.
-    # env_path = os.getenv(ENV_ADDONS_PATH)
-    # if env_path is not None:
-    #     for addon_path in env_path.split(path.pathsep):
-    #         if len(addon_path):
-    #             addons_dirs.append(path.abspath(addon_path))
-    #
-    # # Here we enforce definition of 'portablemc' and 'portablemc.cli' if we are not running
-    # # an PMC installation (via PIP for example). In case of single-script version, modules
-    # # 'portablemc' and 'portablemc.cli' are the same, and we create an artificial 'cli'
-    # # constant pointing to itself, to avoid import errors when importing global 'cli'.
-    # self_module = sys.modules[__name__]
-    # if "portablemc" not in sys.modules:
-    #     self_module.cli = self_module
-    #     sys.modules["portablemc"] = self_module
-    #     sys.modules["portablemc.cli"] = self_module
-    #
-    # # Load addons.
-    # for addons_dir in addons_dirs:
-    #
-    #     if not path.isdir(addons_dir):
-    #         continue
-    #
-    #     for addon_id in os.listdir(addons_dir):
-    #         if not addon_id.endswith(".dis") and addon_id != "__pycache__":
-    #
-    #             addon_path = path.join(addons_dir, addon_id)
-    #             if not path.isdir(addon_path):
-    #                 continue  # If not terminated with '.py' and not a dir
-    #
-    #             addon_init_path = path.join(addon_path, "../__init__.py")
-    #             addon_meta_path = path.join(addon_path, "addon.json")
-    #             if not path.isfile(addon_init_path) or not path.isfile(addon_meta_path):
-    #                 continue  # If __init__.py is not found in dir
-    #
-    #             if not addon_id.isidentifier():
-    #                 print_message("addon.invalid_identifier", {"addon": addon_id, "path": addon_path}, critical=True)
-    #                 continue
-    #
-    #             with open(addon_meta_path, "rb") as addon_meta_fp:
-    #                 try:
-    #                     addon_meta = json.load(addon_meta_fp)
-    #                     if not isinstance(addon_meta, dict):
-    #                         print_message("addon.invalid_meta", {"addon": addon_id, "path": addon_meta_path}, critical=True)
-    #                         continue
-    #                 except JSONDecodeError:
-    #                     print_message("addon.invalid_meta", {"addon": addon_id, "path": addon_meta_path}, trace=True, critical=True)
-    #                     continue
-    #
-    #             existing_module = addons.get(addon_id)
-    #             if existing_module is not None:
-    #                 print_message("addon.defined_twice", {
-    #                     "addon": addon_id,
-    #                     "path1": path.dirname(existing_module.__file__),
-    #                     "path2": addon_path
-    #                 }, critical=True)
-    #                 continue
-    #
-    #             module_name = f"_pmc_addon_{addon_id}"
-    #             existing_module = sys.modules.get(module_name)
-    #             if existing_module is not None:
-    #                 print_message("addon.module_conflict", {
-    #                     "addon": addon_id,
-    #                     "addon_path": addon_path,
-    #                     "module": module_name,
-    #                     "module_path": path.dirname(existing_module.__file__)
-    #                 }, critical=True)
-    #                 continue
-    #
-    #             loader = SourceFileLoader(module_name, addon_init_path)
-    #             spec = importlib.util.spec_from_file_location(module_name, addon_init_path, loader=loader,
-    #                                                           submodule_search_locations=[addon_path])
-    #             module = importlib.util.module_from_spec(spec)
-    #             sys.modules[module_name] = module
-    #
-    #             try:
-    #                 loader.exec_module(module)
-    #                 addons[addon_id] = CliAddon(module, CliAddonMeta(addon_meta, addon_id))
-    #             except Exception as e:
-    #                 if isinstance(e, ImportError):
-    #                     print_message("addon.import_error", {"addon": addon_id}, trace=True, critical=True)
-    #                 else:
-    #                     print_message("addon.unknown_error", {"addon": addon_id}, trace=True, critical=True)
-    #                 del sys.modules[module_name]
 
 
 def get_addon(id_: str) -> Optional[CliAddon]:
@@ -352,7 +247,6 @@ def register_addon_arguments(parser: ArgumentParser):
     subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand")
     subparsers.required = True
     subparsers.add_parser("list", help=_("args.addon.list"))
-    subparsers.add_parser("dirs", help=_("args.addon.dirs"))
     show_parser = subparsers.add_parser("show", help=_("args.addon.show"))
     show_parser.add_argument("addon_id")
 
@@ -385,8 +279,7 @@ def get_command_handlers():
         },
         "addon": {
             "list": cmd_addon_list,
-            "show": cmd_addon_show,
-            "dirs": cmd_addon_dirs
+            "show": cmd_addon_show
         }
     }
 
@@ -659,16 +552,6 @@ def cmd_addon_show(ns: Namespace, _ctx: CliContext):
         print_message("addon.show.authors", {"authors": addon.get_authors()})
         print_message("addon.show.description", {"description": addon.get_description()})
         sys.exit(EXIT_OK)
-
-
-def cmd_addon_dirs(_ns: Namespace, _ctx: CliContext):
-    print_message("addon.dirs.title")
-    for addons_dir in addons_dirs:
-        print_message("addon.dirs.entry", {"path": path.abspath(addons_dir)}, end="")
-        if not path.isdir(addons_dir):
-            print_message("addon.dirs.attr.not_existing", end="", critical=True)
-        print()
-    print_message("addon.dirs.path_env_info")
 
 
 # Constructors to override
@@ -1211,7 +1094,6 @@ messages = {
     # Args addon
     "args.addon": "Addons management subcommands.",
     "args.addon.list": "List addons.",
-    "args.addon.dirs": "Display the list of directories where you can place addons.",
     "args.addon.show": "Show an addon details.",
     # Common
     "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
@@ -1245,11 +1127,6 @@ messages = {
     "addon.show.version": "Version: {version}",
     "addon.show.authors": "Authors: {authors}",
     "addon.show.description": "Description: {description}",
-    # Command addon dirs
-    "addon.dirs.title": "You can place your addons in the following directories:",
-    "addon.dirs.entry": "- {path}",
-    "addon.dirs.attr.not_existing": " (not existing)",
-    "addon.dirs.path_env_info": f"  (define environment variable '{ENV_ADDONS_PATH}' to add paths here)",
     # Command start
     "start.version.resolving": "Resolving version {version}... ",
     "start.version.resolved": "Resolved version {version}.",
