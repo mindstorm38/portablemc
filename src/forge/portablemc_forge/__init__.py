@@ -10,11 +10,10 @@ from portablemc import Version, \
     BaseError, \
     http_request, json_simple_request
 from portablemc import cli as pmc
+from portablemc.cli import CliContext
 
-from portablemc import CliContext
 
-
-def load(_pmc):
+def load():
 
     # Private mixins
 

@@ -10,10 +10,10 @@ import json
 
 from portablemc import DownloadList, DownloadEntry
 from portablemc import cli as pmc
-from portablemc import CliContext
+from portablemc.cli import CliContext
 
 
-def load(_pmc):
+def load():
 
     # Private mixins
 

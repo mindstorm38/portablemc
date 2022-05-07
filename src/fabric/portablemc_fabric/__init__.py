@@ -8,7 +8,7 @@ import os
 
 from portablemc import Version, VersionManifest, BaseError
 from portablemc import cli as pmc
-from portablemc import CliContext
+from portablemc.cli import CliContext
 
 
 FABRIC_META_URL = "https://meta.fabricmc.net/{}"
@@ -16,7 +16,7 @@ FABRIC_VERSIONS_LOADER = "v2/versions/loader/{}"
 FABRIC_VERSIONS_LOADER_VERSIONED = "v2/versions/loader/{}/{}"
 
 
-def load(_pmc):
+def load():
 
     # Private mixins
 

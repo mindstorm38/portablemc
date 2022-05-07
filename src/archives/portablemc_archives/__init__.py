@@ -9,7 +9,7 @@ import os
 
 from portablemc import Version
 from portablemc import cli as pmc
-from portablemc import CliContext
+from portablemc.cli import CliContext
 
 
 ARCHIVE_ITEMS = {
@@ -22,7 +22,7 @@ ARCHIVE_ITEMS = {
 }
 
 
-def load(_pmc):
+def load():
 
     # Private mixins
 

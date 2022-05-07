@@ -150,17 +150,20 @@ def load_addons():
     for pkg in pkgutil.iter_modules():
         if pkg.name.startswith(prefix) and len(pkg.name) > len(prefix):
             try:
-                addon_module = importlib.import_module(pkg.name)
                 addon_id = pkg.name[len(prefix):]
+                addon_module = importlib.import_module(pkg.name)
                 addons[addon_id] = CliAddon(addon_module, addon_id, dict(metadata(pkg.name)))
             except ImportError:
-                print_message("addon.import_error", {"addon": pkg.name}, trace=True, critical=True)
+                print_message("addon.import_error", {"addon": addon_id}, trace=True, critical=True)
             except (Exception,):
-                print_message("addon.unknown_error", {"addon": pkg.name}, trace=True, critical=True)
+                print_message("addon.unknown_error", {"addon": addon_id}, trace=True, critical=True)
 
     for addon_id, addon in addons.items():
         if hasattr(addon.module, "load") and callable(addon.module.load):
-            addon.module.load()
+            try:
+                addon.module.load()
+            except (Exception,):
+                print_message("addon.unknown_error", {"addon": addon_id}, trace=True, critical=True)
 
 
 def get_addon(id_: str) -> Optional[CliAddon]:

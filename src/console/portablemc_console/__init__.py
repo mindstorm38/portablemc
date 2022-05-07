@@ -22,7 +22,7 @@ from portablemc import Version, Start
 from portablemc import cli as pmc
 
 
-def load(_pmc):
+def load():
 
     # Private mixins
 

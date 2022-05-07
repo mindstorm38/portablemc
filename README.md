@@ -213,11 +213,13 @@ On you have a conda environment setup, you can use on each module you want to te
 # Assume we are in the project's directory.
 # First, we need to activate the environment.
 conda activate pmc
+# If poetry isn't installed, or outdated.
+# Note that this project requires poetry 1.2.0 or greater to allow dependency groups.
+# If this doesn't work, try to roll back to Poetry 1.2.0b1 which is the currently tested version.
+pip install poetry --upgrade --pre
 # Then, go to the module you want to install in development mode, and then install it.
 cd src/core
 poetry install
-# If poetry isn't installed:
-pip install poetry
 # Now, you can test the development version of the launcher.
 portablemc --help
 ```

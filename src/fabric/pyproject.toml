@@ -11,5 +11,8 @@ license = "GPL-3.0-only"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-portablemc = { path = "../core/" }
+portablemc = "^3"
 python = ">=3.6"
+
+[tool.poetry.group.dev.dependencies]
+portablemc = { path = "../core/", develop = true }
