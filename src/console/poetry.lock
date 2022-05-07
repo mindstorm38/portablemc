@@ -1,0 +1,47 @@
+[[package]]
+name = "portablemc"
+version = "3.0.0"
+description = "PortableMC is a module that provides both an API for development of your custom launcher and an executable script to run PortableMC CLI."
+category = "main"
+optional = false
+python-versions = ">=3.6"
+develop = false
+
+[package.source]
+type = "directory"
+url = "../core"
+
+[[package]]
+name = "prompt-toolkit"
+version = "3.0.29"
+description = "Library for building powerful interactive command lines in Python"
+category = "main"
+optional = false
+python-versions = ">=3.6.2"
+
+[package.dependencies]
+wcwidth = "*"
+
+[[package]]
+name = "wcwidth"
+version = "0.2.5"
+description = "Measures the displayed width of unicode strings in a terminal"
+category = "main"
+optional = false
+python-versions = "*"
+
+[metadata]
+lock-version = "1.1"
+python-versions = ">=3.6.2"
+content-hash = "c7db4574e1f6aec7d9fe3ccf3625be182d40e0ab78527cf37523d581ec122f7f"
+
+[metadata.files]
+portablemc = []
+prompt-toolkit = [
+    {file = "prompt_toolkit-3.0.29-py3-none-any.whl", hash = "sha256:62291dad495e665fca0bda814e342c69952086afb0f4094d0893d357e5c78752"},
+    {file = "prompt_toolkit-3.0.29.tar.gz", hash = "sha256:bd640f60e8cecd74f0dc249713d433ace2ddc62b65ee07f96d358e0b152b6ea7"},
+]
+wcwidth = [
+    {file = "wcwidth-0.2.5-py2.py3-none-any.whl", hash = "sha256:beb4802a9cebb9144e99086eff703a642a13d6a0052920003a230f3294bbe784"},
+    {file = "wcwidth-0.2.5.tar.gz", hash = "sha256:c4d647b99872929fdb7bdcaa4fbe7f01413ed3d98077df798530e5b04f116c83"},
+]
