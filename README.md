@@ -218,10 +218,16 @@ conda activate pmc
 # If this doesn't work, try to roll back to Poetry 1.2.0b1 which is the currently tested version.
 pip install poetry --upgrade --pre
 # Then, go to the module you want to install in development mode, and then install it.
-cd src/core
-poetry install
+cd src
+# Here we use the workspace script that is just a wrapper that launch a poetry command on all modules.
+python workspace.py install
 # Now, you can test the development version of the launcher.
 portablemc --help
+```
+
+You can call this development version from everywhere using:
+```console
+conda run -n pmc portablemc
 ```
 
 ## Contributors
