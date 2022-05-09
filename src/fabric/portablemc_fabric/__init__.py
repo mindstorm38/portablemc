@@ -40,6 +40,8 @@ def load():
     @pmc.mixin()
     def new_version(old, ctx: CliContext, version_id: str) -> Version:
 
+        # TODO: Return a real sub-class of Version just for handling Fabric.
+
         if version_id.startswith("fabric:"):
 
             version_split = version_id.split(":")

@@ -40,6 +40,8 @@ def load():
     @pmc.mixin()
     def new_version(old, ctx: CliContext, version_id: str) -> Version:
 
+        # TODO: Return a real sub-class of Version just for handling Forge.
+
         if version_id.startswith("forge:"):
 
             main_dir = path.dirname(ctx.versions_dir)

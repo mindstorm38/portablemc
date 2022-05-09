@@ -97,6 +97,8 @@ def load():
     @pmc.mixin()
     def new_version(old, ctx: CliContext, version_id: str) -> Version:
 
+        # TODO: Return a real sub-class of Version just for handling Archives.
+
         if version_id.startswith("arc:"):
 
             arc_version_id = version_id[4:]
