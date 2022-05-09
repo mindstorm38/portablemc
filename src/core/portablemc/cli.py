@@ -37,6 +37,11 @@ import sys
 from portablemc import *
 
 
+__all__ = [
+    "CliContext", "CliAddon"
+]
+
+
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_WRONG_USAGE = 9
@@ -51,8 +56,6 @@ AUTH_DB_FILE_NAME = "portablemc_auth.json"
 AUTH_DB_LEGACY_FILE_NAME = "portablemc_tokens"
 MANIFEST_CACHE_FILE_NAME = "portablemc_version_manifest.json"
 
-ENV_ADDONS_PATH = "PMC_ADDONS_PATH"
-
 MS_AZURE_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
 
 JVM_ARGS_DEFAULT = ["-Xmx2G",
@@ -65,6 +68,7 @@ JVM_ARGS_DEFAULT = ["-Xmx2G",
 
 
 class CliContext(Context):
+    """ An extended `Context` class with the argument context. """
     def __init__(self, ns: Namespace):
         super().__init__(ns.main_dir, ns.work_dir)
         self.ns = ns
@@ -80,7 +84,12 @@ class CliAddon:
         self.meta = meta
 
     def get_version(self) -> str:
+        """ Extract the addon's version from the package's metadata. """
         return self.meta.get("Version", "")
+
+    def get_description(self) -> str:
+        """ Extract the addon's description from the package's metadata. """
+        return self.meta.get("Summary", "")
 
     def get_authors(self) -> str:
         from itertools import zip_longest
@@ -88,8 +97,6 @@ class CliAddon:
         emails = self.meta.get("Author-email", "").split(", ")
         return ", ".join(map(lambda t: f"{t[0]} <{t[1]}>", zip_longest(names, emails, "")))
 
-    def get_description(self) -> str:
-        return self.meta.get("Summary", "")
 
 class CliInstallError(BaseError):
     NOT_FOUND = "not_found"
@@ -149,8 +156,8 @@ def load_addons():
 
     for pkg in pkgutil.iter_modules():
         if pkg.name.startswith(prefix) and len(pkg.name) > len(prefix):
+            addon_id = pkg.name[len(prefix):]
             try:
-                addon_id = pkg.name[len(prefix):]
                 addon_module = importlib.import_module(pkg.name)
                 addons[addon_id] = CliAddon(addon_module, addon_id, dict(metadata(pkg.name)))
             except ImportError:
@@ -167,6 +174,7 @@ def load_addons():
 
 
 def get_addon(id_: str) -> Optional[CliAddon]:
+    """ Get an addon from its identifier (without the package `portablemc-` prefix). """
     return addons.get(id_)
 
 
@@ -318,7 +326,7 @@ def cmd_search(ns: Namespace, ctx: CliContext):
             if no_version or search in version_id:
                 table.append((version_id, format_locale_date(mtime)))
     else:
-        manifest = load_version_manifest(ctx)
+        manifest = new_version_manifest(ctx)
         search, alias = manifest.filter_latest(search)
         try:
             for version_data in manifest.all_versions():
@@ -560,19 +568,37 @@ def cmd_addon_show(ns: Namespace, _ctx: CliContext):
 # Constructors to override
 
 def new_context(ns: Namespace) -> CliContext:
+    """
+    Returns a new game context, must extend `CliContext`.
+    This function is made for mixin, you can change it from addons.
+    """
     return CliContext(ns)
 
 
-def load_version_manifest(ctx: CliContext) -> VersionManifest:
+def new_version_manifest(ctx: CliContext) -> VersionManifest:
+    """
+    Returns a new version manifest instance for the given context.
+    This function is made for mixin, you can change it from addons.
+    """
     return VersionManifest(path.join(ctx.work_dir, MANIFEST_CACHE_FILE_NAME), ctx.ns.timeout)
 
 
 def new_auth_database(ctx: CliContext) -> AuthDatabase:
+    """
+    Returns a new authentication database instance for the given context.
+    This function is made for mixin, you can change it from addons.
+    """
     return AuthDatabase(path.join(ctx.work_dir, AUTH_DB_FILE_NAME), path.join(ctx.work_dir, AUTH_DB_LEGACY_FILE_NAME))
 
 
 def new_version(ctx: CliContext, version_id: str) -> Version:
-    manifest = load_version_manifest(ctx)
+    """
+    Returns a new version instance for the given context and version identifier.
+    This function is made for mixin, you can change it from addons. For example
+    to support additional "version protocols" such a `fabric:` or `forge:` from
+    official add-ons.
+    """
+    manifest = new_version_manifest(ctx)
     version_id, _alias = manifest.filter_latest(version_id)
     version = Version(ctx, version_id)
     version.manifest = manifest
@@ -580,10 +606,19 @@ def new_version(ctx: CliContext, version_id: str) -> Version:
 
 
 def new_start(_ctx: CliContext, version: Version) -> Start:
+    """
+    Returns a new start instance for the given context and version
+    (the context should be the same as version's context).
+    This function is made for mixin, you can change it from addons.
+    """
     return Start(version)
 
 
 def new_start_options(_ctx: CliContext) -> StartOptions:
+    """
+    Returns new start options for the given context.
+    This function is made for mixin, you can change it from addons.
+    """
     return StartOptions()
 
 
@@ -698,13 +733,13 @@ def format_locale_date(raw: Union[str, float]) -> str:
 def format_number(n: int) -> str:
     """ Return a number with suffix k, M, G or nothing. The string is always 6 chars unless the size exceed 1 TB. """
     if n < 1000:
-        return "{:6d}".format(int(n))
+        return "{:d}".format(int(n))
     elif n < 1000000:
-        return "{:5.1f}k".format(int(n / 100) / 10)
+        return "{:.1f}k".format(int(n / 100) / 10)
     elif n < 1000000000:
-        return "{:5.1f}M".format(int(n / 100000) / 10)
+        return "{:.1f}M".format(int(n / 100000) / 10)
     else:
-        return "{:5.1f}G".format(int(n / 100000000) / 10)
+        return "{:.1f}G".format(int(n / 100000000) / 10)
 
 
 def format_bytes(n: int) -> str:
@@ -905,8 +940,8 @@ def prompt_microsoft_authenticate(client_id: str, email: str) -> Optional[Micros
                 auth_server = cast(AuthServer, self.server)
                 if "code" in qs and "id_token" in qs:
                     self.send_response(307)
-                    # We logout the user directly after authorization, this just clear the browser cache to allow
-                    # another user to authenticate with another email after. This doesn't invalide the access token.
+                    # We log out the user directly after authorization, this just clear the browser cache to allow
+                    # another user to authenticate with another email after. This doesn't invalid the access token.
                     self.send_header("Location", MicrosoftAuthSession.get_logout_url(app_id, exit_redirect_uri))
                     auth_server.ms_auth_id_token = qs["id_token"][0]
                     auth_server.ms_auth_code = qs["code"][0]

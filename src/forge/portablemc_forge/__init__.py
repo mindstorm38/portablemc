@@ -50,7 +50,7 @@ def load():
             if not len(game_version):
                 game_version = "release"
 
-            manifest = pmc.load_version_manifest(ctx)
+            manifest = pmc.new_version_manifest(ctx)
             game_version, game_version_alias = manifest.filter_latest(game_version)
 
             forge_version = None
