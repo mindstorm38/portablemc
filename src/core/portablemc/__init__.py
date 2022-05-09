@@ -826,6 +826,10 @@ class VersionManifest:
     def all_versions(self) -> list:
         return self._ensure_data()["versions"]
 
+    def get_version_type(self, version: str) -> str:
+        obj = self.get_version(version)
+        return "release" if obj is None else obj.get("type", "release")
+
 
 class AuthSession:
 
