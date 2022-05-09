@@ -142,6 +142,15 @@ class Version:
         self.jvm_version: Optional[str] = None
         self.jvm_exec: Optional[str] = None
 
+    def _ensure_version_manifest(self) -> 'VersionManifest':
+        if self.manifest is None:
+            self.manifest = VersionManifest()
+        return self.manifest
+
+    def _check_version_meta(self):
+        if self.version_meta is None:
+            raise ValueError("You should install metadata first.")
+
     def prepare_meta(self, *, recursion_limit: int = 50):
 
         """
@@ -171,9 +180,12 @@ class Version:
 
     def _prepare_meta_internal(self, version_id: str) -> Tuple[dict, str]:
 
+        """
+        An internal method to ensure an up-to-date version metadata together with its directory.
+        """
+
         version_dir = self.context.get_version_dir(version_id)
         version_meta_file = path.join(version_dir, f"{version_id}.json")
-        version_super_meta = self._ensure_version_manifest().get_version(version_id)
 
         try:
             with open(version_meta_file, "rt") as version_meta_fp:
@@ -181,35 +193,49 @@ class Version:
         except (OSError, JSONDecodeError):
             version_meta = None
 
+        if version_meta is not None:
+            if self._validate_version_meta(version_id, version_dir, version_meta_file, version_meta):
+                return version_meta, version_dir
+            else:
+                version_meta = None
+
         if version_meta is None:
-            if version_super_meta is None:
-                raise VersionError(VersionError.NOT_FOUND, version_id)
-        elif version_super_meta is None:
-            return version_meta, version_dir
+            os.makedirs(version_dir, exist_ok=True)
+            version_meta = self._fetch_version_meta(version_id, version_dir, version_meta_file)
+
+        return version_meta, version_dir
+
+    def _validate_version_meta(self, version_id: str, version_dir: str, version_meta_file: str, version_meta: dict) -> bool:
+
+        """
+        An internal method to check if a version's metadata is up-to-date, returns `True` if it is.
+        If `False`, the version metadata is re-fetched, this is the default when version metadata
+        doesn't exist.
+        """
+
+        version_super_meta = self._ensure_version_manifest().get_version(version_id)
+        if version_super_meta is None:
+            return True
         else:
             installed_time = from_iso_date(version_meta["time"])
             expected_time = from_iso_date(version_super_meta["time"])
             if installed_time >= expected_time:
-                return version_meta, version_dir
+                return True
             else:
                 # Backup the old metadata file, it can be useful to debug.
                 shutil.copyfile(version_meta_file, f"{version_meta_file}.{installed_time.timestamp()}")
+                return False
 
+    def _fetch_version_meta(self, version_id: str, version_dir: str, version_meta_file: str) -> dict:
+        """ An internal method to fetch a version metadata. """
+        version_super_meta = self._ensure_version_manifest().get_version(version_id)
+        if version_super_meta is None:
+            raise VersionError(VersionError.NOT_FOUND, version_id)
         content = json_simple_request(version_super_meta["url"])
         content["time"] = version_super_meta["time"]  # Last update time, must be the same as manifest to update.
-        os.makedirs(version_dir, exist_ok=True)
         with open(version_meta_file, "wt") as version_meta_fp:
             json.dump(content, version_meta_fp, indent=2)
-        return content, version_dir
-
-    def _ensure_version_manifest(self) -> 'VersionManifest':
-        if self.manifest is None:
-            self.manifest = VersionManifest()
-        return self.manifest
-
-    def _check_version_meta(self):
-        if self.version_meta is None:
-            raise ValueError("You should install metadata first.")
+        return content
 
     def prepare_jar(self):
 
