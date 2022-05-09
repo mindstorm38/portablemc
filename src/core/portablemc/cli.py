@@ -38,7 +38,21 @@ from portablemc import *
 
 
 __all__ = [
-    "CliContext", "CliAddon"
+    "CliContext", "CliAddon", "get_addon", "get_addon_mod",
+    "register_arguments", "register_subcommands", "register_start_arguments",
+    "register_login_arguments", "register_logout_arguments", "register_search_arguments",
+    "register_show_arguments", "register_addon_arguments", "new_help_formatter_class",
+    "cmd", "cmd_start", "cmd_login", "cmd_logout", "cmd_search", "cmd_show_about",
+    "cmd_show_auth", "cmd_show_lang", "cmd_addon_show", "cmd_addon_list",
+    "new_context", "new_version_manifest", "new_version", "new_start_options",
+    "new_start", "new_auth_database",
+    "mixin",
+    "format_number", "format_bytes", "format_locale_date",
+    "ellipsis_str", "anonymise_email", "get_term_width",
+    "pretty_download",
+    "prompt_authenticate", "prompt_yggdrasil_authenticate", "prompt_microsoft_authenticate",
+    "get_message_raw", "get_message", "print_message", "prompt", "print_table", "print_task",
+    "messages"
 ]
 
 
