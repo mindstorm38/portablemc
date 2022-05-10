@@ -50,11 +50,11 @@ def load():
             if not len(game_version):
                 game_version = "release"
 
-            manifest = pmc.new_version_manifest(ctx)
-            game_version, _game_version_alias = manifest.filter_latest(game_version)
-
             if loader_version is not None and not len(loader_version):
                 raise FabricInvalidFormatError()
+
+            manifest = pmc.new_version_manifest(ctx)
+            game_version, _game_version_alias = manifest.filter_latest(game_version)
 
             if loader_version is None:
                 pmc.print_task("OK", "start.fabric.resolving_loader", {
@@ -87,10 +87,33 @@ def load():
 class FabricVersion(Version):
 
     def __init__(self, context: Context, game_version: str, loader_version: Optional[str], *, prefix: str = "fabric"):
-        super().__init__(context, f"{prefix}-{game_version}-{loader_version}")
+
+        """
+        Construct a new fabric version, such version are specified by a game version and an optional loader-version,
+        if loader-version is not specified, the latest version is used and fetched when first calling `prepare_meta`.
+        """
+
+        # If the loader version is unknown, we temporarily use a version ID without
+        id_ = f"{prefix}-{game_version}" if loader_version is None else f"{prefix}-{game_version}-{loader_version}"
+
+        super().__init__(context, id_)
+
         self.game_version = game_version
         self.loader_version = loader_version
         self.loader_meta: Optional[dict] = None
+
+    def prepare_meta(self, *, recursion_limit: int = 50):
+        # This function might throw 'FabricVersionNotFound' either from the following
+        # condition or from the inner calls to '_fetch_version_meta'.
+        return super().prepare_meta(recursion_limit=recursion_limit)
+
+    def _prepare_id(self):
+        # If the loader version is unknown, the version's id is not fully defined,
+        # so we add the loader version to the id.
+        if self.loader_version is None:
+            self.loader_meta = request_version_loader(self.game_version, None)
+            self.loader_version = self.loader_meta["loader"]["version"]
+            self.id += f"-{self.loader_version}"
 
     def _validate_version_meta(self, version_id: str, version_dir: str, version_meta_file: str, version_meta: dict) -> bool:
         if version_id == self.id:
@@ -102,10 +125,6 @@ class FabricVersion(Version):
 
         if version_id != self.id:
             return super()._fetch_version_meta(version_id, version_dir, version_meta_file)
-
-        if self.loader_version is None:
-            self.loader_meta = request_version_loader(self.game_version, None)
-            self.loader_version = self.loader_meta["loader"]["version"]
 
         if self.loader_meta is None:
             # If the directory does not exist and the loader_version was provided, request meta.

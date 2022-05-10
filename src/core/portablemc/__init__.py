@@ -162,10 +162,13 @@ class Version:
         context.\n
         This method will load the official Mojang version manifest, however you can set the `manifest` attribute of this
         object before with a custom manifest if you want to support more versions.\n
-        If any version in the 'inheritsFrom' tree is not found, a `VersionError` is raised with `VersionError.NOT_FOUND`
+        If any version in the `inheritsFrom` tree is not found, a `VersionError` is raised with `VersionError.NOT_FOUND`
         and the version ID as argument.\n
+        Note that this method is authorized to change the version identifier through its internal method `_prepare_id`.\n
         This method can raise `JsonRequestError` for any error for requests to JSON file.
         """
+
+        self._prepare_id()
 
         version_meta, version_dir = self._prepare_meta_internal(self.id)
         while "inheritsFrom" in version_meta:
@@ -177,6 +180,13 @@ class Version:
             merge_dict(version_meta, parent_meta)
 
         self.version_meta, self.version_dir = version_meta, version_dir
+
+    def _prepare_id(self):
+
+        """
+        Internal method to modify the version's identifier (`id` attribute), this is called before
+        fetching version metadata. This method doesn't change the identifier by default.
+        """
 
     def _prepare_meta_internal(self, version_id: str) -> Tuple[dict, str]:
 
