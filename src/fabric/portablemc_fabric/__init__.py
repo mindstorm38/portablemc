@@ -57,20 +57,17 @@ def load():
                 raise FabricInvalidFormatError()
 
             if loader_version is None:
-                pmc.print_task("", "start.fabric.resolving_loader", {"game_version": game_version})
-                loader_meta = request_version_loader(game_version, None)
-                loader_version = loader_meta["loader"]["version"]
+                pmc.print_task("OK", "start.fabric.resolving_loader", {
+                    "game_version": game_version
+                }, done=True)
             else:
-                loader_meta = None
-
-            pmc.print_task("OK", "start.fabric.resolved_loader", {
-                "loader_version": loader_version,
-                "game_version": game_version
-            }, done=True)
+                pmc.print_task("OK", "start.fabric.resolving_loader_specific", {
+                    "loader_version": loader_version,
+                    "game_version": game_version
+                }, done=True)
 
             ver = FabricVersion(ctx, game_version, loader_version, prefix=ctx.ns.fabric_prefix)
             ver.manifest = manifest
-            ver.loader_meta = loader_meta
             return ver
 
         return old(ctx, version_id)
@@ -80,7 +77,7 @@ def load():
     pmc.messages.update({
         "args.start.fabric_prefix": "Change the prefix of the version ID when starting with Fabric.",
         "start.fabric.resolving_loader": "Resolving fabric loader for {game_version}...",
-        "start.fabric.resolved_loader": "Resolved fabric loader {loader_version} for {game_version}.",
+        "start.fabric.resolving_loader_specific": "Resolving fabric loader {loader_version} for {game_version}...",
         "start.fabric.error.invalid_format": "To launch fabric, use 'fabric:[<mc-version>[:<loader-version>]]'.",
         f"start.fabric.error.{FabricVersionNotFound.GAME_VERSION_NOT_FOUND}": "Game version {version} not found.",
         f"start.fabric.error.{FabricVersionNotFound.LOADER_VERSION_NOT_FOUND}": "Loader version {version} not found."
@@ -89,7 +86,7 @@ def load():
 
 class FabricVersion(Version):
 
-    def __init__(self, context: Context, game_version: str, loader_version: str, *, prefix: str = "fabric"):
+    def __init__(self, context: Context, game_version: str, loader_version: Optional[str], *, prefix: str = "fabric"):
         super().__init__(context, f"{prefix}-{game_version}-{loader_version}")
         self.game_version = game_version
         self.loader_version = loader_version
@@ -105,6 +102,10 @@ class FabricVersion(Version):
 
         if version_id != self.id:
             return super()._fetch_version_meta(version_id, version_dir, version_meta_file)
+
+        if self.loader_version is None:
+            self.loader_meta = request_version_loader(self.game_version, None)
+            self.loader_version = self.loader_meta["loader"]["version"]
 
         if self.loader_meta is None:
             # If the directory does not exist and the loader_version was provided, request meta.
