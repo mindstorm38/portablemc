@@ -102,10 +102,8 @@ class FabricVersion(Version):
         self.loader_version = loader_version
         self.loader_meta: Optional[dict] = None
 
-    def prepare_meta(self, *, recursion_limit: int = 50):
-        # This function might throw 'FabricVersionNotFound' either '_prepare_id'
-        # or from the inner calls to '_fetch_version_meta'.
-        return super().prepare_meta(recursion_limit=recursion_limit)
+    # The function 'prepare_meta' might throw 'FabricVersionNotFound' either
+    # '_prepare_id' or from the inner calls to '_fetch_version_meta'.
 
     def _prepare_id(self):
         # If the loader version is unknown, the version's id is not fully defined,
