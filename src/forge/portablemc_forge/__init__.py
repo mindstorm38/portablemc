@@ -8,12 +8,13 @@ import os
 from portablemc import Version, \
     DownloadList, DownloadEntry, DownloadError, \
     BaseError, \
-    http_request, json_simple_request
-from portablemc import cli as pmc
-from portablemc.cli import CliContext
+    http_request, json_simple_request, Context
 
 
 def load():
+
+    from portablemc.cli import CliContext
+    from portablemc import cli as pmc
 
     # Private mixins
 
@@ -183,6 +184,59 @@ def load():
         f"start.forge.error.{ForgeVersionNotFound.MINECRAFT_VERSION_NOT_FOUND}": "Parent Minecraft version not found "
                                                                                  "{version}.",
     })
+
+
+class ForgeVersion(Version):
+
+    def __init__(self, context: Context, forge_version: str, *, prefix: str = "forge"):
+
+        super().__init__(context, f"{prefix}-{forge_version}")
+
+        # Extract minecraft version from the full forge version
+        self.mc_version_id = self.id[:max(0, self.id.find("-")) or len(self.id)]
+
+        # List of possible artifacts names-version, some versions (e.g. 1.7) have the minecraft
+        # version in suffix of the version in addition to the suffix.
+        self.possible_artifact_versions = [self.id, f"{self.id}-{self.mc_version_id}"]
+
+    def _validate_version_meta(self, version_id: str, version_dir: str, version_meta_file: str, version_meta: dict) -> bool:
+        if version_id == self.id:
+            # Here we check the forge's libraries to check if we need to reinstall forge.
+            local_artifact_path = path.join(self.context.libraries_dir, "net", "minecraftforge", "forge")
+            for possible_version in self.possible_artifact_versions:
+                for possible_classifier in (possible_version, f"{possible_version}-client"):
+                    artifact_jar = path.join(local_artifact_path, possible_version, f"forge-{possible_classifier}.jar")
+                    if path.isfile(artifact_jar):
+                        # If we found at least one valid forge artifact, the version is valid.
+                        return True
+            return False
+        else:
+            return super()._validate_version_meta(version_id, version_dir, version_meta_file, version_meta)
+
+    def _fetch_version_meta(self, version_id: str, version_dir: str, version_meta_file: str) -> dict:
+
+        if version_id == self.id:
+
+            installer_file = path.join(version_dir, "installer.jar")
+
+            found_installer = False
+            dl_list = DownloadList()
+            for possible_version in self.possible_artifact_versions:
+                try:
+                    installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{possible_version}/forge-{possible_version}-installer.jar"
+                    dl_list.reset()
+                    dl_list.append(DownloadEntry(installer_url, installer_file))
+                    dl_list.download_files()
+                    found_installer = True
+                    break
+                except DownloadError:
+                    pass
+
+            if not found_installer:
+                raise ForgeVersionNotFound(ForgeVersionNotFound.INSTALLER_NOT_FOUND, forge_version)
+
+        else:
+            return super()._fetch_version_meta(version_id, version_dir, version_meta_file)
 
 
 # Forge API

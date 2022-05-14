@@ -115,6 +115,7 @@ class FabricVersion(Version):
 
     def _validate_version_meta(self, version_id: str, version_dir: str, version_meta_file: str, version_meta: dict) -> bool:
         if version_id == self.id:
+            # If the version is installed, it is always valid, because we don't have any metadata to check its validity.
             return True
         else:
             return super()._validate_version_meta(version_id, version_dir, version_meta_file, version_meta)
