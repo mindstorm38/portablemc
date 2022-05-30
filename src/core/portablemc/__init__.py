@@ -498,9 +498,7 @@ class Version:
 
     def download(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None) -> 'DownloadReport':
         """ Download all missing files computed in `prepare_` methods. """
-        report = self.dl.download_files(progress_callback=progress_callback)
-        self.dl.reset()
-        return report
+        return self.dl.download_files(progress_callback=progress_callback)
 
 
     def install(self, *, jvm: bool = False) -> 'DownloadReport':
