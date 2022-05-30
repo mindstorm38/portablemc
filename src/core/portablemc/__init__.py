@@ -212,6 +212,8 @@ class Version:
         if version_meta is None:
             os.makedirs(version_dir, exist_ok=True)
             version_meta = self._fetch_version_meta(version_id, version_dir, version_meta_file)
+            with open(version_meta_file, "wt") as version_meta_fp:
+                json.dump(version_meta, version_meta_fp, indent=2)
 
         return version_meta, version_dir
 
@@ -243,8 +245,6 @@ class Version:
             raise VersionError(VersionError.NOT_FOUND, version_id)
         content = json_simple_request(version_super_meta["url"])
         content["time"] = version_super_meta["time"]  # Last update time, must be the same as manifest to update.
-        with open(version_meta_file, "wt") as version_meta_fp:
-            json.dump(content, version_meta_fp, indent=2)
         return content
 
     def prepare_jar(self):
