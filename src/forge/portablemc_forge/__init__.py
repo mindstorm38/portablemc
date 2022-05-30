@@ -6,7 +6,7 @@ import sys
 import os
 
 from portablemc import Version, \
-    DownloadList, DownloadEntry, DownloadError, \
+    DownloadList, DownloadEntry, DownloadReport, \
     BaseError, \
     http_request, json_simple_request, Context
 
@@ -77,90 +77,22 @@ def load():
                 # Test if the user has given the full forge version
                 forge_version = game_version
 
-            version_id = f"{ctx.ns.forge_prefix}-{forge_version}"
-            version_dir = ctx.get_version_dir(version_id)
-            version = Version(ctx, version_id)
+            installer = ForgeVersionInstaller(ctx, forge_version, prefix=ctx.ns.forge_prefix)
 
-            # Extract minecraft version from the full forge version
-            mc_version_id = forge_version[:max(0, forge_version.find("-")) or len(forge_version)]
+            if installer.needed():
 
-            # List of possible artifacts names-version, some versions (e.g. 1.7) have the minecraft
-            # version in suffix of the version in addition to the suffix.
-            possible_artifact_versions = [forge_version, f"{forge_version}-{mc_version_id}"]
+                pmc.print_task("", "start.forge.resolving", {"version": forge_version})
+                installer.prepare()
+                pmc.print_task("OK", "start.forge.resolved", {"version": forge_version}, done=True)
 
-            # Check if Forge should be installed, based on version meta file and potentially missing forge lib.
-            version_meta_file = path.join(version_dir, f"{version_id}.json")
-            should_install = not path.isfile(version_meta_file)
-            if not should_install:
-                should_install = True
-                local_artifact_path = path.join(ctx.libraries_dir, "net", "minecraftforge", "forge")
-                for possible_version in possible_artifact_versions:
-                    for possible_classifier in (possible_version, f"{possible_version}-client"):
-                        artifact_jar = path.join(local_artifact_path, possible_version, f"forge-{possible_classifier}.jar")
-                        if path.isfile(artifact_jar):
-                            should_install = False
-                            break
-
-            if should_install:
-
-                # 1.7 used to have an additional suffix with minecraft version.
-                installer_file = path.join(version_dir, "installer.jar")
-
-                pmc.print_task("", "start.forge.installer.resolving", {"version": forge_version})
-
-                found_installer = False
-                dl_list = DownloadList()
-                for possible_version in possible_artifact_versions:
-                    try:
-                        installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{possible_version}/forge-{possible_version}-installer.jar"
-                        dl_list.reset()
-                        dl_list.append(DownloadEntry(installer_url, installer_file))
-                        dl_list.download_files()
-                        pmc.print_task("OK", "start.forge.installer.found", {"version": forge_version}, done=True)
-                        found_installer = True
-                        break
-                    except DownloadError:
-                        pass
-
-                if not found_installer:
-                    raise ForgeVersionNotFound(ForgeVersionNotFound.INSTALLER_NOT_FOUND, forge_version)
-
-                # We ensure that the parent Minecraft version JAR and metadata are
-                # downloaded because it's needed by installers.
-                # if len(mc_version_id):  # don't know why checking this
-                try:
-                    pmc.print_task("", "start.forge.vanilla.resolving", {"version": mc_version_id})
-                    mc_version = Version(ctx, mc_version_id)
-                    mc_version.prepare_meta()
-                    mc_version.prepare_jar()
-                    # If no JVM exec is set, download the default JVM for the parent MC version.
-                    jvm_exec = ctx.ns.jvm
-                    if jvm_exec is None:
-                        mc_version.prepare_jvm()
-                        jvm_exec = mc_version.jvm_exec
-                    pmc.pretty_download(mc_version.dl)
-                    pmc.print_task("OK", "start.forge.vanilla.found", {"version": mc_version_id}, done=True)
-                except DownloadError:
-                    raise ForgeVersionNotFound(ForgeVersionNotFound.MINECRAFT_VERSION_NOT_FOUND, mc_version_id)
+                installer.check_download(pmc.pretty_download(installer.dl))
 
                 pmc.print_task("", "start.forge.wrapper.running")
-                wrapper_jar_file = path.join(path.dirname(__file__), "wrapper", "target", "wrapper.jar")
-                wrapper_completed = subprocess.run([
-                    jvm_exec,
-                    "-cp", path.pathsep.join([wrapper_jar_file, installer_file]),
-                    "portablemc.wrapper.Main",
-                    main_dir,
-                    version_id
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                os.remove(installer_file)
+                installer.install()
                 pmc.print_task("OK", "start.forge.wrapper.done", done=True)
 
-                if wrapper_completed.returncode != 0:
-                    raise ForgeInstallerFailed(wrapper_completed.returncode)
-
             pmc.print_task("INFO", "start.forge.consider_support", done=True)
-
-            return version
+            return installer.version
 
         return old(ctx, version_id)
 
@@ -168,10 +100,8 @@ def load():
 
     pmc.messages.update({
         "args.start.forge_prefix": "Change the prefix of the version ID when starting with Forge.",
-        "start.forge.installer.resolving": "Resolving forge {version}...",
-        "start.forge.installer.found": "Found installer for forge {version}.",
-        "start.forge.vanilla.resolving": "Preparing parent Minecraft version {version}...",
-        "start.forge.vanilla.found": "Found parent Minecraft version {version}.",
+        "start.forge.resolving": "Resolving forge {version}...",
+        "start.forge.resolved": "Resolved forge {version}, downloading installer and parent version.",
         "start.forge.wrapper.running": "Running installer (can take few minutes)...",
         "start.forge.wrapper.done": "Forge installation done.",
         "start.forge.consider_support": "Consider supporting the forge project through https://www.patreon.com/LexManos/.",
@@ -189,54 +119,118 @@ def load():
 class ForgeVersion(Version):
 
     def __init__(self, context: Context, forge_version: str, *, prefix: str = "forge"):
-
         super().__init__(context, f"{prefix}-{forge_version}")
-
-        # Extract minecraft version from the full forge version
-        self.mc_version_id = self.id[:max(0, self.id.find("-")) or len(self.id)]
-
-        # List of possible artifacts names-version, some versions (e.g. 1.7) have the minecraft
-        # version in suffix of the version in addition to the suffix.
-        self.possible_artifact_versions = [self.id, f"{self.id}-{self.mc_version_id}"]
+        self.forge_version = forge_version
 
     def _validate_version_meta(self, version_id: str, version_dir: str, version_meta_file: str, version_meta: dict) -> bool:
         if version_id == self.id:
-            # Here we check the forge's libraries to check if we need to reinstall forge.
-            local_artifact_path = path.join(self.context.libraries_dir, "net", "minecraftforge", "forge")
-            for possible_version in self.possible_artifact_versions:
-                for possible_classifier in (possible_version, f"{possible_version}-client"):
-                    artifact_jar = path.join(local_artifact_path, possible_version, f"forge-{possible_classifier}.jar")
-                    if path.isfile(artifact_jar):
-                        # If we found at least one valid forge artifact, the version is valid.
-                        return True
-            return False
+            return True
         else:
             return super()._validate_version_meta(version_id, version_dir, version_meta_file, version_meta)
 
     def _fetch_version_meta(self, version_id: str, version_dir: str, version_meta_file: str) -> dict:
-
         if version_id == self.id:
-
-            installer_file = path.join(version_dir, "installer.jar")
-
-            found_installer = False
-            dl_list = DownloadList()
-            for possible_version in self.possible_artifact_versions:
-                try:
-                    installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{possible_version}/forge-{possible_version}-installer.jar"
-                    dl_list.reset()
-                    dl_list.append(DownloadEntry(installer_url, installer_file))
-                    dl_list.download_files()
-                    found_installer = True
-                    break
-                except DownloadError:
-                    pass
-
-            if not found_installer:
-                raise ForgeVersionNotFound(ForgeVersionNotFound.INSTALLER_NOT_FOUND, forge_version)
-
+            # If the underlying class call this for THIS version, it means that the version hasn't been installed yet.
+            # This should not happen if the installer has been run before.
+            raise ForgeVersionNotFound(ForgeVersionNotFound.NOT_INSTALLED, self.forge_version)
         else:
             return super()._fetch_version_meta(version_id, version_dir, version_meta_file)
+
+
+class ForgeVersionInstaller:
+
+    def __init__(self, context: Context, forge_version: str, *, prefix: str = "forge"):
+
+        # The real version object being installed by this installer.
+        self.version = ForgeVersion(context, forge_version, prefix=prefix)
+
+        self.version_dir = self.version.context.get_version_dir(self.version.id)
+        self.installer_file = path.join(self.version_dir, "installer.jar")
+        self.dl = DownloadList()
+        self.main_dir = None
+        self.jvm_exec = None
+
+        # Extract minecraft version from the full forge version
+        self.parent_version_id = forge_version[:max(0, forge_version.find("-")) or len(forge_version)]
+
+        # List of possible artifacts names-version, some versions (e.g. 1.7) have the minecraft
+        # version in suffix of the version in addition to the suffix.
+        self.possible_artifact_versions = [forge_version, f"{forge_version}-{self.parent_version_id}"]
+
+    def needed(self) -> bool:
+
+        """ Return True if this forge version needs to be installed. """
+
+        if not path.isfile(path.join(self.version_dir, f"{self.version.id}.json")):
+            # If the version's metadata is not found.
+            return True
+
+        local_artifact_path = path.join(self.version.context.libraries_dir, "net", "minecraftforge", "forge")
+        for possible_version in self.possible_artifact_versions:
+            for possible_classifier in (possible_version, f"{possible_version}-client"):
+                artifact_jar = path.join(local_artifact_path, possible_version, f"forge-{possible_classifier}.jar")
+                if path.isfile(artifact_jar):
+                    # If we found at least one valid forge artifact, the version is valid.
+                    return False
+
+        return True
+
+    def prepare(self):
+
+        # The main dir specific to forge, it needs to be
+        self.main_dir = path.dirname(self.version.context.versions_dir)
+        if not path.samefile(self.main_dir, path.dirname(self.version.context.libraries_dir)):
+            raise ForgeInvalidMainDirectory()
+
+        for possible_version in self.possible_artifact_versions:
+            installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{possible_version}/forge-{possible_version}-installer.jar"
+            self.dl.append(DownloadEntry(installer_url, self.installer_file, name=f"installer:{possible_version}"))
+
+        parent_version = Version(self.version.context, self.parent_version_id)
+        parent_version.dl = self.dl
+        parent_version.prepare_meta()
+        parent_version.prepare_jar()
+        # If no JVM exec is set, download the default JVM for the parent MC version.
+        if self.jvm_exec is None:
+            parent_version.prepare_jvm()
+            self.jvm_exec = parent_version.jvm_exec
+
+    def download(self):
+
+        if self.main_dir is None:
+            raise ValueError()
+
+        self.check_download(self.dl.download_files())
+
+    def check_download(self, report: DownloadReport):
+
+        installer_fails_count = 0
+        for entry, entry_fail in report.fails.items():
+            if entry.dst == self.installer_file:
+                installer_fails_count += 1
+
+        if installer_fails_count == len(self.possible_artifact_versions):
+            raise ForgeVersionNotFound(ForgeVersionNotFound.INSTALLER_NOT_FOUND, self.version.forge_version)
+        elif installer_fails_count != len(report.fails):
+            raise ForgeVersionNotFound(ForgeVersionNotFound.MINECRAFT_VERSION_NOT_FOUND, self.version.forge_version)
+
+    def install(self):
+
+        if self.main_dir is None:
+            raise ValueError()
+
+        wrapper_jar_file = path.join(path.dirname(__file__), "wrapper", "target", "wrapper.jar")
+        wrapper_completed = subprocess.run([
+            self.jvm_exec,
+            "-cp", path.pathsep.join([wrapper_jar_file, self.installer_file]),
+            "portablemc.wrapper.Main",
+            self.main_dir,
+            self.version.id
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.remove(self.installer_file)
+
+        if wrapper_completed.returncode != 0:
+            raise ForgeInstallerFailed(wrapper_completed.returncode)
 
 
 # Forge API
@@ -283,6 +277,7 @@ class ForgeInstallerFailed(Exception):
 
 class ForgeVersionNotFound(BaseError):
 
+    NOT_INSTALLED = "not_installed"
     INSTALLER_NOT_FOUND = "installer_not_found"
     MINECRAFT_VERSION_NOT_FOUND = "minecraft_version_not_found"
 
