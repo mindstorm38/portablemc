@@ -817,34 +817,33 @@ def pretty_download(dl_list: DownloadList) -> bool:
             called_once = True
 
     def complete_task(errors_count: int = 0):
-        if called_once or errors_count:
-            if errors_count:
-                result_text = get_message("download.errors", count=dl_list.count, errors_count=errors_count)
-            else:
-                result_text = get_message("download.downloaded",
-                                          count=dl_list.count,
-                                          size=format_bytes(dl_list.size).lstrip(" "),
-                                          duration=(time.perf_counter() - start_time))
-            result_len = max(0, min(80, get_term_width()) - 9)
-            template = "\r[FAILED] {}" if errors_count else "\r[  OK  ] {}"
-            print(template.format(result_text[:result_len].ljust(result_len)))
+
+        errors_text = get_message("download.no_error") if errors_count == 0 else get_message("download.errors", count=errors_count)
+        result_text = get_message("download.downloaded",
+                                  success_count=dl_list.count - errors_count,
+                                  total_count=dl_list.count,
+                                  size=format_bytes(dl_list.size).lstrip(" "),
+                                  duration=(time.perf_counter() - start_time),
+                                  errors=errors_text)
+
+        result_len = max(0, min(80, get_term_width()) - 9)
+        template = "[  OK  ] {}"
+        if called_once:
+            template = f"\r{template}"
+        print(template.format(result_text[:result_len].ljust(result_len)))
 
     try:
-        dl_list.callbacks.insert(0, complete_task)
-        dl_list.download_files(progress_callback=progress_callback)
-        return True
+        dl_report = dl_list.download_files(progress_callback=progress_callback)
+        complete_task(len(dl_report.fails))
+        if len(dl_report.fails):
+            for entry_url, entry_error in dl_report.fails.items():
+                entry_error_msg = get_message(f"download.error.{entry_error}")
+                print(f"         {entry_url}: {entry_error_msg}")
+        return len(dl_report.fails) == 0
     except KeyboardInterrupt:
         if called_once:
             print()
         raise
-    except DownloadError as err:
-        complete_task(len(err.fails))
-        for entry_url, entry_error in err.fails.items():
-            entry_error_msg = get_message(f"download.error.{entry_error}")
-            print(f"         {entry_url}: {entry_error_msg}")
-        return False
-    finally:
-        dl_list.callbacks.pop(0)
 
 
 # Authentication
@@ -1205,12 +1204,13 @@ messages = {
     "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
     "download.downloading": "Downloading",
-    "download.downloaded": "Downloaded {count} files, {size} in {duration:.1f}s.",
-    "download.errors": "Tried to download {count} files, but {errors_count} errors happened, can't continue.",
-    f"download.error.{DownloadError.CONN_ERROR}": "Connection error",
-    f"download.error.{DownloadError.NOT_FOUND}": "Not found",
-    f"download.error.{DownloadError.INVALID_SIZE}": "Invalid size",
-    f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
+    "download.downloaded": "Downloaded {success_count}/{total_count} files, {size} in {duration:.1f}s ({errors}).",
+    "download.no_error": "no error",
+    "download.errors": "{count} errors",
+    f"download.error.{DownloadReport.CONN_ERROR}": "Connection error",
+    f"download.error.{DownloadReport.NOT_FOUND}": "Not found",
+    f"download.error.{DownloadReport.INVALID_SIZE}": "Invalid size",
+    f"download.error.{DownloadReport.INVALID_SHA1}": "Invalid SHA1",
     # Auth common
     "auth.refreshing": "Invalid session, refreshing...",
     "auth.refreshed": "Session refreshed for {email}.",

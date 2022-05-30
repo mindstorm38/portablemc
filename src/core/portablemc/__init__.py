@@ -45,7 +45,7 @@ __all__ = [
     "AuthSession", "YggdrasilAuthSession", "MicrosoftAuthSession", "AuthDatabase",
     "DownloadEntry", "DownloadList", "DownloadProgress", "DownloadEntryProgress",
     "BaseError", "JsonRequestError", "AuthError", "VersionManifestError", "VersionError", "JvmLoadingError",
-        "DownloadError",
+        "DownloadReport",
     "http_request", "json_request", "json_simple_request",
     "merge_dict",
     "interpret_rule_os", "interpret_rule", "interpret_args",
@@ -1233,6 +1233,17 @@ class DownloadEntry:
         return DownloadEntry(info["url"], dst, size=info.get("size"), sha1=info.get("sha1"), name=name)
 
 
+class DownloadReport:
+
+    CONN_ERROR = "conn_error"
+    NOT_FOUND = "not_found"
+    INVALID_SIZE = "invalid_size"
+    INVALID_SHA1 = "invalid_sha1"
+
+    def __init__(self):
+        self.fails: Dict[str, str] = {}
+
+
 class DownloadList:
 
     __slots__ = "entries", "callbacks", "count", "size"
@@ -1265,20 +1276,20 @@ class DownloadList:
     def add_callback(self, callback: Callable[[], None]):
         self.callbacks.append(callback)
 
-    def download_files(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
+    def download_files(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None) -> DownloadReport:
 
         """
-        Downloads the given list of files. Even if some downloads fails, it continue and raise DownloadError(fails)
-        only at the end (but not calling callbacks), where 'fails' is a dict associating the entry URL and its error
-        ('not_found', 'invalid_size', 'invalid_sha1').
+        Downloads the given list of files. Even if some downloads fails, it continues. Use the returned
+        `DownloadReport` to determine if some files has failed.
         """
+
+        report = DownloadReport()
 
         if len(self.entries):
 
             headers = {}
             buffer = bytearray(65536)
             total_size = 0
-            fails: Dict[str, str] = {}
             max_try_count = 3
 
             if progress_callback is not None:
@@ -1314,13 +1325,13 @@ class DownloadList:
                                 conn.request("GET", entry.url, None, headers)
                                 res = conn.getresponse()
                             except ConnectionError:
-                                error = DownloadError.CONN_ERROR
+                                error = DownloadReport.CONN_ERROR
                                 continue
 
                             if res.status != 200:
                                 while res.readinto(buffer):
                                     pass  # This loop is used to skip all bytes in the stream, and allow further request.
-                                error = DownloadError.NOT_FOUND
+                                error = DownloadReport.NOT_FOUND
                                 continue
 
                             sha1 = None if entry.sha1 is None else hashlib.sha1()
@@ -1351,28 +1362,30 @@ class DownloadList:
                                 raise
 
                             if entry.size is not None and size != entry.size:
-                                error = DownloadError.INVALID_SIZE
+                                error = DownloadReport.INVALID_SIZE
                             elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
-                                error = DownloadError.INVALID_SHA1
+                                error = DownloadReport.INVALID_SHA1
                             else:
                                 if entry.size is None:
-                                    entry.size = size  # Enforce entry size from the effective downloaded size.
+                                    # Enforce entry size from the effective downloaded size.
+                                    entry.size = size
                                     self.size += size
                                 break
 
-                            total_size -= size  # If error happened, subtract the size and restart from latest total_size.
+                            # If error happened, subtract the size and restart from the latest total_size.
+                            total_size -= size
 
                         else:
-                            fails[entry.url] = error  # If the break was not triggered, an error should be set.
+                            # If the break was not triggered, an error should be set.
+                            report.fails[entry.url] = error
 
                 finally:
                     conn.close()
 
-            if len(fails):
-                raise DownloadError(fails)
-
         for callback in self.callbacks:
             callback()
+
+        return report
 
 
 class DownloadEntryProgress:
@@ -1447,16 +1460,16 @@ class JvmLoadingError(BaseError):
     UNSUPPORTED_VERSION = "unsupported_version"
 
 
-class DownloadError(Exception):
-
-    CONN_ERROR = "conn_error"
-    NOT_FOUND = "not_found"
-    INVALID_SIZE = "invalid_size"
-    INVALID_SHA1 = "invalid_sha1"
-
-    def __init__(self, fails: Dict[str, str]):
-        super().__init__()
-        self.fails = fails
+# class DownloadError(Exception):
+#
+#     CONN_ERROR = "conn_error"
+#     NOT_FOUND = "not_found"
+#     INVALID_SIZE = "invalid_size"
+#     INVALID_SHA1 = "invalid_sha1"
+#
+#     def __init__(self, fails: Dict[str, str]):
+#         super().__init__()
+#         self.fails = fails
 
 
 def http_request(url: str, method: str, *,

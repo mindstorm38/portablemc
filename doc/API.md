@@ -109,7 +109,7 @@ After download is complete, you can use the `start` method to directly start the
 > Note that installing JVM is not required to launch the game.
 
 ```python
-from portablemc import Version, VersionError, JvmLoadingError, DownloadError
+from portablemc import Version, VersionError, JvmLoadingError
 
 version_id = manifest.filter_latest("release")  # Assume that '1.18.1' got returned.
 version = Version(ctx, version_id)
@@ -122,8 +122,6 @@ except VersionError as e:
     print(f"Version '{e.version}' not found.")
 except JvmLoadingError as e:
     print(f"No JVM found for you system.")
-except DownloadError as e:
-    print(f"Failed files: {e.fails}")
 ```
 
 ### StartOptions
