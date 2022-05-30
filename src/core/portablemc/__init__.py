@@ -1232,6 +1232,12 @@ class DownloadEntry:
     def from_meta(cls, info: dict, dst: str, *, name: Optional[str] = None) -> 'DownloadEntry':
         return DownloadEntry(info["url"], dst, size=info.get("size"), sha1=info.get("sha1"), name=name)
 
+    def __hash__(self) -> int:
+        return hash((self.url, self.dst))
+
+    def __eq__(self, other):
+        return (self.url, self.dst) == (other.url, other.dst)
+
 
 class DownloadReport:
 
@@ -1241,7 +1247,7 @@ class DownloadReport:
     INVALID_SHA1 = "invalid_sha1"
 
     def __init__(self):
-        self.fails: Dict[str, str] = {}
+        self.fails: Dict[DownloadEntry, str] = {}
 
 
 class DownloadList:
@@ -1377,7 +1383,7 @@ class DownloadList:
 
                         else:
                             # If the break was not triggered, an error should be set.
-                            report.fails[entry.url] = error
+                            report.fails[entry] = error
 
                 finally:
                     conn.close()

@@ -836,9 +836,9 @@ def pretty_download(dl_list: DownloadList) -> bool:
         dl_report = dl_list.download_files(progress_callback=progress_callback)
         complete_task(len(dl_report.fails))
         if len(dl_report.fails):
-            for entry_url, entry_error in dl_report.fails.items():
+            for entry, entry_error in dl_report.fails.items():
                 entry_error_msg = get_message(f"download.error.{entry_error}")
-                print(f"         {entry_url}: {entry_error_msg}")
+                print(f"         {entry.url}: {entry_error_msg}")
         return len(dl_report.fails) == 0
     except KeyboardInterrupt:
         if called_once:
