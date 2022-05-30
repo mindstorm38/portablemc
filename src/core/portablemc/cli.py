@@ -442,10 +442,12 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         if len(pretty_download(version.dl).fails):
             sys.exit(EXIT_DOWNLOAD_ERROR)
 
-        version.dl.reset()
-
         if ns.dry:
             return
+
+        # If download is successful, reset the DownloadList to garbage collect all entries
+        # and reduce memory footprint of the CLI while Minecraft is running.
+        version.dl.reset()
 
         start_opts = new_start_options(ctx)
         start_opts.disable_multiplayer = ns.disable_mp
