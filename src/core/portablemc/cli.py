@@ -439,7 +439,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
             version.prepare_jvm()
             print_task("OK", "start.jvm.loaded", {"version": version.jvm_version}, done=True)
 
-        if len(pretty_download(version.dl).fails):
+        if version.dl.count and len(pretty_download(version.dl).fails):
             sys.exit(EXIT_DOWNLOAD_ERROR)
 
         if ns.dry:
