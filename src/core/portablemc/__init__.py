@@ -1251,6 +1251,7 @@ class DownloadReport:
     NOT_FOUND = "not_found"
     INVALID_SIZE = "invalid_size"
     INVALID_SHA1 = "invalid_sha1"
+    TOO_MANY_REDIRECTIONS = "too_many_redirections"
 
     def __init__(self):
         self.fails: Dict[DownloadEntry, str] = {}
@@ -1299,10 +1300,8 @@ class DownloadList:
 
         if len(self.entries):
 
-            headers = {}
             buffer = bytearray(65536)
             total_size = 0
-            max_try_count = 3
 
             if progress_callback is not None:
                 progress = DownloadProgress(self.size)
@@ -1312,87 +1311,113 @@ class DownloadList:
                 progress = None
                 entry_progress = None
 
-            for host, entries in self.entries.items():
+            # Internal utility to allow iterating over redirections.
+            def download_internal(current_dl: DownloadList, next_dl: DownloadList):
 
-                conn_type = HTTPSConnection if (host[0] == "1") else HTTPConnection
-                conn = conn_type(host[1:])
+                nonlocal total_size, buffer, progress_callback, progress, report
 
-                try:
+                headers = {}
+                max_try_count = 3
+                for host, entries in current_dl.entries.items():
 
-                    max_entry_idx = len(entries) - 1
-                    headers["Connection"] = "keep-alive"
+                    conn_type = HTTPSConnection if (host[0] == "1") else HTTPConnection
+                    conn = conn_type(host[1:])
 
-                    for i, entry in enumerate(entries):
+                    try:
 
-                        last_entry = (i == max_entry_idx)
-                        if last_entry:
-                            headers["Connection"] = "close"
+                        max_entry_idx = len(entries) - 1
+                        headers["Connection"] = "keep-alive"
 
-                        size_target = 0 if entry.size is None else entry.size
-                        error = None
+                        for i, entry in enumerate(entries):
 
-                        for _ in range(max_try_count):
+                            if i == max_entry_idx:
+                                # For the last entry
+                                headers["Connection"] = "close"
 
-                            try:
-                                conn.request("GET", entry.url, None, headers)
-                                res = conn.getresponse()
-                            except ConnectionError:
-                                error = DownloadReport.CONN_ERROR
-                                continue
+                            # Allow modifying this URL when redirections happen.
+                            size_target = 0 if entry.size is None else entry.size
+                            error = None
 
-                            if res.status != 200:
-                                while res.readinto(buffer):
-                                    pass  # This loop is used to skip all bytes in the stream, and allow further request.
-                                error = DownloadReport.NOT_FOUND
-                                continue
+                            for _ in range(max_try_count):
 
-                            sha1 = None if entry.sha1 is None else hashlib.sha1()
-                            size = 0
+                                try:
+                                    conn.request("GET", entry.url, None, headers)
+                                    res = conn.getresponse()
+                                except ConnectionError:
+                                    error = DownloadReport.CONN_ERROR
+                                    continue
 
-                            os.makedirs(path.dirname(entry.dst), exist_ok=True)
-                            try:
-                                with open(entry.dst, "wb") as dst_fp:
-                                    while True:
-                                        read_len = res.readinto(buffer)
-                                        if not read_len:
-                                            break
-                                        buffer_view = buffer[:read_len]
-                                        size += read_len
-                                        total_size += read_len
-                                        if sha1 is not None:
-                                            sha1.update(buffer_view)
-                                        dst_fp.write(buffer_view)
-                                        if progress_callback is not None:
-                                            progress.size = total_size
-                                            entry_progress.name = entry.name
-                                            entry_progress.total = size_target
-                                            entry_progress.size = size
-                                            progress_callback(progress)
-                            except KeyboardInterrupt:
-                                if path.isfile(entry.dst):
-                                    os.remove(entry.dst)
-                                raise
+                                if res.status == 301 or res.status == 302:
+                                    redirect_url = res.headers["location"]
+                                    next_dl.append(DownloadEntry(redirect_url, entry.dst, size=entry.size, sha1=entry.sha1, name=entry.name))
+                                    break
+                                elif res.status != 200:
+                                    while res.readinto(buffer):
+                                        pass  # This loop is used to skip all bytes in the stream, and allow further request.
+                                    error = DownloadReport.NOT_FOUND
+                                    continue
 
-                            if entry.size is not None and size != entry.size:
-                                error = DownloadReport.INVALID_SIZE
-                            elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
-                                error = DownloadReport.INVALID_SHA1
+                                sha1 = None if entry.sha1 is None else hashlib.sha1()
+                                size = 0
+
+                                os.makedirs(path.dirname(entry.dst), exist_ok=True)
+                                try:
+                                    with open(entry.dst, "wb") as dst_fp:
+                                        while True:
+                                            read_len = res.readinto(buffer)
+                                            if not read_len:
+                                                break
+                                            buffer_view = buffer[:read_len]
+                                            size += read_len
+                                            total_size += read_len
+                                            if sha1 is not None:
+                                                sha1.update(buffer_view)
+                                            dst_fp.write(buffer_view)
+                                            if progress_callback is not None:
+                                                progress.size = total_size
+                                                entry_progress.name = entry.name
+                                                entry_progress.total = size_target
+                                                entry_progress.size = size
+                                                progress_callback(progress)
+                                except KeyboardInterrupt:
+                                    if path.isfile(entry.dst):
+                                        os.remove(entry.dst)
+                                    raise
+
+                                if entry.size is not None and size != entry.size:
+                                    error = DownloadReport.INVALID_SIZE
+                                elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
+                                    error = DownloadReport.INVALID_SHA1
+                                else:
+                                    if entry.size is None:
+                                        # Enforce entry size from the effective downloaded size.
+                                        entry.size = size
+                                        self.size += size
+                                    break
+
+                                # If error happened, subtract the size and restart from the latest total_size.
+                                total_size -= size
+
                             else:
-                                if entry.size is None:
-                                    # Enforce entry size from the effective downloaded size.
-                                    entry.size = size
-                                    self.size += size
-                                break
+                                # If the break was not triggered, an error should be set.
+                                report.fails[entry] = error
 
-                            # If error happened, subtract the size and restart from the latest total_size.
-                            total_size -= size
+                    finally:
+                        conn.close()
 
-                        else:
-                            # If the break was not triggered, an error should be set.
-                            report.fails[entry] = error
-
-                finally:
-                    conn.close()
+            current_dl0 = self
+            redirect_depth = 0
+            while current_dl0.count:
+                if redirect_depth == 5:
+                    # When too many redirects, set fail reason for each entry.
+                    for entries in current_dl0.entries.values():
+                        for entry in entries:
+                            report.fails[entry] = DownloadReport.TOO_MANY_REDIRECTIONS
+                    break
+                next_list0 = DownloadList()
+                download_internal(current_dl0, next_list0)
+                current_dl0 = next_list0
+                redirect_depth += 1
 
         for callback in self.callbacks:
             callback()

@@ -1215,6 +1215,7 @@ messages = {
     f"download.error.{DownloadReport.NOT_FOUND}": "Not found",
     f"download.error.{DownloadReport.INVALID_SIZE}": "Invalid size",
     f"download.error.{DownloadReport.INVALID_SHA1}": "Invalid SHA1",
+    f"download.error.{DownloadReport.TOO_MANY_REDIRECTIONS}": "Too many redirections",
     # Auth common
     "auth.refreshing": "Invalid session, refreshing...",
     "auth.refreshed": "Session refreshed for {email}.",
