@@ -496,13 +496,20 @@ class Version:
                     os.chmod(exec_file, 0o777)
             self.dl.add_callback(finalize)
 
-    def download(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
+    def download(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None) -> 'DownloadReport':
         """ Download all missing files computed in `prepare_` methods. """
-        self.dl.download_files(progress_callback=progress_callback)
+        report = self.dl.download_files(progress_callback=progress_callback)
         self.dl.reset()
+        return report
 
-    def install(self, *, jvm: bool = False):
-        """ Prepare (meta, jar, assets, logger, libs, jvm) and download the version with optional JVM installation. """
+
+    def install(self, *, jvm: bool = False) -> 'DownloadReport':
+
+        """
+        Prepare (meta, jar, assets, logger, libs, jvm) and download the version with optional JVM installation.
+        Return True if download is successful.
+        """
+
         self.prepare_meta()
         self.prepare_jar()
         self.prepare_assets()
@@ -510,7 +517,8 @@ class Version:
         self.prepare_libraries()
         if jvm:
             self.prepare_jvm()
-        self.download()
+
+        return self.download()
 
     def start(self, opts: 'Optional[StartOptions]' = None):
         """ Faster method to start the version. This actually use `Start` class, however, you can use it directly. """

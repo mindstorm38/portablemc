@@ -115,9 +115,11 @@ version_id = manifest.filter_latest("release")  # Assume that '1.18.1' got retur
 version = Version(ctx, version_id)
 
 try:
-    version.install(jvm=True)
+    dl_report = version.install(jvm=True)
     # Here, if not exception has been raised, the version is installed in directories 
     # specified by the context 'ctx'.
+    # You can check if some files has failed to download, using the returned "dl_report",
+    # which is of DownloadReport class (check sources).
 except VersionError as e:
     print(f"Version '{e.version}' not found.")
 except JvmLoadingError as e:

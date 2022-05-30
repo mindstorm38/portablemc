@@ -439,7 +439,9 @@ def cmd_start(ns: Namespace, ctx: CliContext):
             version.prepare_jvm()
             print_task("OK", "start.jvm.loaded", {"version": version.jvm_version}, done=True)
 
-        pretty_download(version.dl)
+        if len(pretty_download(version.dl).fails):
+            sys.exit(EXIT_DOWNLOAD_ERROR)
+
         version.dl.reset()
 
         if ns.dry:
@@ -790,7 +792,7 @@ def get_term_width() -> int:
 
 # Pretty download
 
-def pretty_download(dl_list: DownloadList) -> bool:
+def pretty_download(dl_list: DownloadList) -> DownloadReport:
 
     """
     Download a `DownloadList` with a pretty progress bar using the `print_task` function.
@@ -839,7 +841,7 @@ def pretty_download(dl_list: DownloadList) -> bool:
             for entry, entry_error in dl_report.fails.items():
                 entry_error_msg = get_message(f"download.error.{entry_error}")
                 print(f"         {entry.url}: {entry_error_msg}")
-        return len(dl_report.fails) == 0
+        return dl_report
     except KeyboardInterrupt:
         if called_once:
             print()
