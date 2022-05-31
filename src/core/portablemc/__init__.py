@@ -311,28 +311,31 @@ class Version:
         assets_mapped_to_resources = assets_index.get("map_to_resources", False)  # For version <= 13w23b
         assets_virtual = assets_index.get("virtual", False)  # For 13w23b < version <= 13w48b (1.7.2)
 
+        assets = {}
+
         for asset_id, asset_obj in assets_index["objects"].items():
             asset_hash = asset_obj["hash"]
             asset_hash_prefix = asset_hash[:2]
             asset_size = asset_obj["size"]
             asset_file = path.join(assets_objects_dir, asset_hash_prefix, asset_hash)
+            assets[asset_id] = asset_file
             if not path.isfile(asset_file) or path.getsize(asset_file) != asset_size:
                 asset_url = f"https://resources.download.minecraft.net/{asset_hash_prefix}/{asset_hash}"
                 self.dl.append(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id))
 
         def finalize():
             if assets_mapped_to_resources or assets_virtual:
-                for asset_id_to_cpy in assets_index["objects"].keys():
+                for asset_id_to_copy, asset_file_to_copy in assets.items():
                     if assets_mapped_to_resources:
-                        resources_asset_file = path.join(self.context.work_dir, "resources", asset_id_to_cpy)
+                        resources_asset_file = path.join(self.context.work_dir, "resources", asset_id_to_copy)
                         if not path.isfile(resources_asset_file):
                             os.makedirs(path.dirname(resources_asset_file), exist_ok=True)
-                            shutil.copyfile(asset_file, resources_asset_file)
+                            shutil.copyfile(asset_file_to_copy, resources_asset_file)
                     if assets_virtual:
-                        virtual_asset_file = path.join(assets_virtual_dir, asset_id_to_cpy)
+                        virtual_asset_file = path.join(assets_virtual_dir, asset_id_to_copy)
                         if not path.isfile(virtual_asset_file):
                             os.makedirs(path.dirname(virtual_asset_file), exist_ok=True)
-                            shutil.copyfile(asset_file, virtual_asset_file)
+                            shutil.copyfile(asset_file_to_copy, virtual_asset_file)
 
         self.dl.add_callback(finalize)
         self.assets_index_version = assets_index_version
