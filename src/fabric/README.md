@@ -2,7 +2,11 @@
 The fabric add-on allows you to install and run Minecraft with fabric mod loader in a single command 
 line!
 
-[**Download (1.1.0)**](https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/fabric)
+![PyPI - Version](https://img.shields.io/pypi/v/portablemc-fabric?style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc-fabric?label=PyPI%20downloads&style=flat-square)
+
+```console
+pip install --user portablemc-fabric
+```
 
 ## Usage
 This add-on extends the syntax accepted by the [start](/README.md#start-the-game) sub-command, by 

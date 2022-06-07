@@ -2,7 +2,11 @@
 The archives addon allows you to install and run old archived versions that are not officially
 listed by Mojang. It is backed by the [omniarchive](https://omniarchive.net/) work.
 
-[**Download (1.1.0)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/archives)
+![PyPI - Version](https://img.shields.io/pypi/v/portablemc-archives?style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc-archives?label=PyPI%20downloads&style=flat-square)
+
+```console
+pip install --user portablemc-archives
+```
 
 ## Usage
 This add-on extends the syntax accepted by the [start](/README.md#start-the-game) sub-command, by 
