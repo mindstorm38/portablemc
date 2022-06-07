@@ -2,7 +2,11 @@
 This addon provides an interactive console for Minecraft process' output. this is useful to debug 
 the game when it crashes multiple times, or simply if you can to track what's going on.
 
-[**Download (1.1.0)**](https://downgit.github.io/#/home?url=https://github.com/mindstorm38/portablemc/tree/master/addons/console)
+![PyPI - Version](https://img.shields.io/pypi/v/portablemc-console?style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc-console?label=PyPI%20downloads&style=flat-square)
+
+```console
+pip install --user portablemc-console
+```
 
 ## Usage
 **This addon requires you to install the [prompt_toolkit](https://pypi.org/project/prompt-toolkit/) python 

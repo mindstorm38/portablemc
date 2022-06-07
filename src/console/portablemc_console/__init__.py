@@ -5,6 +5,7 @@ from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.document import Document
+from prompt_toolkit.filters import Filter
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.lexers import Lexer
@@ -18,10 +19,11 @@ from threading import Thread
 import asyncio
 import shutil
 
-from portablemc import Version, Start, cli as pmc
+from portablemc import Version, Start
+from portablemc import cli as pmc
 
 
-def load(_pmc):
+def load():
 
     # Private mixins
 
@@ -101,6 +103,10 @@ def runner(old, bin_dir: str, args: List[str], cwd: str, ns: Namespace, start: S
         else:
             process.kill()
 
+    @keys.add("c-w")
+    def _switch_wrapping(_event: KeyPressEvent):
+        buffer_window.switch_wrap_lines()
+
     application = build_application(container, keys)
     process = Popen(args, cwd=cwd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True)
 
@@ -149,18 +155,33 @@ class RollingLinesWindow:
 
     def __init__(self, limit: int, *,
                  lexer: Optional[Lexer] = None,
-                 wrap_lines: bool = False,
                  dont_extend_height: bool = False,
                  last_line_return: bool = False):
 
         self.last_line_return = last_line_return
         self.buffer = Buffer(read_only=True)
         self.string_buffer = RollingLinesBuffer(limit)
+        self.wrap_lines = False
+
+        class WrapLinesFilter(Filter):
+
+            def __init__(self, win: RollingLinesWindow):
+                self.win = win
+
+            def __call__(self) -> bool:
+                return self.win.wrap_lines
+
         self.window = Window(
             content=BufferControl(buffer=self.buffer, lexer=lexer, focusable=True),
-            wrap_lines=wrap_lines,
+            wrap_lines=WrapLinesFilter(self),
             dont_extend_height=dont_extend_height
         )
+
+    def get_wrap_lines(self) -> bool:
+        return self.wrap_lines
+
+    def switch_wrap_lines(self):
+        self.wrap_lines = not self.wrap_lines
 
     def append(self, *lines: str):
         if self.string_buffer.append(*lines):

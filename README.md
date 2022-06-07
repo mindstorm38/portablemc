@@ -3,7 +3,7 @@ An easy-to-use portable Minecraft launcher in only one Python script!
 This single-script launcher is compatible with the directory structure of the official Minecraft Launcher.
 It aims to be fast and reliable for all Minecraft versions in a stateless manner and support addons.
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/mindstorm38/portablemc?label=stable&style=flat-square) &nbsp;![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/mindstorm38/portablemc?include_prereleases&label=preview&style=flat-square) &nbsp;![GitHub all releases](https://img.shields.io/github/downloads/mindstorm38/portablemc/total?label=Github%20downloads&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square) &nbsp;![Release cycle](https://img.shields.io/badge/Release%20cycle-2%2Fmonth-yellow?style=flat-square)
+![PyPI - Version](https://img.shields.io/pypi/v/portablemc?style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square) &nbsp;![GitHub downloads (legacy)](https://img.shields.io/github/downloads/mindstorm38/portablemc/total?label=Github%20downloads%20(legacy)&style=flat-square)
 
 ### [Install now!](#installation)
 
@@ -37,17 +37,17 @@ following issue for a temporary fix: [#52](https://github.com/mindstorm38/portab
   - [Console ⇗](/addons/console/README.md)
   - [Archives ⇗](/addons/archives/README.md)
   - [Modrinth ⇗](/addons/modrinth/README.md)
-- [Contributors](#contributors)
+- [Contribute](#contribute)
+  - [Setup environment](#setup-environment)
+  - [Contributors](#contributors)
 - [API Documentation ⇗](doc/API.md)
 - [Addon API Documentation ⇗](doc/ADDON.md)
 
 # Installation
-The launcher can be installed in several ways, using Python Package Index *(PyPI)* or manually running the 
-single-file script. Before starting, please check if your Python version is valid for the launcher by doing 
+Before starting, please check if your Python version is valid for the launcher by doing 
 `python -V`, the version must be greater or equal to 3.6 according to [semver specification](https://semver.org/),
 this launcher's version is also following the semver specification.
 
-## Install with PIP
 The easiest way to install the launcher is to use the `pip` tool of your Python installation. On some linux distribution 
 you might have to use `pip3` instead of `pip` in order to run it on Python 3. You can also use `python -m pip` if the
 `pip` command is not in the path and the python executable is.
@@ -63,11 +63,6 @@ After that, you can try to show the launcher help message using `portablemc` in 
 ensure that the scripts directory is in your user path environment variable. On Windows you have to search for a
 directory at `%appdata%/Python/Python3X/Scripts` and add it to the user's environment variable `Path`. On UNIX
 systems this should work properly because the script is put in `~/.local/bin`.
-
-## Single-file script
-On each release, a single-file script is built and distributed on the [release page](https://github.com/mindstorm38/portablemc/releases).
-This file has not to be installed, you can just run it using `python portablemc.py [...]`, on UNIX you can start the script
-directly with `portablemc.py` because the file has a *[shebang](https://wikipedia.org/wiki/Shebang)*.
 
 # Sub-commands
 Arguments are split between multiple sub-commands. For example `portablemc <sub-command>`. You can use `-h` 
@@ -193,12 +188,47 @@ Officially supported addons can be found in the ['addons' directory](/addons).
 To install addons you have to run `addon dirs` to get all directories where you can place addons.
 To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons).
 
-# Contributors
+# Contribute
+
+## Setup environment
+This project is currently a monorepo based on Poetry, each official module is stored in the [src](src/) directory, the main and mandatory module is [core](src/core). The other modules are official add-ons.
+
+We also suggest Conda (or Miniconda) for easy development together with Poetry. If you want to try you can use the following commands:
+```console
+# You can use any version of Python here from 3.6 to test compatibility of the launcher.
+conda create -n pmc python=3.10 pip
+# This line is optional if you don't have any user site-packages in your host installation, if not it allows to isolate pip. This is useful to avoid conflicts with conda-installed packages.
+conda env config vars set PYTHONNOUSERSITE=1 -n pmc
+```
+
+On you have a conda environment setup, you can use on each module you want to test.
+```console
+# Assume we are in the project's directory.
+# First, we need to activate the environment.
+conda activate pmc
+# If poetry isn't installed, or outdated.
+# Note that this project requires poetry 1.2.0 or greater to allow dependency groups.
+# If this doesn't work, try to roll back to Poetry 1.2.0b1 which is the currently tested version.
+pip install poetry --upgrade --pre
+# Then, go to the module you want to install in development mode, and then install it.
+cd src
+# Here we use the workspace script that is just a wrapper that launch a poetry command on all modules.
+python workspace.py install
+# Now, you can test the development version of the launcher.
+portablemc --help
+```
+
+You can call this development version from everywhere using:
+```console
+conda run -n pmc portablemc
+```
+
+## Contributors
 This launcher would not be as functional without the contributors, and in particular the following for their bug reports
 and suggestions to make the launcher better: 
 [GoodDay360](https://github.com/GoodDay360), 
 [Ristovski](https://github.com/Ristovski) and
-[GooseDeveloper](https://github.com/GooseDeveloper) (ARM support).
+[GooseDeveloper](https://github.com/GooseDeveloper).
 
 There must be a lot of hidden issues, if you want to contribute you just have to install and test the launcher, and
 report every issue you encounter, do not hesitate!

@@ -1,6 +1,6 @@
 # encoding: utf-8
 
-# Copyright (C) 2021  Théo Rozier
+# Copyright (C) 2021-2022  Théo Rozier
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,29 +19,41 @@
 CLI module for PortableMC, it provides an entry point to start Minecraft with arguments.\n
 The `__main__.py` wrapper can call the entry point from the `python -m portablemc` command.
 """
+
 from typing import cast, Union, Any, List, Dict, Optional, Type, Tuple
 from argparse import ArgumentParser, Namespace, HelpFormatter
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from importlib.machinery import SourceFileLoader
 from urllib import parse as url_parse
 from urllib.error import URLError
-from json import JSONDecodeError
 from datetime import datetime
 from types import ModuleType
-import importlib.util
 from os import path
 import webbrowser
-import traceback
-import platform
 import socket
 import shutil
-import uuid
-import json
 import time
 import sys
-import os
 
-from . import *
+from portablemc import *
+
+
+__all__ = [
+    "CliContext", "CliAddon", "get_addon", "get_addon_mod",
+    "register_arguments", "register_subcommands", "register_start_arguments",
+    "register_login_arguments", "register_logout_arguments", "register_search_arguments",
+    "register_show_arguments", "register_addon_arguments", "new_help_formatter_class",
+    "cmd", "cmd_start", "cmd_login", "cmd_logout", "cmd_search", "cmd_show_about",
+    "cmd_show_auth", "cmd_show_lang", "cmd_addon_show", "cmd_addon_list",
+    "new_context", "new_version_manifest", "new_version", "new_start_options",
+    "new_start", "new_auth_database",
+    "mixin",
+    "format_number", "format_bytes", "format_locale_date",
+    "ellipsis_str", "anonymise_email", "get_term_width",
+    "pretty_download",
+    "prompt_authenticate", "prompt_yggdrasil_authenticate", "prompt_microsoft_authenticate",
+    "get_message_raw", "get_message", "print_message", "prompt", "print_table", "print_task",
+    "messages"
+]
 
 
 EXIT_OK = 0
@@ -58,8 +70,6 @@ AUTH_DB_FILE_NAME = "portablemc_auth.json"
 AUTH_DB_LEGACY_FILE_NAME = "portablemc_tokens"
 MANIFEST_CACHE_FILE_NAME = "portablemc_version_manifest.json"
 
-ENV_ADDONS_PATH = "PMC_ADDONS_PATH"
-
 MS_AZURE_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
 
 JVM_ARGS_DEFAULT = ["-Xmx2G",
@@ -72,34 +82,34 @@ JVM_ARGS_DEFAULT = ["-Xmx2G",
 
 
 class CliContext(Context):
+    """ An extended `Context` class with the argument context. """
     def __init__(self, ns: Namespace):
         super().__init__(ns.main_dir, ns.work_dir)
         self.ns = ns
 
 
-class CliAddonMeta:
-
-    __slots__ = ("id", "data", "name", "version", "authors", "description", "requires")
-
-    def __init__(self, data: Dict[str, Any], addon_id: str):
-        self.id = addon_id
-        self.data = data
-        self.name = str(self.data.get("name", addon_id))
-        self.version = str(self.data.get("version", "n/a"))
-        self.authors = self.data.get("authors")
-        self.description = str(self.data.get("description", "n/a"))
-        self.requires = self.data.get("requires")
-        if not isinstance(self.authors, list):
-            self.authors: List[str] = []
-        if not isinstance(self.requires, dict):
-            self.requires: Dict[str, str] = {}
-
-
 class CliAddon:
-    __slots__ = ("module", "meta")
-    def __init__(self, module: ModuleType, meta: CliAddonMeta):
+
+    __slots__ = ("module", "id", "meta")
+
+    def __init__(self, module: ModuleType, id_: str, meta: dict):
         self.module = module
+        self.id = id_
         self.meta = meta
+
+    def get_version(self) -> str:
+        """ Extract the addon's version from the package's metadata. """
+        return self.meta.get("Version", "")
+
+    def get_description(self) -> str:
+        """ Extract the addon's description from the package's metadata. """
+        return self.meta.get("Summary", "")
+
+    def get_authors(self) -> str:
+        from itertools import zip_longest
+        names = self.meta.get("Author", "").split(", ")
+        emails = self.meta.get("Author-email", "").split(", ")
+        return ", ".join(map(lambda t: f"{t[0]} <{t[1]}>", zip_longest(names, emails, "")))
 
 
 class CliInstallError(BaseError):
@@ -110,6 +120,13 @@ class CliInstallError(BaseError):
 
 
 def main(args: Optional[List[str]] = None):
+
+    """
+    Main entry point of the CLI. This function is composed of three steps:
+    - Register command-line arguments
+    - Parsing arguments
+    - Executing command
+    """
 
     load_addons()
 
@@ -136,128 +153,42 @@ def main(args: Optional[List[str]] = None):
 # Addons
 
 addons: Dict[str, CliAddon] = {}
-addons_dirs: List[str] = []
-addons_loaded: bool = False
 
 def load_addons():
 
-    global addons, addons_loaded, addons_dirs
+    global addons
 
-    if addons_loaded:
-        raise ValueError("Addons already loaded.")
+    prefix = "portablemc_"
 
-    addons_loaded = True
+    try:
+        from importlib.metadata import metadata
+    except ImportError:
+        metadata = lambda _0: {}
 
-    home = path.expanduser("~")
-    system = platform.system()
+    import importlib
+    import pkgutil
 
-    if __name__ == "__main__":
-        # In single-file mode, we need to support the addons directory directly next to the script.
-        addons_dirs.append(path.join(path.dirname(__file__), "addons"))
-    else:
-        # In development mode, we need to support addons directory in the parent directory.
-        dev_dir = path.dirname(path.dirname(__file__))
-        if path.isfile(path.join(dev_dir, ".gitignore")):
-            addons_dirs.append(path.join(dev_dir, "addons"))
-
-    if system == "Linux":
-        addons_dirs.append(path.join(os.getenv("XDG_DATA_HOME", path.join(home, ".local", "share")), "portablemc", "addons"))
-    elif system == "Windows":
-        addons_dirs.append(path.join(home, "AppData", "Local", "portablemc", "addons"))
-    elif system == "Darwin":
-        addons_dirs.append(path.join(home, "Library", "Application Support", "portablemc", "addons"))
-
-    # Additional addons directories from env var.
-    env_path = os.getenv(ENV_ADDONS_PATH)
-    if env_path is not None:
-        for addon_path in env_path.split(path.pathsep):
-            if len(addon_path):
-                addons_dirs.append(path.abspath(addon_path))
-
-    # Here we enforce definition of 'portablemc' and 'portablemc.cli' if we are not running
-    # an PMC installation (via PIP for example). In case of single-script version, modules
-    # 'portablemc' and 'portablemc.cli' are the same, and we create an artificial 'cli'
-    # constant pointing to itself, to avoid import errors when importing global 'cli'.
-    self_module = sys.modules[__name__]
-    if "portablemc" not in sys.modules:
-        self_module.cli = self_module
-        sys.modules["portablemc"] = self_module
-        sys.modules["portablemc.cli"] = self_module
-
-    # Load addons.
-    for addons_dir in addons_dirs:
-
-        if not path.isdir(addons_dir):
-            continue
-
-        for addon_id in os.listdir(addons_dir):
-            if not addon_id.endswith(".dis") and addon_id != "__pycache__":
-
-                addon_path = path.join(addons_dir, addon_id)
-                if not path.isdir(addon_path):
-                    continue  # If not terminated with '.py' and not a dir
-
-                addon_init_path = path.join(addon_path, "__init__.py")
-                addon_meta_path = path.join(addon_path, "addon.json")
-                if not path.isfile(addon_init_path) or not path.isfile(addon_meta_path):
-                    continue  # If __init__.py is not found in dir
-
-                if not addon_id.isidentifier():
-                    print_message("addon.invalid_identifier", {"addon": addon_id, "path": addon_path}, critical=True)
-                    continue
-
-                with open(addon_meta_path, "rb") as addon_meta_fp:
-                    try:
-                        addon_meta = json.load(addon_meta_fp)
-                        if not isinstance(addon_meta, dict):
-                            print_message("addon.invalid_meta", {"addon": addon_id, "path": addon_meta_path}, critical=True)
-                            continue
-                    except JSONDecodeError:
-                        print_message("addon.invalid_meta", {"addon": addon_id, "path": addon_meta_path}, trace=True, critical=True)
-                        continue
-
-                existing_module = addons.get(addon_id)
-                if existing_module is not None:
-                    print_message("addon.defined_twice", {
-                        "addon": addon_id,
-                        "path1": path.dirname(existing_module.__file__),
-                        "path2": addon_path
-                    }, critical=True)
-                    continue
-
-                module_name = f"_pmc_addon_{addon_id}"
-                existing_module = sys.modules.get(module_name)
-                if existing_module is not None:
-                    print_message("addon.module_conflict", {
-                        "addon": addon_id,
-                        "addon_path": addon_path,
-                        "module": module_name,
-                        "module_path": path.dirname(existing_module.__file__)
-                    }, critical=True)
-                    continue
-
-                loader = SourceFileLoader(module_name, addon_init_path)
-                spec = importlib.util.spec_from_file_location(module_name, addon_init_path, loader=loader,
-                                                              submodule_search_locations=[addon_path])
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = module
-
-                try:
-                    loader.exec_module(module)
-                    addons[addon_id] = CliAddon(module, CliAddonMeta(addon_meta, addon_id))
-                except Exception as e:
-                    if isinstance(e, ImportError):
-                        print_message("addon.import_error", {"addon": addon_id}, trace=True, critical=True)
-                    else:
-                        print_message("addon.unknown_error", {"addon": addon_id}, trace=True, critical=True)
-                    del sys.modules[module_name]
+    for pkg in pkgutil.iter_modules():
+        if pkg.name.startswith(prefix) and len(pkg.name) > len(prefix):
+            addon_id = pkg.name[len(prefix):]
+            try:
+                addon_module = importlib.import_module(pkg.name)
+                addons[addon_id] = CliAddon(addon_module, addon_id, dict(metadata(pkg.name)))
+            except ImportError:
+                print_message("addon.import_error", {"addon": addon_id}, trace=True, critical=True)
+            except (Exception,):
+                print_message("addon.unknown_error", {"addon": addon_id}, trace=True, critical=True)
 
     for addon_id, addon in addons.items():
         if hasattr(addon.module, "load") and callable(addon.module.load):
-            addon.module.load(self_module)  # TODO: PMC module will no longer be passed as argument in the future.
+            try:
+                addon.module.load()
+            except (Exception,):
+                print_message("addon.unknown_error", {"addon": addon_id}, trace=True, critical=True)
 
 
 def get_addon(id_: str) -> Optional[CliAddon]:
+    """ Get an addon from its identifier (without the package `portablemc-` prefix). """
     return addons.get(id_)
 
 
@@ -341,7 +272,6 @@ def register_addon_arguments(parser: ArgumentParser):
     subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand")
     subparsers.required = True
     subparsers.add_parser("list", help=_("args.addon.list"))
-    subparsers.add_parser("dirs", help=_("args.addon.dirs"))
     show_parser = subparsers.add_parser("show", help=_("args.addon.show"))
     show_parser.add_argument("addon_id")
 
@@ -374,8 +304,7 @@ def get_command_handlers():
         },
         "addon": {
             "list": cmd_addon_list,
-            "show": cmd_addon_show,
-            "dirs": cmd_addon_dirs
+            "show": cmd_addon_show
         }
     }
 
@@ -411,7 +340,7 @@ def cmd_search(ns: Namespace, ctx: CliContext):
             if no_version or search in version_id:
                 table.append((version_id, format_locale_date(mtime)))
     else:
-        manifest = load_version_manifest(ctx)
+        manifest = new_version_manifest(ctx)
         search, alias = manifest.filter_latest(search)
         try:
             for version_data in manifest.all_versions():
@@ -463,6 +392,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         if len(version_fixes):
             dump_meta_name = f"{version.id}.{'.'.join(version_fixes)}.dump.json"
             with open(path.join(version.version_dir, dump_meta_name), "wt") as dump_meta_fp:
+                import json
                 json.dump(version.version_meta, dump_meta_fp, indent=2)
 
         print_task("", "start.version.jar.loading")
@@ -509,11 +439,15 @@ def cmd_start(ns: Namespace, ctx: CliContext):
             version.prepare_jvm()
             print_task("OK", "start.jvm.loaded", {"version": version.jvm_version}, done=True)
 
-        pretty_download(version.dl)
-        version.dl.reset()
+        if version.dl.count and len(pretty_download(version.dl).fails):
+            sys.exit(EXIT_DOWNLOAD_ERROR)
 
         if ns.dry:
             return
+
+        # If download is successful, reset the DownloadList to garbage collect all entries
+        # and reduce memory footprint of the CLI while Minecraft is running.
+        version.dl.reset()
 
         start_opts = new_start_options(ctx)
         start_opts.disable_multiplayer = ns.disable_mp
@@ -619,7 +553,6 @@ def cmd_addon_list(_ns: Namespace, _ctx: CliContext):
 
     lines = [(
         _("addon.list.id", count=len(addons)),
-        _("addon.list.name"),
         _("addon.list.version"),
         _("addon.list.authors"),
     )]
@@ -627,9 +560,8 @@ def cmd_addon_list(_ns: Namespace, _ctx: CliContext):
     for addon_id, addon in addons.items():
         lines.append((
             addon_id,
-            addon.meta.name,
-            addon.meta.version,
-            ", ".join(addon.meta.authors)
+            addon.get_version(),
+            addon.get_authors()
         ))
 
     print_table(lines, header=0)
@@ -645,43 +577,46 @@ def cmd_addon_show(ns: Namespace, _ctx: CliContext):
         sys.exit(EXIT_FAILURE)
     else:
         _ = get_message
-        print_message("addon.show.name", {"name": addon.meta.name})
-        print_message("addon.show.version", {"version": addon.meta.version})
-        print_message("addon.show.authors", {"authors": ", ".join(addon.meta.authors)})
-        print_message("addon.show.description", {"description": addon.meta.description})
-        if len(addon.meta.requires):
-            print_message("addon.show.requires")
-            for requirement, version in addon.meta.requires.items():
-                print(f"   {requirement}: {version}")
+        print_message("addon.show.version", {"version": addon.get_version()})
+        print_message("addon.show.authors", {"authors": addon.get_authors()})
+        print_message("addon.show.description", {"description": addon.get_description()})
         sys.exit(EXIT_OK)
-
-
-def cmd_addon_dirs(_ns: Namespace, _ctx: CliContext):
-    print_message("addon.dirs.title")
-    for addons_dir in addons_dirs:
-        print_message("addon.dirs.entry", {"path": path.abspath(addons_dir)}, end="")
-        if not path.isdir(addons_dir):
-            print_message("addon.dirs.attr.not_existing", end="", critical=True)
-        print()
-    print_message("addon.dirs.path_env_info")
 
 
 # Constructors to override
 
 def new_context(ns: Namespace) -> CliContext:
+    """
+    Returns a new game context, must extend `CliContext`.
+    This function is made for mixin, you can change it from addons.
+    """
     return CliContext(ns)
 
 
-def load_version_manifest(ctx: CliContext) -> VersionManifest:
+def new_version_manifest(ctx: CliContext) -> VersionManifest:
+    """
+    Returns a new version manifest instance for the given context.
+    This function is made for mixin, you can change it from addons.
+    """
     return VersionManifest(path.join(ctx.work_dir, MANIFEST_CACHE_FILE_NAME), ctx.ns.timeout)
 
 
 def new_auth_database(ctx: CliContext) -> AuthDatabase:
+    """
+    Returns a new authentication database instance for the given context.
+    This function is made for mixin, you can change it from addons.
+    """
     return AuthDatabase(path.join(ctx.work_dir, AUTH_DB_FILE_NAME), path.join(ctx.work_dir, AUTH_DB_LEGACY_FILE_NAME))
 
 
 def new_version(ctx: CliContext, version_id: str) -> Version:
-    manifest = load_version_manifest(ctx)
+    """
+    Returns a new version instance for the given context and version identifier.
+    This function is made for mixin, you can change it from addons. For example
+    to support additional "version protocols" such a `fabric:` or `forge:` from
+    official add-ons.
+    """
+    manifest = new_version_manifest(ctx)
     version_id, _alias = manifest.filter_latest(version_id)
     version = Version(ctx, version_id)
     version.manifest = manifest
@@ -689,10 +624,19 @@ def new_version(ctx: CliContext, version_id: str) -> Version:
 
 
 def new_start(_ctx: CliContext, version: Version) -> Start:
+    """
+    Returns a new start instance for the given context and version
+    (the context should be the same as version's context).
+    This function is made for mixin, you can change it from addons.
+    """
     return Start(version)
 
 
 def new_start_options(_ctx: CliContext) -> StartOptions:
+    """
+    Returns new start options for the given context.
+    This function is made for mixin, you can change it from addons.
+    """
     return StartOptions()
 
 
@@ -807,13 +751,13 @@ def format_locale_date(raw: Union[str, float]) -> str:
 def format_number(n: int) -> str:
     """ Return a number with suffix k, M, G or nothing. The string is always 6 chars unless the size exceed 1 TB. """
     if n < 1000:
-        return "{:6d}".format(int(n))
+        return "{:d}".format(int(n))
     elif n < 1000000:
-        return "{:5.1f}k".format(int(n / 100) / 10)
+        return "{:.1f}k".format(int(n / 100) / 10)
     elif n < 1000000000:
-        return "{:5.1f}M".format(int(n / 100000) / 10)
+        return "{:.1f}M".format(int(n / 100000) / 10)
     else:
-        return "{:5.1f}G".format(int(n / 100000000) / 10)
+        return "{:.1f}G".format(int(n / 100000000) / 10)
 
 
 def format_bytes(n: int) -> str:
@@ -850,7 +794,7 @@ def get_term_width() -> int:
 
 # Pretty download
 
-def pretty_download(dl_list: DownloadList) -> bool:
+def pretty_download(dl_list: DownloadList) -> DownloadReport:
 
     """
     Download a `DownloadList` with a pretty progress bar using the `print_task` function.
@@ -877,34 +821,33 @@ def pretty_download(dl_list: DownloadList) -> bool:
             called_once = True
 
     def complete_task(errors_count: int = 0):
-        if called_once or errors_count:
-            if errors_count:
-                result_text = get_message("download.errors", count=dl_list.count, errors_count=errors_count)
-            else:
-                result_text = get_message("download.downloaded",
-                                          count=dl_list.count,
-                                          size=format_bytes(dl_list.size).lstrip(" "),
-                                          duration=(time.perf_counter() - start_time))
-            result_len = max(0, min(80, get_term_width()) - 9)
-            template = "\r[FAILED] {}" if errors_count else "\r[  OK  ] {}"
-            print(template.format(result_text[:result_len].ljust(result_len)))
+
+        errors_text = get_message("download.no_error") if errors_count == 0 else get_message("download.errors", count=errors_count)
+        result_text = get_message("download.downloaded",
+                                  success_count=dl_list.count - errors_count,
+                                  total_count=dl_list.count,
+                                  size=format_bytes(dl_list.size).lstrip(" "),
+                                  duration=(time.perf_counter() - start_time),
+                                  errors=errors_text)
+
+        result_len = max(0, min(80, get_term_width()) - 9)
+        template = "[  OK  ] {}"
+        if called_once:
+            template = f"\r{template}"
+        print(template.format(result_text[:result_len].ljust(result_len)))
 
     try:
-        dl_list.callbacks.insert(0, complete_task)
-        dl_list.download_files(progress_callback=progress_callback)
-        return True
+        dl_report = dl_list.download_files(progress_callback=progress_callback)
+        complete_task(len(dl_report.fails))
+        if len(dl_report.fails):
+            for entry, entry_error in dl_report.fails.items():
+                entry_error_msg = get_message(f"download.error.{entry_error}")
+                print(f"         {entry.url}: {entry_error_msg}")
+        return dl_report
     except KeyboardInterrupt:
         if called_once:
             print()
         raise
-    except DownloadError as err:
-        complete_task(len(err.fails))
-        for entry_url, entry_error in err.fails.items():
-            entry_error_msg = get_message(f"download.error.{entry_error}")
-            print(f"         {entry_url}: {entry_error_msg}")
-        return False
-    finally:
-        dl_list.callbacks.pop(0)
 
 
 # Authentication
@@ -976,6 +919,7 @@ def prompt_microsoft_authenticate(client_id: str, email: str) -> Optional[Micros
     code_redirect_uri = "{}/code".format(redirect_auth)
     exit_redirect_uri = "{}/exit".format(redirect_auth)
 
+    import uuid
     nonce = uuid.uuid4().hex
 
     if not webbrowser.open(MicrosoftAuthSession.get_authentication_url(app_id, code_redirect_uri, email, nonce)):
@@ -1013,8 +957,8 @@ def prompt_microsoft_authenticate(client_id: str, email: str) -> Optional[Micros
                 auth_server = cast(AuthServer, self.server)
                 if "code" in qs and "id_token" in qs:
                     self.send_response(307)
-                    # We logout the user directly after authorization, this just clear the browser cache to allow
-                    # another user to authenticate with another email after. This doesn't invalide the access token.
+                    # We log out the user directly after authorization, this just clear the browser cache to allow
+                    # another user to authenticate with another email after. This doesn't invalid the access token.
                     self.send_header("Location", MicrosoftAuthSession.get_logout_url(app_id, exit_redirect_uri))
                     auth_server.ms_auth_id_token = qs["id_token"][0]
                     auth_server.ms_auth_code = qs["code"][0]
@@ -1077,6 +1021,7 @@ def print_message(key: str, kwargs: Optional[dict] = None, *, end: str = "\n", t
         print("\033[31m", end="")
     print(get_message_raw(key, kwargs), end=end)
     if trace:
+        import traceback
         traceback.print_exc()
     if critical:
         print("\033[0m", end="")
@@ -1146,14 +1091,8 @@ def print_task(status: Optional[str], msg_key: str, msg_args: Optional[dict] = N
 
 messages = {
     # Addons
-    "addon.invalid_identifier": "Invalid identifier for the addon '{addon}' at '{path}'.",
-    "addon.invalid_meta": "Invalid metadata file for the addon '{addon}' defined at '{path}'.",
-    "addon.module_conflict": "The addon '{addon}' at '{addon_path}' is internally conflicting with the "
-                             "module '{module}' at '{module_path}', cannot be loaded.",
-    "addon.defined_twice": "The addon '{addon}' is defined twice, both at '{path1}' and '{path2}'.",
     "addon.import_error": "The addon '{addon}' has failed to build because some packages is missing:",
     "addon.unknown_error": "The addon '{addon}' has failed to build for unknown reason:",
-    "addon.failed_to_build": "Failed to build addon '{addon}' (contact addon's authors):",
     # Args root
     "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
             "script! This single-script launcher is still compatible with the official "
@@ -1210,7 +1149,6 @@ messages = {
     # Args addon
     "args.addon": "Addons management subcommands.",
     "args.addon.list": "List addons.",
-    "args.addon.dirs": "Display the list of directories where you can place addons.",
     "args.addon.show": "Show an addon details.",
     # Common
     "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
@@ -1237,21 +1175,13 @@ messages = {
     "logout.unknown_session": "No session for {email}.",
     # Command addon list
     "addon.list.id": "ID ({count})",
-    "addon.list.name": "Name",
     "addon.list.version": "Version",
     "addon.list.authors": "Authors",
     # Command addon show
     "addon.show.not_found": "Addon '{addon}' not found.",
-    "addon.show.name": "Name: {name}",
     "addon.show.version": "Version: {version}",
     "addon.show.authors": "Authors: {authors}",
     "addon.show.description": "Description: {description}",
-    "addon.show.requires": "Requires:",
-    # Command addon dirs
-    "addon.dirs.title": "You can place your addons in the following directories:",
-    "addon.dirs.entry": "- {path}",
-    "addon.dirs.attr.not_existing": " (not existing)",
-    "addon.dirs.path_env_info": f"  (define environment variable '{ENV_ADDONS_PATH}' to add paths here)",
     # Command start
     "start.version.resolving": "Resolving version {version}... ",
     "start.version.resolved": "Resolved version {version}.",
@@ -1278,12 +1208,14 @@ messages = {
     "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
     "download.downloading": "Downloading",
-    "download.downloaded": "Downloaded {count} files, {size} in {duration:.1f}s.",
-    "download.errors": "Tried to download {count} files, but {errors_count} errors happened, can't continue.",
-    f"download.error.{DownloadError.CONN_ERROR}": "Connection error",
-    f"download.error.{DownloadError.NOT_FOUND}": "Not found",
-    f"download.error.{DownloadError.INVALID_SIZE}": "Invalid size",
-    f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
+    "download.downloaded": "Downloaded {success_count}/{total_count} files, {size} in {duration:.1f}s ({errors}).",
+    "download.no_error": "no error",
+    "download.errors": "{count} errors",
+    f"download.error.{DownloadReport.CONN_ERROR}": "Connection error",
+    f"download.error.{DownloadReport.NOT_FOUND}": "Not found",
+    f"download.error.{DownloadReport.INVALID_SIZE}": "Invalid size",
+    f"download.error.{DownloadReport.INVALID_SHA1}": "Invalid SHA1",
+    f"download.error.{DownloadReport.TOO_MANY_REDIRECTIONS}": "Too many redirections",
     # Auth common
     "auth.refreshing": "Invalid session, refreshing...",
     "auth.refreshed": "Session refreshed for {email}.",

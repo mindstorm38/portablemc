@@ -1,6 +1,6 @@
 # encoding: utf-8
 
-# Copyright (C) 2021  Théo Rozier
+# Copyright (C) 2021-2022  Théo Rozier
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -45,7 +45,7 @@ __all__ = [
     "AuthSession", "YggdrasilAuthSession", "MicrosoftAuthSession", "AuthDatabase",
     "DownloadEntry", "DownloadList", "DownloadProgress", "DownloadEntryProgress",
     "BaseError", "JsonRequestError", "AuthError", "VersionManifestError", "VersionError", "JvmLoadingError",
-        "DownloadError",
+        "DownloadReport",
     "http_request", "json_request", "json_simple_request",
     "merge_dict",
     "interpret_rule_os", "interpret_rule", "interpret_args",
@@ -58,7 +58,7 @@ __all__ = [
 
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "2.3.1"
+LAUNCHER_VERSION = "3.0.0"
 LAUNCHER_AUTHORS = ["Théo Rozier <contact@theorozier.fr>", "Github contributors"]
 LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021  Théo Rozier"
 LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
@@ -142,6 +142,15 @@ class Version:
         self.jvm_version: Optional[str] = None
         self.jvm_exec: Optional[str] = None
 
+    def _ensure_version_manifest(self) -> 'VersionManifest':
+        if self.manifest is None:
+            self.manifest = VersionManifest()
+        return self.manifest
+
+    def _check_version_meta(self):
+        if self.version_meta is None:
+            raise ValueError("You should install metadata first.")
+
     def prepare_meta(self, *, recursion_limit: int = 50):
 
         """
@@ -153,10 +162,13 @@ class Version:
         context.\n
         This method will load the official Mojang version manifest, however you can set the `manifest` attribute of this
         object before with a custom manifest if you want to support more versions.\n
-        If any version in the 'inheritsFrom' tree is not found, a `VersionError` is raised with `VersionError.NOT_FOUND`
+        If any version in the `inheritsFrom` tree is not found, a `VersionError` is raised with `VersionError.NOT_FOUND`
         and the version ID as argument.\n
+        Note that this method is authorized to change the version identifier through its internal method `_prepare_id`.\n
         This method can raise `JsonRequestError` for any error for requests to JSON file.
         """
+
+        self._prepare_id()
 
         version_meta, version_dir = self._prepare_meta_internal(self.id)
         while "inheritsFrom" in version_meta:
@@ -169,11 +181,21 @@ class Version:
 
         self.version_meta, self.version_dir = version_meta, version_dir
 
+    def _prepare_id(self):
+
+        """
+        Internal method to modify the version's identifier (`id` attribute), this is called before
+        fetching version metadata. This method doesn't change the identifier by default.
+        """
+
     def _prepare_meta_internal(self, version_id: str) -> Tuple[dict, str]:
+
+        """
+        An internal method to ensure an up-to-date version metadata together with its directory.
+        """
 
         version_dir = self.context.get_version_dir(version_id)
         version_meta_file = path.join(version_dir, f"{version_id}.json")
-        version_super_meta = self._ensure_version_manifest().get_version(version_id)
 
         try:
             with open(version_meta_file, "rt") as version_meta_fp:
@@ -181,35 +203,49 @@ class Version:
         except (OSError, JSONDecodeError):
             version_meta = None
 
+        if version_meta is not None:
+            if self._validate_version_meta(version_id, version_dir, version_meta_file, version_meta):
+                return version_meta, version_dir
+            else:
+                version_meta = None
+
         if version_meta is None:
-            if version_super_meta is None:
-                raise VersionError(VersionError.NOT_FOUND, version_id)
-        elif version_super_meta is None:
-            return version_meta, version_dir
+            os.makedirs(version_dir, exist_ok=True)
+            version_meta = self._fetch_version_meta(version_id, version_dir, version_meta_file)
+            with open(version_meta_file, "wt") as version_meta_fp:
+                json.dump(version_meta, version_meta_fp, indent=2)
+
+        return version_meta, version_dir
+
+    def _validate_version_meta(self, version_id: str, version_dir: str, version_meta_file: str, version_meta: dict) -> bool:
+
+        """
+        An internal method to check if a version's metadata is up-to-date, returns `True` if it is.
+        If `False`, the version metadata is re-fetched, this is the default when version metadata
+        doesn't exist.
+        """
+
+        version_super_meta = self._ensure_version_manifest().get_version(version_id)
+        if version_super_meta is None:
+            return True
         else:
             installed_time = from_iso_date(version_meta["time"])
             expected_time = from_iso_date(version_super_meta["time"])
             if installed_time >= expected_time:
-                return version_meta, version_dir
+                return True
             else:
                 # Backup the old metadata file, it can be useful to debug.
                 shutil.copyfile(version_meta_file, f"{version_meta_file}.{installed_time.timestamp()}")
+                return False
 
+    def _fetch_version_meta(self, version_id: str, version_dir: str, version_meta_file: str) -> dict:
+        """ An internal method to fetch a version metadata. """
+        version_super_meta = self._ensure_version_manifest().get_version(version_id)
+        if version_super_meta is None:
+            raise VersionError(VersionError.NOT_FOUND, version_id)
         content = json_simple_request(version_super_meta["url"])
         content["time"] = version_super_meta["time"]  # Last update time, must be the same as manifest to update.
-        os.makedirs(version_dir, exist_ok=True)
-        with open(version_meta_file, "wt") as version_meta_fp:
-            json.dump(content, version_meta_fp, indent=2)
-        return content, version_dir
-
-    def _ensure_version_manifest(self) -> 'VersionManifest':
-        if self.manifest is None:
-            self.manifest = VersionManifest()
-        return self.manifest
-
-    def _check_version_meta(self):
-        if self.version_meta is None:
-            raise ValueError("You should install metadata first.")
+        return content
 
     def prepare_jar(self):
 
@@ -275,28 +311,31 @@ class Version:
         assets_mapped_to_resources = assets_index.get("map_to_resources", False)  # For version <= 13w23b
         assets_virtual = assets_index.get("virtual", False)  # For 13w23b < version <= 13w48b (1.7.2)
 
+        assets = {}
+
         for asset_id, asset_obj in assets_index["objects"].items():
             asset_hash = asset_obj["hash"]
             asset_hash_prefix = asset_hash[:2]
             asset_size = asset_obj["size"]
             asset_file = path.join(assets_objects_dir, asset_hash_prefix, asset_hash)
+            assets[asset_id] = asset_file
             if not path.isfile(asset_file) or path.getsize(asset_file) != asset_size:
                 asset_url = f"https://resources.download.minecraft.net/{asset_hash_prefix}/{asset_hash}"
                 self.dl.append(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id))
 
         def finalize():
             if assets_mapped_to_resources or assets_virtual:
-                for asset_id_to_cpy in assets_index["objects"].keys():
+                for asset_id_to_copy, asset_file_to_copy in assets.items():
                     if assets_mapped_to_resources:
-                        resources_asset_file = path.join(self.context.work_dir, "resources", asset_id_to_cpy)
+                        resources_asset_file = path.join(self.context.work_dir, "resources", asset_id_to_copy)
                         if not path.isfile(resources_asset_file):
                             os.makedirs(path.dirname(resources_asset_file), exist_ok=True)
-                            shutil.copyfile(asset_file, resources_asset_file)
+                            shutil.copyfile(asset_file_to_copy, resources_asset_file)
                     if assets_virtual:
-                        virtual_asset_file = path.join(assets_virtual_dir, asset_id_to_cpy)
+                        virtual_asset_file = path.join(assets_virtual_dir, asset_id_to_copy)
                         if not path.isfile(virtual_asset_file):
                             os.makedirs(path.dirname(virtual_asset_file), exist_ok=True)
-                            shutil.copyfile(asset_file, virtual_asset_file)
+                            shutil.copyfile(asset_file_to_copy, virtual_asset_file)
 
         self.dl.add_callback(finalize)
         self.assets_index_version = assets_index_version
@@ -460,13 +499,18 @@ class Version:
                     os.chmod(exec_file, 0o777)
             self.dl.add_callback(finalize)
 
-    def download(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
+    def download(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None) -> 'DownloadReport':
         """ Download all missing files computed in `prepare_` methods. """
-        self.dl.download_files(progress_callback=progress_callback)
-        self.dl.reset()
+        return self.dl.download_files(progress_callback=progress_callback)
 
-    def install(self, *, jvm: bool = False):
-        """ Prepare (meta, jar, assets, logger, libs, jvm) and download the version with optional JVM installation. """
+
+    def install(self, *, jvm: bool = False) -> 'DownloadReport':
+
+        """
+        Prepare (meta, jar, assets, logger, libs, jvm) and download the version with optional JVM installation.
+        Return True if download is successful.
+        """
+
         self.prepare_meta()
         self.prepare_jar()
         self.prepare_assets()
@@ -474,7 +518,8 @@ class Version:
         self.prepare_libraries()
         if jvm:
             self.prepare_jvm()
-        self.download()
+
+        return self.download()
 
     def start(self, opts: 'Optional[StartOptions]' = None):
         """ Faster method to start the version. This actually use `Start` class, however, you can use it directly. """
@@ -799,6 +844,10 @@ class VersionManifest:
 
     def all_versions(self) -> list:
         return self._ensure_data()["versions"]
+
+    def get_version_type(self, version: str) -> str:
+        obj = self.get_version(version)
+        return "release" if obj is None else obj.get("type", "release")
 
 
 class AuthSession:
@@ -1192,6 +1241,24 @@ class DownloadEntry:
     def from_meta(cls, info: dict, dst: str, *, name: Optional[str] = None) -> 'DownloadEntry':
         return DownloadEntry(info["url"], dst, size=info.get("size"), sha1=info.get("sha1"), name=name)
 
+    def __hash__(self) -> int:
+        return hash((self.url, self.dst))
+
+    def __eq__(self, other):
+        return (self.url, self.dst) == (other.url, other.dst)
+
+
+class DownloadReport:
+
+    CONN_ERROR = "conn_error"
+    NOT_FOUND = "not_found"
+    INVALID_SIZE = "invalid_size"
+    INVALID_SHA1 = "invalid_sha1"
+    TOO_MANY_REDIRECTIONS = "too_many_redirections"
+
+    def __init__(self):
+        self.fails: Dict[DownloadEntry, str] = {}
+
 
 class DownloadList:
 
@@ -1225,21 +1292,19 @@ class DownloadList:
     def add_callback(self, callback: Callable[[], None]):
         self.callbacks.append(callback)
 
-    def download_files(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None):
+    def download_files(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None) -> DownloadReport:
 
         """
-        Downloads the given list of files. Even if some downloads fails, it continue and raise DownloadError(fails)
-        only at the end (but not calling callbacks), where 'fails' is a dict associating the entry URL and its error
-        ('not_found', 'invalid_size', 'invalid_sha1').
+        Downloads the given list of files. Even if some downloads fails, it continues. Use the returned
+        `DownloadReport` to determine if some files has failed.
         """
+
+        report = DownloadReport()
 
         if len(self.entries):
 
-            headers = {}
             buffer = bytearray(65536)
             total_size = 0
-            fails: Dict[str, str] = {}
-            max_try_count = 3
 
             if progress_callback is not None:
                 progress = DownloadProgress(self.size)
@@ -1249,90 +1314,118 @@ class DownloadList:
                 progress = None
                 entry_progress = None
 
-            for host, entries in self.entries.items():
+            # Internal utility to allow iterating over redirections.
+            def download_internal(current_dl: DownloadList, next_dl: DownloadList):
 
-                conn_type = HTTPSConnection if (host[0] == "1") else HTTPConnection
-                conn = conn_type(host[1:])
+                nonlocal total_size, buffer, progress_callback, progress, report
 
-                try:
+                headers = {}
+                max_try_count = 3
+                for host, entries in current_dl.entries.items():
 
-                    max_entry_idx = len(entries) - 1
-                    headers["Connection"] = "keep-alive"
+                    conn_type = HTTPSConnection if (host[0] == "1") else HTTPConnection
+                    conn = conn_type(host[1:])
 
-                    for i, entry in enumerate(entries):
+                    try:
 
-                        last_entry = (i == max_entry_idx)
-                        if last_entry:
-                            headers["Connection"] = "close"
+                        max_entry_idx = len(entries) - 1
+                        headers["Connection"] = "keep-alive"
 
-                        size_target = 0 if entry.size is None else entry.size
-                        error = None
+                        for i, entry in enumerate(entries):
 
-                        for _ in range(max_try_count):
+                            if i == max_entry_idx:
+                                # For the last entry
+                                headers["Connection"] = "close"
 
-                            try:
-                                conn.request("GET", entry.url, None, headers)
-                                res = conn.getresponse()
-                            except ConnectionError:
-                                error = DownloadError.CONN_ERROR
-                                continue
+                            # Allow modifying this URL when redirections happen.
+                            size_target = 0 if entry.size is None else entry.size
+                            error = None
 
-                            if res.status != 200:
-                                while res.readinto(buffer):
-                                    pass  # This loop is used to skip all bytes in the stream, and allow further request.
-                                error = DownloadError.NOT_FOUND
-                                continue
+                            for _ in range(max_try_count):
 
-                            sha1 = None if entry.sha1 is None else hashlib.sha1()
-                            size = 0
+                                try:
+                                    conn.request("GET", entry.url, None, headers)
+                                    res = conn.getresponse()
+                                except ConnectionError:
+                                    error = DownloadReport.CONN_ERROR
+                                    continue
 
-                            os.makedirs(path.dirname(entry.dst), exist_ok=True)
-                            try:
-                                with open(entry.dst, "wb") as dst_fp:
-                                    while True:
-                                        read_len = res.readinto(buffer)
-                                        if not read_len:
-                                            break
-                                        buffer_view = buffer[:read_len]
-                                        size += read_len
-                                        total_size += read_len
-                                        if sha1 is not None:
-                                            sha1.update(buffer_view)
-                                        dst_fp.write(buffer_view)
-                                        if progress_callback is not None:
-                                            progress.size = total_size
-                                            entry_progress.name = entry.name
-                                            entry_progress.total = size_target
-                                            entry_progress.size = size
-                                            progress_callback(progress)
-                            except KeyboardInterrupt:
-                                if path.isfile(entry.dst):
-                                    os.remove(entry.dst)
-                                raise
+                                if res.status == 301 or res.status == 302:
+                                    redirect_url = res.headers["location"]
+                                    next_dl.append(DownloadEntry(redirect_url, entry.dst, size=entry.size, sha1=entry.sha1, name=entry.name))
+                                    break
+                                elif res.status != 200:
+                                    while res.readinto(buffer):
+                                        pass  # This loop is used to skip all bytes in the stream, and allow further request.
+                                    error = DownloadReport.NOT_FOUND
+                                    continue
 
-                            if entry.size is not None and size != entry.size:
-                                error = DownloadError.INVALID_SIZE
-                            elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
-                                error = DownloadError.INVALID_SHA1
+                                sha1 = None if entry.sha1 is None else hashlib.sha1()
+                                size = 0
+
+                                os.makedirs(path.dirname(entry.dst), exist_ok=True)
+                                try:
+                                    with open(entry.dst, "wb") as dst_fp:
+                                        while True:
+                                            read_len = res.readinto(buffer)
+                                            if not read_len:
+                                                break
+                                            buffer_view = buffer[:read_len]
+                                            size += read_len
+                                            total_size += read_len
+                                            if sha1 is not None:
+                                                sha1.update(buffer_view)
+                                            dst_fp.write(buffer_view)
+                                            if progress_callback is not None:
+                                                progress.size = total_size
+                                                entry_progress.name = entry.name
+                                                entry_progress.total = size_target
+                                                entry_progress.size = size
+                                                progress_callback(progress)
+                                except KeyboardInterrupt:
+                                    if path.isfile(entry.dst):
+                                        os.remove(entry.dst)
+                                    raise
+
+                                if entry.size is not None and size != entry.size:
+                                    error = DownloadReport.INVALID_SIZE
+                                elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
+                                    error = DownloadReport.INVALID_SHA1
+                                else:
+                                    if entry.size is None:
+                                        # Enforce entry size from the effective downloaded size.
+                                        entry.size = size
+                                        self.size += size
+                                    break
+
+                                # If error happened, subtract the size and restart from the latest total_size.
+                                total_size -= size
+
                             else:
-                                if entry.size is None:
-                                    entry.size = size  # Enforce entry size from the effective downloaded size.
-                                    self.size += size
-                                break
+                                # If the break was not triggered, an error should be set.
+                                report.fails[entry] = error
 
-                            total_size -= size  # If error happened, subtract the size and restart from latest total_size.
+                    finally:
+                        conn.close()
 
-                        else:
-                            fails[entry.url] = error  # If the break was not triggered, an error should be set.
-
-                finally:
-                    conn.close()
-
-            if len(fails):
-                raise DownloadError(fails)
+            current_dl0 = self
+            redirect_depth = 0
+            while current_dl0.count:
+                if redirect_depth == 5:
+                    # When too many redirects, set fail reason for each entry.
+                    for entries in current_dl0.entries.values():
+                        for entry in entries:
+                            report.fails[entry] = DownloadReport.TOO_MANY_REDIRECTIONS
+                    break
+                next_list0 = DownloadList()
+                download_internal(current_dl0, next_list0)
+                current_dl0 = next_list0
+                redirect_depth += 1
 
         for callback in self.callbacks:
             callback()
+
+        return report
 
 
 class DownloadEntryProgress:
@@ -1407,16 +1500,16 @@ class JvmLoadingError(BaseError):
     UNSUPPORTED_VERSION = "unsupported_version"
 
 
-class DownloadError(Exception):
-
-    CONN_ERROR = "conn_error"
-    NOT_FOUND = "not_found"
-    INVALID_SIZE = "invalid_size"
-    INVALID_SHA1 = "invalid_sha1"
-
-    def __init__(self, fails: Dict[str, str]):
-        super().__init__()
-        self.fails = fails
+# class DownloadError(Exception):
+#
+#     CONN_ERROR = "conn_error"
+#     NOT_FOUND = "not_found"
+#     INVALID_SIZE = "invalid_size"
+#     INVALID_SHA1 = "invalid_sha1"
+#
+#     def __init__(self, fails: Dict[str, str]):
+#         super().__init__()
+#         self.fails = fails
 
 
 def http_request(url: str, method: str, *,
