@@ -18,8 +18,6 @@ following issue for a temporary fix: [#52](https://github.com/mindstorm38/portab
 
 # Table of contents
 - [Installation](#installation)
-  - [Install with PIP](#install-with-pip)
-  - [Single-file script](#single-file-script)
 - [Sub-commands](#sub-commands)
   - [Start the game](#start-the-game)
     - [Authentication](#authentication)
