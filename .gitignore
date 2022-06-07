@@ -1,6 +1,3 @@
 .idea
 __pycache__
-/packages
-/dist
-/build
-/addons/*/dist
+/src/*/dist
