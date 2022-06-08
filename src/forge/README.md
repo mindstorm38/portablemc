@@ -2,7 +2,7 @@
 The forge add-on allows you to install and run Minecraft with forge mod loader in a single command 
 line!
 
-![PyPI - Version](https://img.shields.io/pypi/v/portablemc-forge?style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc-forge?label=PyPI%20downloads&style=flat-square)
+![PyPI - Version](https://img.shields.io/pypi/v/portablemc-forge?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc-forge?label=PyPI%20downloads&style=flat-square)
 
 ```console
 pip install --user portablemc-forge

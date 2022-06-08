@@ -3,7 +3,7 @@ An easy-to-use portable Minecraft launcher in only one Python script!
 This single-script launcher is compatible with the directory structure of the official Minecraft Launcher.
 It aims to be fast and reliable for all Minecraft versions in a stateless manner and support addons.
 
-![PyPI - Version](https://img.shields.io/pypi/v/portablemc?style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square) &nbsp;![GitHub downloads (legacy)](https://img.shields.io/github/downloads/mindstorm38/portablemc/total?label=Github%20downloads%20(legacy)&style=flat-square)
+![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square) &nbsp;![GitHub downloads (legacy)](https://img.shields.io/github/downloads/mindstorm38/portablemc/total?label=Github%20downloads%20(legacy)&style=flat-square)
 
 ### [Install now!](#installation)
 
@@ -177,13 +177,17 @@ in the file `portablemc_auth.json` in the working directory. In older version of
 file is automatic and irreversible (the old file is deleted).
 
 ## Addon sub-command
-The `portablemc addon list|dirs|show` sub-commands are used to list and show addons. The `addon dirs` subcommand is used
-to list all directories where you can place the addons' folders.
+The `portablemc addon list|show` sub-commands are used to list and show addons.
 
 # Addons
-Officially supported addons can be found in the ['addons' directory](/addons).
-To install addons you have to run `addon dirs` to get all directories where you can place addons.
-To check if the addons are properly installed, you can use the ['addon list' sub-command](#addons).
+The following official add-ons are supported and maintained, since version 3.0.0 you can install them from from PyPI as shown
+in the following pages:
+- [Fabric ⇗](/src/fabric/README.md)
+- [Forge ⇗](/src/forge/README.md)
+- [Console ⇗](/src/console/README.md)
+- [Archives ⇗](/src/archives/README.md)
+
+See the [Addon Sub-command](#addon-sub-command) for more information on how to list and show which add-ons are installed.
 
 # Contribute
 

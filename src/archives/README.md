@@ -2,7 +2,7 @@
 The archives addon allows you to install and run old archived versions that are not officially
 listed by Mojang. It is backed by the [omniarchive](https://omniarchive.net/) work.
 
-![PyPI - Version](https://img.shields.io/pypi/v/portablemc-archives?style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc-archives?label=PyPI%20downloads&style=flat-square)
+![PyPI - Version](https://img.shields.io/pypi/v/portablemc-archives?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc-archives?label=PyPI%20downloads&style=flat-square)
 
 ```console
 pip install --user portablemc-archives
