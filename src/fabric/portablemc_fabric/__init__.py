@@ -1,14 +1,13 @@
 from argparse import ArgumentParser, Namespace
-from datetime import datetime
 from typing import Optional
 import sys
 
-from portablemc import Version, BaseError, Context, json_simple_request
+from portablemc import Version, BaseError, Context, JsonRequestError, json_simple_request
 
 
 FABRIC_META_URL = "https://meta.fabricmc.net/{}"
 FABRIC_VERSIONS_LOADER = "v2/versions/loader/{}"
-FABRIC_VERSIONS_LOADER_VERSIONED = "v2/versions/loader/{}/{}"
+FABRIC_VERSIONS_LOADER_PROFILE = "v2/versions/loader/{}/{}/profile/json"
 
 
 def load():
@@ -100,7 +99,6 @@ class FabricVersion(Version):
 
         self.game_version = game_version
         self.loader_version = loader_version
-        self.loader_meta: Optional[dict] = None
 
     # The function 'prepare_meta' might throw 'FabricVersionNotFound' either
     # '_prepare_id' or from the inner calls to '_fetch_version_meta'.
@@ -109,8 +107,7 @@ class FabricVersion(Version):
         # If the loader version is unknown, the version's id is not fully defined,
         # so we add the loader version to the id.
         if self.loader_version is None:
-            self.loader_meta = request_version_loader(self.game_version, None)
-            self.loader_version = self.loader_meta["loader"]["version"]
+            self.loader_version = request_loader_version(self.game_version)
             self.id += f"-{self.loader_version}"
 
     def _validate_version_meta(self, version_id: str, version_dir: str, version_meta_file: str, version_meta: dict) -> bool:
@@ -121,66 +118,34 @@ class FabricVersion(Version):
             return super()._validate_version_meta(version_id, version_dir, version_meta_file, version_meta)
 
     def _fetch_version_meta(self, version_id: str, version_dir: str, version_meta_file: str) -> dict:
-
         if version_id != self.id:
             return super()._fetch_version_meta(version_id, version_dir, version_meta_file)
-
-        if self.loader_meta is None:
-            # If the directory does not exist and the loader_version was provided, request meta.
-            self.loader_meta = request_version_loader(self.game_version, self.loader_version)
-
-        loader_launcher_meta = self.loader_meta["launcherMeta"]
-
-        iso_time = datetime.now().isoformat()
-
-        version_libraries = loader_launcher_meta["libraries"]["common"]
-
-        version_libraries.append({
-            "name": self.loader_meta["loader"]["maven"],
-            "url": "https://maven.fabricmc.net/"
-        })
-
-        version_libraries.append({
-            "name": self.loader_meta["intermediary"]["maven"],
-            "url": "https://maven.fabricmc.net/"
-        })
-
-        return {
-            "id": version_id,
-            "inheritsFrom": self.game_version,
-            "releaseTime": iso_time,
-            "time": iso_time,
-            "type": self._ensure_version_manifest().get_version_type(self.game_version),
-            "mainClass": loader_launcher_meta["mainClass"]["client"],
-            "arguments": {
-                "game": [],
-                "jvm": [
-                    # TODO: Might add "-DFabricMcEmu= net.minecraft.client.main.Main " in the future.
-                ]
-            },
-            "libraries": version_libraries
-        }
+        return request_version_loader_profile(self.game_version, self.loader_version)
 
 
 # FabricMC API
 
 def request_meta(method: str) -> dict:
-    return json_simple_request(FABRIC_META_URL.format(method), ignore_error=True)
+    return json_simple_request(FABRIC_META_URL.format(method))
 
 
-def request_version_loader(game_version: str, loader_version: Optional[str]) -> Optional[dict]:
-    if loader_version is None:
-        ret = request_meta(FABRIC_VERSIONS_LOADER.format(game_version))
-        if not len(ret):
+def request_loader_version(game_version: str) -> str:
+    try:
+        ret = request_meta(FABRIC_VERSIONS_LOADER.format(game_version))[0].get("loader", {}).get("version")
+    except (JsonRequestError, IndexError):
+        ret = None
+    if ret is None:
+        raise FabricVersionNotFound(FabricVersionNotFound.GAME_VERSION_NOT_FOUND, game_version)
+    return ret
+
+
+def request_version_loader_profile(game_version: str, loader_version: str) -> dict:
+    try:
+        return request_meta(FABRIC_VERSIONS_LOADER_PROFILE.format(game_version, loader_version))
+    except JsonRequestError as err:
+        if b"no mappings" in err.data:
             raise FabricVersionNotFound(FabricVersionNotFound.GAME_VERSION_NOT_FOUND, game_version)
-        return ret[0]
-    else:
-        ret = request_meta(FABRIC_VERSIONS_LOADER_VERSIONED.format(game_version, loader_version))
-        if isinstance(ret, str):
-            if ret.startswith("no mappings"):
-                raise FabricVersionNotFound(FabricVersionNotFound.GAME_VERSION_NOT_FOUND, game_version)
-            raise FabricVersionNotFound(FabricVersionNotFound.LOADER_VERSION_NOT_FOUND, loader_version)
-        return ret
+        raise FabricVersionNotFound(FabricVersionNotFound.LOADER_VERSION_NOT_FOUND, loader_version)
 
 
 # Errors
