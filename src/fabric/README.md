@@ -27,9 +27,9 @@ This addon requires external HTTP accesses if:
 ```sh
 portablemc start fabric:                # Start latest fabric loader version for latest release
 portablemc start fabric:release         # Same as above
-portablemc start fabric:1.18.1          # Start latest fabric loader version for 1.18.1
-portablemc start fabric:1.18.1:0.12.12  # Start fabric loader 0.12.12 for game version 1.18.1
-portablemc start fabric::0.12.12        # Start fabric loader 0.12.12 for the latest release
+portablemc start fabric:1.19            # Start latest fabric loader version for 1.19
+portablemc start fabric:1.19:0.14.8     # Start fabric loader 0.14.8 for game version 1.19
+portablemc start fabric::0.14.8         # Start fabric loader 0.14.8 for the latest release
 portablemc start --dry fabric:          # Install (and exit) the latest fabric loader version for latest release
 ```
 
