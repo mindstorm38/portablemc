@@ -53,6 +53,7 @@ __all__ = [
     "get_minecraft_dir", "get_minecraft_os", "get_minecraft_arch", "get_minecraft_archbits", "get_minecraft_jvm_os",
     "can_extract_native",
     "from_iso_date",
+    # "calc_input_sha1",  TODO: To add in the future when stabilized
     "LEGACY_JVM_ARGUMENTS"
 ]
 
@@ -212,8 +213,9 @@ class Version:
         if version_meta is None:
             os.makedirs(version_dir, exist_ok=True)
             version_meta = self._fetch_version_meta(version_id, version_dir, version_meta_file)
-            with open(version_meta_file, "wt") as version_meta_fp:
-                json.dump(version_meta, version_meta_fp, indent=2)
+            if "_pmc_no_dump" not in version_meta:
+                with open(version_meta_file, "wt") as version_meta_fp:
+                    json.dump(version_meta, version_meta_fp, indent=2)
 
         return version_meta, version_dir
 
@@ -223,29 +225,51 @@ class Version:
         An internal method to check if a version's metadata is up-to-date, returns `True` if it is.
         If `False`, the version metadata is re-fetched, this is the default when version metadata
         doesn't exist.
+
+        The default implementation check official versions againt the expected SHA1 hash of the metadata
+        file.
         """
 
         version_super_meta = self._ensure_version_manifest().get_version(version_id)
         if version_super_meta is None:
             return True
         else:
-            installed_time = from_iso_date(version_meta["time"])
-            expected_time = from_iso_date(version_super_meta["time"])
-            if installed_time >= expected_time:
-                return True
-            else:
-                # Backup the old metadata file, it can be useful to debug.
-                shutil.copyfile(version_meta_file, f"{version_meta_file}.{installed_time.timestamp()}")
-                return False
+            expected_sha1 = version_super_meta.get("sha1")
+            if expected_sha1 is not None:
+                try:
+                    with open(version_meta_file, "rt") as version_meta_fp:
+                        current_sha1 = calc_input_sha1(version_meta_fp)
+                        return expected_sha1 == current_sha1
+                except OSError:
+                    return False
+            return True
 
     def _fetch_version_meta(self, version_id: str, version_dir: str, version_meta_file: str) -> dict:
-        """ An internal method to fetch a version metadata. """
+
+        """
+        An internal method to fetch a version metadata. The returned dict can contain an optional
+        key '_pmc_no_dump' that prevent dumping the dictionary as JSON to the metadata file.
+
+        The default implementation fetch from official versions, and directly write the read data
+        to the meta file in order to keep the exact same SHA1 hash of the metadata. The default
+        implementation also set the `_pmc_no_dump` flag to the returned data in order to avoid
+        overwriting the file.
+        """
+
         version_super_meta = self._ensure_version_manifest().get_version(version_id)
         if version_super_meta is None:
             raise VersionError(VersionError.NOT_FOUND, version_id)
-        content = json_simple_request(version_super_meta["url"])
-        content["time"] = version_super_meta["time"]  # Last update time, must be the same as manifest to update.
-        return content
+        code, raw_data = http_request(version_super_meta["url"], "GET")
+        if code != 200:
+            raise VersionError(VersionError.NOT_FOUND, version_id)
+        with open(version_meta_file, "wb") as fp:
+            fp.write(raw_data)
+        try:
+            data = json.loads(raw_data)
+            data["_pmc_no_dump"] = True
+            return data
+        except JSONDecodeError:
+            raise VersionError(VersionError.NOT_FOUND, version_id)
 
     def prepare_jar(self):
 
@@ -801,7 +825,7 @@ class VersionManifest:
 
             if self.cache_timeout is None or self.cache_timeout > 0:
                 try:
-                    manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
+                    manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
                     status, data = json_request(manifest_url, "GET", headers=headers, ignore_error=True,
                                                 timeout=self.cache_timeout, rcv_headers=rcv_headers)
                 except OSError:
@@ -1738,6 +1762,15 @@ def from_iso_date(raw: str) -> datetime:
         tz_dt = datetime.strptime(raw[tz_idx + 1:], "%H:%M")
         dt = dt.replace(tzinfo=timezone(timedelta(hours=tz_dt.hour, minutes=tz_dt.minute)))
     return dt
+
+
+def calc_input_sha1(input_stream, *, buffer_len: int = 8192) -> str:
+    h = hashlib.sha1()
+    b = bytearray(buffer_len)
+    mv = memoryview(b)
+    for n in iter(lambda: input_stream.readinto(mv), 0):
+        h.update(mv[:n])
+    return h.hexdigest()
 
 
 LEGACY_JVM_ARGUMENTS = [
