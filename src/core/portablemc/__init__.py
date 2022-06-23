@@ -237,7 +237,7 @@ class Version:
             expected_sha1 = version_super_meta.get("sha1")
             if expected_sha1 is not None:
                 try:
-                    with open(version_meta_file, "rt") as version_meta_fp:
+                    with open(version_meta_file, "rb") as version_meta_fp:
                         current_sha1 = calc_input_sha1(version_meta_fp)
                         return expected_sha1 == current_sha1
                 except OSError:
