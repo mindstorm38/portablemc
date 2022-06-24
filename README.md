@@ -7,7 +7,7 @@ It aims to be fast and reliable for all Minecraft versions in a stateless manner
 
 ### [Install now!](#installation)
 
-#### ***[Fabric](/addons/fabric/README.md) and [Forge](/addons/forge/README.md) are now supported!***
+#### ***[Fabric](/src/fabric/README.md) and [Forge](/src/forge/README.md) are now supported!***
 
 **The launcher is safe to Log4j exploit since v2.2.0, if you are running an older please update or read the
 following issue for a temporary fix: [#52](https://github.com/mindstorm38/portablemc/issues/52).**
