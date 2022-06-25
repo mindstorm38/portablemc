@@ -1,6 +1,7 @@
 import pytest
 
 from portablemc import http_request, json_request, JsonRequestError
+import socket
 
 
 def test_http_request():
@@ -21,7 +22,7 @@ def test_http_request():
     code, data = http_request("https://httpbin.org/response-headers?freeform=hello%20world!", "GET", rcv_headers=rcv_headers)
     assert code == 200 and rcv_headers["freeform"] == "hello world!"
 
-    with pytest.raises(TimeoutError):
+    with pytest.raises((TimeoutError, socket.timeout)):
         http_request("https://httpbin.org/delay/2", "GET", timeout=1)
 
 
