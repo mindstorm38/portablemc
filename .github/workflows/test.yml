@@ -40,7 +40,7 @@ jobs:
           pip install --pre poetry
           pip install pytest pytest-github-actions-annotate-failures
           python repo/src/workspace.py install
-          python -m pytest -q repo/test/
+          python -m pytest repo/test/
 
       - name: Test on UNIX
         if: matrix.os != 'Windows'
@@ -49,4 +49,4 @@ jobs:
           pip install --pre poetry
           pip install pytest pytest-github-actions-annotate-failures
           python repo/src/workspace.py install
-          python -m pytest -q repo/test/
+          python -m pytest repo/test/
