@@ -1,13 +1,12 @@
 """
 Development tool script for managing all modules at once using poetry.
-Requiring Python 3.10
 """
 
 import subprocess
 import sys
 import os
 
-def for_each_module(args: list[str]):
+def for_each_module(args):
 
     os.chdir(os.path.dirname(__file__))
 
