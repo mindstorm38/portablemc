@@ -20,7 +20,7 @@ Core module of PortableMC, it provides a flexible API to download and start Mine
 """
 
 from typing import cast, Generator, Callable, Optional, Tuple, Dict, Type, List
-from http.client import HTTPConnection, HTTPSConnection, HTTPResponse
+from http.client import HTTPConnection, HTTPSConnection, HTTPResponse, HTTPException
 from urllib import parse as url_parse, request as url_request
 from urllib.request import Request as UrlRequest
 from uuid import uuid4, uuid5, UUID
@@ -1365,12 +1365,12 @@ class DownloadList:
                             size_target = 0 if entry.size is None else entry.size
                             error = None
 
-                            for _ in range(max_try_count):
+                            for _i in range(max_try_count):
 
                                 try:
                                     conn.request("GET", entry.url, None, headers)
                                     res = conn.getresponse()
-                                except ConnectionError:
+                                except (ConnectionError, OSError, HTTPException):
                                     error = DownloadReport.CONN_ERROR
                                     continue
 
@@ -1420,7 +1420,7 @@ class DownloadList:
                                         # Enforce entry size from the effective downloaded size.
                                         entry.size = size
                                         self.size += size
-                                    break
+                                    break  # Break the for loop in order to skip the for-else branch
 
                                 # If error happened, subtract the size and restart from the latest total_size.
                                 total_size -= size
@@ -1428,6 +1428,9 @@ class DownloadList:
                             else:
                                 # If the break was not triggered, an error should be set.
                                 report.fails[entry] = error
+                                # In case of fail, remove the file.
+                                if path.isfile(entry.dst):
+                                    os.remove(entry.dst)
 
                     finally:
                         conn.close()
