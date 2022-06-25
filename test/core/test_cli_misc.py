@@ -3,7 +3,7 @@ def test_format_locale_date():
 
     from portablemc.cli import format_locale_date
     import locale
-    locale.setlocale(locale.LC_TIME, "en_US")
+    locale.setlocale(locale.LC_TIME, "en_US.UTF-8")
 
     assert format_locale_date("2022-06-23T17:01:27+00:00") == "6/23/2022 5:01:27 PM"
     assert format_locale_date(1656164315.0) == "6/25/2022 3:38:35 PM"
