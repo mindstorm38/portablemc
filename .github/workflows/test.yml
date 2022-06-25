@@ -45,6 +45,9 @@ jobs:
       - name: Test on UNIX
         if: matrix.os != 'Windows'
         run: |
+          export LC_ALL="en_US.UTF-8"
+          export LC_CTYPE="en_US.UTF-8"
+          sudo dpkg-reconfigure locales
           source env/bin/activate
           pip install --pre poetry
           pip install pytest pytest-github-actions-annotate-failures
