@@ -486,7 +486,7 @@ class Version:
                 jvm_manifest = json.load(jvm_manifest_fp)
         except (OSError, JSONDecodeError):
 
-            all_jvm_meta = json_simple_request("https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json")
+            all_jvm_meta = json_simple_request("https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json")
             jvm_arch_meta = all_jvm_meta.get(get_minecraft_jvm_os())
             if jvm_arch_meta is None:
                 raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_ARCH)
@@ -1708,7 +1708,7 @@ def get_minecraft_arch() -> str:
             "i686": "x86",
             "x86_64": "x86_64",
             "amd64": "x86_64",
-            "ia64": "x86_64",
+            "arm64": "arm64",
             "aarch64": "arm64",
             "aarch32": "arm32",  # Don't know if this value is possible
             "armv7l": "arm32",
@@ -1733,7 +1733,7 @@ def get_minecraft_jvm_os() -> str:
     global _minecraft_jvm_os
     if _minecraft_jvm_os is None:
         _minecraft_jvm_os = {
-            "osx": {"x86": "mac-os"},
+            "osx": {"x86_64": "mac-os", "arm64": "mac-os-arm64"},
             "linux": {"x86": "linux-i386", "x86_64": "linux"},
             "windows": {"x86": "windows-x86", "x86_64": "windows-x64"}
         }.get(get_minecraft_os(), {}).get(get_minecraft_arch())
