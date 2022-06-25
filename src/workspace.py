@@ -9,6 +9,8 @@ import os
 
 def for_each_module(args: list[str]):
 
+    os.chdir(os.path.dirname(__file__))
+
     def inner(name: str, path: str):
         print(f"{name} > {' '.join(args)}")
         subprocess.call(args, cwd=path)
