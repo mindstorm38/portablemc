@@ -130,7 +130,7 @@ class Version:
         self.version_dir: Optional[str] = None
         self.version_jar_file: Optional[str] = None
 
-        self.assets_index_version: Optional[int] = None
+        self.assets_index_version: Optional[str] = None
         self.assets_virtual_dir: Optional[str] = None
         self.assets_count: Optional[int] = None
 
