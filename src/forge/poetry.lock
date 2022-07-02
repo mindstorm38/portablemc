@@ -1,6 +1,6 @@
 [[package]]
 name = "portablemc"
-version = "3.0.2"
+version = "3.0.3"
 description = "PortableMC is a module that provides both an API for development of your custom launcher and an executable script to run PortableMC CLI."
 category = "main"
 optional = false

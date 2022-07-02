@@ -16,4 +16,4 @@ portablemc = "^3"
 prompt-toolkit = "~3.0.16"
 
 [tool.poetry.group.dev.dependencies]
-portablemc = { path = "../core/", develop = false }
+portablemc = { path = "../core/", develop = true }
