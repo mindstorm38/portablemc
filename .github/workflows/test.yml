@@ -1,0 +1,53 @@
+name: Test
+on:
+  pull_request:
+    paths-ignore:
+      - 'doc/**'
+      - 'README.md'
+jobs:
+  test:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [Ubuntu, macOS, Windows]
+        python-version: ['3.7', '3.8', '3.9', '3.10']
+        include:
+          - os: Ubuntu
+            image: ubuntu-22.04
+          - os: Windows
+            image: windows-2022
+          - os: macOS
+            image: macos-12
+    name: ${{ matrix.os }} / ${{ matrix.python-version }} ${{ matrix.suffix }}
+    runs-on: ${{ matrix.image }}
+    steps:
+
+      - uses: actions/checkout@v2
+        with:
+          path: repo
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version:  ${{ matrix.python-version }}
+
+      - name: Setup venv
+        run: python -m venv env
+
+      - name: Test on Windows
+        if: matrix.os == 'Windows'
+        run: |
+          env\Scripts\Activate.ps1
+          pip install --pre poetry
+          pip install pytest pytest-github-actions-annotate-failures
+          python repo/src/workspace.py install
+          python -m pytest repo/test/
+
+      - name: Test on UNIX
+        if: matrix.os != 'Windows'
+        run: |
+          source env/bin/activate
+          pip install --pre poetry
+          pip install pytest pytest-github-actions-annotate-failures
+          python repo/src/workspace.py install
+          python -m pytest repo/test/

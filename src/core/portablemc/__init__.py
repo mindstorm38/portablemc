@@ -20,7 +20,7 @@ Core module of PortableMC, it provides a flexible API to download and start Mine
 """
 
 from typing import cast, Generator, Callable, Optional, Tuple, Dict, Type, List
-from http.client import HTTPConnection, HTTPSConnection, HTTPResponse
+from http.client import HTTPConnection, HTTPSConnection, HTTPResponse, HTTPException
 from urllib import parse as url_parse, request as url_request
 from urllib.request import Request as UrlRequest
 from uuid import uuid4, uuid5, UUID
@@ -130,7 +130,7 @@ class Version:
         self.version_dir: Optional[str] = None
         self.version_jar_file: Optional[str] = None
 
-        self.assets_index_version: Optional[int] = None
+        self.assets_index_version: Optional[str] = None
         self.assets_virtual_dir: Optional[str] = None
         self.assets_count: Optional[int] = None
 
@@ -486,7 +486,7 @@ class Version:
                 jvm_manifest = json.load(jvm_manifest_fp)
         except (OSError, JSONDecodeError):
 
-            all_jvm_meta = json_simple_request("https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json")
+            all_jvm_meta = json_simple_request("https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json")
             jvm_arch_meta = all_jvm_meta.get(get_minecraft_jvm_os())
             if jvm_arch_meta is None:
                 raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_ARCH)
@@ -1365,12 +1365,12 @@ class DownloadList:
                             size_target = 0 if entry.size is None else entry.size
                             error = None
 
-                            for _ in range(max_try_count):
+                            for _i in range(max_try_count):
 
                                 try:
                                     conn.request("GET", entry.url, None, headers)
                                     res = conn.getresponse()
-                                except ConnectionError:
+                                except (ConnectionError, OSError, HTTPException):
                                     error = DownloadReport.CONN_ERROR
                                     continue
 
@@ -1420,7 +1420,7 @@ class DownloadList:
                                         # Enforce entry size from the effective downloaded size.
                                         entry.size = size
                                         self.size += size
-                                    break
+                                    break  # Break the for loop in order to skip the for-else branch
 
                                 # If error happened, subtract the size and restart from the latest total_size.
                                 total_size -= size
@@ -1428,6 +1428,9 @@ class DownloadList:
                             else:
                                 # If the break was not triggered, an error should be set.
                                 report.fails[entry] = error
+                                # In case of fail, remove the file.
+                                if path.isfile(entry.dst):
+                                    os.remove(entry.dst)
 
                     finally:
                         conn.close()
@@ -1708,7 +1711,7 @@ def get_minecraft_arch() -> str:
             "i686": "x86",
             "x86_64": "x86_64",
             "amd64": "x86_64",
-            "ia64": "x86_64",
+            "arm64": "arm64",
             "aarch64": "arm64",
             "aarch32": "arm32",  # Don't know if this value is possible
             "armv7l": "arm32",
@@ -1733,7 +1736,7 @@ def get_minecraft_jvm_os() -> str:
     global _minecraft_jvm_os
     if _minecraft_jvm_os is None:
         _minecraft_jvm_os = {
-            "osx": {"x86": "mac-os"},
+            "osx": {"x86_64": "mac-os", "arm64": "mac-os-arm64"},
             "linux": {"x86": "linux-i386", "x86_64": "linux"},
             "windows": {"x86": "windows-x86", "x86_64": "windows-x64"}
         }.get(get_minecraft_os(), {}).get(get_minecraft_arch())

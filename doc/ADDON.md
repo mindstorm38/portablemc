@@ -1,4 +1,4 @@
-# PortableMC Addon API (W.I.P.)
+# PortableMC Addon API (DEPRECATED SINCE 3.0.0, FIXME)
 The following document provides essential information for addon makers, this includes in particular the project 
 workspace layout and the CLI interface. For a better understanding, you should read the [API Documentation](API.md) 
 first. 

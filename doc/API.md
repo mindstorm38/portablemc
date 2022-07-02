@@ -248,10 +248,10 @@ and `size` and updated. You can also add callbacks functions that will be called
 start the download, use `download_files(...)`.
 
 ```python
-from portablemc import DownloadList, DownloadEntry
+from portablemc import DownloadList, DownloadEntry, DownloadReport
 
 dl_list = DownloadList()
 dl_list.append(DownloadEntry("https://example.com/file1", "/tmp/file1"))
 dl_list.append(DownloadEntry("http://example.com/file2", "/tmp/file2"))
-dl_list.download_files()
+report: DownloadReport = dl_list.download_files()
 ```

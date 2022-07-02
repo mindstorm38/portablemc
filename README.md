@@ -1,16 +1,14 @@
 # Portable Minecraft Launcher
-An easy-to-use portable Minecraft launcher in only one Python script!
-This single-script launcher is compatible with the directory structure of the official Minecraft Launcher.
-It aims to be fast and reliable for all Minecraft versions in a stateless manner and support addons.
+An easy-to-use command line Minecraft launcher in only one Python script!
+This launcher is compatible with the directory structure of the official Minecraft Launcher.
+It aims to be fast and reliable for all Minecraft versions in a stateless manner, it also supports
+addons, official ones can be found below.
 
 ![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square) &nbsp;![GitHub downloads (legacy)](https://img.shields.io/github/downloads/mindstorm38/portablemc/total?label=Github%20downloads%20(legacy)&style=flat-square)
 
 ### [Install now!](#installation)
 
-#### ***[Fabric](/src/fabric/README.md) and [Forge](/src/forge/README.md) are now supported!***
-
-**The launcher is safe to Log4j exploit since v2.2.0, if you are running an older please update or read the
-following issue for a temporary fix: [#52](https://github.com/mindstorm38/portablemc/issues/52).**
+#### ***[Fabric](/src/fabric/README.md) and [Forge](/src/forge/README.md) addons***
 
 ![illustration](doc/assets/illustration.png)
 
@@ -34,6 +32,7 @@ following issue for a temporary fix: [#52](https://github.com/mindstorm38/portab
   - [Forge ⇗](/src/forge/README.md)
   - [Console ⇗](/src/console/README.md)
   - [Archives ⇗](/src/archives/README.md)
+- [Log4J Exploit](#log4j-exploit)
 - [Contribute](#contribute)
   - [Setup environment](#setup-environment)
   - [Contributors](#contributors)
@@ -189,12 +188,18 @@ in the following pages:
 
 See the [Addon Sub-command](#addon-sub-command) for more information on how to list and show which add-ons are installed.
 
+# Log4j Exploit
+The launcher is safe to Log4j exploit since v2.2.0, if you are running an older version, please update or read the
+following issue for a temporary fix: [#52](https://github.com/mindstorm38/portablemc/issues/52).
+
 # Contribute
 
 ## Setup environment
-This project is currently a monorepo based on Poetry, each official module is stored in the [src](src/) directory, the main and mandatory module is [core](src/core). The other modules are official add-ons.
+This project is currently a monorepo based on Poetry, each official module is stored in the [src](src/) directory, the 
+main and mandatory module is [core](src/core). The other modules are official add-ons.
 
-We also suggest Conda (or Miniconda) for easy development together with Poetry. If you want to try you can use the following commands:
+We also suggest Conda (or Miniconda) for easy development together with Poetry. If you want to try you can use the 
+following commands:
 ```console
 # You can use any version of Python here from 3.6 to test compatibility of the launcher.
 conda create -n pmc python=3.10 pip
