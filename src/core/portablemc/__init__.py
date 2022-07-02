@@ -211,11 +211,14 @@ class Version:
                 version_meta = None
 
         if version_meta is None:
-            os.makedirs(version_dir, exist_ok=True)
-            version_meta = self._fetch_version_meta(version_id, version_dir, version_meta_file)
-            if "_pmc_no_dump" not in version_meta:
-                with open(version_meta_file, "wt") as version_meta_fp:
-                    json.dump(version_meta, version_meta_fp, indent=2)
+            try:
+                version_meta = self._fetch_version_meta(version_id, version_dir, version_meta_file)
+                if "_pmc_no_dump" not in version_meta:
+                    os.makedirs(version_dir, exist_ok=True)
+                    with open(version_meta_file, "wt") as version_meta_fp:
+                        json.dump(version_meta, version_meta_fp, indent=2)
+            except NotADirectoryError:
+                raise VersionError(VersionError.INVALID_ID, version_id)
 
         return version_meta, version_dir
 
@@ -262,6 +265,7 @@ class Version:
         code, raw_data = http_request(version_super_meta["url"], "GET")
         if code != 200:
             raise VersionError(VersionError.NOT_FOUND, version_id)
+        os.makedirs(version_dir, exist_ok=True)
         with open(version_meta_file, "wb") as fp:
             fp.write(raw_data)
         try:
@@ -1516,6 +1520,7 @@ class VersionError(BaseError):
     NOT_FOUND = "not_found"
     TO_MUCH_PARENTS = "to_much_parents"
     JAR_NOT_FOUND = "jar_not_found"
+    INVALID_ID = "invalid_id"
 
     def __init__(self, code: str, version: str):
         super().__init__(code)

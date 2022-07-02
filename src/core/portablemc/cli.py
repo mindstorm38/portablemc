@@ -1178,6 +1178,7 @@ messages = {
     f"start.version.error.{VersionError.NOT_FOUND}": "Version {version} not found.",
     f"start.version.error.{VersionError.TO_MUCH_PARENTS}": "The version {version} has to much parents.",
     f"start.version.error.{VersionError.JAR_NOT_FOUND}": "Version {version} JAR not found.",
+    f"start.version.error.{VersionError.INVALID_ID}": "Version id {version} is invalid for the file system.",
     "start.assets.checking": "Checking assets... ",
     "start.assets.checked": "Checked {count} assets.",
     "start.logger.loading": "Loading logger... ",
