@@ -3,6 +3,7 @@ on:
   pull_request:
     paths-ignore:
       - 'doc/**'
+      - 'README.md'
 jobs:
   test:
     strategy:
