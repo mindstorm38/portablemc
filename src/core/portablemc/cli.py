@@ -664,8 +664,8 @@ def fix_lwjgl_version(version: Version, lwjgl_version: str):
     }
 
     if lwjgl_version in ("3.3.0", "3.3.1"):
-        lwjgl_natives["windows"].append("natives-windows-arm64");
-        lwjgl_natives["osx"].append("natives-macos-arm64");
+        lwjgl_natives["windows"].append("natives-windows-arm64")
+        lwjgl_natives["osx"].append("natives-macos-arm64")
 
     meta_libraries: list = version.version_meta["libraries"]
 
@@ -806,13 +806,13 @@ def pretty_download(dl_list: DownloadList) -> DownloadReport:
             print(f"\r[      ] {dl_text} {entries[:path_len].ljust(path_len)} {percentage:6.2f}% {speed}/s", end="")
             called_once = True
 
-    def complete_task(errors_count: int = 0):
+    def complete_task(errors_count: int, total_size: int):
 
         errors_text = get_message("download.no_error") if errors_count == 0 else get_message("download.errors", count=errors_count)
         result_text = get_message("download.downloaded",
                                   success_count=dl_list.count - errors_count,
                                   total_count=dl_list.count,
-                                  size=format_bytes(dl_list.size).lstrip(" "),
+                                  size=format_bytes(total_size).lstrip(" "),
                                   duration=(time.perf_counter() - start_time),
                                   errors=errors_text)
 
@@ -824,7 +824,7 @@ def pretty_download(dl_list: DownloadList) -> DownloadReport:
 
     try:
         dl_report = dl_list.download_files(progress_callback=progress_callback)
-        complete_task(len(dl_report.fails))
+        complete_task(len(dl_report.fails), dl_report.final_size)
         if len(dl_report.fails):
             for entry, entry_error in dl_report.fails.items():
                 entry_error_msg = get_message(f"download.error.{entry_error}")
