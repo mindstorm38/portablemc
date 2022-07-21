@@ -1270,10 +1270,12 @@ class DownloadEntry:
         return DownloadEntry(info["url"], dst, size=info.get("size"), sha1=info.get("sha1"), name=name)
 
     def __hash__(self) -> int:
-        return hash((self.url, self.dst))
+        # Making size and sha1 in the hash is useful to make them, this means that once added
+        # to a dictionary, these attributes should not be modified.
+        return hash((self.url, self.dst, self.size, self.sha1))
 
     def __eq__(self, other):
-        return (self.url, self.dst) == (other.url, other.dst)
+        return (self.url, self.dst, self.size, self.sha1) == (other.url, other.dst, other.size, other.sha1)
 
 
 class DownloadReport:
@@ -1286,6 +1288,7 @@ class DownloadReport:
 
     def __init__(self):
         self.fails: Dict[DownloadEntry, str] = {}
+        self.final_size: int = 0
 
 
 class DownloadList:
@@ -1420,11 +1423,14 @@ class DownloadList:
                                 elif entry.sha1 is not None and sha1.hexdigest() != entry.sha1:
                                     error = DownloadReport.INVALID_SHA1
                                 else:
-                                    if entry.size is None:
-                                        # Enforce entry size from the effective downloaded size.
-                                        entry.size = size
-                                        self.size += size
+                                    # When successful, add the downloaded size to the final size in report.
+                                    report.final_size += size
                                     break  # Break the for loop in order to skip the for-else branch
+
+                                # We are here only when the file download has started but checks have failed,
+                                # then we should remove the file.
+                                if path.isfile(entry.dst):
+                                    os.remove(entry.dst)
 
                                 # If error happened, subtract the size and restart from the latest total_size.
                                 total_size -= size
@@ -1432,9 +1438,6 @@ class DownloadList:
                             else:
                                 # If the break was not triggered, an error should be set.
                                 report.fails[entry] = error
-                                # In case of fail, remove the file.
-                                if path.isfile(entry.dst):
-                                    os.remove(entry.dst)
 
                     finally:
                         conn.close()
