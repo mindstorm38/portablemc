@@ -155,7 +155,7 @@ class ForgeVersionInstaller:
 
         # List of possible artifacts names-version, some versions (e.g. 1.7) have the minecraft
         # version in suffix of the version in addition to the suffix.
-        self.possible_artifact_versions = [forge_version, f"{forge_version}-{self.parent_version_id}"]
+        self.possible_artifact_versions = [forge_version, f"{forge_version}"]
 
     def needed(self) -> bool:
 
