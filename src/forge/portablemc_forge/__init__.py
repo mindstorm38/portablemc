@@ -145,7 +145,7 @@ class ForgeVersionInstaller:
         self.version = ForgeVersion(context, forge_version, prefix=prefix)
 
         self.version_dir = self.version.context.get_version_dir(self.version.id)
-        self.installer_file = path.join(self.version_dir, "installer.jar")
+        self.installer_files = []
         self.dl = DownloadList()
         self.main_dir = None
         self.jvm_exec = None
@@ -182,9 +182,12 @@ class ForgeVersionInstaller:
         if not path.samefile(self.main_dir, path.dirname(self.version.context.libraries_dir)):
             raise ForgeInvalidMainDirectory()
 
+        i = 0
         for possible_version in self.possible_artifact_versions:
             installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{possible_version}/forge-{possible_version}-installer.jar"
-            self.dl.append(DownloadEntry(installer_url, self.installer_file, name=f"installer:{possible_version}"))
+            self.installer_files.append(path.join(self.version_dir, f"installer-{possible_version}.jar"))
+            self.dl.append(DownloadEntry(installer_url, self.installer_files[i], name=f"installer:{possible_version}"))
+            i += 1
 
         parent_version = Version(self.version.context, self.parent_version_id)
         parent_version.dl = self.dl
@@ -195,19 +198,13 @@ class ForgeVersionInstaller:
             parent_version.prepare_jvm()
             self.jvm_exec = parent_version.jvm_exec
 
-    def download(self):
-
-        if self.main_dir is None:
-            raise ValueError()
-
-        self.check_download(self.dl.download_files())
-
     def check_download(self, report: DownloadReport):
 
         installer_fails_count = 0
+        i = 0
         for entry, entry_fail in report.fails.items():
-            if entry.dst == self.installer_file:
-                installer_fails_count += 1
+            installer_fails_count += 1
+            i += 1
 
         if installer_fails_count == len(self.possible_artifact_versions):
             raise ForgeVersionNotFound(ForgeVersionNotFound.INSTALLER_NOT_FOUND, self.version.forge_version)
@@ -220,17 +217,21 @@ class ForgeVersionInstaller:
             raise ValueError()
 
         wrapper_jar_file = path.join(path.dirname(__file__), "wrapper", "target", "wrapper.jar")
-        wrapper_completed = subprocess.run([
-            self.jvm_exec,
-            "-cp", path.pathsep.join([wrapper_jar_file, self.installer_file]),
-            "portablemc.wrapper.Main",
-            self.main_dir,
-            self.version.id
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        os.remove(self.installer_file)
+        for installer in self.installer_files:
+            if os.path.isfile(installer):
+                wrapper_completed = subprocess.run([
+                    self.jvm_exec,
+                    "-cp", path.pathsep.join([wrapper_jar_file, installer]),
+                    "portablemc.wrapper.Main",
+                    self.main_dir,
+                    self.version.id
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                #if os.path.isfile(installer): os.remove(installer)
+                #break
 
-        if wrapper_completed.returncode != 0:
-            raise ForgeInstallerFailed(wrapper_completed.returncode)
+        if wrapper_completed.returncode:
+            if wrapper_completed.returncode != 0:
+                raise ForgeInstallerFailed(wrapper_completed.returncode)
 
 
 # Forge API
