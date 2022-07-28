@@ -33,6 +33,9 @@ def load():
             sys.exit(pmc.EXIT_FAILURE)
         except ForgeInstallerFailed as err:
             pmc.print_task("FAILED", f"start.forge.error.installer_{err.return_code}", done=True)
+            print("===================")
+            print(err.output)
+            print("===================")
             sys.exit(pmc.EXIT_FAILURE)
         except ForgeVersionNotFound as err:
             pmc.print_task("FAILED", f"start.forge.error.{err.code}", {"version": err.version}, done=True)
@@ -40,8 +43,6 @@ def load():
 
     @pmc.mixin()
     def new_version(old, ctx: CliContext, version_id: str) -> Version:
-
-        # TODO: Return a real sub-class of Version just for handling Forge.
 
         if version_id.startswith("forge:"):
 
@@ -107,6 +108,10 @@ def load():
         "start.forge.consider_support": "Consider supporting the forge project through https://www.patreon.com/LexManos/.",
         "start.forge.error.invalid_main_dir": "The main directory cannot be determined, because version directory "
                                               "and libraries directory must have the same parent directory.",
+        "start.forge.error.installer_1": "Invalid command to start forge installer wrapper (should not happen, contact "
+                                         "maintainers, this can also happen if the installer fails).",
+        "start.forge.error.installer_2": "Invalid main directory to start forge installer wrapper (should not happen, "
+                                         "contact maintainers).",
         "start.forge.error.installer_3": "This forge installer is currently not supported.",
         "start.forge.error.installer_4": "This forge installer is missing something to run (internal).",
         "start.forge.error.installer_5": "This forge installer failed to install forge (internal).",
@@ -182,9 +187,15 @@ class ForgeVersionInstaller:
         if not path.samefile(self.main_dir, path.dirname(self.version.context.libraries_dir)):
             raise ForgeInvalidMainDirectory()
 
+        last_dl_entry = None
         for possible_version in self.possible_artifact_versions:
             installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{possible_version}/forge-{possible_version}-installer.jar"
-            self.dl.append(DownloadEntry(installer_url, self.installer_file, name=f"installer:{possible_version}"))
+            possible_entry = DownloadEntry(installer_url, self.installer_file, name=f"installer:{possible_version}")
+            if last_dl_entry is None:
+                last_dl_entry = possible_entry
+                self.dl.append(possible_entry)
+            else:
+                last_dl_entry.add_fallback(possible_entry)
 
         parent_version = Version(self.version.context, self.parent_version_id)
         parent_version.dl = self.dl
@@ -226,11 +237,11 @@ class ForgeVersionInstaller:
             "portablemc.wrapper.Main",
             self.main_dir,
             self.version.id
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         os.remove(self.installer_file)
 
         if wrapper_completed.returncode != 0:
-            raise ForgeInstallerFailed(wrapper_completed.returncode)
+            raise ForgeInstallerFailed(wrapper_completed.returncode, wrapper_completed.stdout.decode("utf-8"))
 
 
 # Forge API
@@ -271,8 +282,9 @@ class ForgeInvalidMainDirectory(Exception):
 
 
 class ForgeInstallerFailed(Exception):
-    def __init__(self, return_code: int):
+    def __init__(self, return_code: int, output: str):
         self.return_code = return_code
+        self.output = output
 
 
 class ForgeVersionNotFound(BaseError):

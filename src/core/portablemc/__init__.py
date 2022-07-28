@@ -1256,7 +1256,13 @@ class AuthDatabase:
 
 class DownloadEntry:
 
-    __slots__ = "url", "size", "sha1", "dst", "name"
+    """
+    An entry to download later in a `DownloadList`.
+    **This object should not be modified after being added to a list.**
+    *Fallbacks and name can however be modified after insertion.*
+    """
+
+    __slots__ = "url", "size", "sha1", "dst", "name", "fallbacks"
 
     def __init__(self, url: str, dst: str, *, size: Optional[int] = None, sha1: Optional[str] = None, name: Optional[str] = None):
         self.url = url
@@ -1264,6 +1270,13 @@ class DownloadEntry:
         self.size = size
         self.sha1 = sha1
         self.name = url if name is None else name
+        self.fallbacks: Optional[list] = None
+
+    def add_fallback(self, fallback: 'DownloadEntry'):
+        if self.fallbacks is None:
+            self.fallbacks = [fallback]
+        else:
+            self.fallbacks.append(fallback)
 
     @classmethod
     def from_meta(cls, info: dict, dst: str, *, name: Optional[str] = None) -> 'DownloadEntry':
@@ -1304,7 +1317,7 @@ class DownloadList:
     def append(self, entry: DownloadEntry):
         url_parsed = url_parse.urlparse(entry.url)
         if url_parsed.scheme not in ("http", "https"):
-            raise ValueError("Illegal URL scheme for HTTP connection.")
+            raise ValueError(f"Illegal URL scheme '{url_parsed.scheme}://' for HTTP connection.")
         host_key = f"{int(url_parsed.scheme == 'https')}{url_parsed.netloc}"
         entries = self.entries.get(host_key)
         if entries is None:
@@ -1315,12 +1328,14 @@ class DownloadList:
             self.size += entry.size
 
     def reset(self):
+        """ Clear the whole download list (entries, callbacks, total count and size). """
         self.entries.clear()
         self.callbacks.clear()
         self.count = 0
         self.size = 0
 
     def add_callback(self, callback: Callable[[], None]):
+        """ Add a function that will be called anyway at the end of the actual download. """
         self.callbacks.append(callback)
 
     def download_files(self, *, progress_callback: 'Optional[Callable[[DownloadProgress], None]]' = None) -> DownloadReport:
@@ -1345,13 +1360,15 @@ class DownloadList:
                 progress = None
                 entry_progress = None
 
+            # Maximum tries count or a single entry.
+            max_try_count = 3
+
             # Internal utility to allow iterating over redirections.
             def download_internal(current_dl: DownloadList, next_dl: DownloadList):
 
                 nonlocal total_size, buffer, progress_callback, progress, report
 
                 headers = {}
-                max_try_count = 3
                 for host, entries in current_dl.entries.items():
 
                     conn_type = HTTPSConnection if (host[0] == "1") else HTTPConnection
@@ -1436,20 +1453,28 @@ class DownloadList:
                                 total_size -= size
 
                             else:
-                                # If the break was not triggered, an error should be set.
-                                report.fails[entry] = error
+                                # This for-else branch is only triggered when break is not triggered.
+                                if entry.fallbacks is not None and len(entry.fallbacks):
+                                    # If there are fallbacks, don't set the error and go to them.
+                                    for fallback_entry in entry.fallbacks:
+                                        next_dl.append(fallback_entry)
+                                else:
+                                    # If the break was not triggered, an error should be set.
+                                    report.fails[entry] = error
 
                     finally:
                         conn.close()
 
+            # The following block is calling 'download_internal', it's used for taking
+            # redirections into account.
             current_dl0 = self
             redirect_depth = 0
             while current_dl0.count:
                 if redirect_depth == 5:
                     # When too many redirects, set fail reason for each entry.
-                    for entries in current_dl0.entries.values():
-                        for entry in entries:
-                            report.fails[entry] = DownloadReport.TOO_MANY_REDIRECTIONS
+                    for failed_entries in current_dl0.entries.values():
+                        for failed_entry in failed_entries:
+                            report.fails[failed_entry] = DownloadReport.TOO_MANY_REDIRECTIONS
                     break
                 next_list0 = DownloadList()
                 download_internal(current_dl0, next_list0)
