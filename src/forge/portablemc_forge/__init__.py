@@ -146,6 +146,7 @@ class ForgeVersionInstaller:
 
         self.version_dir = self.version.context.get_version_dir(self.version.id)
         self.dl = DownloadList()
+        self.installer_dsts = []
         self.main_dir = None
         self.jvm_exec = None
 
@@ -185,6 +186,7 @@ class ForgeVersionInstaller:
             installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{possible_version}/forge-{possible_version}-installer.jar"
             installer_path = path.join(self.version_dir, f"installer-{possible_version}.jar")
             self.dl.append(DownloadEntry(installer_url, installer_path, name=f"installer:{possible_version}"))
+            self.installer_dsts.append(installer_path)
 
         parent_version = Version(self.version.context, self.parent_version_id)
         parent_version.dl = self.dl
@@ -206,7 +208,7 @@ class ForgeVersionInstaller:
 
         installer_fails_count = 0
         for entry, entry_fail in report.fails.items():
-            if entry.dst == self.installer_file:
+            if entry.dst in self.installer_dsts:
                 installer_fails_count += 1
 
         if installer_fails_count == len(self.possible_artifact_versions):
@@ -220,7 +222,7 @@ class ForgeVersionInstaller:
             raise ValueError()
 
         wrapper_jar_file = path.join(path.dirname(__file__), "wrapper", "target", "wrapper.jar")
-        for installer in self.installer_files:
+        for installer in self.installer_dsts:
             if os.path.isfile(installer):
                 wrapper_completed = subprocess.run([
                     self.jvm_exec,
