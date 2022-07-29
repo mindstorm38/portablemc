@@ -145,7 +145,6 @@ class ForgeVersionInstaller:
         self.version = ForgeVersion(context, forge_version, prefix=prefix)
 
         self.version_dir = self.version.context.get_version_dir(self.version.id)
-        self.installer_files = []
         self.dl = DownloadList()
         self.main_dir = None
         self.jvm_exec = None
@@ -184,8 +183,8 @@ class ForgeVersionInstaller:
 
         for possible_version in self.possible_artifact_versions:
             installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{possible_version}/forge-{possible_version}-installer.jar"
-            installer_path = path.join(self.version_dir, f"installer-{possible_version}.jar"))
-            self.dl.append(DownloadEntry(installer_url, installer_url, name=f"installer:{possible_version}"))
+            installer_path = path.join(self.version_dir, f"installer-{possible_version}.jar")
+            self.dl.append(DownloadEntry(installer_url, installer_path, name=f"installer:{possible_version}"))
 
         parent_version = Version(self.version.context, self.parent_version_id)
         parent_version.dl = self.dl
@@ -195,14 +194,13 @@ class ForgeVersionInstaller:
         if self.jvm_exec is None:
             parent_version.prepare_jvm()
             self.jvm_exec = parent_version.jvm_exec
-            
+
     def download(self):
 
         if self.main_dir is None:
             raise ValueError()
 
         self.check_download(self.dl.download_files())
-
 
     def check_download(self, report: DownloadReport):
 
@@ -231,8 +229,6 @@ class ForgeVersionInstaller:
                     self.main_dir,
                     self.version.id
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                #if os.path.isfile(installer): os.remove(installer)
-                #break
 
         if wrapper_completed.returncode and wrapper_completed.returncode != 0:
             raise ForgeInstallerFailed(wrapper_completed.returncode)
