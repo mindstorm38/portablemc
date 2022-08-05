@@ -75,6 +75,10 @@ def load():
                         break
 
             if forge_version is None:
+                # If the game version came from an alias, we know for sure that no forge
+                # version is currently supporting the latest release/snapshot.
+                if game_version_alias:
+                    raise ForgeVersionNotFound(ForgeVersionNotFound.MINECRAFT_VERSION_NOT_SUPPORTED, game_version)
                 # Test if the user has given the full forge version
                 forge_version = game_version
 
@@ -118,6 +122,8 @@ def load():
         f"start.forge.error.{ForgeVersionNotFound.INSTALLER_NOT_FOUND}": "No installer found for forge {version}.",
         f"start.forge.error.{ForgeVersionNotFound.MINECRAFT_VERSION_NOT_FOUND}": "Parent Minecraft version not found "
                                                                                  "{version}.",
+        f"start.forge.error.{ForgeVersionNotFound.MINECRAFT_VERSION_NOT_SUPPORTED}": "Minecraft version {version} is not "
+                                                                                     "currently supported by forge."
     })
 
 
@@ -292,6 +298,7 @@ class ForgeVersionNotFound(BaseError):
     NOT_INSTALLED = "not_installed"
     INSTALLER_NOT_FOUND = "installer_not_found"
     MINECRAFT_VERSION_NOT_FOUND = "minecraft_version_not_found"
+    MINECRAFT_VERSION_NOT_SUPPORTED = "minecraft_version_not_supported"
 
     def __init__(self, code: str, version: str):
         super().__init__(code)
