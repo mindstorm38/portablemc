@@ -224,12 +224,7 @@ class ForgeVersionInstaller:
         installer_fails_count = 0
         for entry, entry_fail in report.fails.items():
             if entry.dst == self.installer_file:
-                installer_fails_count += 1
-
-        if installer_fails_count == len(self.possible_artifact_versions):
-            raise ForgeVersionNotFound(ForgeVersionNotFound.INSTALLER_NOT_FOUND, self.version.forge_version)
-        elif installer_fails_count != len(report.fails):
-            raise ForgeVersionNotFound(ForgeVersionNotFound.MINECRAFT_VERSION_NOT_FOUND, self.version.forge_version)
+                raise ForgeVersionNotFound(ForgeVersionNotFound.INSTALLER_NOT_FOUND, self.version.forge_version)
 
     def install(self):
 
@@ -297,7 +292,7 @@ class ForgeVersionNotFound(BaseError):
 
     NOT_INSTALLED = "not_installed"
     INSTALLER_NOT_FOUND = "installer_not_found"
-    MINECRAFT_VERSION_NOT_FOUND = "minecraft_version_not_found"
+    MINECRAFT_VERSION_NOT_FOUND = "minecraft_version_not_found"  # DEPRECATED
     MINECRAFT_VERSION_NOT_SUPPORTED = "minecraft_version_not_supported"
 
     def __init__(self, code: str, version: str):
