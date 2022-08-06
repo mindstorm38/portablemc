@@ -468,8 +468,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         else:
             if ns.microsoft:
                 print_task("WARN", "auth.microsoft_requires_email", done=True)
-            start_opts.uuid = ns.uuid
-            start_opts.username = ns.username
+            start_opts.auth_session = OfflineAuthSession(ns.username, ns.uuid)
 
         print_task("", "start.starting")
 
