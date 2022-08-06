@@ -42,7 +42,7 @@ import re
 __all__ = [
     "LAUNCHER_NAME", "LAUNCHER_VERSION", "LAUNCHER_AUTHORS", "LAUNCHER_COPYRIGHT", "LAUNCHER_URL",
     "Context", "Version", "StartOptions", "Start", "VersionManifest",
-    "AuthSession", "YggdrasilAuthSession", "MicrosoftAuthSession", "AuthDatabase",
+    "AuthSession", "OfflineAuthSession", "YggdrasilAuthSession", "MicrosoftAuthSession", "AuthDatabase",
     "DownloadEntry", "DownloadList", "DownloadProgress", "DownloadEntryProgress",
     "BaseError", "JsonRequestError", "AuthError", "VersionManifestError", "VersionError", "JvmLoadingError",
         "DownloadReport",
