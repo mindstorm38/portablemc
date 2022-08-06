@@ -38,3 +38,19 @@ def test_install(tmp_path, version):
 
     start = Start(ver)
     start.prepare(StartOptions())
+
+    repl = start.args_replacements
+
+    assert repl["version_name"] == version
+    assert repl["library_directory"] == str(tmp_path / "libraries")
+    assert repl["game_directory"] == str(tmp_path)
+    assert repl["assets_root"] == str(tmp_path / "assets")
+
+    # Because we are in offline mode:
+    assert not len(repl["auth_access_token"])
+    assert not len(repl["auth_xuid"])
+    assert not len(repl["clientid"])
+    assert not len(repl["user_type"])
+    assert not len(repl["auth_session"])
+
+    assert repl["launcher_name"] == "portablemc"
