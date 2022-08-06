@@ -220,8 +220,6 @@ class ForgeVersionInstaller:
         self.check_download(self.dl.download_files())
 
     def check_download(self, report: DownloadReport):
-
-        installer_fails_count = 0
         for entry, entry_fail in report.fails.items():
             if entry.dst == self.installer_file:
                 raise ForgeVersionNotFound(ForgeVersionNotFound.INSTALLER_NOT_FOUND, self.version.forge_version)
