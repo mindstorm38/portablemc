@@ -135,7 +135,7 @@ Since Minecraft 1.6 we can start the game and automatically connect to a server.
 to specify its port, by default to 25565.
 
 ### LWJGL version and ARM support
-With `--lwjgl {3.2.3,3.3.0}` you can update the LWJGL version used when starting the game. This can be used to support
+With `--lwjgl {3.2.3,3.3.0,3.3.1}` you can update the LWJGL version used when starting the game. This can be used to support
 ARM architectures, but this may only work with modern versions which are already using LWJGL 3. This argument works by 
 dynamically rewriting the version's metadata, the new metadata is dumped in the version directory. Using these versions 
 on ARM is unstable and can show you an error with `GLXBadFBConfig`, in such cases you should export the following 
