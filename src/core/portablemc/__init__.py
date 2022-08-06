@@ -560,8 +560,8 @@ class StartOptions:
 
     def __init__(self):
         self.auth_session: Optional[AuthSession] = None
-        self.uuid: Optional[str] = None
-        self.username: Optional[str] = None
+        self.uuid: Optional[str] = None      # DEPRECATED, use OfflineAuthSession or 'with_offline'
+        self.username: Optional[str] = None  # DEPRECATED, use OfflineAuthSession or 'with_offline'
         self.demo: bool = False
         self.resolution: Optional[Tuple[int, int]] = None
         self.disable_multiplayer: bool = False
@@ -581,8 +581,7 @@ class StartOptions:
     @classmethod
     def with_offline(cls, username: Optional[str], uuid: Optional[str]) -> 'StartOptions':
         opts = StartOptions()
-        opts.username = username
-        opts.uuid = uuid
+        opts.auth_session = OfflineAuthSession(uuid, username)
         return opts
 
 
@@ -647,22 +646,10 @@ class Start:
             **opts.features
         }
 
-        # Auth
-        if opts.auth_session is not None:
-            uuid = opts.auth_session.uuid
-            username = opts.auth_session.username
-        else:
-            namespace_hash = UUID("8df5a464-38de-11ec-aa66-3fd636ee2ed7")
-            uuid_valid = opts.uuid is not None and len(opts.uuid) == 32
-            if uuid_valid:
-                uuid = opts.uuid
-                username = uuid[:8] if opts.username is None else opts.username[:16]
-            elif opts.username is None:
-                uuid = uuid5(namespace_hash, platform.node()).hex
-                username = uuid[:8]
-            else:
-                username = opts.username[:16]
-                uuid = uuid5(namespace_hash, username).hex
+        # Auth (we fallback to OfflineAuthSession and deprecated 'opts.username' and 'opts.uuid' if not set)
+        auth_session = OfflineAuthSession(opts.username, opts.uuid) if opts.auth_session is None else opts.auth_session
+        uuid = auth_session.uuid
+        username = auth_session.username
 
         # Arguments replacements
         self.args_replacements = {
@@ -674,13 +661,13 @@ class Start:
             "assets_root": self.version.context.assets_dir,
             "assets_index_name": self.version.assets_index_version,
             "auth_uuid": uuid,
-            "auth_access_token": "" if opts.auth_session is None else opts.auth_session.format_token_argument(False),
-            "auth_xuid": "" if opts.auth_session is None else opts.auth_session.get_xuid(),
-            "clientid": "" if opts.auth_session is None else opts.auth_session.client_id,
-            "user_type": "" if opts.auth_session is None else opts.auth_session.user_type,
+            "auth_access_token": auth_session.format_token_argument(False),
+            "auth_xuid": auth_session.get_xuid(),
+            "clientid": auth_session.client_id,
+            "user_type": auth_session.user_type,
             "version_type": self.version.version_meta.get("type", ""),
             # Game (legacy)
-            "auth_session": "" if opts.auth_session is None else opts.auth_session.format_token_argument(True),
+            "auth_session": auth_session.format_token_argument(True),
             "game_assets": self.version.assets_virtual_dir,
             "user_properties": "{}",
             # JVM
@@ -909,6 +896,30 @@ class AuthSession:
 
     def invalidate(self):
         pass
+
+
+class OfflineAuthSession(AuthSession):
+
+    type = "offline"
+    user_type = ""
+
+    def __init__(self, username: Optional[str], uuid: Optional[str]):
+        super().__init__()
+        if uuid is not None and len(uuid) == 32:
+            # If the UUID is already valid.
+            self.uuid = uuid
+            self.username = uuid[:8] if username is None else username[:16]
+        else:
+            namespace_hash = UUID("8df5a464-38de-11ec-aa66-3fd636ee2ed7")
+            if username is None:
+                self.uuid = uuid5(namespace_hash, platform.node()).hex
+                self.username = self.uuid[:8]
+            else:
+                self.username = username[:16]
+                self.uuid = uuid5(namespace_hash, self.username).hex
+
+    def format_token_argument(self, legacy: bool) -> str:
+        return ""
 
 
 class YggdrasilAuthSession(AuthSession):
