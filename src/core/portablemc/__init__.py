@@ -713,7 +713,15 @@ class Start:
 
         # Game arguments
         if modern_game_args is None:
+            # If no modern arguments were found, we try finding legacy game arguments.
             self.game_args.extend(self.version.version_meta.get("minecraftArguments", "").split(" "))
+            # If the resolution is set but we are using legacy arguments, we
+            # manually add resolution arguments to the game args.
+            if opts.resolution is not None:
+                self.game_args.extend([
+                    "--width", str(opts.resolution[0]),
+                    "--height", str(opts.resolution[1]),
+                ])
         else:
             interpret_args(modern_game_args, features, self.game_args)
 
