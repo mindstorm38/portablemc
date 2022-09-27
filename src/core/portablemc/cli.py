@@ -1100,7 +1100,7 @@ messages = {
     "args.start.disable_multiplayer": "Disable the multiplayer buttons (>= 1.16).",
     "args.start.disable_chat": "Disable the online chat (>= 1.16).",
     "args.start.demo": "Start game in demo mode.",
-    "args.start.resol": "Set a custom start resolution (<width>x<height>).",
+    "args.start.resol": "Set a custom start resolution (<width>x<height>, >= 1.6).",
     "args.start.jvm": "Set a custom JVM 'javaw' executable path. If this argument is omitted a public build "
                       "of a JVM is downloaded from Mojang services.",
     "args.start.jvm_args": "Change the default JVM arguments.",
