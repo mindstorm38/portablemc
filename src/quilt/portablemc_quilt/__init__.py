@@ -5,9 +5,9 @@ import sys
 from portablemc import Version, BaseError, Context, JsonRequestError, json_simple_request
 
 
-FABRIC_META_URL = "https://meta.quiltmc.org/{}"
-FABRIC_VERSIONS_LOADER = "v3/versions/loader/{}"
-FABRIC_VERSIONS_LOADER_PROFILE = "v3/versions/loader/{}/{}/profile/json"
+QUILT_META_URL = "https://meta.quiltmc.org/{}"
+QUILT_VERSIONS_LOADER = "v3/versions/loader/{}"
+QUILT_VERSIONS_LOADER_PROFILE = "v3/versions/loader/{}/{}/profile/json"
 
 
 def load():
@@ -20,18 +20,18 @@ def load():
     @pmc.mixin()
     def register_start_arguments(old, parser: ArgumentParser):
         _ = pmc.get_message
-        parser.add_argument("--fabric-prefix", help=_("args.start.fabric_prefix"), default="fabric", metavar="PREFIX")
+        parser.add_argument("--quilt-prefix", help=_("args.start.quilt_prefix"), default="quilt", metavar="PREFIX")
         old(parser)
 
     @pmc.mixin()
     def cmd_start(old, ns: Namespace, ctx: CliContext):
         try:
             return old(ns, ctx)
-        except FabricInvalidFormatError:
-            pmc.print_task("FAILED", "start.fabric.error.invalid_format", done=True)
+        except QuiltInvalidFormatError:
+            pmc.print_task("FAILED", "start.quilt.error.invalid_format", done=True)
             sys.exit(pmc.EXIT_WRONG_USAGE)
-        except FabricVersionNotFound as err:
-            pmc.print_task("FAILED", f"start.fabric.error.{err.code}", {"version": err.version}, done=True)
+        except QuiltVersionNotFound as err:
+            pmc.print_task("FAILED", f"start.quilt.error.{err.code}", {"version": err.version}, done=True)
             sys.exit(pmc.EXIT_VERSION_NOT_FOUND)
 
     @pmc.mixin()
@@ -41,7 +41,7 @@ def load():
 
             version_split = version_id.split(":")
             if len(version_split) > 3:
-                raise FabricInvalidFormatError()
+                raise QuiltInvalidFormatError()
 
             game_version = version_split[1]
             loader_version = version_split[2] if len(version_split) == 3 else None
@@ -50,22 +50,22 @@ def load():
                 game_version = "release"
 
             if loader_version is not None and not len(loader_version):
-                raise FabricInvalidFormatError()
+                raise QuiltInvalidFormatError()
 
             manifest = pmc.new_version_manifest(ctx)
             game_version, _game_version_alias = manifest.filter_latest(game_version)
 
             if loader_version is None:
-                pmc.print_task("OK", "start.fabric.resolving_loader", {
+                pmc.print_task("OK", "start.quilt.resolving_loader", {
                     "game_version": game_version
                 }, done=True)
             else:
-                pmc.print_task("OK", "start.fabric.resolving_loader_specific", {
+                pmc.print_task("OK", "start.quilt.resolving_loader_specific", {
                     "loader_version": loader_version,
                     "game_version": game_version
                 }, done=True)
 
-            ver = FabricVersion(ctx, game_version, loader_version, prefix=ctx.ns.fabric_prefix)
+            ver = QuiltVersion(ctx, game_version, loader_version, prefix=ctx.ns.fabric_prefix)
             ver.manifest = manifest
             return ver
 
@@ -74,21 +74,21 @@ def load():
     # Messages
 
     pmc.messages.update({
-        "args.start.fabric_prefix": "Change the prefix of the version ID when starting with Fabric.",
-        "start.fabric.resolving_loader": "Resolving fabric loader for {game_version}...",
-        "start.fabric.resolving_loader_specific": "Resolving fabric loader {loader_version} for {game_version}...",
-        "start.fabric.error.invalid_format": "To launch fabric, use 'fabric:[<mc-version>[:<loader-version>]]'.",
-        f"start.fabric.error.{FabricVersionNotFound.GAME_VERSION_NOT_FOUND}": "Game version {version} not found.",
-        f"start.fabric.error.{FabricVersionNotFound.LOADER_VERSION_NOT_FOUND}": "Loader version {version} not found."
+        "args.start.quilt_prefix": "Change the prefix of the version ID when starting with Quilt.",
+        "start.quilt.resolving_loader": "Resolving quilt loader for {game_version}...",
+        "start.quilt.resolving_loader_specific": "Resolving quilt loader {loader_version} for {game_version}...",
+        "start.quilt.error.invalid_format": "To launch quilt, use 'quilt:[<mc-version>[:<loader-version>]]'.",
+        f"start.quilt.error.{QuiltVersionNotFound.GAME_VERSION_NOT_FOUND}": "Game version {version} not found.",
+        f"start.quilt.error.{QuiltVersionNotFound.LOADER_VERSION_NOT_FOUND}": "Loader version {version} not found."
     })
 
 
-class FabricVersion(Version):
+class QuiltVersion(Version):
 
     def __init__(self, context: Context, game_version: str, loader_version: Optional[str], *, prefix: str = "fabric"):
 
         """
-        Construct a new fabric version, such version are specified by a game version and an optional loader-version,
+        Construct a new quilt version, such version are specified by a game version and an optional loader-version,
         if loader-version is not specified, the latest version is used and fetched when first calling `prepare_meta`.
         """
 
@@ -100,7 +100,7 @@ class FabricVersion(Version):
         self.game_version = game_version
         self.loader_version = loader_version
 
-    # The function 'prepare_meta' might throw 'FabricVersionNotFound' either
+    # The function 'prepare_meta' might throw 'QuiltVersionNotFound' either
     # '_prepare_id' or from the inner calls to '_fetch_version_meta'.
 
     def _prepare_id(self):
@@ -123,38 +123,38 @@ class FabricVersion(Version):
         return request_version_loader_profile(self.game_version, self.loader_version)
 
 
-# FabricMC API
+# QuiltMC API
 
 def request_meta(method: str) -> dict:
-    return json_simple_request(FABRIC_META_URL.format(method))
+    return json_simple_request(QUILT_META_URL.format(method))
 
 
 def request_loader_version(game_version: str) -> str:
     try:
-        ret = request_meta(FABRIC_VERSIONS_LOADER.format(game_version))[0].get("loader", {}).get("version")
+        ret = request_meta(QUILT_VERSIONS_LOADER.format(game_version))[0].get("loader", {}).get("version")
     except (JsonRequestError, IndexError):
         ret = None
     if ret is None:
-        raise FabricVersionNotFound(FabricVersionNotFound.GAME_VERSION_NOT_FOUND, game_version)
+        raise QuiltVersionNotFound(QuiltVersionNotFound.GAME_VERSION_NOT_FOUND, game_version)
     return ret
 
 
 def request_version_loader_profile(game_version: str, loader_version: str) -> dict:
     try:
-        return request_meta(FABRIC_VERSIONS_LOADER_PROFILE.format(game_version, loader_version))
+        return request_meta(QUILT_VERSIONS_LOADER_PROFILE.format(game_version, loader_version))
     except JsonRequestError as err:
         if b"no mappings" in err.data:
-            raise FabricVersionNotFound(FabricVersionNotFound.GAME_VERSION_NOT_FOUND, game_version)
-        raise FabricVersionNotFound(FabricVersionNotFound.LOADER_VERSION_NOT_FOUND, loader_version)
+            raise QuiltVersionNotFound(QuiltVersionNotFound.GAME_VERSION_NOT_FOUND, game_version)
+        raise QuiltVersionNotFound(QuiltVersionNotFound.LOADER_VERSION_NOT_FOUND, loader_version)
 
 
 # Errors
 
-class FabricInvalidFormatError(Exception):
+class QuiltInvalidFormatError(Exception):
     pass
 
 
-class FabricVersionNotFound(BaseError):
+class QuiltVersionNotFound(BaseError):
 
     GAME_VERSION_NOT_FOUND = "game_version_not_found"
     LOADER_VERSION_NOT_FOUND = "loader_version_not_found"
