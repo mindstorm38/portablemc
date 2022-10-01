@@ -8,7 +8,7 @@ addons, official ones can be found below.
 
 ### [Install now!](#installation)
 
-#### ***[Fabric](/src/fabric/README.md) and [Forge](/src/forge/README.md) addons***
+#### ***[Fabric](/src/fabric/README.md), [Forge](/src/forge/README.md) and [Quilt](/src/quilt/README.md) addons***
 
 ![illustration](doc/assets/illustration.png)
 
@@ -183,6 +183,7 @@ The following official add-ons are supported and maintained, since version 3.0.0
 in the following pages:
 - [Fabric ⇗](/src/fabric/README.md)
 - [Forge ⇗](/src/forge/README.md)
+- [Quilt ⇗](/src/quilt/README.md)
 - [Console ⇗](/src/console/README.md)
 - [Archives ⇗](/src/archives/README.md)
 
