@@ -217,7 +217,7 @@ conda activate pmc
 # If poetry isn't installed, or outdated.
 # Note that this project requires poetry 1.2.0 or greater to allow dependency groups.
 # If this doesn't work, try to roll back to Poetry 1.2.0b1 which is the currently tested version.
-pip install poetry --upgrade --pre
+pip install poetry --upgrade
 # Then, go to the module you want to install in development mode, and then install it.
 cd src
 # Here we use the workspace script that is just a wrapper that launch a poetry command on all modules.
@@ -232,10 +232,10 @@ conda run -n pmc portablemc
 ```
 
 ## Contributors
-This launcher would not be as functional without the contributors, and in particular the following for their bug reports
-and suggestions to make the launcher better: 
+This launcher would not be as functional without the contributors, and in particular the following for their bug reports, suggestions and pull requests to make the launcher better: 
 [GoodDay360](https://github.com/GoodDay360), 
-[Ristovski](https://github.com/Ristovski) and
+[Ristovski](https://github.com/Ristovski),
+[MisileLaboratory](https://github.com/MisileLab) and
 [GooseDeveloper](https://github.com/GooseDeveloper).
 
 There must be a lot of hidden issues, if you want to contribute you just have to install and test the launcher, and

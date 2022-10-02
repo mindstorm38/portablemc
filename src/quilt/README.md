@@ -2,12 +2,11 @@
 The quilt add-on allows you to install and run Minecraft with quilt mod loader in a single command 
 line!
 
-<!-- not in pypi -->
-<!-- ![PyPI - Version](https://img.shields.io/pypi/v/portablemc-fabric?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc-fabric?label=PyPI%20downloads&style=flat-square)
+![PyPI - Version](https://img.shields.io/pypi/v/portablemc-quilt?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc-quilt?label=PyPI%20downloads&style=flat-square)
 
 ```console
-pip install --user portablemc-fabric
-``` -->
+pip install --user portablemc-quilt
+```
 
 ## Usage
 This add-on extends the syntax accepted by the [start](/README.md#start-the-game) sub-command, by 
