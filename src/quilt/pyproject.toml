@@ -1,0 +1,18 @@
+[build-system]
+requires = ["poetry_core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "portablemc-quilt"
+version = "1.0.0"
+description = "Start Minecraft using the Quilt mod loader using '<exec> start quilt:[<mc-version>[:<loader-version>]]'."
+authors = ["MisileLaboratory", "Théo Rozier <contact@theorozier.fr>"]
+license = "GPL-3.0-only"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+portablemc = "^3"
+python = ">=3.6"
+
+[tool.poetry.group.dev.dependencies]
+portablemc = { path = "../core/", develop = true }
