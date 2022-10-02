@@ -65,7 +65,7 @@ def load():
                     "game_version": game_version
                 }, done=True)
 
-            ver = QuiltVersion(ctx, game_version, loader_version, prefix=ctx.ns.fabric_prefix)
+            ver = QuiltVersion(ctx, game_version, loader_version, prefix=ctx.ns.quilt_prefix)
             ver.manifest = manifest
             return ver
 
@@ -85,7 +85,7 @@ def load():
 
 class QuiltVersion(Version):
 
-    def __init__(self, context: Context, game_version: str, loader_version: Optional[str], *, prefix: str = "fabric"):
+    def __init__(self, context: Context, game_version: str, loader_version: Optional[str], *, prefix: str = "quilt"):
 
         """
         Construct a new quilt version, such version are specified by a game version and an optional loader-version,
@@ -118,9 +118,9 @@ class QuiltVersion(Version):
             return super()._validate_version_meta(version_id, version_dir, version_meta_file, version_meta)
 
     def _fetch_version_meta(self, version_id: str, version_dir: str, version_meta_file: str) -> dict:
-        if version_id != self.id:
-            return super()._fetch_version_meta(version_id, version_dir, version_meta_file)
-        return request_version_loader_profile(self.game_version, self.loader_version)
+        meta = request_version_loader_profile(self.game_version, self.loader_version)
+        meta["id"] = self.id
+        return meta
 
 
 # QuiltMC API
