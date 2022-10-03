@@ -11,7 +11,7 @@ pip install --user portablemc-quilt
 ## Usage
 This add-on extends the syntax accepted by the [start](/README.md#start-the-game) sub-command, by 
 prepending the version with `quilt:`. Almost all releases since 1.14 are supported by quilt,
-you can find more information on [fabric website](https://fabricmc.net/develop/), note the snapshots
+you can find more information on [quilt website](https://github.com/QuiltMC/quilt-template-mod), note the snapshots
 are currently not supported by this addon, but this could be the case in the future because quilt
 provides support for them. You can also use version aliases like `release` or equivalent empty version 
 (just `quilt:`). This addon also provides a way of specifying the loader version, you just have to 
@@ -33,7 +33,7 @@ portablemc start quilt::0.14.8         # Start quilt loader 0.14.8 for the lates
 portablemc start --dry quilt:          # Install (and exit) the latest quilt loader version for latest release
 ```
 
-<!-- ![fabric animation](/doc/assets/fabricmc.gif)
+<!-- ![fabric animation](/doc/assets/fabricmc.gif) -->
 
 ## Credits
-- [Fabric Website](https://fabricmc.net/) -->
+- [Quilt Website](https://quiltmc.org)
