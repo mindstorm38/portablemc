@@ -1737,10 +1737,9 @@ def replace_list_vars(lst: List[str], replacements: Dict[str, str]) -> Generator
 def get_minecraft_dir() -> str:
     home = path.expanduser("~")
     return {
-        "Linux": path.join(home, ".minecraft"),
         "Windows": path.join(home, "AppData", "Roaming", ".minecraft"),
-        "Darwin": path.join(home, "Library", "Application Support", "minecraft")
-    }.get(platform.system())
+        "Darwin": path.join(home, "Library", "Application Support", "minecraft"),
+    }.get(platform.system(), path.join(home, ".minecraft"))
 
 
 _minecraft_os: Optional[str] = None
@@ -1748,7 +1747,12 @@ def get_minecraft_os() -> str:
     """ Return the current OS identifier used in rules matching, 'linux', 'windows', 'osx' and '' if not found. """
     global _minecraft_os
     if _minecraft_os is None:
-        _minecraft_os = {"Linux": "linux", "Windows": "windows", "Darwin": "osx"}.get(platform.system(), "")
+        _minecraft_os = {
+            "Linux": "linux", 
+            "Windows": "windows", 
+            "Darwin": "osx",
+            "FreeBSD": "freebsd"
+        }.get(platform.system(), "")
     return _minecraft_os
 
 
