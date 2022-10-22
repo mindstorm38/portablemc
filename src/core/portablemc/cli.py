@@ -1101,7 +1101,7 @@ messages = {
     "args.start.disable_chat": "Disable the online chat (>= 1.16).",
     "args.start.demo": "Start game in demo mode.",
     "args.start.resol": "Set a custom start resolution (<width>x<height>, >= 1.6).",
-    "args.start.jvm": "Set a custom JVM 'javaw' executable path. If this argument is omitted a public build "
+    "args.start.jvm": f"Set a custom JVM '{'javaw' if sys.platform == 'win32' else 'java'}' executable path. If this argument is omitted a public build "
                       "of a JVM is downloaded from Mojang services.",
     "args.start.jvm_args": "Change the default JVM arguments.",
     "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
