@@ -138,9 +138,12 @@ to specify its port, by default to 25565.
 ### LWJGL version and ARM support
 With `--lwjgl {3.2.3,3.3.0,3.3.1}` you can update the LWJGL version used when starting the game. This can be used to support
 ARM architectures, but this may only work with modern versions which are already using LWJGL 3. This argument works by 
-dynamically rewriting the version's metadata, the new metadata is dumped in the version directory. Using these versions 
-on ARM is unstable and can show you an error with `GLXBadFBConfig`, in such cases you should export the following 
-environment variable `export MESA_GL_VERSION_OVERRIDE=4.5` (more info [here](https://forum.winehq.org/viewtopic.php?f=8&t=34889)). 
+dynamically rewriting the version's metadata, the new metadata is dumped in the version directory.
+
+Using these versions on ARM is unstable and can show you an error with `GLXBadFBConfig`, in such cases you should export the following
+environment variable `export MESA_GL_VERSION_OVERRIDE=4.5` (more info [here](https://forum.winehq.org/viewtopic.php?f=8&t=34889)).
+
+In case with the above you still get an `error: GLSL 1.50 is not supported` you may also try `export MESA_GLSL_VERSION_OVERRIDE=150`.
 
 ### Miscellaneous
 With `--dry`, the game is prepared but not started.
