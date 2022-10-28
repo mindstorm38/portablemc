@@ -52,6 +52,7 @@ __all__ = [
     "interpret_rule_os", "interpret_rule", "interpret_args",
     "replace_vars", "replace_list_vars",
     "get_minecraft_dir", "get_minecraft_os", "get_minecraft_arch", "get_minecraft_archbits", "get_minecraft_jvm_os",
+    "get_jvm_bin_filename",
     "can_extract_native",
     "from_iso_date",
     # "calc_input_sha1",  TODO: To add in the future when stabilized
@@ -517,7 +518,7 @@ class Version:
                 json.dump(jvm_manifest, jvm_manifest_fp, indent=2)
 
         jvm_files = jvm_manifest["files"]
-        self.jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if sys.platform == "win32" else "java")
+        self.jvm_exec = path.join(jvm_dir, "bin", get_jvm_bin_filename())
         self.jvm_version = jvm_manifest.get("version", "unknown")
 
         jvm_exec_files = []
@@ -570,17 +571,17 @@ class StartOptions:
 
     def __init__(self):
         self.auth_session: Optional[AuthSession] = None
-        self.uuid: Optional[str] = None      # DEPRECATED, use OfflineAuthSession or 'with_offline'
-        self.username: Optional[str] = None  # DEPRECATED, use OfflineAuthSession or 'with_offline'
+        self.uuid: Optional[str] = None             # DEPRECATED, use OfflineAuthSession or 'with_offline'
+        self.username: Optional[str] = None         # DEPRECATED, use OfflineAuthSession or 'with_offline'
         self.demo: bool = False
         self.resolution: Optional[Tuple[int, int]] = None
         self.disable_multiplayer: bool = False
         self.disable_chat: bool = False
         self.server_address: Optional[str] = None
         self.server_port: Optional[int] = None
-        self.jvm_exec: Optional[str] = None
-        self.old_fix: bool = True  # For legacy merge sort and betacraft proxy
-        self.features: Dict[str, bool] = {}  # Additional features
+        self.jvm_exec: Optional[str] = None         # Overrides the version's jvm_exec
+        self.old_fix: bool = True                   # For legacy merge sort and betacraft proxy
+        self.features: Dict[str, bool] = {}         # Additional features
 
     @classmethod
     def with_online(cls, auth_session: 'AuthSession') -> 'StartOptions':
@@ -1843,10 +1844,14 @@ def get_minecraft_jvm_os() -> str:
     return _minecraft_jvm_os
 
 
+def get_jvm_bin_filename() -> str:
+    """ Return the JVM binary filename for the current platform, 'javaw' on windows and 'java' on others. """
+    return "javaw.exe" if platform.system() == "Windows" else "java"
+
+
 def can_extract_native(filename: str) -> bool:
     """ Return True if a file should be extracted to binaries directory. """
     return filename.endswith((".so", ".dll", ".dylib"))
-    # return not filename.startswith("META-INF") and not filename.endswith(".git") and not filename.endswith(".sha1")
 
 
 def from_iso_date(raw: str) -> datetime:

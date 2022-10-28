@@ -499,10 +499,19 @@ def cmd_start(ns: Namespace, ctx: CliContext):
                     }, done=True)
 
         if ns.jvm is None:
-            print_task("", "start.jvm.loading")
-            version.prepare_jvm()
-            print_task("OK", "start.jvm.loaded", {"version": version.jvm_version}, done=True)
+            try:
+                print_task("", "start.jvm.loading")
+                version.prepare_jvm()
+                print_task("OK", "start.jvm.loaded", {"version": version.jvm_version}, done=True)
+            except JvmLoadingError:
+                ns.jvm = shutil.which(get_jvm_bin_filename())
+                if ns.jvm is not None:
+                    print_task("OK", "start.jvm.system_fallback", {"path": ns.jvm})
+                else:
+                    # No fallback available, just raise to inform user.
+                    raise
 
+        # Only download if some downloads are needed.
         if version.dl.count and len(pretty_download(version.dl).fails):
             sys.exit(EXIT_DOWNLOAD_ERROR)
 
@@ -1166,7 +1175,7 @@ messages = {
     "args.start.disable_chat": "Disable the online chat (>= 1.16).",
     "args.start.demo": "Start game in demo mode.",
     "args.start.resol": "Set a custom start resolution (<width>x<height>, >= 1.6).",
-    "args.start.jvm": f"Set a custom JVM '{'javaw' if sys.platform == 'win32' else 'java'}' executable path. If this argument is omitted a public build "
+    "args.start.jvm": f"Set a custom JVM '{get_jvm_bin_filename()}' executable path. If this argument is omitted a public build "
                       "of a JVM is downloaded from Mojang services.",
     "args.start.jvm_args": "Change the default JVM arguments.",
     "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
@@ -1260,12 +1269,13 @@ messages = {
     "start.libraries.exclude.unused": "Library exclusion '{pattern}' didn't match a libary.",
     "start.libraries.exclude.usage": "Library exclusion '{pattern}' matched {count} libraries.",
     "start.jvm.loading": "Loading Java... ",
+    "start.jvm.system_fallback": "Loaded system Java at {path}.",
     "start.jvm.loaded": "Loaded Mojang Java {version}.",
     f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, "
         "use --jvm argument to manually set the path to your JVM executable.",
-    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc, "
+    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
         "use --jvm argument to manually set the path to your JVM executable.",
     "start.starting": "Starting the game...",
     "start.starting_info": "Username: {username} ({uuid})",
