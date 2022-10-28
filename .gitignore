@@ -1,4 +1,9 @@
 .idea
+
+# Ignore compiled python
 __pycache__
 /src/*/dist
+
+# Do not keep tests and coverage results
 .pytest_cache
+.coverage

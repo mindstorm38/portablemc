@@ -4,7 +4,7 @@ This launcher is compatible with the directory structure of the official Minecra
 It aims to be fast and reliable for all Minecraft versions in a stateless manner, it also supports
 addons, official ones can be found below.
 
-![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square) &nbsp;![GitHub downloads (legacy)](https://img.shields.io/github/downloads/mindstorm38/portablemc/total?label=Github%20downloads%20(legacy)&style=flat-square)
+![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square)
 
 ### [Install now!](#installation)
 
