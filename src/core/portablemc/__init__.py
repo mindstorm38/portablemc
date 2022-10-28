@@ -416,6 +416,8 @@ class Version:
                     continue
 
             lib_spec = LibrarySpecifier.from_str(lib_obj["name"])
+
+            # FIXME: Maybe we should test for this after the natives condition.
             if predicate is not None:
                 if not predicate(lib_spec):
                     continue

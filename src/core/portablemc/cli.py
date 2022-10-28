@@ -35,7 +35,6 @@ import time
 import sys
 
 from portablemc import *
-from portablemc import LibrarySpecifier
 
 
 __all__ = [
