@@ -21,8 +21,9 @@ addons, official ones can be found below.
     - [Authentication](#authentication)
     - [Offline mode](#offline-mode)
     - [Custom JVM](#custom-jvm)
-    - [Auto connect to a server](#auto-connect-to-a-server)
+    - [Server auto-connect](#server-auto-connect)
     - [LWJGL version and ARM support](#lwjgl-version-and-arm-support)
+    - [Fix unsupported systems](#fix-unsupported-systems)
     - [Miscellaneous](#miscellaneous)
   - [Search for versions](#search-for-versions)
   - [Authentication sessions](#authentication-sessions)
@@ -130,7 +131,7 @@ launcher starts the JVM with default arguments, these are the following and are 
 You can change these arguments using the `--jvm-args=<args>`, **please always quote your set of arguments**, this set must
 be one argument for PMC. For example `portablemc start "--jvm-args=-Xmx2G -XX:+UnlockExperimentalVMOptions"`.
 
-### Auto connect to a server
+### Server auto-connect
 Since Minecraft 1.6 we can start the game and automatically connect to a server. To do that you can use 
 `-s <addr>` (`--server`) for the server address (e.g. `mc.hypixel.net`) and the `-p` (`--server-port`) 
 to specify its port, by default to 25565.
@@ -144,6 +145,24 @@ Using these versions on ARM is unstable and can show you an error with `GLXBadFB
 environment variable `export MESA_GL_VERSION_OVERRIDE=4.5` (more info [here](https://forum.winehq.org/viewtopic.php?f=8&t=34889)).
 
 In case with the above you still get an `error: GLSL 1.50 is not supported` you may also try `export MESA_GLSL_VERSION_OVERRIDE=150`.
+
+### Fix unsupported systems
+Some Mojang provided natives (.so, .dll, .dylib) might not be compatible with your system.
+To mitigate that, the launcher provides two arguments, `--exclude-lib` and `--include-lib`
+that can be provided multiples times each.
+
+With `--exclude-lib <artifact>[:[<version>][:<classifier>]]` you can exclude libraries (.jar) from the game's classpath (and so of the downloads). If a classifier is given, it will match
+libs' classifiers that starts with itself, for example `lwjgl-glfw::natives` will match the
+library `lwjgl-glfw:3.3.1:natives-windows-x86`.
+
+With `--include-bin <bin-file>` you can dynamically include binary natives (.so, .dll, .dylib)
+to the runtime's bin directory (usually under `.minecraft/bin/<uuid>`). The binary will be symlinked into the directory, or copied if not possible (mostly on Windows). For shared objects
+files (.so) that contains version numbers in the filename, these are discarded in the bin directory, for example `/lib/libglfw.so.3 -> .minecraft/bin/<uuid>/libglfw.so`.
+
+These arguments can be used together to fix various issues (e.g. wrong libc being linked
+by the LWJGL-provided natives).
+
+*Note that these arguments are compatbile, and executed after the `--lwjgl` argument.*
 
 ### Miscellaneous
 With `--dry`, the game is prepared but not started.
