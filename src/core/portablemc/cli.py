@@ -321,6 +321,9 @@ class LibrarySpecifierFilter:
             and (self.version is None or self.version == spec.version) \
             and (self.classifier is None or self.classifier == spec.classifier)
 
+    def __str__(self) -> str:
+        return f"{self.artifact}:{self.version or ''}" + ("" if self.classifier is None else f":{self.classifier}")
+
 
 # Commands handlers
 
@@ -462,22 +465,38 @@ def cmd_start(ns: Namespace, ctx: CliContext):
                 version.dl.add_callback(_pretty_logger_finalize)
             print_task("OK", "start.logger.loaded_pretty", done=True)
 
-        print_task("", "start.libraries.loading")
-
         # Construct a predicate only if some libraries are excluded.
+        # We store filters associated to their matches, in order to
+        # inform the user of effectiveness of the arguments.
         libraries_predicate = None
+        exclude_filters = None
         if ns.exclude_lib is not None:
-            exclude_filters = ns.exclude_lib
+            # Map each filter to its usage count, with this 
+            exclude_filters = [(filter_, []) for filter_ in ns.exclude_lib]
             def _predicate(spec: "LibrarySpecifier") -> bool:
-                for exclude_filter in exclude_filters:
-                    if exclude_filter.matches(spec):
+                for filter_, filter_matches in exclude_filters:
+                    if filter_.matches(spec):
+                        filter_matches.append(spec)
                         return False
                 return True
             libraries_predicate = _predicate
         
+        print_task("", "start.libraries.loading")
         version.prepare_libraries(predicate=libraries_predicate)
         libs_count = len(version.classpath_libs) + len(version.native_libs)
         print_task("OK", "start.libraries.loaded", {"count": libs_count}, done=True)
+
+        if exclude_filters is not None:
+            for filter_, filter_matches in exclude_filters:
+                if not len(filter_matches):
+                    print_task(None, "start.libraries.exclude.unused", {
+                        "pattern": str(filter_)
+                    }, done=True)
+                else:
+                    print_task(None, "start.libraries.exclude.usage", {
+                        "pattern": str(filter_),
+                        "count": len(filter_matches)
+                    }, done=True)
 
         if ns.jvm is None:
             print_task("", "start.jvm.loading")
@@ -1238,6 +1257,8 @@ messages = {
     "start.logger.loaded_pretty": "Loaded pretty logger.",
     "start.libraries.loading": "Loading libraries... ",
     "start.libraries.loaded": "Loaded {count} libraries.",
+    "start.libraries.exclude.unused": "Library exclusion '{pattern}' didn't match a libary.",
+    "start.libraries.exclude.usage": "Library exclusion '{pattern}' matched {count} libraries.",
     "start.jvm.loading": "Loading Java... ",
     "start.jvm.loaded": "Loaded Mojang Java {version}.",
     f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
