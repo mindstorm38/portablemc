@@ -1200,8 +1200,8 @@ messages = {
     "args.start.microsoft": "Login using Microsoft account, to use with -l (--login).",
     "args.start.username": "Set a custom user name to play.",
     "args.start.uuid": "Set a custom user UUID to play.",
-    "args.start.server": "Start the game and auto-connect to this server address (since 1.6).",
-    "args.start.server_port": "Set the server address port (given with -s, --server, since 1.6).",
+    "args.start.server": "Start the game and auto-connect to this server address (>= 1.6).",
+    "args.start.server_port": "Set the server address port (given with -s, --server, >= 1.6).",
     # Args login
     "args.login": "Login into your account and save the session.",
     "args.login.microsoft": "Login using Microsoft account.",
