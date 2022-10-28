@@ -319,7 +319,7 @@ class LibrarySpecifierFilter:
     def matches(self, spec: "LibrarySpecifier") -> bool:
         return self.artifact == spec.artifact \
             and (self.version is None or self.version == spec.version) \
-            and (self.classifier is None or self.classifier == spec.classifier)
+            and (self.classifier is None or (spec.classifier or "").startswith(self.classifier))
 
     def __str__(self) -> str:
         return f"{self.artifact}:{self.version or ''}" + ("" if self.classifier is None else f":{self.classifier}")

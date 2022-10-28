@@ -1,5 +1,6 @@
 from portablemc import DownloadList, DownloadEntry, DownloadReport
 from os import path
+import pytest
 
 
 def test_download(tmp_path):
@@ -102,6 +103,9 @@ def test_download(tmp_path):
     dl.append(not_found_not_sacrificial)
     dl.append(conn_err_not_sacrificial)
 
+    with pytest.raises(ValueError):
+        dl.append(DownloadEntry("ssh://foo.bar", "foo"))
+
     report = dl.download_files()
 
     print(report.fails)
@@ -123,3 +127,5 @@ def test_download(tmp_path):
     assert not path.isfile(conn_err.dst)
     assert not path.isfile(sacrificial0.dst)
     assert not path.isfile(sacrificial1.dst)
+
+    dl.reset()
