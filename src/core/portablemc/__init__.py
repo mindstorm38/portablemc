@@ -477,9 +477,15 @@ class Version:
         This method can raise `JvmLoadingError` with `JvmLoadingError.UNSUPPORTED_ARCH` if Mojang does not provide
         a JVM for your current architecture, or `JvmLoadingError.UNSUPPORTED_VERSION` if the required JVM version is
         not provided by Mojang. It can also raise `JsonRequestError` when failing to get JSON files.\n
+        The error `JvmLoadingError.UNSUPPORTED_LIBC` can also be raised on non-glibc systems, because Mojang only
+        provides JVM linked to glibc.
         """
 
         self._check_version_meta()
+
+        if platform.system() == "Linux" and platform.libc_ver()[0] != "glibc":
+            raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_LIBC)
+
         jvm_version_type = self.version_meta.get("javaVersion", {}).get("component", "jre-legacy")
 
         jvm_dir = path.join(self.context.jvm_dir, jvm_version_type)
@@ -1577,6 +1583,7 @@ class VersionError(BaseError):
 class JvmLoadingError(BaseError):
     UNSUPPORTED_ARCH = "unsupported_arch"
     UNSUPPORTED_VERSION = "unsupported_version"
+    UNSUPPORTED_LIBC = "unsupported_libc"
 
 
 # class DownloadError(Exception):

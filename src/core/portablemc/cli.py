@@ -1188,9 +1188,11 @@ messages = {
     "start.jvm.loading": "Loading Java... ",
     "start.jvm.loaded": "Loaded Mojang Java {version}.",
     f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
-                                                           "use --jvm argument to set the JVM executable of path to it.",
-    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, use --jvm argument to set "
-                                                              "the JVM executable of path to it.",
+        "use --jvm argument to manually set the path to your JVM executable.",
+    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, "
+        "use --jvm argument to manually set the path to your JVM executable.",
+    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc, "
+        "use --jvm argument to manually set the path to your JVM executable.",
     "start.starting": "Starting the game...",
     "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
