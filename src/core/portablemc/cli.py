@@ -1183,19 +1183,19 @@ messages = {
     "args.start.anonymise": "Anonymise your email or username for authentication messages.",
     "args.start.no_old_fix": "Flag that disable fixes for old versions (legacy merge sort, betacraft proxy), "
                              "enabled by default.",
-    "args.start.lwjgl": "Change the default LWJGL version used by Minecraft. "
-                        "This argument makes additional changes in order to support additional architectures "
-                        "such as ARM32/ARM64. "
-                        "It's not guaranteed to work with every version of Minecraft and downgrading LWJGL version is not recommended.",
+    "args.start.lwjgl": "Change the default LWJGL version used by Minecraft."
+        "This argument makes additional changes in order to support additional architectures such as ARM32/ARM64. "
+        "It's not guaranteed to work with every version of Minecraft and downgrading LWJGL version is not recommended.",
     "args.start.exclude_lib": "Specify Java libraries to exclude from the classpath (and download) "
-        "before launching the game. Follow this pattern to specify libraries: "
-        "<artifact>[:[<version>][:<classifier>]]. "
-        "This can be used to replace provided natives with manually installed ones together with --include-bin. ",
-    "args.start.include_bin": "Include binaries (.so, .dll, .dylib) in the binary directory of the game, "
-        "given files are simlinked in the directory. On linux, if version numbers are present they "
-        "are discarded (/usr/lib/foo.so.1.22.2 -> foo.so).",
+        "before launching the game. Follow this pattern to specify libraries: <artifact>[:[<version>][:<classifier>]]. "
+        "If your system doesn't support Mojang-provided natives, you can use both --exclude-lib and "
+        "--include-bin to replace them with your own (e.g. --exclude-lib lwjgl-glfw::natives --include-bin /lib/libglfw.so).",
+    "args.start.include_bin": "Include binaries (.so, .dll, .dylib) in the bin directory of the game, "
+        "given files are symlinked in the directory if possible, copied if not. "
+        "On linux, version numbers are discarded (e.g. /usr/lib/foo.so.1.22.2 -> foo.so). "
+        "Read the --exclude-lib help for use cases.",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
-                             "not already cached, disabled by default.",
+        "not already cached, disabled by default.",
     "args.start.login": "Use a email (or deprecated username) to authenticate using Mojang services (it override --username and --uuid).",
     "args.start.microsoft": "Login using Microsoft account, to use with -l (--login).",
     "args.start.username": "Set a custom user name to play.",
