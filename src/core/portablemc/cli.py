@@ -238,6 +238,8 @@ def register_start_arguments(parser: ArgumentParser):
     parser.add_argument("--anonymise", help=_("args.start.anonymise"), action="store_true")
     parser.add_argument("--no-old-fix", help=_("args.start.no_old_fix"), action="store_true")
     parser.add_argument("--lwjgl", help=_("args.start.lwjgl"), choices=["3.2.3", "3.3.0", "3.3.1"])
+    parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), nargs="*")
+    parser.add_argument("--include-bin", help=_("args.start.include_bin"), nargs="*")
     parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
     parser.add_argument("-l", "--login", help=_("args.start.login"))
     parser.add_argument("-m", "--microsoft", help=_("args.start.microsoft"), action="store_true")
@@ -1113,6 +1115,8 @@ messages = {
                         "This argument makes additional changes in order to support additional architectures "
                         "such as ARM32/ARM64. "
                         "It's not guaranteed to work with every version of Minecraft and downgrading LWJGL version is not recommended.",
+    "args.start.exclude_lib": "",
+    "args.start.include_bin": "",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
                              "not already cached, disabled by default.",
     "args.start.login": "Use a email (or deprecated username) to authenticate using Mojang services (it override --username and --uuid).",
