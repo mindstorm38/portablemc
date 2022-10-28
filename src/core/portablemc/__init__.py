@@ -1620,6 +1620,7 @@ class LibrarySpecifier:
     
     @classmethod
     def from_str(cls, s: str) -> "LibrarySpecifier":
+        """ Parse a library specifier string 'group:artifact:version[:classifier]'. """
         parts = s.split(":", 3)
         if len(parts) < 3:
             raise ValueError("Artifact value is empty")
@@ -1630,10 +1631,16 @@ class LibrarySpecifier:
         return f"{self.group}:{self.artifact}:{self.version}" + ("" if self.classifier is None else f":{self.classifier}")
 
     def jar_file_path(self) -> str:
+
+        """ 
+        Return the standard path to store the JAR file of this specifier.\n
+        Specifier `com.foo.bar:artifact:version` gives `com/foo/bar/artifact/version/artifact-version.jar`.
+        """
+
         if self.group is None or self.version is None:
             raise ValueError("Version and group are required for making a JAR file name")
         file_name = f"{self.artifact}-{self.version}" + ("" if self.classifier is None else f"-{self.classifier}") + ".jar"
-        return path.join((*self.group.split("."), self.artifact, self.version, file_name))
+        return path.join(*self.group.split("."), self.artifact, self.version, file_name)
 
 
 def http_request(url: str, method: str, *,
