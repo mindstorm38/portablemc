@@ -506,7 +506,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
             except JvmLoadingError:
                 ns.jvm = shutil.which(get_jvm_bin_filename())
                 if ns.jvm is not None:
-                    print_task("OK", "start.jvm.system_fallback", {"path": ns.jvm})
+                    print_task("OK", "start.jvm.system_fallback", {"path": ns.jvm}, done=True)
                 else:
                     # No fallback available, just raise to inform user.
                     raise
