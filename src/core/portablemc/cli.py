@@ -35,6 +35,7 @@ import time
 import sys
 
 from portablemc import *
+from portablemc import LibrarySpecifier
 
 
 __all__ = [
@@ -225,21 +226,41 @@ def register_search_arguments(parser: ArgumentParser):
 
 
 def register_start_arguments(parser: ArgumentParser):
+
+    def resolution(raw: str):
+        parts = raw.split("x")
+        if len(parts) == 2:
+            return (int(parts[0]), int(parts[1]))
+        else:
+            raise ValueError()
+
+    def library_specifier(raw: str) -> LibrarySpecifier:
+        parts = raw.split(":")
+        if len(parts) > 3:
+            raise ValueError("Too much parts")
+        def emptynone(s: str) -> "Optional[str]":
+            return None if s == "" else s
+        return {
+            1: lambda: LibrarySpecifierFilter(parts[0], None, None),
+            2: lambda: LibrarySpecifierFilter(parts[0], emptynone(parts[1]), None),
+            3: lambda: LibrarySpecifierFilter(parts[0], emptynone(parts[1]), emptynone(parts[2]))
+        }[len(parts)]()
+    
     _ = get_message
     parser.formatter_class = new_help_formatter_class(32)
     parser.add_argument("--dry", help=_("args.start.dry"), action="store_true")
     parser.add_argument("--disable-mp", help=_("args.start.disable_multiplayer"), action="store_true")
     parser.add_argument("--disable-chat", help=_("args.start.disable_chat"), action="store_true")
     parser.add_argument("--demo", help=_("args.start.demo"), action="store_true")
-    parser.add_argument("--resol", help=_("args.start.resol"), type=decode_resolution)
+    parser.add_argument("--resol", help=_("args.start.resol"), type=resolution)
     parser.add_argument("--jvm", help=_("args.start.jvm"))
     parser.add_argument("--jvm-args", help=_("args.start.jvm_args"))
     parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
     parser.add_argument("--anonymise", help=_("args.start.anonymise"), action="store_true")
     parser.add_argument("--no-old-fix", help=_("args.start.no_old_fix"), action="store_true")
     parser.add_argument("--lwjgl", help=_("args.start.lwjgl"), choices=["3.2.3", "3.3.0", "3.3.1"])
-    parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), nargs="*")
-    parser.add_argument("--include-bin", help=_("args.start.include_bin"), nargs="*")
+    parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), action="append", type=library_specifier)
+    parser.add_argument("--include-bin", help=_("args.start.include_bin"), action="append")
     parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
     parser.add_argument("-l", "--login", help=_("args.start.login"))
     parser.add_argument("-m", "--microsoft", help=_("args.start.microsoft"), action="store_true")
@@ -287,8 +308,19 @@ def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
     return CustomHelpFormatter
 
 
-def decode_resolution(raw: str):
-    return tuple(int(size) for size in raw.split("x"))
+class LibrarySpecifierFilter:
+    
+    __slots__ = "artifact", "version", "classifier"
+
+    def __init__(self, artifact: str, version: "Optional[str]", classifier: "Optional[str]"):
+        self.artifact = artifact
+        self.version = version
+        self.classifier = classifier
+    
+    def matches(self, spec: "LibrarySpecifier") -> bool:
+        return self.artifact == spec.artifact \
+            and (self.version is None or self.version == spec.version) \
+            and (self.classifier is None or self.classifier == spec.classifier)
 
 
 # Commands handlers
@@ -432,7 +464,19 @@ def cmd_start(ns: Namespace, ctx: CliContext):
             print_task("OK", "start.logger.loaded_pretty", done=True)
 
         print_task("", "start.libraries.loading")
-        version.prepare_libraries()
+
+        # Construct a predicate only if some libraries are excluded.
+        libraries_predicate = None
+        if ns.exclude_lib is not None:
+            exclude_filters = ns.exclude_lib
+            def _predicate(spec: "LibrarySpecifier") -> bool:
+                for exclude_filter in exclude_filters:
+                    if exclude_filter.matches(spec):
+                        return False
+                return True
+            libraries_predicate = _predicate
+        
+        version.prepare_libraries(predicate=libraries_predicate)
         libs_count = len(version.classpath_libs) + len(version.native_libs)
         print_task("OK", "start.libraries.loaded", {"count": libs_count}, done=True)
 
@@ -1115,8 +1159,13 @@ messages = {
                         "This argument makes additional changes in order to support additional architectures "
                         "such as ARM32/ARM64. "
                         "It's not guaranteed to work with every version of Minecraft and downgrading LWJGL version is not recommended.",
-    "args.start.exclude_lib": "",
-    "args.start.include_bin": "",
+    "args.start.exclude_lib": "Specify Java libraries to exclude from the classpath (and download) "
+        "before launching the game. Follow this pattern to specify libraries: "
+        "<artifact>[:[<version>][:<classifier>]]. "
+        "This can be used to replace provided natives with manually installed ones together with --include-bin. ",
+    "args.start.include_bin": "Include binaries (.so, .dll) in the binary directory of the game, "
+        "given files are simlinked in the directory. On linux, if version numbers are present they "
+        "are discarded (/usr/lib/foo.so.1.22.2 -> foo.so).",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
                              "not already cached, disabled by default.",
     "args.start.login": "Use a email (or deprecated username) to authenticate using Mojang services (it override --username and --uuid).",

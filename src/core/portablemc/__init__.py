@@ -46,6 +46,7 @@ __all__ = [
     "DownloadEntry", "DownloadList", "DownloadProgress", "DownloadEntryProgress",
     "BaseError", "JsonRequestError", "AuthError", "VersionManifestError", "VersionError", "JvmLoadingError",
         "DownloadReport",
+    "LibrarySpecifier",
     "http_request", "json_request", "json_simple_request",
     "merge_dict",
     "interpret_rule_os", "interpret_rule", "interpret_args",
@@ -389,13 +390,14 @@ class Version:
             self.logging_file = logging_file
             self.logging_argument = client_logging["argument"]
 
-    def prepare_libraries(self):
+    def prepare_libraries(self, *, predicate: "Optional[Callable[[LibrarySpecifier], bool]]" = None):
 
         """
         Must be called once metadata file are prepared, using `prepare_meta`, if not, `ValueError` is raised.\n
         If the version JAR file is not set, a ValueError is raised because it is required to be added in classpath.\n
         This method check all libraries found in the metadata, each library is downloaded if not already stored. Real
-        Java libraries are added to the classpath list and native libraries are added to the native list.
+        Java libraries are added to the classpath list and native libraries are added to the native list.\n
+        Optional predicate can be used to filter libraries to download and include to the classpath.
         """
 
         self._check_version_meta()
@@ -413,21 +415,26 @@ class Version:
                 if not interpret_rule(lib_obj["rules"]):
                     continue
 
-            lib_name: str = lib_obj["name"]
-            lib_dl_name = lib_name
+            lib_spec = LibrarySpecifier.from_str(lib_obj["name"])
+            if predicate is not None:
+                if not predicate(lib_spec):
+                    continue
+
+            # Old metadata files provides a 'natives' mapping from OS to the
+            # classifier specific for this OS.
             lib_natives: Optional[dict] = lib_obj.get("natives")
 
             if lib_natives is not None:
-                lib_classifier = lib_natives.get(get_minecraft_os())
-                if lib_classifier is None:
-                    continue  # If natives are defined, but the OS is not supported, skip.
-                lib_dl_name += f":{lib_classifier}"
+                # If natives object is present, the classifier associated to the
+                # OS overrides the lib_spec classifier.
+                lib_spec.classifier = lib_natives.get(get_minecraft_os())
+                if lib_spec.classifier is None:
+                    continue
                 archbits = get_minecraft_archbits()
                 if len(archbits):
-                    lib_classifier = lib_classifier.replace("${arch}", archbits)
+                    lib_spec.classifier = lib_spec.classifier.replace("${arch}", archbits)
                 lib_libs = self.native_libs
             else:
-                lib_classifier = None
                 lib_libs = self.classpath_libs
 
             lib_path: Optional[str] = None
@@ -436,34 +443,29 @@ class Version:
 
             if lib_dl is not None:
 
-                if lib_classifier is not None:
+                if lib_natives is not None:
+                    # Only check classifiers if natives mapping is present.
                     lib_dl_classifiers = lib_dl.get("classifiers")
-                    lib_dl_meta = None if lib_dl_classifiers is None else lib_dl_classifiers.get(lib_classifier)
+                    lib_dl_meta = None if lib_dl_classifiers is None else lib_dl_classifiers.get(lib_spec.classifier)
                 else:
+                    # If we are not dealing with natives, just take the artifact.
                     lib_dl_meta = lib_dl.get("artifact")
 
                 if lib_dl_meta is not None:
                     lib_path = path.join(self.context.libraries_dir, lib_dl_meta["path"])
-                    lib_dl_entry = DownloadEntry.from_meta(lib_dl_meta, lib_path, name=lib_dl_name)
+                    lib_dl_entry = DownloadEntry.from_meta(lib_dl_meta, lib_path, name=str(lib_spec))
 
-            if lib_dl_entry is None:
-
-                lib_name_parts = lib_name.split(":")
-                if len(lib_name_parts) != 3:
-                    continue  # If the library name is not maven-formatted, skip.
-
-                vendor, package, version = lib_name_parts
-                jar_file = f"{package}-{version}.jar" if lib_classifier is None else f"{package}-{version}-{lib_classifier}.jar"
-                lib_path_raw = "/".join((*vendor.split("."), package, version, jar_file))
+            # If we don't have a download entry, try to make one of the library specifier (only if version is set).
+            if lib_dl_entry is None and lib_spec.version is not None:
+                lib_path_raw = lib_spec.jar_file_path()
                 lib_path = path.join(self.context.libraries_dir, lib_path_raw)
-
                 if not path.isfile(lib_path):
                     # The official launcher seems to default to their libraries CDN, it will also allows us
                     # to prevent launch if such lib cannot be found.
                     lib_repo_url: str = lib_obj.get("url", "https://libraries.minecraft.net/")
                     if lib_repo_url[-1] != "/":
                         lib_repo_url += "/"  # Let's be sure to have a '/' as last character.
-                    lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=lib_dl_name)
+                    lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=str(lib_spec))
 
             lib_libs.append(lib_path)
             if lib_dl_entry is not None and (not path.isfile(lib_path) or (lib_dl_entry.size is not None and path.getsize(lib_path) != lib_dl_entry.size)):
@@ -1586,16 +1588,32 @@ class JvmLoadingError(BaseError):
     UNSUPPORTED_LIBC = "unsupported_libc"
 
 
-# class DownloadError(Exception):
-#
-#     CONN_ERROR = "conn_error"
-#     NOT_FOUND = "not_found"
-#     INVALID_SIZE = "invalid_size"
-#     INVALID_SHA1 = "invalid_sha1"
-#
-#     def __init__(self, fails: Dict[str, str]):
-#         super().__init__()
-#         self.fails = fails
+class LibrarySpecifier:
+
+    __slots__ = "group", "artifact", "version", "classifier"
+
+    def __init__(self, group: str, artifact: str, version: str, classifier: "Optional[str]"):
+        self.group = group
+        self.artifact = artifact
+        self.version = version
+        self.classifier = classifier
+    
+    @classmethod
+    def from_str(cls, s: str) -> "LibrarySpecifier":
+        parts = s.split(":", 3)
+        if len(parts) < 3:
+            raise ValueError("Artifact value is empty")
+        else:
+            return LibrarySpecifier(parts[0], parts[1], parts[2], parts[3] if len(parts) == 4 else None)
+
+    def __str__(self) -> str:
+        return f"{self.group}:{self.artifact}:{self.version}" + ("" if self.classifier is None else f":{self.classifier}")
+
+    def jar_file_path(self) -> str:
+        if self.group is None or self.version is None:
+            raise ValueError("Version and group are required for making a JAR file name")
+        file_name = f"{self.artifact}-{self.version}" + ("" if self.classifier is None else f"-{self.classifier}") + ".jar"
+        return path.join((*self.group.split("."), self.artifact, self.version, file_name))
 
 
 def http_request(url: str, method: str, *,
