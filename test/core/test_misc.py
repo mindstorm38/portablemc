@@ -46,11 +46,13 @@ def test_replace_vars():
     assert list(replace_list_vars([
         "this is foo value: ${foo}",
         "this is bar value: ${bar}!!!",
-        "this is both values: ${foo}/${bar}..."
+        "this is both values: ${foo}/${bar}...",
+        "this is unknown key: ${unknown}"
     ], {"foo": "89658", "bar": "test"})) == [
         "this is foo value: 89658",
         "this is bar value: test!!!",
-        "this is both values: 89658/test..."
+        "this is both values: 89658/test...",
+        "this is unknown key: ${unknown}"
     ]
 
 
