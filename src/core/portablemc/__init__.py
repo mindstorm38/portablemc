@@ -611,6 +611,10 @@ class Start:
         self.jvm_args: List[str] = []
         self.game_args: List[str] = []
 
+        # Additional binaries files to add to bin dir.
+        # These files will be symlinked on linux and copied on Windows (privilege issue).
+        self.bin_files: List[str] = []
+
         self.bin_dir_factory: Callable[[str], str] = self.default_bin_dir_factory
         self.runner: Callable[[List[str], str], None] = self.default_runner
 
@@ -784,6 +788,19 @@ class Start:
                         with native_zip.open(native_zip_info, "r") as native_zip_file:
                             with open(path.join(bin_dir, native_name), "wb") as native_file:
                                 shutil.copyfileobj(native_zip_file, native_file)
+
+        for bin_file in self.bin_files:
+            bin_name = path.basename(bin_file)
+            # Here we try to remove the version numbers of .so files.
+            so_idx = bin_name.rfind(".so")
+            if so_idx >= 0:
+                bin_name = bin_name[:so_idx + len(".so")]
+            # Try to symlink the file in the bin dir, and fallback to simple copy.
+            bin_dst_file = path.join(bin_dir, bin_name)
+            try:
+                os.symlink(bin_file, bin_dst_file)
+            except OSError:
+                shutil.copyfile(bin_file, bin_dst_file)
 
         self.args_replacements["natives_directory"] = bin_dir
 

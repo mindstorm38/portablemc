@@ -503,7 +503,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         start_opts.jvm_exec = ns.jvm
         start_opts.old_fix = not ns.no_old_fix
 
-        if ns.resol is not None and len(ns.resol) == 2:
+        if ns.resol is not None:
             start_opts.resolution = ns.resol
 
         if ns.login is not None:
@@ -518,6 +518,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         print_task("", "start.starting")
 
         start = new_start(ctx, version)
+        start.bin_files.extend(ns.include_bin or [])
         start.prepare(start_opts)
         start.jvm_args.extend(JVM_ARGS_DEFAULT if ns.jvm_args is None else ns.jvm_args.split())
 
@@ -1162,7 +1163,7 @@ messages = {
         "before launching the game. Follow this pattern to specify libraries: "
         "<artifact>[:[<version>][:<classifier>]]. "
         "This can be used to replace provided natives with manually installed ones together with --include-bin. ",
-    "args.start.include_bin": "Include binaries (.so, .dll) in the binary directory of the game, "
+    "args.start.include_bin": "Include binaries (.so, .dll, .dylib) in the binary directory of the game, "
         "given files are simlinked in the directory. On linux, if version numbers are present they "
         "are discarded (/usr/lib/foo.so.1.22.2 -> foo.so).",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
