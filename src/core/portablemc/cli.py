@@ -770,7 +770,7 @@ def fix_lwjgl_version(version: Version, lwjgl_version: str):
                             "url": classifier_url
                         }
                     },
-                    "name": lib_name,
+                    "name": f"{lib_name}:{lwjgl_classifier}",
                     "rules": [{"action": "allow", "os": {"name": lwjgl_os}}]
                 })
 
