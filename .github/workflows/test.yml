@@ -14,13 +14,10 @@ jobs:
         include:
           - os: Ubuntu
             image: ubuntu-22.04
-            os_lower: ubuntu
           - os: Windows
             image: windows-2022
-            os_lower: windows
           - os: macOS
             image: macos-12
-            os_lower: macos
     name: ${{ matrix.os }} / ${{ matrix.python-version }} ${{ matrix.suffix }}
     runs-on: ${{ matrix.image }}
     steps:
