@@ -43,9 +43,9 @@ __all__ = [
     "LAUNCHER_NAME", "LAUNCHER_VERSION", "LAUNCHER_AUTHORS", "LAUNCHER_COPYRIGHT", "LAUNCHER_URL",
     "Context", "Version", "StartOptions", "Start", "VersionManifest",
     "AuthSession", "OfflineAuthSession", "YggdrasilAuthSession", "MicrosoftAuthSession", "AuthDatabase",
-    "DownloadEntry", "DownloadList", "DownloadProgress", "DownloadEntryProgress",
+    "DownloadEntry", "DownloadList", "DownloadProgress", "DownloadEntryProgress", "DownloadReport",
     "BaseError", "JsonRequestError", "AuthError", "VersionManifestError", "VersionError", "JvmLoadingError",
-        "DownloadReport",
+        "BinaryNotFound",
     "LibrarySpecifier",
     "http_request", "json_request", "json_simple_request",
     "merge_dict",
@@ -758,7 +758,8 @@ class Start:
         This method actually use the `bin_dir_factory` of this object to produce a path where to extract binaries, by
         default a random UUID is appended to the common `bin_dir` of the context. The `runner` argument is also used to
         run the game, by default is uses the `subprocess.run` method. These two attributes can be changed before calling
-        this method.
+        this method.\n
+        This method may raise `BinaryNotFound` when one of the `self.bin_files` can't be resolved.
         """
 
         if self.main_class is None:
@@ -790,21 +791,22 @@ class Start:
                             with open(path.join(bin_dir, native_name), "wb") as native_file:
                                 shutil.copyfileobj(native_zip_file, native_file)
 
-        for bin_file in self.bin_files:
+        for bin_file_raw in self.bin_files:
             # Resolve a potential symlink and check if the binary exists before linking.
-            bin_file = path.realpath(bin_file)
-            if path.isfile(bin_file):
-                bin_name = path.basename(bin_file)
-                # Here we try to remove the version numbers of .so files.
-                so_idx = bin_name.rfind(".so")
-                if so_idx >= 0:
-                    bin_name = bin_name[:so_idx + len(".so")]
-                # Try to symlink the file in the bin dir, and fallback to simple copy.
-                bin_dst_file = path.join(bin_dir, bin_name)
-                try:
-                    os.symlink(bin_file, bin_dst_file)
-                except OSError:
-                    shutil.copyfile(bin_file, bin_dst_file)
+            bin_file = path.realpath(bin_file_raw)
+            if not path.isfile(bin_file):
+                raise BinaryNotFound(bin_file_raw)
+            bin_name = path.basename(bin_file)
+            # Here we try to remove the version numbers of .so files.
+            so_idx = bin_name.rfind(".so")
+            if so_idx >= 0:
+                bin_name = bin_name[:so_idx + len(".so")]
+            # Try to symlink the file in the bin dir, and fallback to simple copy.
+            bin_dst_file = path.join(bin_dir, bin_name)
+            try:
+                os.symlink(bin_file, bin_dst_file)
+            except OSError:
+                shutil.copyfile(bin_file, bin_dst_file)
 
         self.args_replacements["natives_directory"] = bin_dir
 
@@ -1609,6 +1611,19 @@ class JvmLoadingError(BaseError):
     UNSUPPORTED_ARCH = "unsupported_arch"
     UNSUPPORTED_VERSION = "unsupported_version"
     UNSUPPORTED_LIBC = "unsupported_libc"
+
+
+class BinaryNotFound(Exception):
+
+    """
+    This type of error can be raised by `Start.start(...)` to signal the caller that
+    on of it's additional binary doesn't exists and therefore can't be 
+    symlinked/copied inside the runtime's bin directory.
+    """
+
+    def __init__(self, bin_file: str):
+        super().__init__()
+        self.bin_file = bin_file
 
 
 class LibrarySpecifier:

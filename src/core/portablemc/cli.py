@@ -568,6 +568,9 @@ def cmd_start(ns: Namespace, ctx: CliContext):
     except JvmLoadingError as err:
         print_task("FAILED", f"start.jvm.error.{err.code}", done=True)
         sys.exit(EXIT_JVM_LOADING_ERROR)
+    except BinaryNotFound as err:
+        print_task("FAILED", f"start.additional_binary_not_found", {"bin": err.bin_file}, done=True)
+        sys.exit(EXIT_FAILURE)
 
 
 def cmd_login(ns: Namespace, ctx: CliContext):
@@ -1277,6 +1280,7 @@ messages = {
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
         "use --jvm argument to manually set the path to your JVM executable.",
+    "start.additional_binary_not_found": "The additional binary '{bin}' doesn't exists.",
     "start.starting": "Starting the game...",
     "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
