@@ -1617,8 +1617,8 @@ class BinaryNotFound(Exception):
 
     """
     This type of error can be raised by `Start.start(...)` to signal the caller that
-    on of it's additional binary doesn't exists and therefore can't be 
-    symlinked/copied inside the runtime's bin directory.
+    one of the specified additional binaries doesn't exists and therefore can't be 
+    symlinked nor copied inside the runtime's bin directory.
     """
 
     def __init__(self, bin_file: str):

@@ -569,7 +569,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         print_task("FAILED", f"start.jvm.error.{err.code}", done=True)
         sys.exit(EXIT_JVM_LOADING_ERROR)
     except BinaryNotFound as err:
-        print_task("FAILED", f"start.additional_binary_not_found", {"bin": err.bin_file}, done=True)
+        print_task("FAILED", "start.additional_binary_not_found", {"bin": err.bin_file}, done=True)
         sys.exit(EXIT_FAILURE)
 
 
