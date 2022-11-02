@@ -17,7 +17,7 @@ def for_each_module(args, *, uninstall_first = False):
         if uninstall_first:
             print("=> uninstalling the package before installing it in dev mode")
             subprocess.call(["pip", "uninstall", "-y", name])
-
+        
         subprocess.call(args, cwd=path)
 
     inner("portablemc", "core")
