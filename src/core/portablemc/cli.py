@@ -225,19 +225,41 @@ def register_search_arguments(parser: ArgumentParser):
 
 
 def register_start_arguments(parser: ArgumentParser):
+
+    def resolution(raw: str):
+        parts = raw.split("x")
+        if len(parts) == 2:
+            return (int(parts[0]), int(parts[1]))
+        else:
+            raise ValueError()
+
+    def library_specifier(raw: str) -> LibrarySpecifier:
+        parts = raw.split(":")
+        if len(parts) > 3:
+            raise ValueError("Too much parts")
+        def emptynone(s: str) -> "Optional[str]":
+            return None if s == "" else s
+        return {
+            1: lambda: LibrarySpecifierFilter(parts[0], None, None),
+            2: lambda: LibrarySpecifierFilter(parts[0], emptynone(parts[1]), None),
+            3: lambda: LibrarySpecifierFilter(parts[0], emptynone(parts[1]), emptynone(parts[2]))
+        }[len(parts)]()
+    
     _ = get_message
     parser.formatter_class = new_help_formatter_class(32)
     parser.add_argument("--dry", help=_("args.start.dry"), action="store_true")
     parser.add_argument("--disable-mp", help=_("args.start.disable_multiplayer"), action="store_true")
     parser.add_argument("--disable-chat", help=_("args.start.disable_chat"), action="store_true")
     parser.add_argument("--demo", help=_("args.start.demo"), action="store_true")
-    parser.add_argument("--resol", help=_("args.start.resol"), type=decode_resolution)
+    parser.add_argument("--resol", help=_("args.start.resol"), type=resolution)
     parser.add_argument("--jvm", help=_("args.start.jvm"))
     parser.add_argument("--jvm-args", help=_("args.start.jvm_args"))
     parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
     parser.add_argument("--anonymise", help=_("args.start.anonymise"), action="store_true")
     parser.add_argument("--no-old-fix", help=_("args.start.no_old_fix"), action="store_true")
     parser.add_argument("--lwjgl", help=_("args.start.lwjgl"), choices=["3.2.3", "3.3.0", "3.3.1"])
+    parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), action="append", type=library_specifier)
+    parser.add_argument("--include-bin", help=_("args.start.include_bin"), action="append")
     parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
     parser.add_argument("-l", "--login", help=_("args.start.login"))
     parser.add_argument("-m", "--microsoft", help=_("args.start.microsoft"), action="store_true")
@@ -285,8 +307,22 @@ def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
     return CustomHelpFormatter
 
 
-def decode_resolution(raw: str):
-    return tuple(int(size) for size in raw.split("x"))
+class LibrarySpecifierFilter:
+    
+    __slots__ = "artifact", "version", "classifier"
+
+    def __init__(self, artifact: str, version: "Optional[str]", classifier: "Optional[str]"):
+        self.artifact = artifact
+        self.version = version
+        self.classifier = classifier
+    
+    def matches(self, spec: "LibrarySpecifier") -> bool:
+        return self.artifact == spec.artifact \
+            and (self.version is None or self.version == spec.version) \
+            and (self.classifier is None or (spec.classifier or "").startswith(self.classifier))
+
+    def __str__(self) -> str:
+        return f"{self.artifact}:{self.version or ''}" + ("" if self.classifier is None else f":{self.classifier}")
 
 
 # Commands handlers
@@ -429,16 +465,53 @@ def cmd_start(ns: Namespace, ctx: CliContext):
                 version.dl.add_callback(_pretty_logger_finalize)
             print_task("OK", "start.logger.loaded_pretty", done=True)
 
+        # Construct a predicate only if some libraries are excluded.
+        # We store filters associated to their matches, in order to
+        # inform the user of effectiveness of the arguments.
+        libraries_predicate = None
+        exclude_filters = None
+        if ns.exclude_lib is not None:
+            # Map each filter to its usage count, with this 
+            exclude_filters = [(filter_, []) for filter_ in ns.exclude_lib]
+            def _predicate(spec: "LibrarySpecifier") -> bool:
+                for filter_, filter_matches in exclude_filters:
+                    if filter_.matches(spec):
+                        filter_matches.append(spec)
+                        return False
+                return True
+            libraries_predicate = _predicate
+        
         print_task("", "start.libraries.loading")
-        version.prepare_libraries()
+        version.prepare_libraries(predicate=libraries_predicate)
         libs_count = len(version.classpath_libs) + len(version.native_libs)
         print_task("OK", "start.libraries.loaded", {"count": libs_count}, done=True)
 
-        if ns.jvm is None:
-            print_task("", "start.jvm.loading")
-            version.prepare_jvm()
-            print_task("OK", "start.jvm.loaded", {"version": version.jvm_version}, done=True)
+        if exclude_filters is not None:
+            for filter_, filter_matches in exclude_filters:
+                if not len(filter_matches):
+                    print_task(None, "start.libraries.exclude.unused", {
+                        "pattern": str(filter_)
+                    }, done=True)
+                else:
+                    print_task(None, "start.libraries.exclude.usage", {
+                        "pattern": str(filter_),
+                        "count": len(filter_matches)
+                    }, done=True)
 
+        if ns.jvm is None:
+            try:
+                print_task("", "start.jvm.loading")
+                version.prepare_jvm()
+                print_task("OK", "start.jvm.loaded", {"version": version.jvm_version}, done=True)
+            except JvmLoadingError:
+                ns.jvm = shutil.which(get_jvm_bin_filename())
+                if ns.jvm is not None:
+                    print_task("OK", "start.jvm.system_fallback", {"path": ns.jvm}, done=True)
+                else:
+                    # No fallback available, just raise to inform user.
+                    raise
+
+        # Only download if some downloads are needed.
         if version.dl.count and len(pretty_download(version.dl).fails):
             sys.exit(EXIT_DOWNLOAD_ERROR)
 
@@ -458,7 +531,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         start_opts.jvm_exec = ns.jvm
         start_opts.old_fix = not ns.no_old_fix
 
-        if ns.resol is not None and len(ns.resol) == 2:
+        if ns.resol is not None:
             start_opts.resolution = ns.resol
 
         if ns.login is not None:
@@ -473,6 +546,7 @@ def cmd_start(ns: Namespace, ctx: CliContext):
         print_task("", "start.starting")
 
         start = new_start(ctx, version)
+        start.bin_files.extend(ns.include_bin or [])
         start.prepare(start_opts)
         start.jvm_args.extend(JVM_ARGS_DEFAULT if ns.jvm_args is None else ns.jvm_args.split())
 
@@ -494,6 +568,9 @@ def cmd_start(ns: Namespace, ctx: CliContext):
     except JvmLoadingError as err:
         print_task("FAILED", f"start.jvm.error.{err.code}", done=True)
         sys.exit(EXIT_JVM_LOADING_ERROR)
+    except BinaryNotFound as err:
+        print_task("FAILED", "start.additional_binary_not_found", {"bin": err.bin_file}, done=True)
+        sys.exit(EXIT_FAILURE)
 
 
 def cmd_login(ns: Namespace, ctx: CliContext):
@@ -705,7 +782,7 @@ def fix_lwjgl_version(version: Version, lwjgl_version: str):
                             "url": classifier_url
                         }
                     },
-                    "name": lib_name,
+                    "name": f"{lib_name}:{lwjgl_classifier}",
                     "rules": [{"action": "allow", "os": {"name": lwjgl_os}}]
                 })
 
@@ -1101,7 +1178,7 @@ messages = {
     "args.start.disable_chat": "Disable the online chat (>= 1.16).",
     "args.start.demo": "Start game in demo mode.",
     "args.start.resol": "Set a custom start resolution (<width>x<height>, >= 1.6).",
-    "args.start.jvm": f"Set a custom JVM '{'javaw' if sys.platform == 'win32' else 'java'}' executable path. If this argument is omitted a public build "
+    "args.start.jvm": f"Set a custom JVM '{get_jvm_bin_filename()}' executable path. If this argument is omitted a public build "
                       "of a JVM is downloaded from Mojang services.",
     "args.start.jvm_args": "Change the default JVM arguments.",
     "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
@@ -1109,18 +1186,25 @@ messages = {
     "args.start.anonymise": "Anonymise your email or username for authentication messages.",
     "args.start.no_old_fix": "Flag that disable fixes for old versions (legacy merge sort, betacraft proxy), "
                              "enabled by default.",
-    "args.start.lwjgl": "Change the default LWJGL version used by Minecraft. "
-                        "This argument makes additional changes in order to support additional architectures "
-                        "such as ARM32/ARM64. "
-                        "It's not guaranteed to work with every version of Minecraft and downgrading LWJGL version is not recommended.",
+    "args.start.lwjgl": "Change the default LWJGL version used by Minecraft."
+        "This argument makes additional changes in order to support additional architectures such as ARM32/ARM64. "
+        "It's not guaranteed to work with every version of Minecraft and downgrading LWJGL version is not recommended.",
+    "args.start.exclude_lib": "Specify Java libraries to exclude from the classpath (and download) "
+        "before launching the game. Follow this pattern to specify libraries: <artifact>[:[<version>][:<classifier>]]. "
+        "If your system doesn't support Mojang-provided natives, you can use both --exclude-lib and "
+        "--include-bin to replace them with your own (e.g. --exclude-lib lwjgl-glfw::natives --include-bin /lib/libglfw.so).",
+    "args.start.include_bin": "Include binaries (.so, .dll, .dylib) in the bin directory of the game, "
+        "given files are symlinked in the directory if possible, copied if not. "
+        "On linux, version numbers are discarded (e.g. /usr/lib/foo.so.1.22.2 -> foo.so). "
+        "Read the --exclude-lib help for use cases.",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
-                             "not already cached, disabled by default.",
+        "not already cached, disabled by default.",
     "args.start.login": "Use a email (or deprecated username) to authenticate using Mojang services (it override --username and --uuid).",
     "args.start.microsoft": "Login using Microsoft account, to use with -l (--login).",
     "args.start.username": "Set a custom user name to play.",
     "args.start.uuid": "Set a custom user UUID to play.",
-    "args.start.server": "Start the game and auto-connect to this server address (since 1.6).",
-    "args.start.server_port": "Set the server address port (given with -s, --server, since 1.6).",
+    "args.start.server": "Start the game and auto-connect to this server address (>= 1.6).",
+    "args.start.server_port": "Set the server address port (given with -s, --server, >= 1.6).",
     # Args login
     "args.login": "Login into your account and save the session.",
     "args.login.microsoft": "Login using Microsoft account.",
@@ -1185,12 +1269,18 @@ messages = {
     "start.logger.loaded_pretty": "Loaded pretty logger.",
     "start.libraries.loading": "Loading libraries... ",
     "start.libraries.loaded": "Loaded {count} libraries.",
+    "start.libraries.exclude.unused": "Library exclusion '{pattern}' didn't match a libary.",
+    "start.libraries.exclude.usage": "Library exclusion '{pattern}' matched {count} libraries.",
     "start.jvm.loading": "Loading Java... ",
+    "start.jvm.system_fallback": "Loaded system Java at {path}.",
     "start.jvm.loaded": "Loaded Mojang Java {version}.",
     f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
-                                                           "use --jvm argument to set the JVM executable of path to it.",
-    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, use --jvm argument to set "
-                                                              "the JVM executable of path to it.",
+        "use --jvm argument to manually set the path to your JVM executable.",
+    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, "
+        "use --jvm argument to manually set the path to your JVM executable.",
+    f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
+        "use --jvm argument to manually set the path to your JVM executable.",
+    "start.additional_binary_not_found": "The additional binary '{bin}' doesn't exists.",
     "start.starting": "Starting the game...",
     "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
