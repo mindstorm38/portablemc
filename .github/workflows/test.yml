@@ -23,8 +23,6 @@ jobs:
     steps:
 
       - uses: actions/checkout@v2
-        with:
-          path: repo
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
@@ -38,14 +36,22 @@ jobs:
         if: matrix.os == 'Windows'
         run: |
           env\Scripts\Activate.ps1
-          pip install poetry toml pytest pytest-github-actions-annotate-failures
-          python repo/src/workspace.py install
-          python -m pytest repo/test/
+          pip install poetry toml pytest coverage pytest-github-actions-annotate-failures
+          python src/workspace.py install
+          coverage run -m pytest test/
 
       - name: Test on UNIX
         if: matrix.os != 'Windows'
         run: |
           source env/bin/activate
-          pip install poetry toml pytest pytest-github-actions-annotate-failures
-          python repo/src/workspace.py install
-          python -m pytest repo/test/
+          pip install poetry toml pytest coverage pytest-github-actions-annotate-failures
+          python src/workspace.py install
+          coverage run -m pytest test/
+      
+      - name: Coverage & codecov
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: |
+          pip install coverage codecov
+          coverage report
+          codecov

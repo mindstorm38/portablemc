@@ -43,14 +43,16 @@ __all__ = [
     "LAUNCHER_NAME", "LAUNCHER_VERSION", "LAUNCHER_AUTHORS", "LAUNCHER_COPYRIGHT", "LAUNCHER_URL",
     "Context", "Version", "StartOptions", "Start", "VersionManifest",
     "AuthSession", "OfflineAuthSession", "YggdrasilAuthSession", "MicrosoftAuthSession", "AuthDatabase",
-    "DownloadEntry", "DownloadList", "DownloadProgress", "DownloadEntryProgress",
+    "DownloadEntry", "DownloadList", "DownloadProgress", "DownloadEntryProgress", "DownloadReport",
     "BaseError", "JsonRequestError", "AuthError", "VersionManifestError", "VersionError", "JvmLoadingError",
-        "DownloadReport",
+        "BinaryNotFound",
+    "LibrarySpecifier",
     "http_request", "json_request", "json_simple_request",
     "merge_dict",
     "interpret_rule_os", "interpret_rule", "interpret_args",
     "replace_vars", "replace_list_vars",
     "get_minecraft_dir", "get_minecraft_os", "get_minecraft_arch", "get_minecraft_archbits", "get_minecraft_jvm_os",
+    "get_jvm_bin_filename",
     "can_extract_native",
     "from_iso_date",
     # "calc_input_sha1",  TODO: To add in the future when stabilized
@@ -389,13 +391,14 @@ class Version:
             self.logging_file = logging_file
             self.logging_argument = client_logging["argument"]
 
-    def prepare_libraries(self):
+    def prepare_libraries(self, *, predicate: "Optional[Callable[[LibrarySpecifier], bool]]" = None):
 
         """
         Must be called once metadata file are prepared, using `prepare_meta`, if not, `ValueError` is raised.\n
         If the version JAR file is not set, a ValueError is raised because it is required to be added in classpath.\n
         This method check all libraries found in the metadata, each library is downloaded if not already stored. Real
-        Java libraries are added to the classpath list and native libraries are added to the native list.
+        Java libraries are added to the classpath list and native libraries are added to the native list.\n
+        Optional predicate can be used to filter libraries to download and include to the classpath.
         """
 
         self._check_version_meta()
@@ -413,21 +416,28 @@ class Version:
                 if not interpret_rule(lib_obj["rules"]):
                     continue
 
-            lib_name: str = lib_obj["name"]
-            lib_dl_name = lib_name
+            lib_spec = LibrarySpecifier.from_str(lib_obj["name"])
+
+            # FIXME: Maybe we should test for this after the natives condition.
+            if predicate is not None:
+                if not predicate(lib_spec):
+                    continue
+
+            # Old metadata files provides a 'natives' mapping from OS to the
+            # classifier specific for this OS.
             lib_natives: Optional[dict] = lib_obj.get("natives")
 
             if lib_natives is not None:
-                lib_classifier = lib_natives.get(get_minecraft_os())
-                if lib_classifier is None:
-                    continue  # If natives are defined, but the OS is not supported, skip.
-                lib_dl_name += f":{lib_classifier}"
+                # If natives object is present, the classifier associated to the
+                # OS overrides the lib_spec classifier.
+                lib_spec.classifier = lib_natives.get(get_minecraft_os())
+                if lib_spec.classifier is None:
+                    continue
                 archbits = get_minecraft_archbits()
                 if len(archbits):
-                    lib_classifier = lib_classifier.replace("${arch}", archbits)
+                    lib_spec.classifier = lib_spec.classifier.replace("${arch}", archbits)
                 lib_libs = self.native_libs
             else:
-                lib_classifier = None
                 lib_libs = self.classpath_libs
 
             lib_path: Optional[str] = None
@@ -436,34 +446,29 @@ class Version:
 
             if lib_dl is not None:
 
-                if lib_classifier is not None:
+                if lib_natives is not None:
+                    # Only check classifiers if natives mapping is present.
                     lib_dl_classifiers = lib_dl.get("classifiers")
-                    lib_dl_meta = None if lib_dl_classifiers is None else lib_dl_classifiers.get(lib_classifier)
+                    lib_dl_meta = None if lib_dl_classifiers is None else lib_dl_classifiers.get(lib_spec.classifier)
                 else:
+                    # If we are not dealing with natives, just take the artifact.
                     lib_dl_meta = lib_dl.get("artifact")
 
                 if lib_dl_meta is not None:
                     lib_path = path.join(self.context.libraries_dir, lib_dl_meta["path"])
-                    lib_dl_entry = DownloadEntry.from_meta(lib_dl_meta, lib_path, name=lib_dl_name)
+                    lib_dl_entry = DownloadEntry.from_meta(lib_dl_meta, lib_path, name=str(lib_spec))
 
-            if lib_dl_entry is None:
-
-                lib_name_parts = lib_name.split(":")
-                if len(lib_name_parts) != 3:
-                    continue  # If the library name is not maven-formatted, skip.
-
-                vendor, package, version = lib_name_parts
-                jar_file = f"{package}-{version}.jar" if lib_classifier is None else f"{package}-{version}-{lib_classifier}.jar"
-                lib_path_raw = "/".join((*vendor.split("."), package, version, jar_file))
+            # If we don't have a download entry, try to make one of the library specifier (only if version is set).
+            if lib_dl_entry is None and lib_spec.version is not None:
+                lib_path_raw = lib_spec.jar_file_path()
                 lib_path = path.join(self.context.libraries_dir, lib_path_raw)
-
                 if not path.isfile(lib_path):
                     # The official launcher seems to default to their libraries CDN, it will also allows us
                     # to prevent launch if such lib cannot be found.
                     lib_repo_url: str = lib_obj.get("url", "https://libraries.minecraft.net/")
                     if lib_repo_url[-1] != "/":
                         lib_repo_url += "/"  # Let's be sure to have a '/' as last character.
-                    lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=lib_dl_name)
+                    lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=str(lib_spec))
 
             lib_libs.append(lib_path)
             if lib_dl_entry is not None and (not path.isfile(lib_path) or (lib_dl_entry.size is not None and path.getsize(lib_path) != lib_dl_entry.size)):
@@ -477,9 +482,15 @@ class Version:
         This method can raise `JvmLoadingError` with `JvmLoadingError.UNSUPPORTED_ARCH` if Mojang does not provide
         a JVM for your current architecture, or `JvmLoadingError.UNSUPPORTED_VERSION` if the required JVM version is
         not provided by Mojang. It can also raise `JsonRequestError` when failing to get JSON files.\n
+        The error `JvmLoadingError.UNSUPPORTED_LIBC` can also be raised on non-glibc systems, because Mojang only
+        provides JVM linked to glibc.
         """
 
         self._check_version_meta()
+
+        if platform.system() == "Linux" and platform.libc_ver()[0] != "glibc":
+            raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_LIBC)
+
         jvm_version_type = self.version_meta.get("javaVersion", {}).get("component", "jre-legacy")
 
         jvm_dir = path.join(self.context.jvm_dir, jvm_version_type)
@@ -507,7 +518,7 @@ class Version:
                 json.dump(jvm_manifest, jvm_manifest_fp, indent=2)
 
         jvm_files = jvm_manifest["files"]
-        self.jvm_exec = path.join(jvm_dir, "bin", "javaw.exe" if sys.platform == "win32" else "java")
+        self.jvm_exec = path.join(jvm_dir, "bin", get_jvm_bin_filename())
         self.jvm_version = jvm_manifest.get("version", "unknown")
 
         jvm_exec_files = []
@@ -560,17 +571,17 @@ class StartOptions:
 
     def __init__(self):
         self.auth_session: Optional[AuthSession] = None
-        self.uuid: Optional[str] = None      # DEPRECATED, use OfflineAuthSession or 'with_offline'
-        self.username: Optional[str] = None  # DEPRECATED, use OfflineAuthSession or 'with_offline'
+        self.uuid: Optional[str] = None             # DEPRECATED, use OfflineAuthSession or 'with_offline'
+        self.username: Optional[str] = None         # DEPRECATED, use OfflineAuthSession or 'with_offline'
         self.demo: bool = False
         self.resolution: Optional[Tuple[int, int]] = None
         self.disable_multiplayer: bool = False
         self.disable_chat: bool = False
         self.server_address: Optional[str] = None
         self.server_port: Optional[int] = None
-        self.jvm_exec: Optional[str] = None
-        self.old_fix: bool = True  # For legacy merge sort and betacraft proxy
-        self.features: Dict[str, bool] = {}  # Additional features
+        self.jvm_exec: Optional[str] = None         # Overrides the version's jvm_exec
+        self.old_fix: bool = True                   # For legacy merge sort and betacraft proxy
+        self.features: Dict[str, bool] = {}         # Additional features
 
     @classmethod
     def with_online(cls, auth_session: 'AuthSession') -> 'StartOptions':
@@ -600,6 +611,10 @@ class Start:
         self.main_class: Optional[str] = None
         self.jvm_args: List[str] = []
         self.game_args: List[str] = []
+
+        # Additional binaries files to add to bin dir.
+        # These files will be symlinked on linux and copied on Windows (privilege issue).
+        self.bin_files: List[str] = []
 
         self.bin_dir_factory: Callable[[str], str] = self.default_bin_dir_factory
         self.runner: Callable[[List[str], str], None] = self.default_runner
@@ -743,7 +758,8 @@ class Start:
         This method actually use the `bin_dir_factory` of this object to produce a path where to extract binaries, by
         default a random UUID is appended to the common `bin_dir` of the context. The `runner` argument is also used to
         run the game, by default is uses the `subprocess.run` method. These two attributes can be changed before calling
-        this method.
+        this method.\n
+        This method may raise `BinaryNotFound` when one of the `self.bin_files` can't be resolved.
         """
 
         if self.main_class is None:
@@ -774,6 +790,23 @@ class Start:
                         with native_zip.open(native_zip_info, "r") as native_zip_file:
                             with open(path.join(bin_dir, native_name), "wb") as native_file:
                                 shutil.copyfileobj(native_zip_file, native_file)
+
+        for bin_file_raw in self.bin_files:
+            # Resolve a potential symlink and check if the binary exists before linking.
+            bin_file = path.realpath(bin_file_raw)
+            if not path.isfile(bin_file):
+                raise BinaryNotFound(bin_file_raw)
+            bin_name = path.basename(bin_file)
+            # Here we try to remove the version numbers of .so files.
+            so_idx = bin_name.rfind(".so")
+            if so_idx >= 0:
+                bin_name = bin_name[:so_idx + len(".so")]
+            # Try to symlink the file in the bin dir, and fallback to simple copy.
+            bin_dst_file = path.join(bin_dir, bin_name)
+            try:
+                os.symlink(bin_file, bin_dst_file)
+            except OSError:
+                shutil.copyfile(bin_file, bin_dst_file)
 
         self.args_replacements["natives_directory"] = bin_dir
 
@@ -1577,18 +1610,51 @@ class VersionError(BaseError):
 class JvmLoadingError(BaseError):
     UNSUPPORTED_ARCH = "unsupported_arch"
     UNSUPPORTED_VERSION = "unsupported_version"
+    UNSUPPORTED_LIBC = "unsupported_libc"
 
 
-# class DownloadError(Exception):
-#
-#     CONN_ERROR = "conn_error"
-#     NOT_FOUND = "not_found"
-#     INVALID_SIZE = "invalid_size"
-#     INVALID_SHA1 = "invalid_sha1"
-#
-#     def __init__(self, fails: Dict[str, str]):
-#         super().__init__()
-#         self.fails = fails
+class BinaryNotFound(Exception):
+
+    """
+    This type of error can be raised by `Start.start(...)` to signal the caller that
+    one of the specified additional binaries doesn't exists and therefore can't be 
+    symlinked nor copied inside the runtime's bin directory.
+    """
+
+    def __init__(self, bin_file: str):
+        super().__init__()
+        self.bin_file = bin_file
+
+
+class LibrarySpecifier:
+
+    __slots__ = "group", "artifact", "version", "classifier"
+
+    def __init__(self, group: str, artifact: str, version: str, classifier: "Optional[str]"):
+        self.group = group
+        self.artifact = artifact
+        self.version = version
+        self.classifier = classifier
+    
+    @classmethod
+    def from_str(cls, s: str) -> "LibrarySpecifier":
+        """ Parse a library specifier string 'group:artifact:version[:classifier]'. """
+        parts = s.split(":", 3)
+        if len(parts) < 3:
+            raise ValueError("Artifact value is empty")
+        else:
+            return LibrarySpecifier(parts[0], parts[1], parts[2], parts[3] if len(parts) == 4 else None)
+
+    def __str__(self) -> str:
+        return f"{self.group}:{self.artifact}:{self.version}" + ("" if self.classifier is None else f":{self.classifier}")
+
+    def jar_file_path(self) -> str:
+        """ 
+        Return the standard path to store the JAR file of this specifier.\n
+        Specifier `com.foo.bar:artifact:version` gives `com/foo/bar/artifact/version/artifact-version.jar`.
+        """
+        file_name = f"{self.artifact}-{self.version}" + ("" if self.classifier is None else f"-{self.classifier}") + ".jar"
+        return path.join(*self.group.split("."), self.artifact, self.version, file_name)
 
 
 def http_request(url: str, method: str, *,
@@ -1799,10 +1865,14 @@ def get_minecraft_jvm_os() -> str:
     return _minecraft_jvm_os
 
 
+def get_jvm_bin_filename() -> str:
+    """ Return the JVM binary filename for the current platform, 'javaw' on windows and 'java' on others. """
+    return "javaw.exe" if platform.system() == "Windows" else "java"
+
+
 def can_extract_native(filename: str) -> bool:
     """ Return True if a file should be extracted to binaries directory. """
     return filename.endswith((".so", ".dll", ".dylib"))
-    # return not filename.startswith("META-INF") and not filename.endswith(".git") and not filename.endswith(".sha1")
 
 
 def from_iso_date(raw: str) -> datetime:

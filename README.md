@@ -4,7 +4,7 @@ This launcher is compatible with the directory structure of the official Minecra
 It aims to be fast and reliable for all Minecraft versions in a stateless manner, it also supports
 addons, official ones can be found below.
 
-![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square) &nbsp;![GitHub downloads (legacy)](https://img.shields.io/github/downloads/mindstorm38/portablemc/total?label=Github%20downloads%20(legacy)&style=flat-square)
+![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square)
 
 ### [Install now!](#installation)
 
@@ -21,8 +21,9 @@ addons, official ones can be found below.
     - [Authentication](#authentication)
     - [Offline mode](#offline-mode)
     - [Custom JVM](#custom-jvm)
-    - [Auto connect to a server](#auto-connect-to-a-server)
+    - [Server auto-connect](#server-auto-connect)
     - [LWJGL version and ARM support](#lwjgl-version-and-arm-support)
+    - [Fix unsupported systems](#fix-unsupported-systems)
     - [Miscellaneous](#miscellaneous)
   - [Search for versions](#search-for-versions)
   - [Authentication sessions](#authentication-sessions)
@@ -130,7 +131,7 @@ launcher starts the JVM with default arguments, these are the following and are 
 You can change these arguments using the `--jvm-args=<args>`, **please always quote your set of arguments**, this set must
 be one argument for PMC. For example `portablemc start "--jvm-args=-Xmx2G -XX:+UnlockExperimentalVMOptions"`.
 
-### Auto connect to a server
+### Server auto-connect
 Since Minecraft 1.6 we can start the game and automatically connect to a server. To do that you can use 
 `-s <addr>` (`--server`) for the server address (e.g. `mc.hypixel.net`) and the `-p` (`--server-port`) 
 to specify its port, by default to 25565.
@@ -144,6 +145,24 @@ Using these versions on ARM is unstable and can show you an error with `GLXBadFB
 environment variable `export MESA_GL_VERSION_OVERRIDE=4.5` (more info [here](https://forum.winehq.org/viewtopic.php?f=8&t=34889)).
 
 In case with the above you still get an `error: GLSL 1.50 is not supported` you may also try `export MESA_GLSL_VERSION_OVERRIDE=150`.
+
+### Fix unsupported systems
+Some Mojang provided natives (.so, .dll, .dylib) might not be compatible with your system.
+To mitigate that, the launcher provides two arguments, `--exclude-lib` and `--include-lib`
+that can be provided multiples times each.
+
+With `--exclude-lib <artifact>[:[<version>][:<classifier>]]` you can exclude libraries (.jar) from the game's classpath (and so of the downloads). If a classifier is given, it will match
+libs' classifiers that starts with itself, for example `lwjgl-glfw::natives` will match the
+library `lwjgl-glfw:3.3.1:natives-windows-x86`.
+
+With `--include-bin <bin-file>` you can dynamically include binary natives (.so, .dll, .dylib)
+to the runtime's bin directory (usually under `.minecraft/bin/<uuid>`). The binary will be symlinked into the directory, or copied if not possible (mostly on Windows). For shared objects
+files (.so) that contains version numbers in the filename, these are discarded in the bin directory, for example `/lib/libglfw.so.3 -> .minecraft/bin/<uuid>/libglfw.so`.
+
+These arguments can be used together to fix various issues (e.g. wrong libc being linked
+by the LWJGL-provided natives).
+
+*Note that these arguments are compatbile, and executed after the `--lwjgl` argument.*
 
 ### Miscellaneous
 With `--dry`, the game is prepared but not started.
@@ -208,7 +227,7 @@ following commands:
 ```console
 # You can use any version of Python here from 3.6 to test compatibility of the launcher.
 conda create -n pmc python=3.10 pip
-# This line is optional if you don't have any user site-packages in your host installation, if not it allows to isolate pip. This is useful to avoid conflicts with conda-installed packages.
+# This line is optional if you don't have any user site-packages in your host installation, if not it allows to isolate pip. This is useful to avoid conflicts with packages installed outside of the environment.
 conda env config vars set PYTHONNOUSERSITE=1 -n pmc
 ```
 
@@ -238,6 +257,7 @@ conda run -n pmc portablemc
 This launcher would not be as functional without the contributors, and in particular the following for their bug reports, suggestions and pull requests to make the launcher better: 
 [GoodDay360](https://github.com/GoodDay360), 
 [Ristovski](https://github.com/Ristovski),
+[JamiKettunen](https://github.com/JamiKettunen)
 [MisileLaboratory](https://github.com/MisileLab) and
 [GooseDeveloper](https://github.com/GooseDeveloper).
 
