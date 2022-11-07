@@ -1651,11 +1651,13 @@ class LibrarySpecifier:
 
     def jar_file_path(self) -> str:
         """ 
-        Return the standard path to store the JAR file of this specifier.\n
+        Return the standard path to store the JAR file of this specifier, the path separator
+        will always be forward slashes '/', because it's compatible with linux/mac/windows 
+        and URL paths.\n
         Specifier `com.foo.bar:artifact:version` gives `com/foo/bar/artifact/version/artifact-version.jar`.
         """
         file_name = f"{self.artifact}-{self.version}" + ("" if self.classifier is None else f"-{self.classifier}") + ".jar"
-        return path.join(*self.group.split("."), self.artifact, self.version, file_name)
+        return "/".join([*self.group.split("."), self.artifact, self.version, file_name])
 
 
 def http_request(url: str, method: str, *,
