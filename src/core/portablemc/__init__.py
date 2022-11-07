@@ -1101,7 +1101,7 @@ class MicrosoftAuthSession(AuthSession):
     @classmethod
     def check_token_id(cls, token_id: str, email: str, nonce: str) -> bool:
         id_token_payload = cls.decode_jwt_payload(token_id)
-        return id_token_payload["nonce"] == nonce and id_token_payload["email"] == email
+        return id_token_payload["nonce"] == nonce and id_token_payload["email"].casefold() == email.casefold()
 
     @classmethod
     def authenticate(cls, client_id: str, app_id: str, code: str, redirect_uri: str) -> 'MicrosoftAuthSession':
@@ -1240,7 +1240,7 @@ class AuthDatabase:
                             sess = sess_type()
                             for field in sess_type.fields:
                                 setattr(sess, field, sess_data.get(field, ""))
-                            sessions[email] = sess
+                            sessions[email.casefold()] = sess
         except (OSError, KeyError, TypeError, JSONDecodeError):
             pass
 
@@ -1282,7 +1282,7 @@ class AuthDatabase:
 
     def get(self, email: str, sess_type: Type[AuthSession]) -> Optional[AuthSession]:
         sessions = self.sessions.get(sess_type.type)
-        return None if sessions is None else sessions.get(email)
+        return None if sessions is None else sessions.get(email.casefold())
 
     def put(self, email: str, sess: AuthSession):
         sessions = self.sessions.get(sess.type)
@@ -1290,9 +1290,10 @@ class AuthDatabase:
             if sess.type not in self.types:
                 raise ValueError("Given session's type is not supported.")
             sessions = self.sessions[sess.type] = {}
-        sessions[email] = sess
+        sessions[email.casefold()] = sess
 
     def remove(self, email: str, sess_type: Type[AuthSession]) -> Optional[AuthSession]:
+        email = email.casefold()
         sessions = self.sessions.get(sess_type.type)
         if sessions is not None:
             session = sessions.get(email)
