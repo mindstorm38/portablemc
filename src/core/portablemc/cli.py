@@ -925,6 +925,9 @@ def prompt_authenticate(ctx: CliContext, email: str, cache_in_db: bool, microsof
     auth_db = new_auth_database(ctx)
     auth_db.load()
 
+    if not microsoft:
+        print_task("HELP", "auth.yggdrasil.note_for_microsoft", done=True)
+
     task_text = "auth.microsoft" if microsoft else "auth.yggdrasil"
     task_text_args = {"email": anonymise_email(email) if anonymise else email}
     print_task("", task_text, task_text_args)
@@ -1299,10 +1302,11 @@ messages = {
     "auth.validated": "Session validated for {email}.",
     "auth.caching": "Caching your session...",
     "auth.logged_in": "Logged in",
-    "auth.microsoft_requires_email": "Even if you are using -m (`--microsoft`), you must use `-l` argument with your "
+    "auth.microsoft_requires_email": "Even if you are using -m (--microsoft), you must use -l argument with your "
                                      "Microsoft email.",
     # Auth Yggdrasil
     "auth.yggdrasil": "Authenticating {email} with Mojang...",
+    "auth.yggdrasil.note_for_microsoft": "Logging in with Mojang is now deprecated, if you intented to log into a Microsoft account, add -m flag in your command.",
     "auth.yggdrasil.enter_password": "Password: ",
     f"auth.error.{AuthError.YGGDRASIL}": "{details}",
     # Auth Microsoft
