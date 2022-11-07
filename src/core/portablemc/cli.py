@@ -1063,7 +1063,7 @@ def prompt_microsoft_authenticate(client_id: str, email: str) -> Optional[Micros
         if MicrosoftAuthSession.check_token_id(server.ms_auth_id_token, email, nonce):
             return MicrosoftAuthSession.authenticate(client_id, app_id, server.ms_auth_code, code_redirect_uri)
         else:
-            print_task("FAILED", "auth.microsoft.incoherent_dat", done=True)
+            print_task("FAILED", "auth.microsoft.incoherent_data", done=True)
             return None
 
 # Messages
