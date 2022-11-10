@@ -148,7 +148,7 @@ In case with the above you still get an `error: GLSL 1.50 is not supported` you 
 
 ### Fix unsupported systems
 Some Mojang provided natives (.so, .dll, .dylib) might not be compatible with your system.
-To mitigate that, the launcher provides two arguments, `--exclude-lib` and `--include-lib`
+To mitigate that, the launcher provides two arguments, `--exclude-lib` and `--include-bin`
 that can be provided multiples times each.
 
 With `--exclude-lib <artifact>[:[<version>][:<classifier>]]` you can exclude libraries (.jar) from the game's classpath (and so of the downloads). If a classifier is given, it will match
