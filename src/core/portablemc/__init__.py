@@ -407,7 +407,6 @@ class Version:
             raise ValueError("The version JAR file must be prepared before calling this method.")
 
         self.classpath_libs.clear()
-        self.classpath_libs.append(self.version_jar_file)
         self.native_libs.clear()
 
         for lib_obj in self.version_meta["libraries"]:
@@ -473,6 +472,8 @@ class Version:
             lib_libs.append(lib_path)
             if lib_dl_entry is not None and (not path.isfile(lib_path) or (lib_dl_entry.size is not None and path.getsize(lib_path) != lib_dl_entry.size)):
                 self.dl.append(lib_dl_entry)
+                
+        self.classpath_libs.append(self.version_jar_file)
 
     def prepare_jvm(self):
 
