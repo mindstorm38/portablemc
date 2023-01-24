@@ -1,6 +1,6 @@
 # encoding: utf-8
 
-# Copyright (C) 2021-2022  Théo Rozier
+# Copyright (C) 2021-2023  Théo Rozier
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -34,7 +34,6 @@ import hashlib
 import shutil
 import base64
 import json
-import sys
 import os
 import re
 
@@ -63,7 +62,7 @@ __all__ = [
 LAUNCHER_NAME = "portablemc"
 LAUNCHER_VERSION = "3.2.0"
 LAUNCHER_AUTHORS = ["Théo Rozier <contact@theorozier.fr>", "Github contributors"]
-LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021-2022  Théo Rozier"
+LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021-2023  Théo Rozier"
 LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
 
 
