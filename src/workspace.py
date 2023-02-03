@@ -7,7 +7,7 @@ import sys
 import os
 
 def iter_module():
-    os.chdir(os.path.dirname(__file__))
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     yield "portablemc", "core"
     with os.scandir() as dirs:
         for entry in dirs:
