@@ -162,7 +162,7 @@ files (.so) that contains version numbers in the filename, these are discarded i
 These arguments can be used together to fix various issues (e.g. wrong libc being linked
 by the LWJGL-provided natives).
 
-*Note that these arguments are compatbile, and executed after the `--lwjgl` argument.*
+*Note that these arguments are compatible, and executed after the `--lwjgl` argument. You must however ensure that excluded lib and included binaries are compatible.*
 
 ### Miscellaneous
 With `--dry`, the game is prepared but not started.
