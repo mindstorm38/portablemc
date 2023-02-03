@@ -81,7 +81,7 @@ The two arguments `--main-dir` and `--work-dir` may or may not be used by sub co
 the command and always set the main and work directory like you want.
 
 An advanced argument `--timeout <seconds>` can be used to set a global timeout value that can be freely used
-by the launcher or addons. You can use the special value 0 to force using local caches, is supported. For
+by the launcher or addons. You can use the special value 0 to force using local caches, if supported. For
 now, it's used by the launcher only for the version manifest fetching as it is now locally cached.
 
 ## Start the game

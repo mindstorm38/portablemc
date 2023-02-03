@@ -1,6 +1,6 @@
 # encoding: utf-8
 
-# Copyright (C) 2021-2022  Théo Rozier
+# Copyright (C) 2021-2023  Théo Rozier
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -34,7 +34,6 @@ import hashlib
 import shutil
 import base64
 import json
-import sys
 import os
 import re
 
@@ -61,9 +60,9 @@ __all__ = [
 
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "3.2.0"
+LAUNCHER_VERSION = "3.2.1"
 LAUNCHER_AUTHORS = ["Théo Rozier <contact@theorozier.fr>", "Github contributors"]
-LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021-2022  Théo Rozier"
+LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021-2023  Théo Rozier"
 LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
 
 
@@ -407,7 +406,6 @@ class Version:
             raise ValueError("The version JAR file must be prepared before calling this method.")
 
         self.classpath_libs.clear()
-        self.classpath_libs.append(self.version_jar_file)
         self.native_libs.clear()
 
         for lib_obj in self.version_meta["libraries"]:
@@ -473,6 +471,8 @@ class Version:
             lib_libs.append(lib_path)
             if lib_dl_entry is not None and (not path.isfile(lib_path) or (lib_dl_entry.size is not None and path.getsize(lib_path) != lib_dl_entry.size)):
                 self.dl.append(lib_dl_entry)
+                
+        self.classpath_libs.append(self.version_jar_file)
 
     def prepare_jvm(self):
 
