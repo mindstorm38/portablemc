@@ -7,8 +7,6 @@ import sys
 import os
 
 def iter_module():
-    print(os.path.abspath(__file__))
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     yield "portablemc", "core"
     with os.scandir() as dirs:
         for entry in dirs:
@@ -21,6 +19,8 @@ def for_each_module(args):
         subprocess.call(args, cwd=path)
 
 if __name__ == '__main__':
+
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     need_uninstall = sys.argv[1] == "install" if len(sys.argv) >= 2 else False
 
