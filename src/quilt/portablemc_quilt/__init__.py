@@ -118,6 +118,8 @@ class QuiltVersion(Version):
             return super()._validate_version_meta(version_id, version_dir, version_meta_file, version_meta)
 
     def _fetch_version_meta(self, version_id: str, version_dir: str, version_meta_file: str) -> dict:
+        if version_id != self.id:
+            return super()._fetch_version_meta(version_id, version_dir, version_meta_file)
         meta = request_version_loader_profile(self.game_version, self.loader_version)
         meta["id"] = self.id
         return meta
