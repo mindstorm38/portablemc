@@ -356,11 +356,16 @@ def cmd(handler, ns: Namespace):
             "data": err.data,
         }, done=True, keep_previous=True)
         sys.exit(EXIT_JSON_REQUEST_ERROR)
-    except (URLError, socket.gaierror, socket.timeout) as err:
-        print_task("FAILED", "error.socket", {"reason": str(err)}, done=True, keep_previous=True)
-        sys.exit(EXIT_FAILURE)
     except KeyboardInterrupt:
         print_task(None, "error.keyboard_interrupt", done=True, keep_previous=True)
+        sys.exit(EXIT_FAILURE)
+    except Exception as err:
+        key = "error.generic"
+        if isinstance(err, (URLError, socket.gaierror, socket.timeout)):
+            key = "error.socket"
+        print_task("FAILED", key, done=True, keep_previous=True)
+        import traceback
+        traceback.print_exc()
         sys.exit(EXIT_FAILURE)
 
 
@@ -1231,7 +1236,8 @@ messages = {
     # Json Request
     f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid JSON response from {method} {url}, status: {status}, data: {data}",
     # Misc errors
-    "error.socket": "This operation requires an operational network, but a socket error happened: {reason}",
+    "error.generic": "An unexpected error happened, please report it to the authors:",
+    "error.socket": "This operation requires an operational network, but a socket error happened:",
     "error.keyboard_interrupt": "Interrupted.",
     # Command search
     "search.type": "Type",
