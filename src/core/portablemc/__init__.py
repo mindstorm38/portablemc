@@ -1685,14 +1685,14 @@ def http_request(url: str, method: str, *,
 
     try:
 
-        # try:
-        #     import certifi
-        #     ctx = ssl.create_default_context(cafile=certifi.where())
-        # except ImportError:
-        #     ctx = None
+        try:
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            ctx = None
 
         req = UrlRequest(url, data, headers, method=method)
-        res: HTTPResponse = url_request.urlopen(req, timeout=timeout, context=None)
+        res: HTTPResponse = url_request.urlopen(req, timeout=timeout, context=ctx)
 
     except HTTPError as err:
         res = cast(HTTPResponse, err)
