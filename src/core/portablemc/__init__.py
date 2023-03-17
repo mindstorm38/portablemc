@@ -34,6 +34,7 @@ import hashlib
 import shutil
 import base64
 import json
+import ssl
 import os
 import re
 
@@ -1683,8 +1684,16 @@ def http_request(url: str, method: str, *,
         headers = {}
 
     try:
+
+        # try:
+        #     import certifi
+        #     ctx = ssl.create_default_context(cafile=certifi.where())
+        # except ImportError:
+        #     ctx = None
+
         req = UrlRequest(url, data, headers, method=method)
-        res: HTTPResponse = url_request.urlopen(req, timeout=timeout)
+        res: HTTPResponse = url_request.urlopen(req, timeout=timeout, context=None)
+
     except HTTPError as err:
         res = cast(HTTPResponse, err)
 

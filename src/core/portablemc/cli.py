@@ -360,8 +360,11 @@ def cmd(handler, ns: Namespace):
         print_task(None, "error.keyboard_interrupt", done=True, keep_previous=True)
         sys.exit(EXIT_FAILURE)
     except Exception as err:
+        import ssl
         key = "error.generic"
-        if isinstance(err, (URLError, socket.gaierror, socket.timeout)):
+        if isinstance(err, URLError) and isinstance(err.reason, ssl.SSLCertVerificationError):
+            key = "error.cert"
+        elif isinstance(err, (URLError, socket.gaierror, socket.timeout)):
             key = "error.socket"
         print_task("FAILED", key, done=True, keep_previous=True)
         import traceback
@@ -1238,6 +1241,7 @@ messages = {
     # Misc errors
     "error.generic": "An unexpected error happened, please report it to the authors:",
     "error.socket": "This operation requires an operational network, but a socket error happened:",
+    "error.cert": "Certificate verification failed, you can try installing 'certifi' package:",
     "error.keyboard_interrupt": "Interrupted.",
     # Command search
     "search.type": "Type",
