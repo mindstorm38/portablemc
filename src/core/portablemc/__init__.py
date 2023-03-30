@@ -67,7 +67,10 @@ LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021-2023  Théo Rozier"
 LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
 
 
+RESOURCES_URL = "https://resources.download.minecraft.net/"
 LIBRARIES_URL = "https://libraries.minecraft.net/"
+VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+JVM_META_URL = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
 
 
 class Context:
@@ -353,7 +356,7 @@ class Version:
             asset_file = path.join(assets_objects_dir, asset_hash_prefix, asset_hash)
             assets[asset_id] = asset_file
             if not path.isfile(asset_file) or path.getsize(asset_file) != asset_size:
-                asset_url = f"https://resources.download.minecraft.net/{asset_hash_prefix}/{asset_hash}"
+                asset_url = f"{RESOURCES_URL}{asset_hash_prefix}/{asset_hash}"
                 self.dl.append(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id))
 
         def finalize():
@@ -525,7 +528,7 @@ class Version:
                 jvm_manifest = json.load(jvm_manifest_fp)
         except (OSError, JSONDecodeError):
 
-            all_jvm_meta = json_simple_request("https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json")
+            all_jvm_meta = json_simple_request(JVM_META_URL)
             jvm_arch_meta = all_jvm_meta.get(get_minecraft_jvm_os())
             if jvm_arch_meta is None:
                 raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_ARCH)
@@ -881,8 +884,7 @@ class VersionManifest:
 
             if self.cache_timeout is None or self.cache_timeout > 0:
                 try:
-                    manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
-                    status, data = json_request(manifest_url, "GET", headers=headers, ignore_error=True,
+                    status, data = json_request(VERSION_MANIFEST_URL, "GET", headers=headers, ignore_error=True,
                                                 timeout=self.cache_timeout, rcv_headers=rcv_headers)
                 except OSError:
                     pass  # We silently ignore OSError (all socket errors and URL errors) and use default 404
