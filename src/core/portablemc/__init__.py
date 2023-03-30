@@ -470,14 +470,14 @@ class Version:
                         # In such case, we can guess the path from the URL (error if not present).
                         lib_dl_url = lib_dl_meta.get("url")
                         if lib_dl_url is None:
-                            raise ValueError("None of 'url' or 'path' fields are present in the download metadata.")
+                            raise ValueError("None of 'url' or 'path' fields are present in the download metadata.", lib_spec)
                         
                         # For now, we only guess the path if the url is the official repository.
                         if lib_dl_url.startswith(LIBRARIES_URL):
                             lib_dl_path = lib_dl_url[len(LIBRARIES_URL):]
                         else:
                             # FIXME: In the future, support urls that are not from official repository.
-                            raise ValueError("The path can only be guess from the official repository.")
+                            raise ValueError("The path can only be guess from the official repository.", lib_spec)
                     
                     # Here the path should not be none, because of raised errors.
                     lib_path = path.join(self.context.libraries_dir, lib_dl_path)
@@ -488,15 +488,18 @@ class Version:
                 lib_path_raw = lib_spec.jar_file_path()
                 lib_path = path.join(self.context.libraries_dir, lib_path_raw)
                 if not path.isfile(lib_path):
-                    # The official launcher seems to default to their libraries CDN, it will also allows us
+                    # The official launcher seems to default to their repository, it will also allows us
                     # to prevent launch if such lib cannot be found.
                     lib_repo_url: str = lib_obj.get("url", LIBRARIES_URL)
                     if lib_repo_url[-1] != "/":
                         lib_repo_url += "/"  # Let's be sure to have a '/' as last character.
                     lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=str(lib_spec))
 
+            if lib_dl_entry is None:
+                raise ValueError("No download entry.", lib_spec)
+
             lib_libs.append(lib_path)
-            if lib_dl_entry is not None and (not path.isfile(lib_path) or (lib_dl_entry.size is not None and path.getsize(lib_path) != lib_dl_entry.size)):
+            if not path.isfile(lib_path) or (lib_dl_entry.size is not None and path.getsize(lib_path) != lib_dl_entry.size):
                 self.dl.append(lib_dl_entry)
                 
         self.classpath_libs.append(self.version_jar_file)
