@@ -11,7 +11,7 @@ class NoValidationVersion(Version):
         return True  # To avoid fetching the online manifest
 
 
-@pytest.mark.parametrize("version", ["b1.8.1", "1.5.2", "1.7.10", "1.16.5", "1.17.1", "1.19"])
+@pytest.mark.parametrize("version", ["b1.8.1", "1.5.2", "1.7.10", "1.16.5", "1.17.1", "1.18.1.nopath", "1.19"])
 def test_install(tmp_path, version):
 
     print(f"testing install in {tmp_path}")
