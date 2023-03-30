@@ -67,6 +67,9 @@ LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021-2023  Théo Rozier"
 LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
 
 
+LIBRARIES_URL = "https://libraries.minecraft.net/"
+
+
 class Context:
 
     """
@@ -453,8 +456,27 @@ class Version:
                     # If we are not dealing with natives, just take the artifact.
                     lib_dl_meta = lib_dl.get("artifact")
 
+                # If some download metadata was found, we try to create an entry from it.
                 if lib_dl_meta is not None:
-                    lib_dl_path = lib_dl_meta["path"]
+
+                    lib_dl_path = lib_dl_meta.get("path")
+
+                    # It sometime happens that no download path is provided.
+                    if lib_dl_path is None:
+
+                        # In such case, we can guess the path from the URL (error if not present).
+                        lib_dl_url = lib_dl_meta.get("url")
+                        if lib_dl_url is None:
+                            raise ValueError("None of 'url' or 'path' fields are present in the download metadata.")
+                        
+                        # For now, we only guess the path if the url is the official repository.
+                        if lib_dl_url.startswith(LIBRARIES_URL):
+                            lib_dl_path = lib_dl_url[len(LIBRARIES_URL):]
+                        else:
+                            # FIXME: In the future, support urls that are not from official repository.
+                            raise ValueError("The path can only be guess from the official repository.")
+                    
+                    # Here the path should not be none, because of raised errors.
                     lib_path = path.join(self.context.libraries_dir, lib_dl_path)
                     lib_dl_entry = DownloadEntry.from_meta(lib_dl_meta, lib_path, name=str(lib_spec))
 
@@ -465,7 +487,7 @@ class Version:
                 if not path.isfile(lib_path):
                     # The official launcher seems to default to their libraries CDN, it will also allows us
                     # to prevent launch if such lib cannot be found.
-                    lib_repo_url: str = lib_obj.get("url", "https://libraries.minecraft.net/")
+                    lib_repo_url: str = lib_obj.get("url", LIBRARIES_URL)
                     if lib_repo_url[-1] != "/":
                         lib_repo_url += "/"  # Let's be sure to have a '/' as last character.
                     lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=str(lib_spec))
@@ -1335,6 +1357,8 @@ class DownloadEntry:
 
     @classmethod
     def from_meta(cls, info: dict, dst: str, *, name: Optional[str] = None) -> 'DownloadEntry':
+        if "url" not in info:
+            raise ValueError("Missing required 'url' field in download meta.")
         return DownloadEntry(info["url"], dst, size=info.get("size"), sha1=info.get("sha1"), name=name)
 
     def __hash__(self) -> int:
@@ -1644,7 +1668,7 @@ class LibrarySpecifier:
         """ Parse a library specifier string 'group:artifact:version[:classifier]'. """
         parts = s.split(":", 3)
         if len(parts) < 3:
-            raise ValueError("Artifact value is empty")
+            raise ValueError("Invalid library specifier.")
         else:
             return LibrarySpecifier(parts[0], parts[1], parts[2], parts[3] if len(parts) == 4 else None)
 
