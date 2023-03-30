@@ -306,7 +306,7 @@ class Version:
         Must be called once metadata file are prepared, using `prepare_meta`, if not, `ValueError` is raised.\n
         This method download the asset index file (if not already cached) named after the asset version into the
         directory `indexes` placed into the directory `assets_dir` of the context. Once ready, the asset index file
-        is analysed and each object is checked, if it does not exist or not have the expected size, it is downloaded
+        is analyzed and each object is checked, if it does not exist or not have the expected size, it is downloaded
         to the `objects` directory placed into the directory `assets_dir` of the context.\n
         If the metadata doesn't provide an `assetIndex`, the process is skipped.\n
         This method also set the `assets_count` attribute with the number of assets for this version.\n
@@ -454,11 +454,12 @@ class Version:
                     lib_dl_meta = lib_dl.get("artifact")
 
                 if lib_dl_meta is not None:
-                    lib_path = path.join(self.context.libraries_dir, lib_dl_meta["path"])
+                    lib_dl_path = lib_dl_meta["path"]
+                    lib_path = path.join(self.context.libraries_dir, lib_dl_path)
                     lib_dl_entry = DownloadEntry.from_meta(lib_dl_meta, lib_path, name=str(lib_spec))
 
             # If we don't have a download entry, try to make one of the library specifier (only if version is set).
-            if lib_dl_entry is None and lib_spec.version is not None:
+            if lib_dl_entry is None:
                 lib_path_raw = lib_spec.jar_file_path()
                 lib_path = path.join(self.context.libraries_dir, lib_path_raw)
                 if not path.isfile(lib_path):
