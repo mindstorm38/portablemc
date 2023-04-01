@@ -34,6 +34,7 @@ import hashlib
 import shutil
 import base64
 import json
+import ssl
 import os
 import re
 
@@ -60,10 +61,16 @@ __all__ = [
 
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "3.2.1"
+LAUNCHER_VERSION = "3.3.0"
 LAUNCHER_AUTHORS = ["Théo Rozier <contact@theorozier.fr>", "Github contributors"]
 LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021-2023  Théo Rozier"
 LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
+
+
+RESOURCES_URL = "https://resources.download.minecraft.net/"
+LIBRARIES_URL = "https://libraries.minecraft.net/"
+VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+JVM_META_URL = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
 
 
 class Context:
@@ -305,7 +312,7 @@ class Version:
         Must be called once metadata file are prepared, using `prepare_meta`, if not, `ValueError` is raised.\n
         This method download the asset index file (if not already cached) named after the asset version into the
         directory `indexes` placed into the directory `assets_dir` of the context. Once ready, the asset index file
-        is analysed and each object is checked, if it does not exist or not have the expected size, it is downloaded
+        is analyzed and each object is checked, if it does not exist or not have the expected size, it is downloaded
         to the `objects` directory placed into the directory `assets_dir` of the context.\n
         If the metadata doesn't provide an `assetIndex`, the process is skipped.\n
         This method also set the `assets_count` attribute with the number of assets for this version.\n
@@ -349,7 +356,7 @@ class Version:
             asset_file = path.join(assets_objects_dir, asset_hash_prefix, asset_hash)
             assets[asset_id] = asset_file
             if not path.isfile(asset_file) or path.getsize(asset_file) != asset_size:
-                asset_url = f"https://resources.download.minecraft.net/{asset_hash_prefix}/{asset_hash}"
+                asset_url = f"{RESOURCES_URL}{asset_hash_prefix}/{asset_hash}"
                 self.dl.append(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id))
 
         def finalize():
@@ -452,24 +459,47 @@ class Version:
                     # If we are not dealing with natives, just take the artifact.
                     lib_dl_meta = lib_dl.get("artifact")
 
+                # If some download metadata was found, we try to create an entry from it.
                 if lib_dl_meta is not None:
-                    lib_path = path.join(self.context.libraries_dir, lib_dl_meta["path"])
+
+                    lib_dl_path = lib_dl_meta.get("path")
+
+                    # It sometime happens that no download path is provided.
+                    if lib_dl_path is None:
+
+                        # In such case, we can guess the path from the URL (error if not present).
+                        lib_dl_url = lib_dl_meta.get("url")
+                        if lib_dl_url is None:
+                            raise ValueError("None of 'url' or 'path' fields are present in the download metadata.", lib_spec)
+                        
+                        # For now, we only guess the path if the url is the official repository.
+                        if lib_dl_url.startswith(LIBRARIES_URL):
+                            lib_dl_path = lib_dl_url[len(LIBRARIES_URL):]
+                        else:
+                            # FIXME: In the future, support urls that are not from official repository.
+                            raise ValueError("The path can only be guess from the official repository.", lib_spec)
+                    
+                    # Here the path should not be none, because of raised errors.
+                    lib_path = path.join(self.context.libraries_dir, lib_dl_path)
                     lib_dl_entry = DownloadEntry.from_meta(lib_dl_meta, lib_path, name=str(lib_spec))
 
             # If we don't have a download entry, try to make one of the library specifier (only if version is set).
-            if lib_dl_entry is None and lib_spec.version is not None:
+            if lib_dl_entry is None:
                 lib_path_raw = lib_spec.jar_file_path()
                 lib_path = path.join(self.context.libraries_dir, lib_path_raw)
                 if not path.isfile(lib_path):
-                    # The official launcher seems to default to their libraries CDN, it will also allows us
+                    # The official launcher seems to default to their repository, it will also allows us
                     # to prevent launch if such lib cannot be found.
-                    lib_repo_url: str = lib_obj.get("url", "https://libraries.minecraft.net/")
+                    lib_repo_url: str = lib_obj.get("url", LIBRARIES_URL)
                     if lib_repo_url[-1] != "/":
                         lib_repo_url += "/"  # Let's be sure to have a '/' as last character.
                     lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=str(lib_spec))
 
+            if lib_dl_entry is None:
+                raise ValueError("No download entry.", lib_spec)
+
             lib_libs.append(lib_path)
-            if lib_dl_entry is not None and (not path.isfile(lib_path) or (lib_dl_entry.size is not None and path.getsize(lib_path) != lib_dl_entry.size)):
+            if not path.isfile(lib_path) or (lib_dl_entry.size is not None and path.getsize(lib_path) != lib_dl_entry.size):
                 self.dl.append(lib_dl_entry)
                 
         self.classpath_libs.append(self.version_jar_file)
@@ -501,7 +531,7 @@ class Version:
                 jvm_manifest = json.load(jvm_manifest_fp)
         except (OSError, JSONDecodeError):
 
-            all_jvm_meta = json_simple_request("https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json")
+            all_jvm_meta = json_simple_request(JVM_META_URL)
             jvm_arch_meta = all_jvm_meta.get(get_minecraft_jvm_os())
             if jvm_arch_meta is None:
                 raise JvmLoadingError(JvmLoadingError.UNSUPPORTED_ARCH)
@@ -857,8 +887,7 @@ class VersionManifest:
 
             if self.cache_timeout is None or self.cache_timeout > 0:
                 try:
-                    manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
-                    status, data = json_request(manifest_url, "GET", headers=headers, ignore_error=True,
+                    status, data = json_request(VERSION_MANIFEST_URL, "GET", headers=headers, ignore_error=True,
                                                 timeout=self.cache_timeout, rcv_headers=rcv_headers)
                 except OSError:
                     pass  # We silently ignore OSError (all socket errors and URL errors) and use default 404
@@ -1333,6 +1362,8 @@ class DownloadEntry:
 
     @classmethod
     def from_meta(cls, info: dict, dst: str, *, name: Optional[str] = None) -> 'DownloadEntry':
+        if "url" not in info:
+            raise ValueError("Missing required 'url' field in download meta.")
         return DownloadEntry(info["url"], dst, size=info.get("size"), sha1=info.get("sha1"), name=name)
 
     def __hash__(self) -> int:
@@ -1402,7 +1433,8 @@ class DownloadList:
 
         if len(self.entries):
 
-            buffer = bytearray(65536)
+            buffer_back = bytearray(65536)
+            buffer = memoryview(buffer_back)
             total_size = 0
 
             if progress_callback is not None:
@@ -1642,7 +1674,7 @@ class LibrarySpecifier:
         """ Parse a library specifier string 'group:artifact:version[:classifier]'. """
         parts = s.split(":", 3)
         if len(parts) < 3:
-            raise ValueError("Artifact value is empty")
+            raise ValueError("Invalid library specifier.")
         else:
             return LibrarySpecifier(parts[0], parts[1], parts[2], parts[3] if len(parts) == 4 else None)
 
@@ -1683,8 +1715,16 @@ def http_request(url: str, method: str, *,
         headers = {}
 
     try:
+
+        try:
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            ctx = None
+
         req = UrlRequest(url, data, headers, method=method)
-        res: HTTPResponse = url_request.urlopen(req, timeout=timeout)
+        res: HTTPResponse = url_request.urlopen(req, timeout=timeout, context=ctx)
+
     except HTTPError as err:
         res = cast(HTTPResponse, err)
 
