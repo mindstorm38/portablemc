@@ -1681,6 +1681,9 @@ class LibrarySpecifier:
     def __str__(self) -> str:
         return f"{self.group}:{self.artifact}:{self.version}" + ("" if self.classifier is None else f":{self.classifier}")
 
+    def __repr__(self) -> str:
+        return f"<LibrarySpecifier {self}>"
+
     def jar_file_path(self) -> str:
         """ 
         Return the standard path to store the JAR file of this specifier, the path separator
