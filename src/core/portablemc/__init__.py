@@ -61,7 +61,7 @@ __all__ = [
 
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "3.3.0"
+LAUNCHER_VERSION = "3.3.1"
 LAUNCHER_AUTHORS = ["Théo Rozier <contact@theorozier.fr>", "Github contributors"]
 LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021-2023  Théo Rozier"
 LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
@@ -495,12 +495,12 @@ class Version:
                         lib_repo_url += "/"  # Let's be sure to have a '/' as last character.
                     lib_dl_entry = DownloadEntry(f"{lib_repo_url}{lib_path_raw}", lib_path, name=str(lib_spec))
 
-            if lib_dl_entry is None:
-                raise ValueError("No download entry.", lib_spec)
-
+            # Even if no download entry has been found, we add the path because it might be already downloaded.
             lib_libs.append(lib_path)
-            if not path.isfile(lib_path) or (lib_dl_entry.size is not None and path.getsize(lib_path) != lib_dl_entry.size):
-                self.dl.append(lib_dl_entry)
+
+            if lib_dl_entry is not None:
+                if not path.isfile(lib_path) or (lib_dl_entry.size is not None and path.getsize(lib_path) != lib_dl_entry.size):
+                    self.dl.append(lib_dl_entry)
                 
         self.classpath_libs.append(self.version_jar_file)
 
@@ -1363,7 +1363,7 @@ class DownloadEntry:
     @classmethod
     def from_meta(cls, info: dict, dst: str, *, name: Optional[str] = None) -> 'DownloadEntry':
         if "url" not in info:
-            raise ValueError("Missing required 'url' field in download meta.")
+            raise ValueError("Missing required 'url' field in download meta.", info)
         return DownloadEntry(info["url"], dst, size=info.get("size"), sha1=info.get("sha1"), name=name)
 
     def __hash__(self) -> int:
@@ -1680,6 +1680,9 @@ class LibrarySpecifier:
 
     def __str__(self) -> str:
         return f"{self.group}:{self.artifact}:{self.version}" + ("" if self.classifier is None else f":{self.classifier}")
+
+    def __repr__(self) -> str:
+        return f"<LibrarySpecifier {self}>"
 
     def jar_file_path(self) -> str:
         """ 
