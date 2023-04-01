@@ -1433,7 +1433,8 @@ class DownloadList:
 
         if len(self.entries):
 
-            buffer = bytearray(65536)
+            buffer_back = bytearray(65536)
+            buffer = memoryview(buffer_back)
             total_size = 0
 
             if progress_callback is not None:
