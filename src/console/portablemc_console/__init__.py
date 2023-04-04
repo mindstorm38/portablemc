@@ -110,41 +110,59 @@ def runner(old, bin_dir: str, args: List[str], cwd: str, ns: Namespace, start: S
     application = build_application(container, keys)
     process = Popen(args, cwd=cwd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True)
 
+    # This function asynchronously poll the process' stdout and 
+    # stderr an send them to the buffer window.
     async def _run_process():
+
         nonlocal process
-        stdout_reader = ThreadedProcessReader(cast(TextIO, process.stdout))
-        stderr_reader = ThreadedProcessReader(cast(TextIO, process.stderr))
+
+        stdout_reader = ThreadedProcessReader(process.stdout)
+        stderr_reader = ThreadedProcessReader(process.stderr)
+
         while True:
+
             code = process.poll()
             if code is None:
+
                 done, pending = await asyncio.wait((
-                    stdout_reader.poll(),
-                    stderr_reader.poll()
+                    asyncio.create_task(stdout_reader.poll()),
+                    asyncio.create_task(stderr_reader.poll())
                 ), return_when=asyncio.FIRST_COMPLETED)
+
                 for done_task in done:
                     line = done_task.result()
                     if line is not None:
                         buffer_window.append(line)
+
                 for pending_task in pending:
                     pending_task.cancel()
+
             else:
                 stdout_reader.wait_until_closed()
                 stderr_reader.wait_until_closed()
                 buffer_window.append(*stdout_reader.poll_all(), *stderr_reader.poll_all())
                 break
+
         process = None
         shutil.rmtree(bin_dir, ignore_errors=True)
+
         if double_exit:
             buffer_window.append("", _("start.console.confirm_close"))
 
+    # Main entry that starts both the prompt toolkit window and the 
+    # stdout/stderr reading, then it waits for both (depending on 
+    # double_exit) to exit.
     async def _run():
+
         _done, _pending = await asyncio.wait((
-            _run_process(),
-            application.run_async()
+            asyncio.create_task(_run_process()),
+            asyncio.create_task(application.run_async())
         ), return_when=asyncio.ALL_COMPLETED if double_exit else asyncio.FIRST_COMPLETED)
+
         if process is not None:
             process.kill()
             process.wait(timeout=5)
+
         if application.is_running:
             application.exit()
 
@@ -204,15 +222,19 @@ class RollingLinesBuffer:
         self._limit = limit
 
     def append(self, *lines: str) -> bool:
+        
         if not len(lines):
             return False
+        
         for line in lines:
             if not len(line):
                 self._strings.append("")
             else:
                 self._strings.extend(line.splitlines())
+        
         while len(self._strings) > self._limit:
             self._strings.pop(0)
+
         return True
 
     def get(self) -> str:
