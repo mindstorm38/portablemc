@@ -34,7 +34,8 @@ addons, official ones can be found below.
   - [Quilt ⇗](/src/quilt/README.md)
   - [Console ⇗](/src/console/README.md)
   - [Archives ⇗](/src/archives/README.md)
-- [Log4J Exploit](#log4j-exploit)
+- [Log4J exploit](#log4j-exploit)
+- [Certifi support](#certifi-support)
 - [Contribute](#contribute)
   - [Setup environment](#setup-environment)
   - [Contributors](#contributors)
@@ -212,9 +213,14 @@ in the following pages:
 
 See the [Addon Sub-command](#addon-sub-command) for more information on how to list and show which add-ons are installed.
 
-# Log4j Exploit
+# Log4j exploit
 The launcher is safe to Log4j exploit since v2.2.0, if you are running an older version, please update or read the
 following issue for a temporary fix: [#52](https://github.com/mindstorm38/portablemc/issues/52).
+
+# Certifi support
+The launcher supports [certifi](https://pypi.org/project/certifi/) when installed. This package provides *Mozilla’s carefully curated collection of Root Certificates for validating the trustworthiness of SSL certificates while verifying the identity of TLS hosts.* 
+
+This can be useful if you encounter certificates errors while logging into your account or downloading other things. Problems can happen because Python depends by default on your system to provides these Root Certificates, so if your system is not up-to-date, it might be required to install `certifi`.
 
 # Contribute
 
