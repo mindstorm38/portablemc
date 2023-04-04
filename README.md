@@ -220,7 +220,7 @@ following issue for a temporary fix: [#52](https://github.com/mindstorm38/portab
 # Certifi support
 The launcher supports [certifi](https://pypi.org/project/certifi/) when installed. This package provides *Mozilla’s carefully curated collection of Root Certificates for validating the trustworthiness of SSL certificates while verifying the identity of TLS hosts.* 
 
-This can be useful if you encounter certificates errors while logging into your account or downloading other things. Problems can happen because Python depends by default on your system to provides these Root Certificates, so if your system is not up-to-date, it might be required to install `certifi`.
+This can be useful if you encounter certificates errors while logging into your account or downloading other things. Problems can arise because Python depends by default on your system to provide these root certificates, so if your system is not up to date, it may be necessary to install `certifi`.
 
 # Contribute
 
