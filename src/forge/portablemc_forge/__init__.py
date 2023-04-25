@@ -190,7 +190,7 @@ class ForgeVersionInstaller:
 
         # The main dir specific to forge, it needs to be
         self.main_dir = path.dirname(self.version.context.versions_dir)
-        if not path.samefile(self.main_dir, path.dirname(self.version.context.libraries_dir)):
+        if path.isfile(self.main_dir) and not path.samefile(self.main_dir, path.dirname(self.version.context.libraries_dir)):
             raise ForgeInvalidMainDirectory()
 
         last_dl_entry = None
@@ -237,10 +237,11 @@ class ForgeVersionInstaller:
             self.main_dir,
             self.version.id
         ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        
         os.remove(self.installer_file)
 
         if wrapper_completed.returncode != 0:
-            raise ForgeInstallerFailed(wrapper_completed.returncode, wrapper_completed.stdout.decode("utf-8"))
+            raise ForgeInstallerFailed(wrapper_completed.returncode, wrapper_completed.stdout)
 
 
 # Forge API
@@ -281,7 +282,7 @@ class ForgeInvalidMainDirectory(Exception):
 
 
 class ForgeInstallerFailed(Exception):
-    def __init__(self, return_code: int, output: str):
+    def __init__(self, return_code: int, output: bytes):
         self.return_code = return_code
         self.output = output
 
