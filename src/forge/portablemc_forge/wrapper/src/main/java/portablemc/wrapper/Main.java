@@ -17,7 +17,7 @@ public class Main {
 			System.out.println("error: invalid main directory");
 			System.exit(2);
 		}
-		
+
 		InstallRunner runner = InstallRunnerType.findAndBuildRunner();
 		
 		if (runner == null) {

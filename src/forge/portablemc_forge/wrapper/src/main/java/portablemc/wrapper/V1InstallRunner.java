@@ -1,5 +1,6 @@
 package portablemc.wrapper;
 
+import argo.jdom.JsonNode;
 import argo.jdom.JsonField;
 import argo.jdom.JsonRootNode;
 import argo.jdom.JsonStringNode;
@@ -23,8 +24,10 @@ public class V1InstallRunner extends InstallRunner {
 	public String validate(File mainDir) {
 		if (!mainDir.isDirectory()) return "no main dir";
 		File versionRootDir = new File(mainDir, "versions");
-		File minecraftJarFile = VersionInfo.getMinecraftFile(versionRootDir);
-		return minecraftJarFile != null && minecraftJarFile.isFile() ? null : "no version jar file";
+		String version = VersionInfo.getMinecraftVersion();
+		File versionDir = new File(versionRootDir, version);
+		File versionJarFile = new File(versionDir, version + ".jar");
+		return versionJarFile != null && versionJarFile.isFile() ? null : "no version jar file";
 	}
 	
 	@Override
@@ -34,26 +37,34 @@ public class V1InstallRunner extends InstallRunner {
 		
 		ServerInstall.headless = true;  // Used by the buildMonitor method to return a wrapper around System.out
 		
-		String oldVersionId = versionId;
-		
 		// Changing version id is quite complicated in this version because we need to change the internal
 		// JSON data through argo JDOM library which is an immutable one.
 		JsonRootNode installProfile = VersionInfo.INSTANCE.versionData;
-		outer: for (JsonField field0 : installProfile.getFieldList()) {
-			if ("install".equals(field0.getName().getText())) {
-				for (JsonField field1 : field0.getValue().getFieldList()) {
-					if ("target".equals(field1.getName().getText())) {
-						JsonStringNode targetNode = (JsonStringNode) field1.getValue();
-						oldVersionId = targetNode.getText();
-						Field field = JsonStringNode.class.getDeclaredField("value");
-						field.setAccessible(true);
-						field.set(targetNode, versionId);
-						break outer;
-					}
+
+		Field stringNodeValueField = JsonStringNode.class.getDeclaredField("value");
+		stringNodeValueField.setAccessible(true);
+		Field fieldValueField = JsonField.class.getDeclaredField("value");
+		fieldValueField.setAccessible(true);
+		Field constFalseField = Class.forName("argo.jdom.JsonConstants").getDeclaredField("FALSE");
+		constFalseField.setAccessible(true);
+		JsonNode constFalse = (JsonNode) constFalseField.get(null);
+
+		JsonStringNode targetNode = (JsonStringNode) installProfile.getNode("install", "target");
+		String oldVersionId = targetNode.getText();
+		stringNodeValueField.set(targetNode, versionId);
+
+		// Here we disable downloads of the libraries, these will be downloaded by the launcher.
+		for (JsonNode libNode : installProfile.getArrayNode("versionInfo", "libraries")) {
+			JsonRootNode libObjNode = (JsonRootNode) libNode;
+			for (JsonField libField : libObjNode.getFieldList()) {
+				String fieldName = libField.getName().getText();
+				if ("serverreq".equals(fieldName) || "clientreq".equals(fieldName)) {
+					// Disable requirement.
+					fieldValueField.set(libField, constFalse);
 				}
 			}
 		}
-		
+
 		ClientInstall install = new ClientInstall();
 		
 		boolean success = install.run(mainDir, a -> true);

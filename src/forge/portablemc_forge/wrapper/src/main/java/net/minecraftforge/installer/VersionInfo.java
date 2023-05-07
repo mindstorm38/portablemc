@@ -14,7 +14,7 @@ public class VersionInfo {
 		this.versionData = null;
 	}
 	
-	public static File getMinecraftFile(File path) {
+	public static String getMinecraftVersion() {
 		return null;
 	}
 	
