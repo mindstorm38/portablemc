@@ -5,106 +5,173 @@ module).
 
 from json import JSONDecodeError
 from pathlib import Path
+import platform
 import hashlib
 import json
 
-from .task import Task, TaskError
-from .manifest import VersionManifest
+from .manifest import VersionManifest, VersionManifestError
+from .task import Task, TaskError, State
+from .http import http_request
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import Tuple, Optional
+from typing import Optional
 
 
-class VersionMetadataTask(Task):
+class Context:
+    """Base class for storing global context of a standard Minecraft launch, such as main 
+    and working directory.
+    """
+
+    def __init__(self, 
+        main_dir: Optional[Path] = None, 
+        work_dir: Optional[Path] = None
+    ) -> None:
+        """Construct a Minecraft installation context. This context is used by most of the
+        installer's tasks to know where to install files and from where to launch the game.
+
+        :param main_dir: The main directory where versions, assets, libraries and 
+        optionally JVM are installed. If not specified this path will be set the usual 
+        `.minecraft` (see https://minecraft.fandom.com/fr/wiki/.minecraft).
+        :param work_dir: The working directory from where the game is run, the game stores
+        thing like saves, resource packs, options and mods if relevant. This defaults to
+        `main_dir` if not specified.
+        """
+
+        main_dir = get_minecraft_dir() if main_dir is None else main_dir
+        self.work_dir = main_dir if work_dir is None else work_dir
+        self.versions_dir = main_dir / "versions"
+        self.assets_dir = main_dir / "assets"
+        self.libraries_dir = main_dir / "libraries"
+        self.jvm_dir = main_dir / "jvm"
+        self.bin_dir = self.work_dir / "bin"
+
+
+class VersionId:
+    """Small class used to specify which Minecraft version to launch.
+    """
+
+    __slots__ = "id",
+
+    def __init__(self, id: str) -> None:
+        self.id = id
+
+
+class VersionMetadata:
+    """This class holds version's metadata, as resolved by `MetadataTask`.
+    """
+
+    __slots__ = "id", "dir", "data",
+
+    def __init__(self, id: str, dir: Path) -> None:
+        self.id = id
+        self.dir = dir
+        self.data = {}
+    
+    def metadata_file(self) -> Path:
+        """This function returns the computed path of the metadata file.
+        """
+        return self.dir / f"{self.id}.json"
+
+    def jar_file(self) -> Path:
+        """This function returns the computed path of the JAR file of the game.
+        """
+        return self.dir / f"{self.id}.jar"
+
+    def write_metadata_file(self) -> None:
+        """This function write the metadata file of the version with the internal data.
+        """
+        self.dir.mkdir(parents=True, exist_ok=True)
+        with self.metadata_file().open("wt") as fp:
+            json.dump(self.data, fp)
+
+    def read_metadata_file(self) -> bool:
+        """This function reads the metadata file and updates the internal data if found.
+
+        :return: True if the data was actually updated from the file.
+        """
+        try:
+            with self.metadata_file().open("rt") as fp:
+                self.data = json.load(fp)
+            return True
+        except (OSError, JSONDecodeError):
+            return False
+
+
+class MetadataTask(Task):
     """Version metadata resolving.
 
     This task resolves the current version's metadata and inherited 
     versions.
 
-    :input versions_dir: The path to the versions directory.
-    :input version_id: The version identifier to resolve and loads
-    metadata from.
-    :input version_manifest: Optional, version manifest used to
-    download official versions.
+    :in Context: The installation context.
+    :in VersionId: Describe which version to resolve.
+    :out VersionMetadata: The resolved version metadata.
     """
 
     ERROR_TOO_MUCH_PARENTS = "too_much_parents"
-    ERROR_NOT_FOUND = "not_found"
+    ERROR_NOT_IN_MANIFEST = "not_in_manifest"
+    ERROR_HTTP = "http"
+    ERROR_JSON = "json"
 
-    def __init__(self, max_parents: int = 10) -> None:
-        self.max_parents: int = max_parents
-    
-    def execute(self, state: dict) -> None:
+    def __init__(self, *, 
+        max_parents: int = 10, 
+        manifest: Optional[VersionManifest] = None
+    ) -> None:
+        self.max_parents = max_parents
+        self.manifest = manifest
 
-        versions_dir: Path = state["versions_dir"]
-        version_id: str = state["version_id"]
-        version_manifest: VersionManifest = state.get("version_manifest") or VersionManifest()
-
+    def execute(self, state: State) -> None:
+        
         max_parents = self.max_parents
 
-        version_meta, version_dir = self.ensure_version_meta(versions_dir, version_id)
-        while "inheritsFrom" in version_meta:
-            if max_parents <= 0:
-                raise TaskError(self.ERROR_TOO_MUCH_PARENTS)
-            max_parents -= 1
-            parent_meta, _ = self.ensure_version_meta(versions_dir, version_meta["inheritsFrom"])
-            del version_meta["inheritsFrom"]
-            merge_dict(version_meta, parent_meta)
-        
-        state["version_meta"] = version_meta
-        state["version_dir"] = version_dir
-    
-    def ensure_version_meta(self, 
-        versions_dir: "Path", 
-        version_id: str
-    ) -> "Tuple[dict, Path]":
-        """This function tries to load and get the directory path of
-        a given version id. This function proceeds in multiple steps:
-        it tries to load the version's metadata, if the metadata is
-        found then it's validated with the `validate_version_meta`
-        method. If the version was not found or is not valid, then
-        the metadata is fetched by `fetch_version_meta` method.
+        version = state[VersionId]
+        context = state[Context]
 
-        :param versions_dir: Path to 
-        :param version_id: _description_
-        :raises TaskError: _description_
-        :return: _description_
+        version_id: Optional[str] = version.id
+        version_meta: Optional[VersionMetadata] = None
+
+        while True:
+
+            version_meta_parent = VersionMetadata(version_id, context.versions_dir / version_id)
+            self.ensure_version_meta(version_meta_parent)
+
+            if version_meta is None:
+                version_meta = version_meta_parent
+            else:
+                merge_dict(version_meta, version_meta_parent.data)
+
+            version_id = version_meta.data.pop("inheritsFrom", None)
+            if version_id is None:
+                break
+        
+        # The metadata is included to the state.
+        state.insert(version_meta)
+    
+    def ensure_manifest(self) -> VersionManifest:
+        """ Ensure that a version manifest exists for fetching official versions.
+        """
+        if self.manifest is None:
+            self.manifest = VersionManifest()
+        return self.manifest
+
+    def ensure_version_meta(self, version_metadata: VersionMetadata) -> None:
+        """This function tries to load and get the directory path of a given version id.
+        This function proceeds in multiple steps: it tries to load the version's metadata,
+        if the metadata is found then it's validated with the `validate_version_meta`
+        method. If the version was not found or is not valid, then the metadata is fetched
+        by `fetch_version_meta` method.
+
+        :param version_metadata: The version metadata to fill with 
         """
 
-        version_dir = versions_dir / version_id
-        version_meta_file = version_dir / f"{version_id}.json"
+        if version_metadata.read_metadata_file():
+            if self.validate_version_meta(version_metadata):
+                # If the version is successfully loaded and valid, return as-is.
+                return
+        
+        # If not loadable or not validated, fetch metadata.
+        self.fetch_version_meta(version_metadata)
 
-        try:
-            with version_meta_file.open("rt") as version_meta_fp:
-                version_meta = json.load(version_meta_fp)
-        except (OSError, JSONDecodeError):
-            version_meta = None
-
-        if version_meta is not None:
-            if self.validate_version_meta(version_id, version_dir, version_meta_file, version_meta):
-                return version_meta, version_dir
-            else:
-                version_meta = None
-
-        if version_meta is None:
-            try:
-                version_meta = self.fetch_version_meta(version_id, version_dir, version_meta_file)
-                if "_pmc_no_dump" not in version_meta:
-                    version_dir.mkdir(parents=True, exist_ok=True)
-                    with version_meta_file.open("wt") as version_meta_fp:
-                        json.dump(version_meta, version_meta_fp, indent=2)
-            except NotADirectoryError:
-                raise TaskError(self.ERROR_NOT_FOUND)
-
-        return version_meta, version_dir
-
-    def validate_version_meta(self, 
-        version_id: str, 
-        version_dir: "Path", 
-        version_meta_file: "Path", 
-        version_meta: dict
-    ) -> bool:
+    def validate_version_meta(self, version_meta: VersionMetadata) -> bool:
         """This function checks that version metadata is correct.
 
         An internal method to check if a version's metadata is 
@@ -115,62 +182,52 @@ class VersionMetadataTask(Task):
         The default implementation check official versions against the
         expected SHA1 hash of the metadata file.
 
-        Args:
-            version_id (str): _description_
-            version_dir (Path): _description_
-            version_meta_file (Path): _description_
-            version_meta (dict): _description_
-
-        Returns:
-            bool: True if the given version 
+        :param version_meta: The version metadata to validate or not.
+        :return: True if the given version.
         """
 
-        version_super_meta = self._ensure_version_manifest().get_version(version_id)
+        version_super_meta = self.ensure_manifest().get_version(version_meta.id)
         if version_super_meta is None:
             return True
         else:
             expected_sha1 = version_super_meta.get("sha1")
             if expected_sha1 is not None:
                 try:
-                    with version_meta_file.open("rb") as version_meta_fp:
+                    with version_meta.metadata_file().open("rb") as version_meta_fp:
                         current_sha1 = calc_input_sha1(version_meta_fp)
                         return expected_sha1 == current_sha1
                 except OSError:
                     return False
             return True
 
-    def fetch_version_meta(self, 
-        version_id: str,
-        version_dir: "Path",
-        version_meta_file: "Path"
-    ) -> dict:
+    def fetch_version_meta(self, version_meta: VersionMetadata) -> None:
+        """Internal method to fetch the data of the given version.
 
-        """
-        An internal method to fetch a version metadata. The returned dict can contain an optional
-        key '_pmc_no_dump' that prevent dumping the dictionary as JSON to the metadata file.
-
-        The default implementation fetch from official versions, and directly write the read data
-        to the meta file in order to keep the exact same SHA1 hash of the metadata. The default
-        implementation also set the `_pmc_no_dump` flag to the returned data in order to avoid
-        overwriting the file.
+        :param version_meta: The version meta to fetch data into.
+        :raises VersionError: _description_
+        :raises VersionError: _description_
+        :raises VersionError: _description_
         """
 
-        version_super_meta = self._ensure_version_manifest().get_version(version_id)
+        version_super_meta = self.ensure_manifest().get_version(version_meta.id)
         if version_super_meta is None:
-            raise VersionError(VersionError.NOT_FOUND, version_id)
+            raise TaskError(self.ERROR_NOT_IN_MANIFEST)
+        
         code, raw_data = http_request(version_super_meta["url"], "GET")
         if code != 200:
-            raise VersionError(VersionError.NOT_FOUND, version_id)
-        version_dir.mkdir(parents=True, exist_ok=True)
-        with version_meta_file.open("wb") as fp:
-            fp.write(raw_data)
+            raise TaskError(self.ERROR_HTTP)
+        
+        # First decode the data and set it to the version meta.
         try:
-            data = json.loads(raw_data)
-            data["_pmc_no_dump"] = True
-            return data
+            version_meta.data = json.loads(raw_data)
         except JSONDecodeError:
-            raise VersionError(VersionError.NOT_FOUND, version_id)
-
+            raise TaskError(self.ERROR_JSON)
+        
+        # If successful, write the raw data directly to the file.
+        version_meta.dir.mkdir(parents=True, exist_ok=True)
+        with version_meta.metadata_file().open("wb") as fp:
+            fp.write(raw_data)
+ 
 
 def merge_dict(dst: dict, other: dict) -> None:
     """Merge a dictionary into a destination one.
@@ -208,3 +265,14 @@ def calc_input_sha1(input_stream, *, buffer_len: int = 8192) -> str:
     for n in iter(lambda: input_stream.readinto(mv), 0):
         h.update(mv[:n])
     return h.hexdigest()
+
+
+def get_minecraft_dir() -> "Path":
+    """Internal function to get the default directory for installing
+    and running Minecraft.
+    """
+    home = Path.home()
+    return {
+        "Windows": home.joinpath("AppData", "Roaming", ".minecraft"),
+        "Darwin": home.joinpath("Library", "Application Support", "minecraft"),
+    }.get(platform.system(), home / ".minecraft")

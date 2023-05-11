@@ -8,20 +8,18 @@ import urllib.request
 import json
 import ssl
 
-from typing import TYPE_CHECKING, cast
-if TYPE_CHECKING:
-    from typing import Optional, Tuple
+from typing import Optional, Tuple, cast
 
 
 def http_request(url: str, method: str, *,
-    data: "Optional[bytes]" = None,
-    headers: "Optional[dict]" = None,
-    timeout: "Optional[float]" = None,
-    rcv_headers: "Optional[dict]" = None
-) -> "Tuple[int, bytes]":
+    data: Optional[bytes] = None,
+    headers: Optional[dict] = None,
+    timeout: Optional[float] = None,
+    rcv_headers: Optional[dict] = None
+) -> Tuple[int, bytes]:
     """Make an HTTP request at a specified URL and retrieve raw data.
-    This is a simpler wrapper to the standard `url.request.urlopen` 
-    wrapper, it ignores HTTP error codes.
+    This is a simpler wrapper to the standard `url.request.urlopen` wrapper, it ignores 
+    HTTP errors and just return the error code with data.
 
     :param url: The URL to request.
     :param method: The HTTP method to use for this request.
@@ -59,12 +57,12 @@ def http_request(url: str, method: str, *,
 
 def json_request(
     url: str, method: str, *,
-    data: "Optional[bytes]" = None,
-    headers: "Optional[dict]" = None,
+    data: Optional[bytes] = None,
+    headers: Optional[dict] = None,
     ignore_error: bool = False,
-    timeout: "Optional[float]" = None,
-    rcv_headers: "Optional[dict]" = None
-) -> "Tuple[int, dict]":
+    timeout: Optional[float] = None,
+    rcv_headers: Optional[dict] = None
+) -> Tuple[int, dict]:
     """A simple wrapper around ``http_request` function to decode 
     returned data to JSON. If decoding fails and parameter 
     `ignore_error` is false, error `JsonRequestError` is raised with 
