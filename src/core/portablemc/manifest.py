@@ -7,9 +7,7 @@ import json
 
 from .http import json_request
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import Optional, Tuple
+from typing import Optional, Tuple
 
 
 VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
@@ -21,15 +19,15 @@ class VersionManifest:
     """
 
     def __init__(self, 
-        cache_file: "Optional[Path]" = None, 
-        cache_timeout: "Optional[float]" = None
+        cache_file: Optional[Path] = None, 
+        cache_timeout: Optional[float] = None
     ) -> None:
         self.data: Optional[dict] = None
         self.cache_timeout = cache_timeout
         self.cache_file = cache_file
         self.sync = False
 
-    def _ensure_data(self) -> "dict":
+    def _ensure_data(self) -> dict:
 
         if self.data is None:
 
@@ -81,14 +79,14 @@ class VersionManifest:
 
         return self.data
 
-    def filter_latest(self, version: str) -> "Tuple[str, bool]":
+    def filter_latest(self, version: str) -> Tuple[str, bool]:
         if version in ("release", "snapshot"):
             latest = self._ensure_data()["latest"].get(version)
             if latest is not None:
                 return latest, True
         return version, False
 
-    def get_version(self, version: str) -> "Optional[dict]":
+    def get_version(self, version: str) -> Optional[dict]:
         version, _alias = self.filter_latest(version)
         try:
             for version_data in self._ensure_data()["versions"]:
