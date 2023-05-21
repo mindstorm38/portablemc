@@ -1,7 +1,7 @@
 """Definition of the optimized download task.
 """
 
-from http.client import HTTPConnection, HTTPSConnection, HTTPResponse, HTTPException
+from http.client import HTTPConnection, HTTPSConnection, HTTPException
 from threading import Thread
 from pathlib import Path
 from queue import Queue
@@ -9,11 +9,9 @@ import urllib.parse
 import hashlib
 import os
 
-from .task import Task
+from .task import Task, State, Watcher
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import Optional, Dict, List, Tuple, Union
+from typing import Optional, Dict, List, Tuple, Union
 
 
 class DownloadTask(Task):
@@ -28,15 +26,12 @@ class DownloadTask(Task):
         <key> (Path): The download list 
     """
 
-    def __init__(self, key: str = "dl") -> None:
-        self.key = key
+    def setup(self, state: State) -> None:
+        state.insert(DownloadList())
 
-    def setup(self, state: dict) -> None:
-        state[self.key] = DownloadList()
+    def execute(self, state: State, watcher: Watcher) -> None:
 
-    def execute(self, state: dict) -> None:
-
-        dl: DownloadList = state[self.key]
+        dl = state[DownloadList]
 
         threads_count = os.cpu_count() or 1
         threads: List[Thread] = []
@@ -49,7 +44,7 @@ class DownloadTask(Task):
             th = Thread(target=download_thread, 
                         args=(th_id, entries_queue, result_queue, error_queue), 
                         daemon=True, 
-                        name=f"Download thread {th_id}")
+                        name=f"Download Thread {th_id}")
             th.start()
             threads.append(th)
         
@@ -60,24 +55,6 @@ class DownloadTask(Task):
             thread.join()
 
 
-class DownloadList:
-    """ A download list.
-    """
-
-    __slots__ = "entries", "count", "size"
-
-    def __init__(self):
-        self.entries: List[_DownloadEntry] = []
-        self.count = 0
-        self.size = 0
-
-    def append(self, entry: "DownloadEntry"):
-        self.entries.append(_DownloadEntry.from_entry(entry))
-        self.count += 1
-        if entry.size is not None:
-            self.size += entry.size
-
-
 class DownloadEntry:
     """A download entry for the download task.
     """
@@ -86,10 +63,10 @@ class DownloadEntry:
 
     def __init__(self, 
         url: str, 
-        dst: "Path", *, 
-        size: "Optional[int]" = None, 
-        sha1: "Optional[str]" = None, 
-        name: "Optional[str]" = None
+        dst: Path, *, 
+        size: Optional[int] = None, 
+        sha1: Optional[str] = None, 
+        name: Optional[str] = None
     ) -> None:
         self.url = url
         self.dst = dst
@@ -97,11 +74,11 @@ class DownloadEntry:
         self.sha1 = sha1
         self.name = url if name is None else name
 
-    @classmethod
-    def from_meta(cls, info: dict, dst: "Path", *, name: "Optional[str]" = None) -> 'DownloadEntry':
-        if "url" not in info:
-            raise ValueError("Missing required 'url' field in download meta.", info)
-        return DownloadEntry(info["url"], dst, size=info.get("size"), sha1=info.get("sha1"), name=name)
+    # @classmethod
+    # def from_meta(cls, info: dict, dst: Path, *, name: Optional[str] = None) -> "DownloadEntry":
+    #     if "url" not in info:
+    #         raise ValueError("Missing required 'url' field in download meta.", info)
+    #     return DownloadEntry(info["url"], dst, size=info.get("size"), sha1=info.get("sha1"), name=name)
 
     def __hash__(self) -> int:
         # Making size and sha1 in the hash is useful to make them, 
@@ -119,7 +96,7 @@ class DownloadProgress:
     
     __slots__ = "thread", "name", "size", "total"
 
-    def __init__(self, thread: int, name: str, size: int, total: "Optional[int]") -> None:
+    def __init__(self, thread: int, name: str, size: int, total: Optional[int]) -> None:
         self.thread = thread
         self.name = name
         self.size = size
@@ -137,7 +114,7 @@ class DownloadError:
 
     __slots__ = "entry", "error"
 
-    def __init__(self, entry: "DownloadEntry", error: str) -> None:
+    def __init__(self, entry: DownloadEntry, error: str) -> None:
         self.entry = entry
         self.error = error
 
@@ -148,13 +125,13 @@ class _DownloadEntry:
 
     __slots__ = "https", "host", "entry"
 
-    def __init__(self, https: bool, host: str, entry: "DownloadEntry") -> None:
+    def __init__(self, https: bool, host: str, entry: DownloadEntry) -> None:
         self.https = https
         self.host = host
         self.entry = entry
     
     @classmethod
-    def from_entry(cls, entry: "DownloadEntry") -> "_DownloadEntry":
+    def from_entry(cls, entry: DownloadEntry) -> "_DownloadEntry":
 
         # We only support HTTP/HTTPS
         url_parsed = urllib.parse.urlparse(entry.url)
@@ -166,6 +143,34 @@ class _DownloadEntry:
             url_parsed.netloc,
             entry)
 
+
+class DownloadList:
+    """ A download list.
+    """
+
+    __slots__ = "entries", "count", "size"
+
+    def __init__(self):
+        self.entries: List[_DownloadEntry] = []
+        self.count = 0
+        self.size = 0
+
+    def add(self, entry: DownloadEntry, *, verify: bool = False):
+        """Add a download entry to this list.
+
+        :param entry: The entry to add.
+        :param verify: Set to true in order to check if the file exists and has the same
+        size has the given entry, in such case the entry is not added.
+        """
+
+        if verify and entry.dst.is_file() and (entry.size is None or entry.size == entry.dst.stat().st_size):
+            return
+        
+        self.entries.append(_DownloadEntry.from_entry(entry))
+        self.count += 1
+        if entry.size is not None:
+            self.size += entry.size
+    
 
 def download_thread(
     thread_id: int, 
