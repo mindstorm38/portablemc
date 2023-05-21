@@ -107,4 +107,5 @@ class VersionManifest:
 
 
 class VersionManifestError(Exception):
-    pass
+    """This type of error is raised by `VersionManifest` when no manifest can be loaded.
+    """

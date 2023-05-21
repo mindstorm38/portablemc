@@ -64,9 +64,7 @@ def json_request(
     rcv_headers: Optional[dict] = None
 ) -> Tuple[int, dict]:
     """A simple wrapper around ``http_request` function to decode 
-    returned data to JSON. If decoding fails and parameter 
-    `ignore_error` is false, error `JsonRequestError` is raised with 
-    `JsonRequestError.INVALID_RESPONSE_NOT_JSON`.
+    returned data to JSON.
 
     :param url: The URL to request.
     :param method: The HTTP method to use for this request.
@@ -76,7 +74,7 @@ def json_request(
     :param timeout: Optional timeout for the TCP handshake.
     :param rcv_headers: Optional received headers dictionary.
     :raises JSONDecodeError: If `ignore_error` is False and error.
-    :return: _description_
+    :return: A tuple (HTTP response code, JSON dictionary).
     """
 
     if headers is None:
@@ -87,6 +85,7 @@ def json_request(
     status, data = http_request(url, method, data=data, headers=headers, timeout=timeout, rcv_headers=rcv_headers)
 
     try:
+        # FIXME: Raise some error if the decoded value is not a dict.
         return status, json.loads(data)
     except JSONDecodeError:
         if ignore_error:
