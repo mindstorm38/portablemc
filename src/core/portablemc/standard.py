@@ -9,10 +9,8 @@ import platform
 import json
 import re
 
-from portablemc.task import State, Watcher
-
-from .task import Task, State, Watcher
-from .download import DownloadList, DownloadEntry
+from .task import Installer, Task, State, Watcher
+from .download import DownloadList, DownloadEntry, DownloadTask
 from .manifest import VersionManifest
 from .http import http_request, json_simple_request
 from .util import LibrarySpecifier, calc_input_sha1, merge_dict
@@ -148,6 +146,29 @@ class VersionAssets:
         self.resources = resources
 
 
+class VersionLibraries:
+    """Represent the loaded libraries for the current version. This contains both 
+    classpath libraries that should be added to the classpath, and the native libraries
+    that should be extracted in a temporary bin directory. These native libraries are no
+    longer used in modern versions.
+    """
+
+    def __init__(self, class_libs: List[str], native_libs: List[str]) -> None:
+        self.class_libs = class_libs
+        self.native_libs = native_libs
+
+
+class VersionLogging:
+    """Represent the loaded logging configuration for the current version. It contain
+    the logging file's path and the argument to add to the command line, this argument
+    contains a format placeholder '${path}' that should be replaced with the file's path.
+    """
+
+    def __init__(self, file: Path, arg: str) -> None:
+        self.file = file
+        self.arg = arg
+
+
 class TooMuchParentError(Exception):
     """Raised when a 
     """
@@ -169,8 +190,11 @@ class JarNotFoundError(Exception):
     """
 
 
-EVT_VERSION_RESOLVING = "version_resolving"
-EVT_VERSION_RESOLVED = "version_resolved"
+EV_VERSION_RESOLVING = "version_resolving"
+EV_VERSION_RESOLVED = "version_resolved"
+EV_ASSETS_PROGRESS = "assets_progress"
+EV_LIBRARY_RESOLVING = "library_resolving"
+EV_LIBRARY_RESOLVED = "library_resolved"
 
 RESOURCES_URL = "https://resources.download.minecraft.net/"
 LIBRARIES_URL = "https://libraries.minecraft.net/"
@@ -208,10 +232,10 @@ class MetadataTask(Task):
             if len(versions_meta) > self.max_parents:
                 raise TooMuchParentError()
             
-            watcher.on_event(EVT_VERSION_RESOLVING, id=version_id)
+            watcher.on_event(EV_VERSION_RESOLVING, id=version_id)
             version_meta = VersionMetadata(version_id, context.versions_dir / version_id)
             self.ensure_version_meta(version_meta)
-            watcher.on_event(EVT_VERSION_RESOLVED, id=version_id)
+            watcher.on_event(EV_VERSION_RESOLVED, id=version_id)
 
             # Set the parent of the last version to the version being resolved.
             if len(versions_meta):
@@ -428,6 +452,15 @@ class AssetsTask(Task):
 
 
 class LibrariesTask(Task):
+    """Version libraries resolving task.
+
+    This task resolves which libraries should be used for running the selected version.
+
+    :in Context: The installation context.
+    :in FullMetadata: The full version metadata.
+    :in DownloadList: Used to add the JAR file to download if relevant.
+    :out VersionLibraries: Optional, present if the libraries are specified.
+    """
 
     def execute(self, state: State, watcher: Watcher) -> None:
         
@@ -450,6 +483,12 @@ class LibrariesTask(Task):
 
             if not isinstance(library, dict):
                 raise ValueError(f"metadata: /libraries/{library_idx} must be an object")
+            
+            name = library.get("name")
+            if not isinstance(name, str):
+                raise ValueError(f"metadata: /libraries/{library_idx}/name must be a string")
+            
+            spec = LibrarySpecifier.from_str(name)
 
             rules = library.get("rules")
             if rules is not None:
@@ -459,14 +498,10 @@ class LibrariesTask(Task):
                 
                 if not interpret_rule(rules):
                     continue
-            
-            name = library.get("name")
-            if not isinstance(name, str):
-                raise ValueError(f"metadata: /libraries/{library_idx}/name must be a string")
-            
-            spec = LibrarySpecifier.from_str(name)
 
-            # TODO: Predicates.
+            watcher.on_event(EV_LIBRARY_RESOLVING, spec=spec)
+
+            # TODO: Predicates??
 
             # Old metadata files provides a 'natives' mapping from OS to the classifier
             # specific for this OS.
@@ -492,6 +527,10 @@ class LibrariesTask(Task):
             else:
                 libs = class_libs
             
+            dl_entry: Optional[DownloadEntry] = None
+            jar_path_rel = spec.jar_file_path()
+            jar_path = context.libraries_dir / jar_path_rel
+            
             downloads = library.get("downloads")
             if downloads is not None:
 
@@ -507,20 +546,82 @@ class LibrariesTask(Task):
                     dl_meta = downloads.get("artifact")
 
                 if dl_meta is not None:
+                    dl_entry = parse_download_entry(dl_meta, jar_path, f"metadata: /libraries/{library_idx}/downloads/artifact")
 
-                    if not isinstance(dl_meta, dict):
-                        raise ValueError(f"metadata: /libraries/{library_idx}/downloads/artifact must be an object")
-                    
-                    dl_path = dl_meta.get("path")
-                    
-                    
+            # If no download entry can be found, add a default one that points to official
+            # library repository, this may not work.
+            if dl_entry is None:
 
-            lib_path: Optional[str] = None
-            dl_entry: Optional[DownloadEntry] = None
+                # The official launcher seems to default to their repository, it will also
+                # allows us to prevent launch if such lib cannot be found.
+                repo_url = library.get("url", LIBRARIES_URL)
+                if not isinstance(repo_url, str):
+                    raise ValueError(f"metadata: /libraries/{library_idx}/url must be a string")
+                
+                # Let's be sure to have a '/' as last character.
+                if repo_url[-1] != "/":
+                    repo_url += "/"
+                
+                dl_entry = DownloadEntry(f"{repo_url}{jar_path_rel}", jar_path)
+
+            libs.append(jar_path)
+
+            if dl_entry is not None:
+                dl_entry.name = str(spec)
+                dl.add(dl_entry, verify=True)
+            
+            watcher.on_event(EV_LIBRARY_RESOLVED, spec=spec)
+
+        state.insert(VersionLibraries(class_libs, native_libs))
 
 
+class LoggerTask(Task):
+    """Logger resolving task.
 
-        pass
+    This task resolves which logger configuration to use for the selected version.
+
+    :in Context: The installation context.
+    :in FullMetadata: The full version metadata.
+    :in DownloadList: Used to add the JAR file to download if relevant.
+    """
+
+    def execute(self, state: State, watcher: Watcher) -> None:
+        
+        context = state[Context]
+        metadata = state[FullMetadata].data
+        dl = state[DownloadList]
+
+        logging = metadata.get("logging")
+        if logging is None:
+            return
+        
+        if not isinstance(logging, dict):
+            raise ValueError("metadata: /logging must be an object")
+        
+        client_logging = logging.get("client")
+        if client_logging is None:
+            return
+        
+        if not isinstance(client_logging, dict):
+            raise ValueError("metadata: /logging/client must be an object")
+        
+        argument = client_logging.get("argument")
+        if not isinstance(argument, str):
+            raise ValueError("metadata: /logging/client/argument must be a string")
+
+        file_info = client_logging.get("file")
+        if not isinstance(file_info, dict):
+            raise ValueError("metadata: /logging/client/file must be an object")
+        
+        file_id = file_info.get("id")
+        if not isinstance(file_id, str):
+            raise ValueError("metadata: /logging/client/file/id must be a string")
+
+        file_path = context.assets_dir / "log_configs" / file_id
+        dl_entry = parse_download_entry(file_info, file_path, "metadata: /logging/client/file")
+        dl.add(dl_entry, verify=True)
+
+        state.insert(VersionLogging(file_path, argument))
 
 
 def parse_download_entry(value: Any, dst: Path, path: str) -> DownloadEntry:
@@ -647,3 +748,22 @@ def get_minecraft_archbits() -> Optional[str]:
 #             "windows": {"x86": "windows-x86", "x86_64": "windows-x64"}
 #         }.get(get_minecraft_os(), {}).get(get_minecraft_arch())
 #     return _minecraft_jvm_os
+
+
+def make_standard_installer(context: Context, version_id: str) -> Installer:
+    """Make standard installer for installing standard Minecraft versions.
+
+    :param context: The directory context of the game's installation.
+    :return: The installer, ready to install a standard game.
+    """
+
+    installer = Installer()
+    installer.insert_state(context)
+    installer.insert_state(VersionId(version_id))
+    installer.append_task(MetadataTask())
+    installer.append_task(JarTask())
+    installer.append_task(AssetsTask())
+    installer.append_task(LibrariesTask())
+    installer.append_task(LoggerTask())
+    installer.append_task(DownloadTask())
+    return installer
