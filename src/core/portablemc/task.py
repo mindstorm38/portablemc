@@ -131,6 +131,12 @@ class Installer:
         self._state: State = State()
         self._watchers = WatcherGroup()
 
+    def get_state(self) -> State:
+        return self._state
+    
+    def insert_state(self, value: object) -> None:
+        self._state.insert(value)
+
     def insert_task(self, task: Task, index: int) -> None:
         """Insert a task at a given index.
 

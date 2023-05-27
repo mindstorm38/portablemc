@@ -14,6 +14,11 @@ from .task import Task, State, Watcher
 from typing import Optional, Dict, List, Tuple, Union
 
 
+EV_DOWNLOAD_START = "download_start"
+EV_DOWNLOAD_PROGRESS = "download_progress"
+EV_DOWNLOAD_COMPLETE = "download_complete"
+
+
 class DownloadTask(Task):
     """A download task.
 
@@ -38,21 +43,44 @@ class DownloadTask(Task):
 
         entries_queue = Queue()
         result_queue = Queue()
-        error_queue = Queue()
 
         for th_id in range(threads_count):
             th = Thread(target=download_thread, 
-                        args=(th_id, entries_queue, result_queue, error_queue), 
+                        args=(th_id, entries_queue, result_queue), 
                         daemon=True, 
                         name=f"Download Thread {th_id}")
             th.start()
             threads.append(th)
         
+        entries_count = len(dl.entries)
+        result_count = 0
+
+        watcher.on_event(EV_DOWNLOAD_START, threads_count=threads_count)
+
         for entry in dl.entries:
             entries_queue.put(entry)
+        
+        while result_count < entries_count:
+            result = result_queue.get()
+            if isinstance(result, _DownloadProgress):
+                if result.complete:
+                    result_count += 1
+                watcher.on_event(EV_DOWNLOAD_PROGRESS, 
+                    thread_id=result.thread_id,
+                    entry=result.entry,
+                    size=result.size,
+                    count=result_count)
+            else:
+                result_count += 1
 
-        for thread in threads:
-            thread.join()
+        # Send 'threads_count' sentinels.
+        for th_id in range(threads_count):
+            entries_queue.put(None)
+        
+        watcher.on_event(EV_DOWNLOAD_COMPLETE)
+
+        # We intentionally don't join thread because it takes some time for unknown 
+        # reason. And we don't care of these threads because these are daemon ones.
 
 
 class DownloadEntry:
@@ -74,11 +102,8 @@ class DownloadEntry:
         self.sha1 = sha1
         self.name = url if name is None else name
 
-    # @classmethod
-    # def from_meta(cls, info: dict, dst: Path, *, name: Optional[str] = None) -> "DownloadEntry":
-    #     if "url" not in info:
-    #         raise ValueError("Missing required 'url' field in download meta.", info)
-    #     return DownloadEntry(info["url"], dst, size=info.get("size"), sha1=info.get("sha1"), name=name)
+    def __repr__(self) -> str:
+        return f"<DownloadEntry {self.name}>"
 
     def __hash__(self) -> int:
         # Making size and sha1 in the hash is useful to make them, 
@@ -88,35 +113,6 @@ class DownloadEntry:
 
     def __eq__(self, other):
         return (self.url, self.dst, self.size, self.sha1) == (other.url, other.dst, other.size, other.sha1)
-
-
-class DownloadProgress:
-    """A download progress.
-    """
-    
-    __slots__ = "thread", "name", "size", "total"
-
-    def __init__(self, thread: int, name: str, size: int, total: Optional[int]) -> None:
-        self.thread = thread
-        self.name = name
-        self.size = size
-        self.total = total
-
-
-class DownloadError:
-    """A download error.
-    """
-
-    ERROR_CONN = "conn"
-    ERROR_NOT_FOUND = "not_found"
-    ERROR_INVALID_SIZE = "invalid_size"
-    ERROR_INVALID_SHA1 = "invalid_sha1"
-
-    __slots__ = "entry", "error"
-
-    def __init__(self, entry: DownloadEntry, error: str) -> None:
-        self.entry = entry
-        self.error = error
 
 
 class _DownloadEntry:
@@ -170,19 +166,50 @@ class DownloadList:
         self.count += 1
         if entry.size is not None:
             self.size += entry.size
+
+
+class _DownloadResult:
+
+    __slots__ = "thread_id", "entry"
+
+    def __init__(self, thread_id: int, entry: DownloadEntry) -> None:
+        self.thread_id = thread_id
+        self.entry = entry
+
+
+class _DownloadProgress(_DownloadResult):
     
+    __slots__ = "size", "complete"
+
+    def __init__(self, thread_id: int, entry: DownloadEntry, size: int, complete: bool) -> None:
+        super().__init__(thread_id, entry)
+        self.size = size
+        self.complete = complete
+
+
+class _DownloadError(_DownloadResult):
+
+    ERROR_CONN = "conn"
+    ERROR_NOT_FOUND = "not_found"
+    ERROR_INVALID_SIZE = "invalid_size"
+    ERROR_INVALID_SHA1 = "invalid_sha1"
+
+    __slots__ = "error",
+
+    def __init__(self, thread_id: int, entry: DownloadEntry, error: str) -> None:
+        super().__init__(thread_id, entry)
+        self.error = error
+
 
 def download_thread(
     thread_id: int, 
     entries_queue: Queue,
     result_queue: Queue,
-    error_queue: Queue,
 ):
     """This function is internally used for multi-threaded download.
 
-    Args:
-        entries_queue (Queue): Where entries to download are received.
-        result_queue (Queue): Where threads send progress update.
+    :param entries_queue: Where entries to download are received.
+    :param result_queue: Where threads send progress update.
     """
     
     # Cache for connections depending on host and https
@@ -197,7 +224,11 @@ def download_thread(
 
     while True:
 
-        raw_entry: _DownloadEntry = entries_queue.get()
+        raw_entry: Optional[_DownloadEntry] = entries_queue.get()
+
+        # None is a sentinel to stop the thread, it should be consumed ONCE.
+        if raw_entry is None:
+            break
 
         conn_key = (raw_entry.https, raw_entry.host)
         conn = conn_cache.get(conn_key)
@@ -209,16 +240,24 @@ def download_thread(
         entry = raw_entry.entry
         
         # Allow modifying this URL when redirections happen.
-        size_target = 0 if entry.size is None else entry.size
-        last_error = None
+        # size_target = 0 if entry.size is None else entry.size
+        
+        last_error: Optional[str] = None
+        try_num = 0
 
-        for try_num in range(max_try_count):
+        while True:
 
+            try_num += 1
+            if try_num > max_try_count:
+                # Retrying implies that we have set an error.
+                assert last_error is not None
+                result_queue.put(_DownloadError(thread_id, entry, last_error))
+            
             try:
                 conn.request("GET", entry.url)
                 res = conn.getresponse()
             except (ConnectionError, OSError, HTTPException):
-                last_error = DownloadError.ERROR_CONN
+                last_error = _DownloadError.ERROR_CONN
                 continue
 
             if res.status == 301 or res.status == 302:
@@ -241,7 +280,7 @@ def download_thread(
                 while res.readinto(buffer):
                     pass
 
-                last_error = DownloadError.ERROR_NOT_FOUND
+                last_error = _DownloadError.ERROR_NOT_FOUND
                 continue
 
             sha1 = None if entry.sha1 is None else hashlib.sha1()
@@ -249,40 +288,45 @@ def download_thread(
 
             entry.dst.parent.mkdir(parents=True, exist_ok=True)
 
-            try:
-                with entry.dst.open("wb") as dst_fp:
-                    while True:
-                        read_len = res.readinto(buffer)
-                        if not read_len:
-                            break
-                        buffer_view = buffer[:read_len]
-                        size += read_len
-                        if sha1 is not None:
-                            sha1.update(buffer_view)
-                        dst_fp.write(buffer_view)
-                        result_queue.put(DownloadProgress(
-                            thread_id,
-                            entry.name,
-                            size,
-                            entry.size,
-                        ))
-            except KeyboardInterrupt:
-                entry.dst.unlink(missing_ok=True)
-                raise
+            with entry.dst.open("wb") as dst_fp:
+
+                while True:
+
+                    read_len = res.readinto(buffer)
+                    if not read_len:
+                        break
+
+                    buffer_view = buffer[:read_len]
+                    size += read_len
+                    if sha1 is not None:
+                        sha1.update(buffer_view)
+                    dst_fp.write(buffer_view)
+
+                    result_queue.put(_DownloadProgress(
+                        thread_id,
+                        entry,
+                        size,
+                        False
+                    ))
 
             if entry.size is not None and size != entry.size:
-                last_error = DownloadError.ERROR_INVALID_SIZE
+                last_error = _DownloadError.ERROR_INVALID_SIZE
             elif sha1 is not None and sha1.hexdigest() != entry.sha1:
-                last_error = DownloadError.ERROR_INVALID_SHA1
+                last_error = _DownloadError.ERROR_INVALID_SHA1
             else:
-                # Break the for loop in order to skip the for-else branch
+                
+                # Sent a last progress with 100% done and a specified total size.
+                # FIXME: Replace this with a "done" attribute.
+                result_queue.put(_DownloadProgress(
+                    thread_id,
+                    entry,
+                    size,
+                    True
+                ))
+
+                # Breaking means success.
                 break
 
             # We are here only when the file download has started but checks have failed,
             # then we should remove the file.
             entry.dst.unlink(missing_ok=True)
-
-        else:
-            # If the break was not triggered, an error should be set.
-            assert last_error is not None
-            error_queue.put(DownloadError(entry, last_error))
