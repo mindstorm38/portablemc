@@ -624,6 +624,9 @@ class LoggerTask(Task):
         state.insert(VersionLogging(file_path, argument))
 
 
+# TODO: class JvmTask(Task):
+
+
 def parse_download_entry(value: Any, dst: Path, path: str) -> DownloadEntry:
 
     if not isinstance(value, dict):
