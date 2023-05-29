@@ -18,16 +18,17 @@ def test_install(tmp_path: Path):
 class LogWatcher(Watcher):
 
     def on_begin(self, task: Task) -> None:
-        print(f"begin: {type(task).__name__}")
+        print(f"begin: {type(task).__name__}", flush=True)
     
     def on_end(self, task: Task) -> None:
-        print(f"end: {type(task).__name__}")
+        print(f"end: {type(task).__name__}", flush=True)
     
     def on_event(self, name: str, **data) -> None:
-        print(f"event: {name}", data)
+        # print(f"event: {name}", data)
+        pass
     
     def on_error(self, error: Exception) -> None:
-        print(f"error: {error}")
+        print(f"error: {error}", flush=True)
 
 
 if __name__ == "__main__":

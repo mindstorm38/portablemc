@@ -38,7 +38,7 @@ class DownloadTask(Task):
 
         dl = state[DownloadList]
 
-        threads_count = os.cpu_count() or 1
+        threads_count = (os.cpu_count() or 1) * 4
         threads: List[Thread] = []
 
         entries_queue = Queue()
@@ -315,8 +315,6 @@ def download_thread(
                 last_error = _DownloadError.ERROR_INVALID_SHA1
             else:
                 
-                # Sent a last progress with 100% done and a specified total size.
-                # FIXME: Replace this with a "done" attribute.
                 result_queue.put(_DownloadProgress(
                     thread_id,
                     entry,
