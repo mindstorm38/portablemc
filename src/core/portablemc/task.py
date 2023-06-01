@@ -122,8 +122,8 @@ class WatcherGroup(Watcher):
             watcher.on_error(error)
 
 
-class Installer:
-    """A task-based installer.
+class Sequence:
+    """A sequence of tasks with a shared state and watchers.
     """
 
     def __init__(self) -> None:
@@ -195,8 +195,8 @@ class Installer:
         for task in self._tasks:
             task.setup(self._state)
 
-    def install(self) -> None:
-        """Sequentially execute the tasks of this installer.
+    def execute(self) -> None:
+        """Sequentially execute the tasks of this sequence.
 
         :raises Exception: If an exception is raised from one of the task in sequence, 
         this error will stop the execution sequence and the exception is returned back.

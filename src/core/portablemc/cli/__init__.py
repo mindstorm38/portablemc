@@ -1,131 +1,147 @@
-from argparse import ArgumentParser, HelpFormatter
+"""Main 
+"""
 
-from ..util import LibrarySpecifier
+from argparse import Namespace
+import sys
 
-from typing import Optional, Type
+from .output import Output, HumanOutput
+from .arg import register_arguments
+from .lang import get as _
 
-
-def register_arguments() -> ArgumentParser:
-    _ = get_message
-    parser = ArgumentParser(allow_abbrev=False, prog="portablemc", description=_("args"))
-    parser.add_argument("--main-dir", help=_("args.main_dir"))
-    parser.add_argument("--work-dir", help=_("args.work_dir"))
-    parser.add_argument("--timeout", help=_("args.timeout"), type=float)
-    register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
-    return parser
+from typing import Optional, List, Union, Dict, Callable, Any
 
 
-def register_subcommands(subparsers):
-    _ = get_message
-    register_search_arguments(subparsers.add_parser("search", help=_("args.search")))
-    register_start_arguments(subparsers.add_parser("start", help=_("args.start")))
-    register_login_arguments(subparsers.add_parser("login", help=_("args.login")))
-    register_logout_arguments(subparsers.add_parser("logout", help=_("args.logout")))
-    register_show_arguments(subparsers.add_parser("show", help=_("args.show")))
-    register_addon_arguments(subparsers.add_parser("addon", help=_("args.addon")))
+EXIT_OK = 0
+EXIT_FAILURE = 1
+
+CommandHandler = Callable[[Namespace, Output], Any]
+CommandHandlersDict = Dict[str, Union[CommandHandler, "CommandHandlersDict"]]
 
 
-def register_search_arguments(parser: ArgumentParser):
-    parser.add_argument("-l", "--local", help=get_message("args.search.local"), action="store_true")
-    parser.add_argument("input", nargs="?")
+def main(args: Optional[List[str]] = None):
+    """Main entry point of the CLI. This function parses the input arguments and try to
+    find a command handler to dispatch to. These command handlers are specified by the
+    `get_command_handlers` function.
+    """
+
+    parser = register_arguments()
+    ns = parser.parse_args(args or sys.argv[1:])
+
+    output = HumanOutput()
+
+    command_handlers = get_command_handlers()
+    command_attr = "subcommand"
+    while True:
+        command = getattr(ns, command_attr)
+        handler = command_handlers.get(command)
+        if handler is None:
+            parser.print_help()
+            sys.exit(EXIT_FAILURE)
+        elif callable(handler):
+            handler(ns, output)
+            # cmd(handler, ns)
+        elif isinstance(handler, dict):
+            command_attr = f"{command}_{command_attr}"
+            command_handlers = handler
+            continue
+        sys.exit(EXIT_OK)
 
 
-def register_start_arguments(parser: ArgumentParser):
+def get_command_handlers() -> CommandHandlersDict:
+    """This internal function returns the tree of command handlers for each subcommand
+    of the CLI argument parser.
+    """
+    return {
+        "search": cmd_search,
+        "start": cmd_start,
+        # "login": cmd_login,
+        # "logout": cmd_logout,
+        # "show": {
+        #     "about": cmd_show_about,
+        #     "auth": cmd_show_auth,
+        #     "lang": cmd_show_lang,
+        # },
+        # "addon": {
+        #     "list": cmd_addon_list,
+        #     "show": cmd_addon_show
+        # }
+    }
 
-    def resolution(raw: str):
-        parts = raw.split("x")
-        if len(parts) == 2:
-            return (int(parts[0]), int(parts[1]))
-        else:
-            raise ValueError()
 
-    def library_specifier(raw: str) -> LibrarySpecifierFilter:
-        parts = raw.split(":")
-        if len(parts) > 3:
-            raise ValueError("Too much parts")
-        def emptynone(s: str) -> Optional[str]:
-            return None if s == "" else s
-        return {
-            1: lambda: LibrarySpecifierFilter(parts[0], None, None),
-            2: lambda: LibrarySpecifierFilter(parts[0], emptynone(parts[1]), None),
-            3: lambda: LibrarySpecifierFilter(parts[0], emptynone(parts[1]), emptynone(parts[2]))
-        }[len(parts)]()
+# def cmd(handler: CommandHandler, ns: Namespace):
+#     try:
+#         handler(ns)
+#     except JsonRequestError as err:
+#         print_task("FAILED", f"json_request.error.{err.code}", {
+#             "url": err.url,
+#             "method": err.method,
+#             "status": err.status,
+#             "data": err.data,
+#         }, done=True, keep_previous=True)
+#         sys.exit(EXIT_JSON_REQUEST_ERROR)
+#     except KeyboardInterrupt:
+#         print_task(None, "error.keyboard_interrupt", done=True, keep_previous=True)
+#         sys.exit(EXIT_FAILURE)
+#     except Exception as err:
+#         import ssl
+#         key = "error.generic"
+#         if isinstance(err, URLError) and isinstance(err.reason, ssl.SSLCertVerificationError):
+#             key = "error.cert"
+#         elif isinstance(err, (URLError, socket.gaierror, socket.timeout)):
+#             key = "error.socket"
+#         print_task("FAILED", key, done=True, keep_previous=True)
+#         import traceback
+#         traceback.print_exc()
+#         sys.exit(EXIT_FAILURE)
+
+
+def cmd_search(ns: Namespace, out: Output):
+
+    table = []
+    search = ns.input
+    no_version = (search is None)
+
+    if ns.local:
+        for version_id, mtime in ctx.list_versions():
+            if no_version or search in version_id:
+                table.append((version_id, format_locale_date(mtime)))
+    else:
+        manifest = new_version_manifest(ctx)
+        search, alias = manifest.filter_latest(search)
+        try:
+            for version_data in manifest.all_versions():
+                version_id = version_data["id"]
+                if no_version or (alias and search == version_id) or (not alias and search in version_id):
+                    table.append((
+                        version_data["type"],
+                        version_id,
+                        format_locale_date(version_data["releaseTime"]),
+                        _("search.flags.local") if ctx.has_version_metadata(version_id) else ""
+                    ))
+        except VersionManifestError as err:
+            print_task("FAILED", f"version_manifest.error.{err.code}", done=True)
+            sys.exit(EXIT_VERSION_NOT_FOUND)
+
+    if len(table):
+        table.insert(0, (
+            _("search.name"),
+            _("search.last_modified")
+        ) if ns.local else (
+            _("search.type"),
+            _("search.name"),
+            _("search.release_date"),
+            _("search.flags")
+        ))
+        print_table(table, header=0)
+        sys.exit(EXIT_OK)
+    else:
+        print_message("search.not_found")
+        sys.exit(EXIT_VERSION_NOT_FOUND)
+
+
+def cmd_start(ns: Namespace, out: Output):
     
-    _ = get_message
-    parser.formatter_class = new_help_formatter_class(32)
-    parser.add_argument("--dry", help=_("args.start.dry"), action="store_true")
-    parser.add_argument("--disable-mp", help=_("args.start.disable_multiplayer"), action="store_true")
-    parser.add_argument("--disable-chat", help=_("args.start.disable_chat"), action="store_true")
-    parser.add_argument("--demo", help=_("args.start.demo"), action="store_true")
-    parser.add_argument("--resol", help=_("args.start.resol"), type=resolution)
-    parser.add_argument("--jvm", help=_("args.start.jvm"))
-    parser.add_argument("--jvm-args", help=_("args.start.jvm_args"))
-    parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
-    parser.add_argument("--anonymise", help=_("args.start.anonymise"), action="store_true")
-    parser.add_argument("--no-old-fix", help=_("args.start.no_old_fix"), action="store_true")
-    parser.add_argument("--lwjgl", help=_("args.start.lwjgl"), choices=["3.2.3", "3.3.0", "3.3.1"])
-    parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), action="append", type=library_specifier)
-    parser.add_argument("--include-bin", help=_("args.start.include_bin"), action="append")
-    parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
-    parser.add_argument("-l", "--login", help=_("args.start.login"))
-    parser.add_argument("-m", "--microsoft", help=_("args.start.microsoft"), action="store_true")
-    parser.add_argument("-u", "--username", help=_("args.start.username"), metavar="NAME")
-    parser.add_argument("-i", "--uuid", help=_("args.start.uuid"))
-    parser.add_argument("-s", "--server", help=_("args.start.server"))
-    parser.add_argument("-p", "--server-port", type=int, help=_("args.start.server_port"), metavar="PORT")
-    parser.add_argument("version", nargs="?", default="release")
+    from portablemc.standard import make_standard_sequence
 
+    seq = make_standard_sequence()
 
-def register_login_arguments(parser: ArgumentParser):
-    parser.add_argument("-m", "--microsoft", help=get_message("args.login.microsoft"), action="store_true")
-    parser.add_argument("email_or_username")
-
-
-def register_logout_arguments(parser: ArgumentParser):
-    parser.add_argument("-m", "--microsoft", help=get_message("args.logout.microsoft"), action="store_true")
-    parser.add_argument("email_or_username")
-
-
-def register_show_arguments(parser: ArgumentParser):
-    _ = get_message
-    subparsers = parser.add_subparsers(title="subcommands", dest="show_subcommand")
-    subparsers.required = True
-    subparsers.add_parser("about", help=_("args.show.about"))
-    subparsers.add_parser("auth", help=_("args.show.auth"))
-    subparsers.add_parser("lang", help=_("args.show.lang"))
-
-
-def register_addon_arguments(parser: ArgumentParser):
-    _ = get_message
-    subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand")
-    subparsers.required = True
-    subparsers.add_parser("list", help=_("args.addon.list"))
-    show_parser = subparsers.add_parser("show", help=_("args.addon.show"))
-    show_parser.add_argument("addon_id")
-
-
-def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
-
-    class CustomHelpFormatter(HelpFormatter):
-        def __init__(self, prog):
-            super().__init__(prog, max_help_position=max_help_position)
-
-    return CustomHelpFormatter
-
-
-class LibrarySpecifierFilter:
-    
-    __slots__ = "artifact", "version", "classifier"
-
-    def __init__(self, artifact: str, version: Optional[str], classifier: Optional[str]):
-        self.artifact = artifact
-        self.version = version
-        self.classifier = classifier
-    
-    def matches(self, spec: LibrarySpecifier) -> bool:
-        return self.artifact == spec.artifact \
-            and (self.version is None or self.version == spec.version) \
-            and (self.classifier is None or (spec.classifier or "").startswith(self.classifier))
-
-    def __str__(self) -> str:
-        return f"{self.artifact}:{self.version or ''}" + ("" if self.classifier is None else f":{self.classifier}")
