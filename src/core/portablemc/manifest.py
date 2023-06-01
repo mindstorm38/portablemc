@@ -80,6 +80,14 @@ class VersionManifest:
         return self.data
 
     def filter_latest(self, version: str) -> Tuple[str, bool]:
+        """Filter a version identifier if 'release' or 'snapshot' alias is used, then it's
+        replaced by the full version identifier, like `1.19.3`.
+
+        :param version: The version id or alias.
+        :return: A tuple containing the full version id and a boolean indicating if the
+        given version identifier is an alias.
+        """
+
         if version in ("release", "snapshot"):
             latest = self._ensure_data()["latest"].get(version)
             if latest is not None:

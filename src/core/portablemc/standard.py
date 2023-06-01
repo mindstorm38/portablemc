@@ -9,7 +9,9 @@ import platform
 import json
 import re
 
-from .task import Installer, Task, State, Watcher
+from portablemc.task import State, Watcher
+
+from .task import Sequence, Task, State, Watcher
 from .download import DownloadList, DownloadEntry, DownloadTask
 from .manifest import VersionManifest
 from .http import http_request, json_simple_request
@@ -243,6 +245,9 @@ class MetadataTask(Task):
             
             versions_meta.append(version_meta)
             version_id = version_meta.data.pop("inheritsFrom", None)
+            
+            if not isinstance(version_id, str):
+                pass  # FIXME:
 
         # The metadata is included to the state.
         state.insert(versions_meta[0])
@@ -627,6 +632,15 @@ class LoggerTask(Task):
 # TODO: class JvmTask(Task):
 
 
+class RunTask(Task):
+
+    def execute(self, state: State, watcher: Watcher) -> None:
+        
+
+
+        pass
+
+
 def parse_download_entry(value: Any, dst: Path, path: str) -> DownloadEntry:
 
     if not isinstance(value, dict):
@@ -753,20 +767,20 @@ def get_minecraft_archbits() -> Optional[str]:
 #     return _minecraft_jvm_os
 
 
-def make_standard_installer(context: Context, version_id: str) -> Installer:
+def make_standard_sequence(context: Context, version_id: str) -> Sequence:
     """Make standard installer for installing standard Minecraft versions.
 
     :param context: The directory context of the game's installation.
     :return: The installer, ready to install a standard game.
     """
 
-    installer = Installer()
-    installer.insert_state(context)
-    installer.insert_state(VersionId(version_id))
-    installer.append_task(MetadataTask())
-    installer.append_task(JarTask())
-    installer.append_task(AssetsTask())
-    installer.append_task(LibrariesTask())
-    installer.append_task(LoggerTask())
-    installer.append_task(DownloadTask())
-    return installer
+    seq = Sequence()
+    seq.insert_state(context)
+    seq.insert_state(VersionId(version_id))
+    seq.append_task(MetadataTask())
+    seq.append_task(JarTask())
+    seq.append_task(AssetsTask())
+    seq.append_task(LibrariesTask())
+    seq.append_task(LoggerTask())
+    seq.append_task(DownloadTask())
+    return seq
