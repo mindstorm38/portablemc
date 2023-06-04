@@ -5,17 +5,17 @@ from argparse import Namespace
 import sys
 
 from .output import Output, HumanOutput
-from .arg import register_arguments
+from .cmd import register_arguments
 from .lang import get as _
+
+from ..manifest import VersionManifest
+from ..standard import Context
 
 from typing import Optional, List, Union, Dict, Callable, Any
 
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
-
-CommandHandler = Callable[[Namespace, Output], Any]
-CommandHandlersDict = Dict[str, Union[CommandHandler, "CommandHandlersDict"]]
 
 
 def main(args: Optional[List[str]] = None):
@@ -27,7 +27,7 @@ def main(args: Optional[List[str]] = None):
     parser = register_arguments()
     ns = parser.parse_args(args or sys.argv[1:])
 
-    output = HumanOutput()
+    cli = Cli(ns, HumanOutput())
 
     command_handlers = get_command_handlers()
     command_attr = "subcommand"
@@ -38,8 +38,7 @@ def main(args: Optional[List[str]] = None):
             parser.print_help()
             sys.exit(EXIT_FAILURE)
         elif callable(handler):
-            handler(ns, output)
-            # cmd(handler, ns)
+            handler(cli)
         elif isinstance(handler, dict):
             command_attr = f"{command}_{command_attr}"
             command_handlers = handler
@@ -47,13 +46,28 @@ def main(args: Optional[List[str]] = None):
         sys.exit(EXIT_OK)
 
 
-def get_command_handlers() -> CommandHandlersDict:
+CommandFunc = Callable[[Cli], Any]
+CommandDict = Dict[str, Union[CommandFunc, "CommandDict"]]
+
+
+class Cli:
+    """A bundle of runtime properties for the CLI. This contains the namespace of parsed
+    CLI arguments with the output handle used to print things to the user.
+    """
+
+    def __init__(self, ns: Namespace, out: Output) -> None:
+        self.ns = ns
+        self.out = out
+
+
+def get_command_handlers() -> CommandDict:
     """This internal function returns the tree of command handlers for each subcommand
     of the CLI argument parser.
     """
+
     return {
         "search": cmd_search,
-        "start": cmd_start,
+        # "start": cmd_start,
         # "login": cmd_login,
         # "logout": cmd_logout,
         # "show": {
@@ -68,44 +82,21 @@ def get_command_handlers() -> CommandHandlersDict:
     }
 
 
-# def cmd(handler: CommandHandler, ns: Namespace):
-#     try:
-#         handler(ns)
-#     except JsonRequestError as err:
-#         print_task("FAILED", f"json_request.error.{err.code}", {
-#             "url": err.url,
-#             "method": err.method,
-#             "status": err.status,
-#             "data": err.data,
-#         }, done=True, keep_previous=True)
-#         sys.exit(EXIT_JSON_REQUEST_ERROR)
-#     except KeyboardInterrupt:
-#         print_task(None, "error.keyboard_interrupt", done=True, keep_previous=True)
-#         sys.exit(EXIT_FAILURE)
-#     except Exception as err:
-#         import ssl
-#         key = "error.generic"
-#         if isinstance(err, URLError) and isinstance(err.reason, ssl.SSLCertVerificationError):
-#             key = "error.cert"
-#         elif isinstance(err, (URLError, socket.gaierror, socket.timeout)):
-#             key = "error.socket"
-#         print_task("FAILED", key, done=True, keep_previous=True)
-#         import traceback
-#         traceback.print_exc()
-#         sys.exit(EXIT_FAILURE)
-
-
-def cmd_search(ns: Namespace, out: Output):
+def cmd_search(cli: Cli):
 
     table = []
-    search = ns.input
-    no_version = (search is None)
+    search = cli.ns.input
+    no_version = search is None
 
-    if ns.local:
-        for version_id, mtime in ctx.list_versions():
-            if no_version or search in version_id:
-                table.append((version_id, format_locale_date(mtime)))
+    if cli.ns.local:
+        raise NotImplementedError
+        # for version_id, mtime in ctx.list_versions():
+        #     if no_version or search in version_id:
+        #         table.append((version_id, format_locale_date(mtime)))
     else:
+
+        manifest = VersionManifest()
+
         manifest = new_version_manifest(ctx)
         search, alias = manifest.filter_latest(search)
         try:
@@ -139,9 +130,46 @@ def cmd_search(ns: Namespace, out: Output):
         sys.exit(EXIT_VERSION_NOT_FOUND)
 
 
-def cmd_start(ns: Namespace, out: Output):
+# def cmd_start(ns: Namespace, out: Output):
     
-    from portablemc.standard import make_standard_sequence
+#     from portablemc.standard import make_standard_sequence
 
-    seq = make_standard_sequence()
+#     seq = make_standard_sequence()
 
+
+
+
+
+
+
+
+
+
+
+
+
+# def cmd(handler: CommandHandler, ns: Namespace):
+#     try:
+#         handler(ns)
+#     except JsonRequestError as err:
+#         print_task("FAILED", f"json_request.error.{err.code}", {
+#             "url": err.url,
+#             "method": err.method,
+#             "status": err.status,
+#             "data": err.data,
+#         }, done=True, keep_previous=True)
+#         sys.exit(EXIT_JSON_REQUEST_ERROR)
+#     except KeyboardInterrupt:
+#         print_task(None, "error.keyboard_interrupt", done=True, keep_previous=True)
+#         sys.exit(EXIT_FAILURE)
+#     except Exception as err:
+#         import ssl
+#         key = "error.generic"
+#         if isinstance(err, URLError) and isinstance(err.reason, ssl.SSLCertVerificationError):
+#             key = "error.cert"
+#         elif isinstance(err, (URLError, socket.gaierror, socket.timeout)):
+#             key = "error.socket"
+#         print_task("FAILED", key, done=True, keep_previous=True)
+#         import traceback
+#         traceback.print_exc()
+#         sys.exit(EXIT_FAILURE)

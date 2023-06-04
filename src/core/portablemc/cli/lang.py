@@ -55,13 +55,13 @@ lang = {
     "args.start.demo": "Start game in demo mode.",
     "args.start.resol": "Set a custom start resolution (<width>x<height>, >= 1.6).",
     "args.start.jvm": f"Set a custom JVM '{get_jvm_bin_filename()}' executable path. If this argument is omitted a public build "
-                      "of a JVM is downloaded from Mojang services.",
+        "of a JVM is downloaded from Mojang services.",
     "args.start.jvm_args": "Change the default JVM arguments.",
     "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
-                                    "order to improve the log readability in the console.",
+        "order to improve the log readability in the console.",
     "args.start.anonymise": "Anonymise your email or username for authentication messages.",
     "args.start.no_old_fix": "Flag that disable fixes for old versions (legacy merge sort, betacraft proxy), "
-                             "enabled by default.",
+        "enabled by default.",
     "args.start.lwjgl": "Change the default LWJGL version used by Minecraft."
         "This argument makes additional changes in order to support additional architectures such as ARM32/ARM64. "
         "It's not guaranteed to work with every version of Minecraft and downgrading LWJGL version is not recommended.",
