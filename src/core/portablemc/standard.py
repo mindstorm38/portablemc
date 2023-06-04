@@ -60,8 +60,7 @@ class VersionId:
 
 
 class FullMetadata:
-    """Fully computed metadata, all the layers are merged together and metadata is 
-    provided 
+    """Fully computed metadata, all the layers are merged together.
     """
 
     def __init__(self, data: dict) -> None:
@@ -636,7 +635,7 @@ class RunTask(Task):
 
     def execute(self, state: State, watcher: Watcher) -> None:
         
-
+        
 
         pass
 

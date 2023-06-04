@@ -48,9 +48,13 @@ class Output:
     """
 
     def table(self) -> Table:
-        """
+        """Create a table builder that you can use to add rows and separator and them
+        print a table, adapted to the implementation.
         """
         raise NotImplementedError
+    
+    def task(self):
+        pass
 
 
 class HumanOutput(Output):

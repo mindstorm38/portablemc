@@ -1,9 +1,86 @@
 from argparse import ArgumentParser, HelpFormatter
+import sys
 
 from ..util import LibrarySpecifier
+from .output import Output, HumanOutput
 from .lang import get as _
 
-from typing import Optional, Type
+from typing import Optional, Type, List
+
+
+EXIT_OK = 0
+EXIT_FAILURE = 1
+
+
+class Command:
+
+    def register():
+        pass
+
+
+def main(args: Optional[List[str]] = None):
+    """Main entry point of the CLI. This function parses the input arguments and try to
+    find a command handler to dispatch to. These command handlers are specified by the
+    `get_command_handlers` function.
+    """
+
+    parser = register_arguments()
+    ns = parser.parse_args(args or sys.argv[1:])
+
+    cli = Cli(ns, HumanOutput())
+
+    command_handlers = get_command_handlers()
+    command_attr = "subcommand"
+    while True:
+        command = getattr(ns, command_attr)
+        handler = command_handlers.get(command)
+        if handler is None:
+            parser.print_help()
+            sys.exit(EXIT_FAILURE)
+        elif callable(handler):
+            handler(cli)
+        elif isinstance(handler, dict):
+            command_attr = f"{command}_{command_attr}"
+            command_handlers = handler
+            continue
+        sys.exit(EXIT_OK)
+
+
+
+CommandFunc = Callable[[Cli], Any]
+CommandDict = Dict[str, Union[CommandFunc, "CommandDict"]]
+
+
+class Cli:
+    """A bundle of runtime properties for the CLI. This contains the namespace of parsed
+    CLI arguments with the output handle used to print things to the user.
+    """
+
+    def __init__(self, ns: Namespace, out: Output) -> None:
+        self.ns = ns
+        self.out = out
+
+
+def get_command_handlers() -> CommandDict:
+    """This internal function returns the tree of command handlers for each subcommand
+    of the CLI argument parser.
+    """
+
+    return {
+        "search": cmd_search,
+        # "start": cmd_start,
+        # "login": cmd_login,
+        # "logout": cmd_logout,
+        # "show": {
+        #     "about": cmd_show_about,
+        #     "auth": cmd_show_auth,
+        #     "lang": cmd_show_lang,
+        # },
+        # "addon": {
+        #     "list": cmd_addon_list,
+        #     "show": cmd_addon_show
+        # }
+    }
 
 
 def register_arguments() -> ArgumentParser:
@@ -11,6 +88,7 @@ def register_arguments() -> ArgumentParser:
     parser.add_argument("--main-dir", help=_("args.main_dir"))
     parser.add_argument("--work-dir", help=_("args.work_dir"))
     parser.add_argument("--timeout", help=_("args.timeout"), type=float)
+    parser.add_argument("--output", help=_("args.output"), default="human")
     register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
     return parser
 
@@ -110,6 +188,9 @@ def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
 
 
 class LibrarySpecifierFilter:
+    """A filter for library specifier, used with the start command to exclude some 
+    libraries.
+    """
     
     __slots__ = "artifact", "version", "classifier"
 
