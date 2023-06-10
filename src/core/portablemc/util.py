@@ -2,10 +2,9 @@
 compatibility is not guaranteed unless explicitly specified.
 """
 
-from pathlib import Path
-import hashlib
+from datetime import datetime
 
-from typing import Dict, Union, Optional, Tuple, List
+from typing import Optional
 
 
 def merge_dict(dst: dict, other: dict) -> None:
@@ -38,12 +37,40 @@ def calc_input_sha1(input_stream, *, buffer_len: int = 8192) -> str:
     :param buffer_len: Internal buffer length, defaults to 8192
     :return: The sha1 string.
     """
+    import hashlib
     h = hashlib.sha1()
     b = bytearray(buffer_len)
     mv = memoryview(b)
     for n in iter(lambda: input_stream.readinto(mv), 0):
         h.update(mv[:n])
     return h.hexdigest()
+
+
+def from_iso_date(raw: str) -> datetime:
+    """Replacement for `datetime.fromisoformat()` which is missing from Python 3.6. This 
+    function replace it if needed.
+
+    Currently, only a subset of the ISO format is supported, both hours, minutes and 
+    seconds must be defined and the timezone, if present must contain both hours and 
+    minutes, no more.
+    """
+    if hasattr(datetime, "fromisoformat"):
+        return datetime.fromisoformat(raw)
+    from datetime import timezone, timedelta
+    tz_idx = raw.find("+")
+    dt = datetime.strptime(raw[:tz_idx], "%Y-%m-%dT%H:%M:%S")
+    if tz_idx != -1:
+        tz_dt = datetime.strptime(raw[tz_idx + 1:], "%H:%M")
+        dt = dt.replace(tzinfo=timezone(timedelta(hours=tz_dt.hour, minutes=tz_dt.minute)))
+    return dt
+
+
+def get_jvm_bin_filename() -> str:
+    """Return the JVM binary filename for the current platform, 
+    'javaw' on windows and 'java' on others. 
+    """
+    import platform
+    return "javaw.exe" if platform.system() == "Windows" else "java"
 
 
 class LibrarySpecifier:
@@ -64,7 +91,7 @@ class LibrarySpecifier:
         """
         parts = s.split(":", 3)
         if len(parts) < 3:
-            raise ValueError("Invalid library specifier.")
+            raise ValueError("Invalid library specifier")
         else:
             return LibrarySpecifier(parts[0], parts[1], parts[2], parts[3] if len(parts) == 4 else None)
 
