@@ -4,7 +4,7 @@
 import shutil
 import time
 
-from typing import Iterable, Any, List, Tuple, Union
+from typing import List, Tuple, Union
 
 
 class Table:
@@ -129,7 +129,9 @@ class HumanTable(Table):
 
 
 class JsonOutput(Output):
-    pass
+    
+    def table(self) -> Table:
+        return JsonTable()
 
 class JsonTable(Table):
 
