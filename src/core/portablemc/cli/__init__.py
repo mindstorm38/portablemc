@@ -2,7 +2,10 @@
 """
 
 from argparse import Namespace
+from pathlib import Path
 import sys
+
+from portablemc.task import Task
 
 from .parse import register_arguments
 from .util import format_locale_date
@@ -10,12 +13,13 @@ from .output import Table
 from .lang import get as _
 
 from ..manifest import VersionManifest, VersionManifestError
-from ..standard import Context
+from ..standard import Context, make_standard_sequence
+from ..task import Watcher
 
 from typing import TYPE_CHECKING, Optional, List, Union, Dict, Callable, Any
 
 if TYPE_CHECKING:
-    from .parse import RootCmd, SearchCmd
+    from .parse import RootCmd, SearchCmd, StartCmd
 
 
 EXIT_OK = 0
@@ -130,5 +134,20 @@ def cmd_search(ns: "SearchCmd"):
     sys.exit(EXIT_OK)
 
 
+def cmd_start(ns: "StartCmd"):
+    
+    context = Context(ns.main_dir, ns.work_dir)
+    manifest = new_version_manifest()
+    
+    sequence = make_standard_sequence(context, ns.version)
+    sequence.add_watcher(CliWatcher(ns))
+
+
 def new_version_manifest(ns: "RootCmd") -> VersionManifest:
     return VersionManifest()
+
+
+class CliWatcher(Watcher):
+
+    def __init__(self, ns: "RootCmd") -> None:
+        self.ns = ns

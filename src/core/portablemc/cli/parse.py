@@ -1,4 +1,5 @@
 from argparse import ArgumentParser, HelpFormatter, Namespace
+from pathlib import Path
 
 from .output import Output, HumanOutput, JsonOutput
 from .util import LibrarySpecifierFilter
@@ -10,8 +11,8 @@ from typing import TYPE_CHECKING, Optional, Type, Tuple, List
 if TYPE_CHECKING:
 
     class RootCmd(Namespace):
-        main_dir: str
-        work_dir: str
+        main_dir: Optional[Path]
+        work_dir: Optional[Path]
         timeout: float
         out: Output
     
@@ -65,10 +66,10 @@ if TYPE_CHECKING:
 
 def register_arguments() -> ArgumentParser:
     parser = ArgumentParser(allow_abbrev=False, prog="portablemc", description=_("args"))
-    parser.add_argument("--main-dir", help=_("args.main_dir"))
-    parser.add_argument("--work-dir", help=_("args.work_dir"))
+    parser.add_argument("--main-dir", help=_("args.main_dir"), type=Path)
+    parser.add_argument("--work-dir", help=_("args.work_dir"), type=Path)
     parser.add_argument("--timeout", help=_("args.timeout"), type=float)
-    parser.add_argument("--output", help=_("args.output"), dest="out", type=get_output_from_str, default="human", choices=["human", "json"])
+    parser.add_argument("--output", help=_("args.output"), dest="out", type=get_output_from_str, default="human")
     register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
     return parser
 

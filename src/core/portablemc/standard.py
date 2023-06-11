@@ -210,20 +210,18 @@ class MetadataTask(Task):
 
     :in Context: The installation context.
     :in VersionId: Describe which version to resolve.
+    :in VersionManifest: Version manifest to use for fetching online official versions.
     :out VersionMetadata: The resolved version metadata.
     """
 
-    def __init__(self, *, 
-        max_parents: int = 10, 
-        manifest: Optional[VersionManifest] = None
-    ) -> None:
+    def __init__(self, *, max_parents: int = 10) -> None:
         self.max_parents = max_parents
-        self.manifest = manifest
 
     def execute(self, state: State, watcher: Watcher) -> None:
 
         context = state[Context]
         version = state[VersionId]
+        manifest = state[VersionManifest]
 
         version_id: Optional[str] = version.id
         versions_meta: List[VersionMetadata] = []
@@ -235,7 +233,7 @@ class MetadataTask(Task):
             
             watcher.on_event(EV_VERSION_RESOLVING, id=version_id)
             version_meta = VersionMetadata(version_id, context.versions_dir / version_id)
-            self.ensure_version_meta(version_meta)
+            self.ensure_version_meta(version_meta, manifest)
             watcher.on_event(EV_VERSION_RESOLVED, id=version_id)
 
             # Set the parent of the last version to the version being resolved.
@@ -251,15 +249,8 @@ class MetadataTask(Task):
         # The metadata is included to the state.
         state.insert(versions_meta[0])
         state.insert(versions_meta[0].merge())
-    
-    def ensure_manifest(self) -> VersionManifest:
-        """ Ensure that a version manifest exists for fetching official versions.
-        """
-        if self.manifest is None:
-            self.manifest = VersionManifest()
-        return self.manifest
 
-    def ensure_version_meta(self, version_metadata: VersionMetadata) -> None:
+    def ensure_version_meta(self, version_metadata: VersionMetadata, manifest: VersionManifest) -> None:
         """This function tries to load and get the directory path of a given version id.
         This function proceeds in multiple steps: it tries to load the version's metadata,
         if the metadata is found then it's validated with the `validate_version_meta`
@@ -270,14 +261,14 @@ class MetadataTask(Task):
         """
 
         if version_metadata.read_metadata_file():
-            if self.validate_version_meta(version_metadata):
+            if self.validate_version_meta(version_metadata, manifest):
                 # If the version is successfully loaded and valid, return as-is.
                 return
         
         # If not loadable or not validated, fetch metadata.
-        self.fetch_version_meta(version_metadata)
+        self.fetch_version_meta(version_metadata, manifest)
 
-    def validate_version_meta(self, version_meta: VersionMetadata) -> bool:
+    def validate_version_meta(self, version_meta: VersionMetadata, manifest: VersionManifest) -> bool:
         """This function checks that version metadata is correct.
 
         An internal method to check if a version's metadata is 
@@ -292,7 +283,7 @@ class MetadataTask(Task):
         :return: True if the given version.
         """
 
-        version_super_meta = self.ensure_manifest().get_version(version_meta.id)
+        version_super_meta = manifest.get_version(version_meta.id)
         if version_super_meta is None:
             return True
         else:
@@ -306,14 +297,14 @@ class MetadataTask(Task):
                     return False
             return True
 
-    def fetch_version_meta(self, version_meta: VersionMetadata) -> None:
+    def fetch_version_meta(self, version_meta: VersionMetadata, manifest: VersionManifest) -> None:
         """Internal method to fetch the data of the given version.
 
         :param version_meta: The version meta to fetch data into.
         :raises VersionError: TODO
         """
 
-        version_super_meta = self.ensure_manifest().get_version(version_meta.id)
+        version_super_meta = manifest.get_version(version_meta.id)
         if version_super_meta is None:
             raise ValueError("Version not found")  # TODO: Specialized error
         
@@ -769,6 +760,8 @@ def get_minecraft_archbits() -> Optional[str]:
 def make_standard_sequence(context: Context, version_id: str) -> Sequence:
     """Make standard installer for installing standard Minecraft versions.
 
+    The sequence can be 
+
     :param context: The directory context of the game's installation.
     :return: The installer, ready to install a standard game.
     """
@@ -776,6 +769,7 @@ def make_standard_sequence(context: Context, version_id: str) -> Sequence:
     seq = Sequence()
     seq.insert_state(context)
     seq.insert_state(VersionId(version_id))
+    seq.insert_state(VersionManifest())  # Default manifest, can be overwritten
     seq.append_task(MetadataTask())
     seq.append_task(JarTask())
     seq.append_task(AssetsTask())
