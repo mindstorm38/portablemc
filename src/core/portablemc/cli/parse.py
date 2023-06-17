@@ -10,17 +10,17 @@ from typing import TYPE_CHECKING, Optional, Type, Tuple, List
 
 if TYPE_CHECKING:
 
-    class RootCmd(Namespace):
+    class RootNs(Namespace):
         main_dir: Optional[Path]
         work_dir: Optional[Path]
         timeout: float
         out: Output
     
-    class SearchCmd(RootCmd):
+    class SearchNs(RootNs):
         kind: str
         input: str
 
-    class StartCmd(RootCmd):
+    class StartNs(RootNs):
         dry: bool
         disable_mp: bool
         disable_chat: bool
@@ -43,24 +43,24 @@ if TYPE_CHECKING:
         server_port: Optional[int]
         version: str
 
-    class LoginCmd(RootCmd):
+    class LoginNs(RootNs):
         login_service: str
         email_or_username: str
 
-    class LogoutCmd(RootCmd):
+    class LogoutNs(RootNs):
         login_service: str
         email_or_username: str
     
-    class ShowCmd(RootCmd):
+    class ShowNs(RootNs):
         pass
 
-    class ShowAboutCmd(ShowCmd):
+    class ShowAboutNs(ShowNs):
         pass
 
-    class ShowAuthCmd(ShowCmd):
+    class ShowAuthNs(ShowNs):
         pass
 
-    class ShowLangCmd(ShowCmd):
+    class ShowLangNs(ShowNs):
         pass
 
 

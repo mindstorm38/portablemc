@@ -134,6 +134,10 @@ lang = {
     "addon.show.authors": "Authors: {authors}",
     "addon.show.description": "Description: {description}",
     # Command start
+    "start.metadata.begin": "Resolving metadata...",
+    "start.metadata.version_resolving": "Resolving version {id}...",
+    "start.metadata.version_resolved": "Resolved version {id}.",
+
     "start.version.resolving": "Resolving version {version}... ",
     "start.version.resolved": "Resolved version {version}.",
     "start.version.fixed.lwjgl": "Fixed LWJGL version to {version}",

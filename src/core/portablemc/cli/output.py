@@ -1,14 +1,17 @@
 """Utilities specific to formatting the output of the CLI.
 """
 
+from . import lang
+
 import shutil
 import time
+import json
 
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Optional
 
 
-class Table:
-    """
+class OutputTable:
+    """Base class for formatting tables.
     """
 
     def __init__(self) -> None:
@@ -45,32 +48,57 @@ class Table:
         raise NotImplementedError
 
 
+class OutputTask:
+    
+    def update(self, state: Optional[str], key: Optional[str], **kwargs) -> None:
+        raise NotImplementedError
+
+    def finish(self) -> None:
+        raise NotImplementedError
+
+
 class Output:
     """This class is used to abstract the output of the CLI. This particular class is
     abstract and the implementation differs depending on the desired output format.
     """
 
-    def table(self) -> Table:
+    def table(self) -> OutputTable:
         """Create a table builder that you can use to add rows and separator and them
         print a table, adapted to the implementation.
         """
         raise NotImplementedError
     
-    def task(self):
-        pass
+    def task(self) -> OutputTask:
+        raise NotImplementedError
 
 
 class HumanOutput(Output):
 
-    def table(self) -> Table:
-        return HumanTable()
-
-class HumanTable(Table):
-    
     def __init__(self) -> None:
         super().__init__()
         self.term_width = 0
         self.term_width_update_time = 0
+
+    def table(self) -> OutputTable:
+        return HumanTable(self)
+    
+    def task(self) -> OutputTask:
+        return HumanTask(self)
+
+    def get_term_width(self) -> int:
+        """Internal method used to get terminal width with a cache interval of 1 second.
+        """
+        now = time.monotonic()
+        if now - self.term_width_update_time > 1:
+            self.term_width_update_time = now
+            self.term_width = shutil.get_terminal_size().columns
+        return self.term_width
+
+class HumanTable(OutputTable):
+    
+    def __init__(self, out: HumanOutput) -> None:
+        super().__init__()
+        self.out = out
 
     def print(self) -> None:
 
@@ -78,7 +106,7 @@ class HumanTable(Table):
         columns_count = len(columns_length)
 
         total_length = 1 + sum(x + 3 for x in columns_length)
-        max_length = self.get_term_width() - 1
+        max_length = self.out.get_term_width() - 1
         if total_length > max_length:
             overflow_length = total_length - max_length
             total_cell_length = sum(columns_length)
@@ -94,47 +122,80 @@ class HumanTable(Table):
 
         print("┌─{}─┐".format("─┬─".join(columns_lines)))
 
+        format_columns = [""] * columns_count
+
         for row in self.rows:
 
             if row is None:
                 print("├─{}─┤".format("─┼─".join(columns_lines)))
                 continue
 
+            wrapped_row = list(row)
             wrapped = True
+
             while wrapped:
-
-                cols = []
                 wrapped = False
-
-                for col_index, col in enumerate(row):
+                for col_index, col in enumerate(wrapped_row):
                     col_len = columns_length[col_index]
                     col_real = col[:col_len]
-                    cols.append(col)
+                    format_columns[col_index] = col_real
+                    # If wrapped, take the rest and save it for next iteration.
                     if col != col_real:
-                        row[col_index] = col[col_len:]
+                        wrapped_row[col_index] = col[col_len:]
                         wrapped = True
                 
-                print(format_string.format(*cols))
+                print(format_string.format(*format_columns))
         
         print("└─{}─┘".format("─┴─".join(columns_lines)))
 
-    def get_term_width(self) -> int:
-        """Internal method used to get terminal width with a cache interval of 1 second.
-        """
-        now = time.monotonic()
-        if now - self.term_width_update_time > 1:
-            self.term_width_update_time = now
-            self.term_width = shutil.get_terminal_size().columns
-        return self.term_width
+class HumanTask(OutputTask):
+
+    def __init__(self, out) -> None:
+        super().__init__()
+        self.out = out
+        self.last_len = None
+
+    def update(self, state: Optional[str], key: Optional[str], **kwargs) -> None:
+
+        state_msg = "\r         " if state is None else "\r[{:^6s}] ".format(state)
+        print(state_msg, end="")
+
+        if key is None:
+            return
+
+        msg = lang.get_raw(key, kwargs)
+        msg_len = len(msg)
+
+        print(msg, end="")
+
+        if self.last_len is not None and self.last_len > msg_len:
+            missing_len = self.last_len - msg_len
+            print(" " * missing_len, end="")
+
+        self.last_len = msg_len
+
+    def finish(self) -> None:
+        if self.last_len is not None:
+            print()
 
 
 class JsonOutput(Output):
     
-    def table(self) -> Table:
+    def table(self) -> OutputTable:
         return JsonTable()
 
-class JsonTable(Table):
+    def task(self) -> OutputTask:
+        return JsonTask()
+
+class JsonTable(OutputTable):
 
     def print(self) -> None:
-        import json
         print(json.dumps(self.rows, indent=2))
+
+class JsonTask(OutputTask):
+
+    def update(self, state: Optional[str], key: Optional[str], **kwargs) -> None:
+        print(json.dumps({"state": state, "key": key, "args": kwargs}))
+
+    def finish(self) -> None:
+        pass

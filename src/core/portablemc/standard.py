@@ -48,6 +48,20 @@ class Context:
         self.jvm_dir = main_dir / "jvm"
         self.bin_dir = self.work_dir / "bin"
 
+    def get_version(self, version_id: str) -> "Version":
+        """Get an instance of the given version.
+        """
+        return Version(version_id, self.versions_dir / version_id)
+
+    # def list_versions(self) -> Generator[Tuple[str, int], None, None]:
+    #     """ A generator method that yields all versions (version, mtime) that have a version metadata file. """
+    #     if path.isdir(self.versions_dir):
+    #         for version in os.listdir(self.versions_dir):
+    #             try:
+    #                 yield version, path.getmtime(path.join(self.versions_dir, version, f"{version}.json"))
+    #             except OSError:
+    #                 pass
+
 
 class VersionId:
     """Small class used to specify which Minecraft version to launch.
@@ -67,17 +81,22 @@ class FullMetadata:
         self.data = data
 
 
-class VersionMetadata:
+class Version:
     """This class holds version's metadata, as resolved by `MetadataTask`.
     """
 
-    __slots__ = "id", "dir", "data", "parent"
+    __slots__ = "id", "dir", "metadata", "parent"
 
     def __init__(self, id: str, dir: Path) -> None:
         self.id = id
         self.dir = dir
-        self.data = {}
-        self.parent: Optional[VersionMetadata] = None
+        self.metadata = {}
+        self.parent: Optional[Version] = None
+    
+    def metadata_exists(self) -> bool:
+        """This function returns true if the version's metadata file exists.
+        """
+        return self.metadata_file().is_file()
     
     def metadata_file(self) -> Path:
         """This function returns the computed path of the metadata file.
@@ -94,7 +113,7 @@ class VersionMetadata:
         """
         self.dir.mkdir(parents=True, exist_ok=True)
         with self.metadata_file().open("wt") as fp:
-            json.dump(self.data, fp)
+            json.dump(self.metadata, fp)
 
     def read_metadata_file(self) -> bool:
         """This function reads the metadata file and updates the internal data if found.
@@ -103,12 +122,12 @@ class VersionMetadata:
         """
         try:
             with self.metadata_file().open("rt") as fp:
-                self.data = json.load(fp)
+                self.metadata = json.load(fp)
             return True
         except (OSError, JSONDecodeError):
             return False
     
-    def recurse(self) -> "Iterator[VersionMetadata]":
+    def recurse(self) -> "Iterator[Version]":
         """Walk through every version metadata in the hierarchy of the current one.
         """
         version_meta = self
@@ -121,7 +140,7 @@ class VersionMetadata:
         """
         result = {}
         for version_meta in self.recurse():
-            merge_dict(result, version_meta.data)
+            merge_dict(result, version_meta.metadata)
         return FullMetadata(result)
 
 
@@ -220,55 +239,54 @@ class MetadataTask(Task):
     def execute(self, state: State, watcher: Watcher) -> None:
 
         context = state[Context]
-        version = state[VersionId]
         manifest = state[VersionManifest]
 
-        version_id: Optional[str] = version.id
-        versions_meta: List[VersionMetadata] = []
+        version_id: Optional[str] = state[VersionId].id
+        versions: List[Version] = []
 
         while version_id is not None:
 
-            if len(versions_meta) > self.max_parents:
+            if len(versions) > self.max_parents:
                 raise TooMuchParentError()
             
             watcher.on_event(EV_VERSION_RESOLVING, id=version_id)
-            version_meta = VersionMetadata(version_id, context.versions_dir / version_id)
-            self.ensure_version_meta(version_meta, manifest)
+            version = context.get_version(version_id)
+            self.ensure_version_meta(version, manifest)
             watcher.on_event(EV_VERSION_RESOLVED, id=version_id)
 
             # Set the parent of the last version to the version being resolved.
-            if len(versions_meta):
-                versions_meta[-1].parent = version_meta
+            if len(versions):
+                versions[-1].parent = version
             
-            versions_meta.append(version_meta)
-            version_id = version_meta.data.pop("inheritsFrom", None)
+            versions.append(version)
+            version_id = version.metadata.pop("inheritsFrom", None)
             
-            if not isinstance(version_id, str):
-                pass  # FIXME:
+            if version_id is not None and not isinstance(version_id, str):
+                raise ValueError("metadata: /inheritsFrom must be a string")
 
         # The metadata is included to the state.
-        state.insert(versions_meta[0])
-        state.insert(versions_meta[0].merge())
+        state.insert(versions[0])
+        state.insert(versions[0].merge())
 
-    def ensure_version_meta(self, version_metadata: VersionMetadata, manifest: VersionManifest) -> None:
+    def ensure_version_meta(self, version: Version, manifest: VersionManifest) -> None:
         """This function tries to load and get the directory path of a given version id.
         This function proceeds in multiple steps: it tries to load the version's metadata,
         if the metadata is found then it's validated with the `validate_version_meta`
         method. If the version was not found or is not valid, then the metadata is fetched
         by `fetch_version_meta` method.
 
-        :param version_metadata: The version metadata to fill with 
+        :param version: The version metadata to fill with 
         """
 
-        if version_metadata.read_metadata_file():
-            if self.validate_version_meta(version_metadata, manifest):
+        if version.read_metadata_file():
+            if self.validate_version_meta(version, manifest):
                 # If the version is successfully loaded and valid, return as-is.
                 return
         
         # If not loadable or not validated, fetch metadata.
-        self.fetch_version_meta(version_metadata, manifest)
+        self.fetch_version_meta(version, manifest)
 
-    def validate_version_meta(self, version_meta: VersionMetadata, manifest: VersionManifest) -> bool:
+    def validate_version_meta(self, version: Version, manifest: VersionManifest) -> bool:
         """This function checks that version metadata is correct.
 
         An internal method to check if a version's metadata is 
@@ -279,32 +297,32 @@ class MetadataTask(Task):
         The default implementation check official versions against the
         expected SHA1 hash of the metadata file.
 
-        :param version_meta: The version metadata to validate or not.
+        :param version: The version metadata to validate or not.
         :return: True if the given version.
         """
 
-        version_super_meta = manifest.get_version(version_meta.id)
+        version_super_meta = manifest.get_version(version.id)
         if version_super_meta is None:
             return True
         else:
             expected_sha1 = version_super_meta.get("sha1")
             if expected_sha1 is not None:
                 try:
-                    with version_meta.metadata_file().open("rb") as version_meta_fp:
+                    with version.metadata_file().open("rb") as version_meta_fp:
                         current_sha1 = calc_input_sha1(version_meta_fp)
                         return expected_sha1 == current_sha1
                 except OSError:
                     return False
             return True
 
-    def fetch_version_meta(self, version_meta: VersionMetadata, manifest: VersionManifest) -> None:
+    def fetch_version_meta(self, version: Version, manifest: VersionManifest) -> None:
         """Internal method to fetch the data of the given version.
 
-        :param version_meta: The version meta to fetch data into.
+        :param version: The version meta to fetch data into.
         :raises VersionError: TODO
         """
 
-        version_super_meta = manifest.get_version(version_meta.id)
+        version_super_meta = manifest.get_version(version.id)
         if version_super_meta is None:
             raise ValueError("Version not found")  # TODO: Specialized error
         
@@ -313,11 +331,11 @@ class MetadataTask(Task):
             raise ValueError("HTTP error: {raw_data}")  # TODO: Specialized error
         
         # First decode the data and set it to the version meta. Raising if invalid.
-        version_meta.data = json.loads(raw_data)
+        version.metadata = json.loads(raw_data)
         
         # If successful, write the raw data directly to the file.
-        version_meta.dir.mkdir(parents=True, exist_ok=True)
-        with version_meta.metadata_file().open("wb") as fp:
+        version.dir.mkdir(parents=True, exist_ok=True)
+        with version.metadata_file().open("wb") as fp:
             fp.write(raw_data)
 
 
@@ -335,10 +353,10 @@ class JarTask(Task):
     def execute(self, state: State, watcher: Watcher) -> None:
 
         # Try finding a JAR to use in the hierarchy of versions.
-        for version_meta in state[VersionMetadata].recurse():
+        for version_meta in state[Version].recurse():
             jar_file = version_meta.jar_file()
             # First try to find a /downloads/client download entry.
-            version_dls = version_meta.data.get("downloads")
+            version_dls = version_meta.metadata.get("downloads")
             if version_dls is not None:
                 if not isinstance(version_dls, dict):
                     raise ValueError("metadata: /downloads must be an object")
@@ -625,9 +643,6 @@ class LoggerTask(Task):
 class RunTask(Task):
 
     def execute(self, state: State, watcher: Watcher) -> None:
-        
-        
-
         pass
 
 
@@ -757,19 +772,19 @@ def get_minecraft_archbits() -> Optional[str]:
 #     return _minecraft_jvm_os
 
 
-def make_standard_sequence(context: Context, version_id: str) -> Sequence:
+def make_standard_sequence(version_id: str, *, 
+    context: Optional[Context] = None, 
+    version_manifest: Optional[VersionManifest] = None) -> Sequence:
     """Make standard installer for installing standard Minecraft versions.
-
-    The sequence can be 
 
     :param context: The directory context of the game's installation.
     :return: The installer, ready to install a standard game.
     """
 
     seq = Sequence()
-    seq.insert_state(context)
     seq.insert_state(VersionId(version_id))
-    seq.insert_state(VersionManifest())  # Default manifest, can be overwritten
+    seq.insert_state(context or Context())
+    seq.insert_state(version_manifest or VersionManifest())
     seq.append_task(MetadataTask())
     seq.append_task(JarTask())
     seq.append_task(AssetsTask())
