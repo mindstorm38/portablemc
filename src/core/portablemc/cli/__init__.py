@@ -1,25 +1,21 @@
 """Main 
 """
 
-from argparse import Namespace
-from pathlib import Path
 import sys
 
-from portablemc.task import Task
-
+from .output import Output, OutputTable, OutputTask
 from .parse import register_arguments
 from .util import format_locale_date
-from .output import Table
 from .lang import get as _
 
+from ..standard import make_standard_sequence, Context, MetadataTask, JarTask, AssetsTask
 from ..manifest import VersionManifest, VersionManifestError
-from ..standard import Context, make_standard_sequence
-from ..task import Watcher
+from ..task import Watcher, Task
 
 from typing import TYPE_CHECKING, Optional, List, Union, Dict, Callable, Any
 
 if TYPE_CHECKING:
-    from .parse import RootCmd, SearchCmd, StartCmd
+    from .parse import RootNs, SearchNs, StartNs
 
 
 EXIT_OK = 0
@@ -52,7 +48,7 @@ def main(args: Optional[List[str]] = None):
         sys.exit(EXIT_OK)
 
 
-CommandFunc = Callable[[Namespace], Any]
+CommandFunc = Callable[[Any], Any]
 CommandDict = Dict[str, Union[CommandFunc, "CommandDict"]]
 
 
@@ -63,7 +59,7 @@ def get_command_handlers() -> CommandDict:
 
     return {
         "search": cmd_search,
-        # "start": cmd_start,
+        "start": cmd_start,
         # "login": cmd_login,
         # "logout": cmd_logout,
         # "show": {
@@ -78,9 +74,9 @@ def get_command_handlers() -> CommandDict:
     }
 
 
-def cmd_search(ns: "SearchCmd"):
+def cmd_search(ns: "SearchNs"):
 
-    def cmd_search_manifest(search: Optional[str], table: Table):
+    def cmd_search_manifest(search: Optional[str], table: OutputTable):
         
         table.add(
             _("search.type"),
@@ -89,31 +85,32 @@ def cmd_search(ns: "SearchCmd"):
             _("search.flags"))
         table.separator()
 
+        context = new_context(ns)
         manifest = new_version_manifest(ns)
-        search, alias = manifest.filter_latest(search)
+
         try:
+
+            if search is not None:
+                search, alias = manifest.filter_latest(search)
+            else:
+                alias = False
+
             for version_data in manifest.all_versions():
                 version_id = version_data["id"]
                 if search is None or (alias and search == version_id) or (not alias and search in version_id):
+                    version = context.get_version(version_id)
                     table.add(
                         version_data["type"], 
                         version_id, 
                         format_locale_date(version_data["releaseTime"]),
-                        "")
-
-                    # table.append((
-                    #     version_data["type"],
-                    #     version_id,
-                    #     format_locale_date(version_data["releaseTime"]),
-                    #     _("search.flags.local") if ctx.has_version_metadata(version_id) else ""
-                    # ))
+                        _("search.flags.local") if version.metadata_exists() else "")
 
         except VersionManifestError as err:
             pass
             # print_task("FAILED", f"version_manifest.error.{err.code}", done=True)
             # sys.exit(EXIT_VERSION_NOT_FOUND)
 
-    def cmd_search_local(search: Optional[str], table: Table):
+    def cmd_search_local(search: Optional[str], table: OutputTable):
 
         table.add(
             _("search.name"),
@@ -134,20 +131,52 @@ def cmd_search(ns: "SearchCmd"):
     sys.exit(EXIT_OK)
 
 
-def cmd_start(ns: "StartCmd"):
+def cmd_start(ns: "StartNs"):
     
-    context = Context(ns.main_dir, ns.work_dir)
-    manifest = new_version_manifest()
-    
-    sequence = make_standard_sequence(context, ns.version)
-    sequence.add_watcher(CliWatcher(ns))
+    context = new_context(ns)
+    manifest = new_version_manifest(ns)
+
+    version_id, alias = manifest.filter_latest(ns.version)
+        
+    sequence = make_standard_sequence(version_id, context=context, version_manifest=manifest)
+    sequence.add_watcher(StartWatcher(ns.out))
+
+    sequence.execute()
 
 
-def new_version_manifest(ns: "RootCmd") -> VersionManifest:
+def new_context(ns: "RootNs") -> Context:
+    return Context(ns.main_dir, ns.work_dir)
+
+def new_version_manifest(ns: "RootNs") -> VersionManifest:
     return VersionManifest()
 
+    
+class StartWatcher(Watcher):
 
-class CliWatcher(Watcher):
+    def __init__(self, out: Output) -> None:
 
-    def __init__(self, ns: "RootCmd") -> None:
-        self.ns = ns
+        self.out = out
+
+        self.out_task: Optional[OutputTask] = None
+        self.task: Optional[Task] = None
+    
+    def on_begin(self, task: Task) -> None:
+
+        self.out_task = self.out.task()
+        self.task = task
+
+        self.out_task.update("", "start.")
+
+        self.current_task.update("", f"start.{self.task_id}.begin")
+    
+    def on_event(self, name: str, **data) -> None:
+        assert self.current_task is not None
+        self.current_task.update("..", f"start.{self.task_id}.{name}", **data)
+    
+    def on_end(self, task: Task) -> None:
+        assert self.current_task is not None
+        self.current_task.update("OK", None)
+        self.current_task.finish()
+
+    def on_error(self, error: Exception) -> None:
+        return super().on_error(error)
