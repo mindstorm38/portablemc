@@ -10,6 +10,7 @@ from .lang import get as _
 
 from ..standard import make_standard_sequence, Context, MetadataTask, JarTask, AssetsTask
 from ..manifest import VersionManifest, VersionManifestError
+from ..download import DownloadTask, EV_DOWNLOAD_START
 from ..task import Watcher, Task
 
 from typing import TYPE_CHECKING, Optional, List, Union, Dict, Callable, Any
@@ -164,19 +165,24 @@ class StartWatcher(Watcher):
 
         self.out_task = self.out.task()
         self.task = task
-
-        self.out_task.update("", "start.")
-
-        self.current_task.update("", f"start.{self.task_id}.begin")
     
     def on_event(self, name: str, **data) -> None:
-        assert self.current_task is not None
-        self.current_task.update("..", f"start.{self.task_id}.{name}", **data)
+
+        assert self.out_task is not None
+
+        if isinstance(self.task, MetadataTask):
+            self.out_task.update("..", f"start.metadata.{name}", **data)
+        elif isinstance(self.task, DownloadTask):
+            pass
     
     def on_end(self, task: Task) -> None:
-        assert self.current_task is not None
-        self.current_task.update("OK", None)
-        self.current_task.finish()
+        assert self.out_task is not None
+        self.out_task.update("OK", None)
+        self.out_task.finish()
 
     def on_error(self, error: Exception) -> None:
-        return super().on_error(error)
+        pass
+
+
+class DownloadWatcher(Watcher):
+    pass

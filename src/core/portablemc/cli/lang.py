@@ -137,6 +137,8 @@ lang = {
     "start.metadata.begin": "Resolving metadata...",
     "start.metadata.version_resolving": "Resolving version {id}...",
     "start.metadata.version_resolved": "Resolved version {id}.",
+    "start.download.progress": ""
+
 
     "start.version.resolving": "Resolving version {version}... ",
     "start.version.resolved": "Resolved version {version}.",
