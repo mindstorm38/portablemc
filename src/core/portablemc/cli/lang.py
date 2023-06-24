@@ -2,6 +2,7 @@
 """
 
 from ..util import get_jvm_bin_filename
+from ..download import DownloadError
 
 from typing import Optional
 
@@ -137,7 +138,6 @@ lang = {
     "start.metadata.begin": "Resolving metadata...",
     "start.metadata.version_resolving": "Resolving version {id}...",
     "start.metadata.version_resolved": "Resolved version {id}.",
-    "start.download.progress": ""
 
 
     "start.version.resolving": "Resolving version {version}... ",
@@ -171,15 +171,13 @@ lang = {
     "start.starting": "Starting the game...",
     "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
-    "download.downloading": "Downloading",
-    "download.downloaded": "Downloaded {success_count}/{total_count} files, {size} in {duration:.1f}s ({errors}).",
-    "download.no_error": "no error",
-    "download.errors": "{count} errors",
-    # f"download.error.{DownloadReport.CONN_ERROR}": "Connection error",
-    # f"download.error.{DownloadReport.NOT_FOUND}": "Not found",
-    # f"download.error.{DownloadReport.INVALID_SIZE}": "Invalid size",
-    # f"download.error.{DownloadReport.INVALID_SHA1}": "Invalid SHA1",
-    # f"download.error.{DownloadReport.TOO_MANY_REDIRECTIONS}": "Too many redirections",
+    "download.start": "Download starting...",
+    "download.progress": "Download: {count:4}/{total_count} {size:>8} @ {speed}",
+    "download.error": "{name}: {message}",
+    f"download.error.{DownloadError.CONNECTION}": "Connection error",
+    f"download.error.{DownloadError.NOT_FOUND}": "Not found",
+    f"download.error.{DownloadError.INVALID_SIZE}": "Invalid size",
+    f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
     # Auth common
     "auth.refreshing": "Invalid session, refreshing...",
     "auth.refreshed": "Session refreshed for {email}.",

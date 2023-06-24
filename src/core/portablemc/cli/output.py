@@ -150,12 +150,17 @@ class HumanTable(OutputTable):
 
 class HumanTask(OutputTask):
 
-    def __init__(self, out) -> None:
+    def __init__(self, out: HumanOutput) -> None:
         super().__init__()
         self.out = out
         self.last_len = None
 
     def update(self, state: Optional[str], key: Optional[str], **kwargs) -> None:
+
+        # Don't display updates on small terminals (9 for the state, 11 for msg).
+        term_width = self.out.get_term_width()
+        if term_width < 20:
+            return
 
         state_msg = "\r         " if state is None else "\r[{:^6s}] ".format(state)
         print(state_msg, end="")
@@ -164,6 +169,9 @@ class HumanTask(OutputTask):
             return
 
         msg = lang.get_raw(key, kwargs)
+        if len(msg) + 9 > term_width:
+            msg = f"{msg[:term_width - 9 - 3]}..."
+        
         msg_len = len(msg)
 
         print(msg, end="")

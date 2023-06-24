@@ -1,7 +1,7 @@
 """Base utilities for task-based installer.
 """
 
-from typing import List, Set, Type, TypeVar, Optional
+from typing import List, Set, Type, TypeVar, Optional, Any
 T = TypeVar("T")
 
 
@@ -69,22 +69,18 @@ class Task:
 class Watcher:
     """Base class for a watcher of the install process.
     """
-
-    def on_begin(self, task: Task) -> None:
-        """Called when a task is going to be executed.
-        """
-
-    def on_end(self, task: Task) -> None:
-        """Called when a task has been successfully executed.
-        """
     
-    def on_event(self, name: str, **data) -> None:
+    def on_event(self, event: Any) -> None:
         """Called when the current task triggers an event.
         """
     
-    def on_error(self, error: Exception) -> None:
+    def on_error(self, error: Exception) -> bool:
         """Called when an error is raised by the execute function of the current task.
+        
+        :return: True if the error was handled by the watcher, this will avoid forwarding
+        the error outside the execute function.
         """
+        return False
 
 
 class WatcherGroup(Watcher):
@@ -104,22 +100,16 @@ class WatcherGroup(Watcher):
         """Remove a watcher from the group.
         """
         self._children.remove(watcher)
-
-    def on_begin(self, task: Task) -> None:
-        for watcher in self._children:
-            watcher.on_begin(task)
     
-    def on_end(self, task: Task) -> None:
+    def on_event(self, event: Any) -> None:
         for watcher in self._children:
-            watcher.on_end(task)
+            watcher.on_event(event)
     
-    def on_event(self, name: str, **data) -> None:
+    def on_error(self, error: Exception) -> bool:
+        handled = False
         for watcher in self._children:
-            watcher.on_event(name, **data)
-    
-    def on_error(self, error: Exception) -> None:
-        for watcher in self._children:
-            watcher.on_error(error)
+            handled = handled or watcher.on_error(error)
+        return handled
 
 
 class Sequence:
@@ -198,15 +188,11 @@ class Sequence:
     def execute(self) -> None:
         """Sequentially execute the tasks of this sequence.
 
-        :raises Exception: If an exception is raised from one of the task in sequence, 
-        this error will stop the execution sequence and the exception is returned back.
+        :return: True if the execution is successful.
         """
         for task in self._tasks:
             try:
-                self._watchers.on_begin(task)
                 task.execute(self._state, self._watchers)
             except Exception as e:
-                self._watchers.on_error(e)
-                raise
-            finally:
-                self._watchers.on_end(task)
+                if not self._watchers.on_error(e):
+                    raise

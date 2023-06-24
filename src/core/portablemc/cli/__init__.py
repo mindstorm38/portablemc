@@ -1,16 +1,18 @@
 """Main 
 """
 
+import itertools
+import time
 import sys
 
+from .util import format_locale_date, format_number, format_duration
 from .output import Output, OutputTable, OutputTask
 from .parse import register_arguments
-from .util import format_locale_date
 from .lang import get as _
 
+from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, DownloadError
 from ..standard import make_standard_sequence, Context, MetadataTask, JarTask, AssetsTask
 from ..manifest import VersionManifest, VersionManifestError
-from ..download import DownloadTask, EV_DOWNLOAD_START
 from ..task import Watcher, Task
 
 from typing import TYPE_CHECKING, Optional, List, Union, Dict, Callable, Any
@@ -141,6 +143,7 @@ def cmd_start(ns: "StartNs"):
         
     sequence = make_standard_sequence(version_id, context=context, version_manifest=manifest)
     sequence.add_watcher(StartWatcher(ns.out))
+    sequence.add_watcher(DownloadWatcher(ns.out))
 
     sequence.execute()
 
@@ -155,34 +158,60 @@ def new_version_manifest(ns: "RootNs") -> VersionManifest:
 class StartWatcher(Watcher):
 
     def __init__(self, out: Output) -> None:
-
         self.out = out
-
-        self.out_task: Optional[OutputTask] = None
-        self.task: Optional[Task] = None
+        self.out_task: Optional[OutputTask]
     
-    def on_begin(self, task: Task) -> None:
-
-        self.out_task = self.out.task()
-        self.task = task
-    
-    def on_event(self, name: str, **data) -> None:
-
-        assert self.out_task is not None
-
-        if isinstance(self.task, MetadataTask):
-            self.out_task.update("..", f"start.metadata.{name}", **data)
-        elif isinstance(self.task, DownloadTask):
-            pass
-    
-    def on_end(self, task: Task) -> None:
-        assert self.out_task is not None
-        self.out_task.update("OK", None)
-        self.out_task.finish()
-
-    def on_error(self, error: Exception) -> None:
+    def on_event(self, event: Any) -> None:
         pass
 
 
 class DownloadWatcher(Watcher):
-    pass
+    """A watcher for pretty printing download task.
+    """
+
+    def __init__(self, out: Output) -> None:
+
+        self.out = out
+        self.out_task: OutputTask
+
+        self.entries_count: int
+        self.total_size: int
+        self.size: int
+        self.speeds: List[float]
+    
+    def on_event(self, event: Any) -> None:
+
+        if isinstance(event, DownloadStartEvent):
+            self.entries_count = event.entries_count
+            self.total_size = event.size
+            self.size = 0
+            self.speeds = [0.0] * event.threads_count
+            self.out_task = self.out.task()
+            self.out_task.update("..", "download.start")
+
+        elif isinstance(event, DownloadProgressEvent):
+            self.speeds[event.thread_id] = event.speed
+            speed = sum(self.speeds)
+            self.size += event.size
+            self.out_task.update("..", "download.progress", 
+                speed=f"{format_number(speed)}o/s",
+                count=event.count,
+                total_count=self.entries_count,
+                size=f"{format_number(self.size)}o")
+            
+        elif isinstance(event, DownloadCompleteEvent):
+            self.out_task.update("OK", None)
+            self.out_task.finish()
+
+    def on_error(self, error: Exception) -> bool:
+
+        if isinstance(error, DownloadError):
+            self.out_task.update("FAILED", None)
+            self.out_task.finish()
+            for entry, code in error.errors:
+                task = self.out.task()
+                task.update(None, "download.error", name=entry.name, message=_(f"download.error.{code}"))
+                task.finish()
+            return True
+        
+        return False
