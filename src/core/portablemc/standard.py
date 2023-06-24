@@ -204,17 +204,39 @@ class MetadataInvalidError(Exception):
         self.expected_type = expected_type
         self.path = path
 
-
 class JarNotFoundError(Exception):
     """Raised when no version's JAR file could be found from the metadata.
     """
 
 
-EV_VERSION_RESOLVING = "version_resolving"
-EV_VERSION_RESOLVED = "version_resolved"
-EV_ASSETS_PROGRESS = "assets_progress"
-EV_LIBRARY_RESOLVING = "library_resolving"
-EV_LIBRARY_RESOLVED = "library_resolved"
+class VersionResolveEvent:
+    __slots__ = "version_id", "done"
+    def __init__(self, version_id: str, done: bool) -> None:
+        self.version_id = version_id
+        self.done = done
+
+class JarFoundEvent:
+    __slots__ = "version_id",
+    def __init__(self, version_id: str) -> None:
+        self.version_id = version_id
+
+class AssetsResolveEvent:
+    __slots__ = "index_version", "count"
+    def __init__(self, index_version: str, count: Optional[int]) -> None:
+        self.index_version = index_version
+        self.count = count
+
+class LibraryResolveEvent:
+    __slots__ = "spec", "done"
+    def __init__(self, spec: LibrarySpecifier, done: bool) -> None:
+        self.spec = spec
+        self.done = done
+
+class LoggerFoundEvent:
+    __slots__ = "version"
+    def __init__(self, version: str) -> None:
+        self.version = version
+
 
 RESOURCES_URL = "https://resources.download.minecraft.net/"
 LIBRARIES_URL = "https://libraries.minecraft.net/"
@@ -249,10 +271,10 @@ class MetadataTask(Task):
             if len(versions) > self.max_parents:
                 raise TooMuchParentError()
             
-            watcher.on_event(EV_VERSION_RESOLVING, id=version_id)
+            watcher.on_event(VersionResolveEvent(version_id, False))
             version = context.get_version(version_id)
             self.ensure_version_meta(version, manifest)
-            watcher.on_event(EV_VERSION_RESOLVED, id=version_id)
+            watcher.on_event(VersionResolveEvent(version_id, True))
 
             # Set the parent of the last version to the version being resolved.
             if len(versions):
@@ -365,10 +387,12 @@ class JarTask(Task):
                     entry = parse_download_entry(client_dl, jar_file, "metadata: /downloads/client")
                     state[DownloadList].add(entry, verify=True)
                     state.insert(VersionJar(version_meta.id, jar_file))
+                    watcher.on_event(JarFoundEvent(version_meta.id))
                     return
             # If no download entry has been found, but the JAR exists, we use it.
             if jar_file.is_file():
                 state.insert(VersionJar(version_meta.id, jar_file))
+                watcher.on_event(JarFoundEvent(version_meta.id))
                 return
         
         raise JarNotFoundError()
@@ -407,6 +431,8 @@ class AssetsTask(Task):
         
         if not isinstance(assets_index_version, str):
             raise ValueError("metadata: /assets or /assetIndex/id must be a string")
+        
+        watcher.on_event(AssetsResolveEvent(assets_index_version, None))
 
         assets_indexes_dir = context.assets_dir / "indexes"
         assets_index_file = assets_indexes_dir / f"{assets_index_version}.json"
@@ -462,6 +488,7 @@ class AssetsTask(Task):
                 dl.add(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id))
         
         state.insert(VersionAssets(assets_index_version, assets, assets_virtual, assets_resources))
+        watcher.on_event(AssetsResolveEvent(assets_index_version, len(assets)))
 
 
 class LibrariesTask(Task):
@@ -489,6 +516,8 @@ class LibrariesTask(Task):
             # Libraries are not inherently required.
             return
         
+        dl.add(DownloadEntry("http://theorozier.fr/fdifjiosdjf", context.versions_dir / "test"))
+        
         if not isinstance(libraries, list):
             raise ValueError("metadata: /libraries must be a list")
 
@@ -512,7 +541,7 @@ class LibrariesTask(Task):
                 if not interpret_rule(rules):
                     continue
 
-            watcher.on_event(EV_LIBRARY_RESOLVING, spec=spec)
+            watcher.on_event(LibraryResolveEvent(spec, False))
 
             # TODO: Predicates??
 
@@ -583,7 +612,7 @@ class LibrariesTask(Task):
                 dl_entry.name = str(spec)
                 dl.add(dl_entry, verify=True)
             
-            watcher.on_event(EV_LIBRARY_RESOLVED, spec=spec)
+            watcher.on_event(LibraryResolveEvent(spec, True))
 
         state.insert(VersionLibraries(class_libs, native_libs))
 
@@ -635,6 +664,7 @@ class LoggerTask(Task):
         dl.add(dl_entry, verify=True)
 
         state.insert(VersionLogging(file_path, argument))
+        watcher.on_event(LoggerFoundEvent(file_id))
 
 
 # TODO: class JvmTask(Task):

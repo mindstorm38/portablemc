@@ -7,16 +7,12 @@ from pathlib import Path
 from queue import Queue
 import urllib.parse
 import hashlib
+import time
 import os
 
 from .task import Task, State, Watcher
 
 from typing import Optional, Dict, List, Tuple, Union
-
-
-EV_DOWNLOAD_START = "download_start"
-EV_DOWNLOAD_PROGRESS = "download_progress"
-EV_DOWNLOAD_COMPLETE = "download_complete"
 
 
 class DownloadTask(Task):
@@ -37,6 +33,9 @@ class DownloadTask(Task):
     def execute(self, state: State, watcher: Watcher) -> None:
 
         dl = state[DownloadList]
+        entries_count = len(dl.entries)
+        if entries_count == 0:
+            return
 
         threads_count = (os.cpu_count() or 1) * 4
         threads: List[Thread] = []
@@ -45,39 +44,44 @@ class DownloadTask(Task):
         result_queue = Queue()
 
         for th_id in range(threads_count):
-            th = Thread(target=download_thread, 
+            th = Thread(target=_download_thread, 
                         args=(th_id, entries_queue, result_queue), 
                         daemon=True, 
                         name=f"Download Thread {th_id}")
             th.start()
             threads.append(th)
         
-        entries_count = len(dl.entries)
         result_count = 0
-
-        watcher.on_event(EV_DOWNLOAD_START, threads_count=threads_count)
+        watcher.on_event(DownloadStartEvent(threads_count, entries_count, dl.size))
 
         for entry in dl.entries:
             entries_queue.put(entry)
         
+        errors = []
+        
         while result_count < entries_count:
             result = result_queue.get()
+            result_count += 1
             if isinstance(result, _DownloadProgress):
-                if result.complete:
-                    result_count += 1
-                watcher.on_event(EV_DOWNLOAD_PROGRESS, 
-                    thread_id=result.thread_id,
-                    entry=result.entry,
-                    size=result.size,
-                    count=result_count)
-            else:
-                result_count += 1
+                watcher.on_event(DownloadProgressEvent(
+                    result.thread_id,
+                    result_count,
+                    result.entry,
+                    result.size,
+                    result.speed
+                ))
+            elif isinstance(result, _DownloadError):
+                errors.append((result.entry, result.code))
 
         # Send 'threads_count' sentinels.
         for th_id in range(threads_count):
             entries_queue.put(None)
         
-        watcher.on_event(EV_DOWNLOAD_COMPLETE)
+        # If errors are present, 
+        if len(errors):
+            raise DownloadError(errors)
+        
+        watcher.on_event(DownloadCompleteEvent())
 
         # We intentionally don't join thread because it takes some time for unknown 
         # reason. And we don't care of these threads because these are daemon ones.
@@ -169,39 +173,28 @@ class DownloadList:
 
 
 class _DownloadResult:
-
     __slots__ = "thread_id", "entry"
-
     def __init__(self, thread_id: int, entry: DownloadEntry) -> None:
         self.thread_id = thread_id
         self.entry = entry
 
 
 class _DownloadProgress(_DownloadResult):
-    
-    __slots__ = "size", "complete"
-
-    def __init__(self, thread_id: int, entry: DownloadEntry, size: int, complete: bool) -> None:
+    __slots__ = "size", "speed"
+    def __init__(self, thread_id: int, entry: DownloadEntry, size: int, speed: float) -> None:
         super().__init__(thread_id, entry)
         self.size = size
-        self.complete = complete
+        self.speed = speed
 
 
 class _DownloadError(_DownloadResult):
-
-    ERROR_CONN = "conn"
-    ERROR_NOT_FOUND = "not_found"
-    ERROR_INVALID_SIZE = "invalid_size"
-    ERROR_INVALID_SHA1 = "invalid_sha1"
-
-    __slots__ = "error",
-
-    def __init__(self, thread_id: int, entry: DownloadEntry, error: str) -> None:
+    __slots__ = "code",
+    def __init__(self, thread_id: int, entry: DownloadEntry, code: str) -> None:
         super().__init__(thread_id, entry)
-        self.error = error
+        self.code = code
 
 
-def download_thread(
+def _download_thread(
     thread_id: int, 
     entries_queue: Queue,
     result_queue: Queue,
@@ -221,6 +214,12 @@ def download_thread(
     
     # Maximum tries count or a single entry.
     max_try_count = 3
+
+    # For speed calculation.
+    # total_time = 0
+    # total_size = 0
+    speed_smoothing = 0.005
+    speed = 0
 
     while True:
 
@@ -252,12 +251,15 @@ def download_thread(
                 # Retrying implies that we have set an error.
                 assert last_error is not None
                 result_queue.put(_DownloadError(thread_id, entry, last_error))
+                break
+            
+            start_time = time.monotonic()
             
             try:
                 conn.request("GET", entry.url)
                 res = conn.getresponse()
             except (ConnectionError, OSError, HTTPException):
-                last_error = _DownloadError.ERROR_CONN
+                last_error = DownloadError.CONNECTION
                 continue
 
             if res.status == 301 or res.status == 302:
@@ -280,7 +282,7 @@ def download_thread(
                 while res.readinto(buffer):
                     pass
 
-                last_error = _DownloadError.ERROR_NOT_FOUND
+                last_error = DownloadError.NOT_FOUND
                 continue
 
             sha1 = None if entry.sha1 is None else hashlib.sha1()
@@ -301,25 +303,27 @@ def download_thread(
                     if sha1 is not None:
                         sha1.update(buffer_view)
                     dst_fp.write(buffer_view)
+            
+            # total_time += time.monotonic() - start_time
+            # total_size += size
 
-                    result_queue.put(_DownloadProgress(
-                        thread_id,
-                        entry,
-                        size,
-                        False
-                    ))
+            # Update speed calculation.
+            elapsed_time = time.monotonic() - start_time
+            if elapsed_time > 0:
+                current_speed = size / (time.monotonic() - start_time)
+                speed = speed_smoothing * current_speed + (1 - speed_smoothing) * speed
 
             if entry.size is not None and size != entry.size:
-                last_error = _DownloadError.ERROR_INVALID_SIZE
+                last_error = DownloadError.INVALID_SIZE
             elif sha1 is not None and sha1.hexdigest() != entry.sha1:
-                last_error = _DownloadError.ERROR_INVALID_SHA1
+                last_error = DownloadError.INVALID_SHA1
             else:
                 
                 result_queue.put(_DownloadProgress(
                     thread_id,
                     entry,
                     size,
-                    True
+                    speed
                 ))
 
                 # Breaking means success.
@@ -328,3 +332,37 @@ def download_thread(
             # We are here only when the file download has started but checks have failed,
             # then we should remove the file.
             entry.dst.unlink(missing_ok=True)
+
+
+class DownloadStartEvent:
+    __slots__ = "threads_count", "entries_count", "size"
+    def __init__(self, threads_count: int, entries_count: int, size: int) -> None:
+        self.threads_count = threads_count
+        self.entries_count = entries_count
+        self.size = size
+
+class DownloadProgressEvent:
+    __slots__ = "thread_id", "count", "entry", "size", "speed"
+    def __init__(self, thread_id: int, count: int, entry: DownloadEntry, size: int, speed: float) -> None:
+        self.thread_id = thread_id
+        self.count = count
+        self.entry = entry
+        self.size = size
+        self.speed = speed
+
+class DownloadCompleteEvent:
+    __slots__ = tuple()
+
+
+class DownloadError(Exception):
+    """Raised when the downloader failed to download some entries.
+    """
+
+    CONNECTION = "connection"
+    NOT_FOUND = "not_found"
+    INVALID_SIZE = "invalid_size"
+    INVALID_SHA1 = "invalid_sha1"
+
+    def __init__(self, errors: List[Tuple[DownloadEntry, str]]) -> None:
+        super().__init__()
+        self.errors = errors
