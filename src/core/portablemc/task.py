@@ -74,13 +74,9 @@ class Watcher:
         """Called when the current task triggers an event.
         """
     
-    def on_error(self, error: Exception) -> bool:
+    def on_error(self, error: Exception) -> None:
         """Called when an error is raised by the execute function of the current task.
-        
-        :return: True if the error was handled by the watcher, this will avoid forwarding
-        the error outside the execute function.
         """
-        return False
 
 
 class WatcherGroup(Watcher):
@@ -104,12 +100,10 @@ class WatcherGroup(Watcher):
     def on_event(self, event: Any) -> None:
         for watcher in self._children:
             watcher.on_event(event)
-    
-    def on_error(self, error: Exception) -> bool:
-        handled = False
+        
+    def on_error(self, error: Exception) -> None:
         for watcher in self._children:
-            handled = handled or watcher.on_error(error)
-        return handled
+            watcher.on_error(error)
 
 
 class Sequence:
@@ -187,12 +181,10 @@ class Sequence:
 
     def execute(self) -> None:
         """Sequentially execute the tasks of this sequence.
-
-        :return: True if the execution is successful.
         """
         for task in self._tasks:
             try:
                 task.execute(self._state, self._watchers)
             except Exception as e:
-                if not self._watchers.on_error(e):
-                    raise
+                self._watchers.on_error(e)
+                raise

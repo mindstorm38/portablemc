@@ -3,8 +3,12 @@ compatibility is not guaranteed unless explicitly specified.
 """
 
 from datetime import datetime
+import platform
 
 from typing import Optional
+
+
+jvm_bin_filename = "javaw.exe" if platform.system() == "Windows" else "java"
 
 
 def merge_dict(dst: dict, other: dict) -> None:
@@ -63,14 +67,6 @@ def from_iso_date(raw: str) -> datetime:
         tz_dt = datetime.strptime(raw[tz_idx + 1:], "%H:%M")
         dt = dt.replace(tzinfo=timezone(timedelta(hours=tz_dt.hour, minutes=tz_dt.minute)))
     return dt
-
-
-def get_jvm_bin_filename() -> str:
-    """Return the JVM binary filename for the current platform, 
-    'javaw' on windows and 'java' on others. 
-    """
-    import platform
-    return "javaw.exe" if platform.system() == "Windows" else "java"
 
 
 class LibrarySpecifier:
