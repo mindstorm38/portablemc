@@ -91,20 +91,22 @@ class DownloadEntry:
     """A download entry for the download task.
     """
     
-    __slots__ = "url", "size", "sha1", "dst", "name"
+    __slots__ = "url", "size", "sha1", "dst", "name", "executable"
 
     def __init__(self, 
         url: str, 
         dst: Path, *, 
         size: Optional[int] = None, 
         sha1: Optional[str] = None, 
-        name: Optional[str] = None
+        name: Optional[str] = None,
+        executable: bool = False
     ) -> None:
         self.url = url
         self.dst = dst
         self.size = size
         self.sha1 = sha1
         self.name = url if name is None else name
+        self.executable = executable
 
     def __repr__(self) -> str:
         return f"<DownloadEntry {self.name}>"
@@ -303,6 +305,12 @@ def _download_thread(
                     if sha1 is not None:
                         sha1.update(buffer_view)
                     dst_fp.write(buffer_view)
+            
+            # If the entry should be executable, only those that can read would be
+            # able to execute it.
+            if entry.executable:
+                prev_mode = entry.dst.stat().st_mode
+                entry.dst.chmod(prev_mode | ((prev_mode & 0o444) >> 2))
             
             # total_time += time.monotonic() - start_time
             # total_size += size

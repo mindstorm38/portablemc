@@ -6,6 +6,7 @@ from . import lang
 import shutil
 import time
 import json
+import sys
 
 from typing import List, Tuple, Union, Optional
 
@@ -48,15 +49,6 @@ class OutputTable:
         raise NotImplementedError
 
 
-class OutputTask:
-    
-    def update(self, state: Optional[str], key: Optional[str], **kwargs) -> None:
-        raise NotImplementedError
-
-    def finish(self) -> None:
-        raise NotImplementedError
-
-
 class Output:
     """This class is used to abstract the output of the CLI. This particular class is
     abstract and the implementation differs depending on the desired output format.
@@ -68,7 +60,14 @@ class Output:
         """
         raise NotImplementedError
     
-    def task(self) -> OutputTask:
+    def task(self, state: Optional[str], key: Optional[str], **kwargs) -> None:
+        """Update the current task (or create it if not the case).
+        """
+        raise NotImplementedError
+    
+    def finish(self) -> None:
+        """Finish any active task.
+        """
         raise NotImplementedError
 
 
@@ -78,12 +77,7 @@ class HumanOutput(Output):
         super().__init__()
         self.term_width = 0
         self.term_width_update_time = 0
-
-    def table(self) -> OutputTable:
-        return HumanTable(self)
-    
-    def task(self) -> OutputTask:
-        return HumanTask(self)
+        self.last_len = None
 
     def get_term_width(self) -> int:
         """Internal method used to get terminal width with a cache interval of 1 second.
@@ -93,6 +87,42 @@ class HumanOutput(Output):
             self.term_width_update_time = now
             self.term_width = shutil.get_terminal_size().columns
         return self.term_width
+
+    def table(self) -> OutputTable:
+        return HumanTable(self)
+    
+    def task(self, state: Optional[str], key: Optional[str], **kwargs) -> None:
+
+        # Don't display updates on small terminals (9 for the state, 11 for msg).
+        term_width = self.get_term_width()
+        if term_width < 20:
+            return
+
+        state_msg = "\r         " if state is None else "\r[{:^6s}] ".format(state)
+        print(state_msg, end="")
+
+        if key is None:
+            return
+
+        msg = lang.get_raw(key, kwargs)
+        if len(msg) + 9 > term_width:
+            msg = f"{msg[:term_width - 9 - 3]}..."
+        
+        msg_len = len(msg)
+
+        print(msg, end="")
+
+        if self.last_len is not None and self.last_len > msg_len:
+            missing_len = self.last_len - msg_len
+            print(" " * missing_len, end="")
+        
+        sys.stdout.flush()
+
+        self.last_len = msg_len
+
+    def finish(self) -> None:
+        if self.last_len is not None:
+            print()
 
 class HumanTable(OutputTable):
     
@@ -148,62 +178,19 @@ class HumanTable(OutputTable):
         
         print("└─{}─┘".format("─┴─".join(columns_lines)))
 
-class HumanTask(OutputTask):
-
-    def __init__(self, out: HumanOutput) -> None:
-        super().__init__()
-        self.out = out
-        self.last_len = None
-
-    def update(self, state: Optional[str], key: Optional[str], **kwargs) -> None:
-
-        # Don't display updates on small terminals (9 for the state, 11 for msg).
-        term_width = self.out.get_term_width()
-        if term_width < 20:
-            return
-
-        state_msg = "\r         " if state is None else "\r[{:^6s}] ".format(state)
-        print(state_msg, end="")
-
-        if key is None:
-            return
-
-        msg = lang.get_raw(key, kwargs)
-        if len(msg) + 9 > term_width:
-            msg = f"{msg[:term_width - 9 - 3]}..."
-        
-        msg_len = len(msg)
-
-        print(msg, end="")
-
-        if self.last_len is not None and self.last_len > msg_len:
-            missing_len = self.last_len - msg_len
-            print(" " * missing_len, end="")
-
-        self.last_len = msg_len
-
-    def finish(self) -> None:
-        if self.last_len is not None:
-            print()
-
 
 class JsonOutput(Output):
     
     def table(self) -> OutputTable:
         return JsonTable()
 
-    def task(self) -> OutputTask:
-        return JsonTask()
-
-class JsonTable(OutputTable):
-
-    def print(self) -> None:
-        print(json.dumps(self.rows, indent=2))
-
-class JsonTask(OutputTask):
-
     def update(self, state: Optional[str], key: Optional[str], **kwargs) -> None:
         print(json.dumps({"state": state, "key": key, "args": kwargs}))
 
     def finish(self) -> None:
         pass
+
+class JsonTable(OutputTable):
+
+    def print(self) -> None:
+        print(json.dumps(self.rows, indent=2))

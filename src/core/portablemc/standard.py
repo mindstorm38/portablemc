@@ -9,13 +9,11 @@ import platform
 import json
 import re
 
-from portablemc.task import State, Watcher
-
 from .task import Sequence, Task, State, Watcher
 from .download import DownloadList, DownloadEntry, DownloadTask
 from .manifest import VersionManifest
 from .http import http_request, json_simple_request
-from .util import LibrarySpecifier, calc_input_sha1, merge_dict
+from .util import LibrarySpecifier, calc_input_sha1, merge_dict, jvm_bin_filename
 
 from typing import Optional, List, Iterator, Any, Dict
 
@@ -72,14 +70,12 @@ class VersionId:
     def __init__(self, id: str) -> None:
         self.id = id
 
-
 class FullMetadata:
     """Fully computed metadata, all the layers are merged together.
     """
 
     def __init__(self, data: dict) -> None:
         self.data = data
-
 
 class Version:
     """This class holds version's metadata, as resolved by `MetadataTask`.
@@ -143,7 +139,6 @@ class Version:
             merge_dict(result, version_meta.metadata)
         return FullMetadata(result)
 
-
 class VersionJar:
     """This state object contains the version JAR to use for launching the game.
     """
@@ -151,7 +146,6 @@ class VersionJar:
     def __init__(self, version_id: str, path: Path) -> None:
         self.version_id = version_id
         self.path = path
-
 
 class VersionAssets:
     """Represent the loaded assets for the current version. This contains the index 
@@ -165,7 +159,6 @@ class VersionAssets:
         self.virtual = virtual
         self.resources = resources
 
-
 class VersionLibraries:
     """Represent the loaded libraries for the current version. This contains both 
     classpath libraries that should be added to the classpath, and the native libraries
@@ -177,7 +170,6 @@ class VersionLibraries:
         self.class_libs = class_libs
         self.native_libs = native_libs
 
-
 class VersionLogging:
     """Represent the loaded logging configuration for the current version. It contain
     the logging file's path and the argument to add to the command line, this argument
@@ -187,6 +179,17 @@ class VersionLogging:
     def __init__(self, file: Path, arg: str) -> None:
         self.file = file
         self.arg = arg
+
+class VersionJvm:
+    """Indicates JVM to use for running the game. This state is automatically generated
+    by the 'JvmTask' when used and successful. It specifies the executable file's path
+    and the JVM version selected. The JVM version is optional because it may not be
+    known at this time.
+    """
+
+    def __init__(self, executable_file: Path, version: Optional[str]) -> None:
+        self.executable_file = executable_file
+        self.version = version
 
 
 class TooMuchParentError(Exception):
@@ -208,6 +211,14 @@ class JarNotFoundError(Exception):
     """Raised when no version's JAR file could be found from the metadata.
     """
 
+class JvmNotFoundError(Exception):
+    """Raised when the 
+    """
+
+    UNSUPPORTED_LIBC = "unsupported_libc"
+    UNSUPPORTED_ARCH = "unsupported_arch"
+    UNSUPPORTED_VERSION = "unsupported_version"
+
 
 class VersionResolveEvent:
     __slots__ = "version_id", "done"
@@ -227,15 +238,20 @@ class AssetsResolveEvent:
         self.count = count
 
 class LibraryResolveEvent:
-    __slots__ = "spec", "done"
-    def __init__(self, spec: LibrarySpecifier, done: bool) -> None:
-        self.spec = spec
-        self.done = done
+    __slots__ = "count",
+    def __init__(self, count: Optional[int]) -> None:
+        self.count = count
 
 class LoggerFoundEvent:
     __slots__ = "version"
     def __init__(self, version: str) -> None:
         self.version = version
+
+class JvmResolveEvent:
+    __slots__ = "version", "count"
+    def __init__(self, version: Optional[str], count: Optional[int]) -> None:
+        self.version = version
+        self.count = count
 
 
 RESOURCES_URL = "https://resources.download.minecraft.net/"
@@ -515,8 +531,8 @@ class LibrariesTask(Task):
         if libraries is None:
             # Libraries are not inherently required.
             return
-        
-        dl.add(DownloadEntry("http://theorozier.fr/fdifjiosdjf", context.versions_dir / "test"))
+            
+        watcher.on_event(LibraryResolveEvent(None))
         
         if not isinstance(libraries, list):
             raise ValueError("metadata: /libraries must be a list")
@@ -541,8 +557,6 @@ class LibrariesTask(Task):
                 if not interpret_rule(rules):
                     continue
 
-            watcher.on_event(LibraryResolveEvent(spec, False))
-
             # TODO: Predicates??
 
             # Old metadata files provides a 'natives' mapping from OS to the classifier
@@ -556,13 +570,12 @@ class LibrariesTask(Task):
                 
                 # If natives object is present, the classifier associated to the
                 # OS overrides the lib_spec classifier.
-                spec.classifier = natives.get(get_minecraft_os())
+                spec.classifier = natives.get(minecraft_os)
                 if spec.classifier is None:
                     continue
 
-                archbits = get_minecraft_archbits()
-                if archbits is not None:
-                    spec.classifier = spec.classifier.replace("${arch}", archbits)
+                if minecraft_arch_bits is not None:
+                    spec.classifier = spec.classifier.replace("${arch}", minecraft_arch_bits)
                 
                 libs = native_libs
 
@@ -611,10 +624,9 @@ class LibrariesTask(Task):
             if dl_entry is not None:
                 dl_entry.name = str(spec)
                 dl.add(dl_entry, verify=True)
-            
-            watcher.on_event(LibraryResolveEvent(spec, True))
 
         state.insert(VersionLibraries(class_libs, native_libs))
+        watcher.on_event(LibraryResolveEvent(len(class_libs) + len(native_libs)))
 
 
 class LoggerTask(Task):
@@ -664,10 +676,93 @@ class LoggerTask(Task):
         dl.add(dl_entry, verify=True)
 
         state.insert(VersionLogging(file_path, argument))
-        watcher.on_event(LoggerFoundEvent(file_id))
+        watcher.on_event(LoggerFoundEvent(file_id.replace(".xml", "")))
 
 
-# TODO: class JvmTask(Task):
+class JvmTask(Task):
+    """JVM resolving task, may not succeed on all platforms.
+
+    This task resolves which official Mojang JVM should be used.
+
+    :in Context: The installation context.
+    :in FullMetadata: The full version metadata.
+    :in DownloadList: Used to add the JAR file to download if relevant.
+    :out VersionJvm: If JVM is found.
+    """
+
+    def execute(self, state: State, watcher: Watcher) -> None:
+
+        context = state[Context]
+        metadata = state[FullMetadata].data
+        dl = state[DownloadList]
+
+        if platform.system() == "Linux" and platform.libc_ver()[0] != "glibc":
+            raise JvmNotFoundError(JvmNotFoundError.UNSUPPORTED_LIBC)
+        
+        jvm_version_type = metadata.get("javaVersion", {}).get("component", "jre-legacy")
+        if not isinstance(jvm_version_type, str):
+            raise ValueError("metadata: /javaVersion/component must be a string")
+
+        jvm_dir = context.jvm_dir / jvm_version_type
+        jvm_manifest_file = jvm_dir / f"{jvm_version_type}.json"
+
+        try:
+            with jvm_manifest_file.open("rt") as jvm_manifest_fp:
+                jvm_manifest = json.load(jvm_manifest_fp)
+        except (OSError, JSONDecodeError):
+
+            all_jvm_meta = json_simple_request(JVM_META_URL)
+            if not isinstance(all_jvm_meta, dict):
+                raise ValueError("jvm metadata: / must be an object")
+            
+            jvm_arch_meta = all_jvm_meta.get(minecraft_jvm_os)
+            if not isinstance(jvm_arch_meta, dict):
+                raise JvmNotFoundError(JvmNotFoundError.UNSUPPORTED_ARCH)
+
+            jvm_meta = jvm_arch_meta.get(jvm_version_type)
+            if not isinstance(jvm_meta, list) or not len(jvm_meta):
+                raise JvmNotFoundError(JvmNotFoundError.UNSUPPORTED_VERSION)
+
+            jvm_meta_manifest = jvm_meta[0].get("manifest")
+            if not isinstance(jvm_meta_manifest, dict):
+                raise ValueError(f"jvm metadata: /{minecraft_jvm_os}/{jvm_version_type}/0/manifest must be an object")
+            
+            jvm_meta_manifest_url = jvm_meta_manifest.get("url")
+            if not isinstance(jvm_meta_manifest_url, str):
+                raise ValueError(f"jvm metadata: /{minecraft_jvm_os}/{jvm_version_type}/0/manifest/url must be a string")
+
+            jvm_manifest = json_simple_request(jvm_meta_manifest_url)
+
+            if not isinstance(jvm_manifest, dict):
+                raise ValueError("jvm manifest: / must be an object")
+
+            jvm_manifest["version"] = jvm_meta[0].get("version", {}).get("name")
+
+            jvm_manifest_file.parent.mkdir(parents=True, exist_ok=True)
+            with jvm_manifest_file.open("wt") as jvm_manifest_fp:
+                json.dump(jvm_manifest, jvm_manifest_fp)
+        
+        jvm_exec = jvm_dir.joinpath("bin", jvm_bin_filename)
+        jvm_version = jvm_manifest.get("version")
+
+        watcher.on_event(JvmResolveEvent(jvm_version, None))
+
+        jvm_files = jvm_manifest.get("files")
+        if not isinstance(jvm_files, dict):
+            raise ValueError("jvm manifest: /files must be an object")
+
+        for jvm_file_path_prefix, jvm_file in jvm_files.items():
+            if jvm_file.get("type") == "file":
+
+                jvm_file_path = jvm_dir / jvm_file_path_prefix
+                jvm_download_raw = jvm_file.get("downloads", {}).get("raw")
+                jvm_download_entry = parse_download_entry(jvm_download_raw, jvm_file_path, f"jvm manifest: /files/{jvm_file_path_prefix}/downloads/raw")
+                jvm_download_entry.executable = jvm_file.get("executable", False)
+
+                dl.add(jvm_download_entry, verify=True)
+        
+        state.insert(VersionJvm(jvm_exec, jvm_version))
+        watcher.on_event(JvmResolveEvent(jvm_version, len(jvm_files)))
 
 
 class RunTask(Task):
@@ -731,79 +826,52 @@ def interpret_rule(rules: list, features: dict = {}) -> bool:
 
 def interpret_rule_os(rule_os: dict) -> bool:
     os_name = rule_os.get("name")
-    if os_name is None or os_name == get_minecraft_os():
+    if os_name is None or os_name == minecraft_os:
         os_arch = rule_os.get("arch")
-        if os_arch is None or os_arch == get_minecraft_arch():
+        if os_arch is None or os_arch == minecraft_arch:
             os_version = rule_os.get("version")
             if os_version is None or re.search(os_version, platform.version()) is not None:
                 return True
     return False
 
 
-_minecraft_os: Optional[str] = None
-def get_minecraft_os() -> Optional[str]:
-    """Return the current OS identifier used in rules matching, 'linux', 'windows', 'osx',
-    and 'freebsd'.
-    """
-    global _minecraft_os
-    if _minecraft_os is None:
-        _minecraft_os = {
-            "Linux": "linux", 
-            "Windows": "windows", 
-            "Darwin": "osx",
-            "FreeBSD": "freebsd"
-        }.get(platform.system(), "")
-    return _minecraft_os
+# Name of the OS has used by Minecraft.
+minecraft_os = {
+    "Linux": "linux", 
+    "Windows": "windows", 
+    "Darwin": "osx",
+    "FreeBSD": "freebsd"
+}.get(platform.system())
 
+# Name of the processor's architecture has used by Minecraft.
+minecraft_arch = {
+    "i386": "x86",
+    "i686": "x86",
+    "x86_64": "x86_64",
+    "amd64": "x86_64",
+    "arm64": "arm64",
+    "aarch64": "arm64",
+    "armv7l": "arm32",
+    "armv6l": "arm32",
+}.get(platform.machine().lower())
 
-_minecraft_arch: Optional[str] = None
-def get_minecraft_arch() -> Optional[str]:
-    """Return the architecture to use in rules matching, 'x86', 'x86_64', 'arm64' or 
-    'arm32' if not found.
-    """
-    global _minecraft_arch
-    if _minecraft_arch is None:
-        _minecraft_arch = {
-            "i386": "x86",
-            "i686": "x86",
-            "x86_64": "x86_64",
-            "amd64": "x86_64",
-            "arm64": "arm64",
-            "aarch64": "arm64",
-            "armv7l": "arm32",
-            "armv6l": "arm32",
-        }.get(platform.machine().lower(), "")
-    return _minecraft_arch
+# Stores the bits length of pointers on the current system.
+minecraft_arch_bits = {
+    "64bit": "64",
+    "32bit": "32"
+}.get(platform.architecture()[0])
 
-
-_minecraft_archbits: Optional[str] = None
-def get_minecraft_archbits() -> Optional[str]:
-    """Return the address size of the architecture used for rules matching, '64', '32', 
-    or '' if not found.
-    """
-    global _minecraft_archbits
-    if _minecraft_archbits is None:
-        raw_bits = platform.architecture()[0]
-        _minecraft_archbits = "64" if raw_bits == "64bit" else "32" if raw_bits == "32bit" else ""
-    return _minecraft_archbits
-
-
-# _minecraft_jvm_os: Optional[str] = None
-# def get_minecraft_jvm_os() -> Optional[str]:
-#     """Return the OS identifier used to choose the right JVM to download.
-#     """
-#     global _minecraft_jvm_os
-#     if _minecraft_jvm_os is None:
-#         _minecraft_jvm_os = {
-#             "osx": {"x86_64": "mac-os", "arm64": "mac-os-arm64"},
-#             "linux": {"x86": "linux-i386", "x86_64": "linux"},
-#             "windows": {"x86": "windows-x86", "x86_64": "windows-x64"}
-#         }.get(get_minecraft_os(), {}).get(get_minecraft_arch())
-#     return _minecraft_jvm_os
+# Name of the OS has used by Mojang for officially distributed JVMs.
+minecraft_jvm_os = None if minecraft_arch is None else {
+    "Darwin": {"x86_64": "mac-os", "arm64": "mac-os-arm64"},
+    "Linux": {"x86": "linux-i386", "x86_64": "linux"},
+    "Windows": {"x86": "windows-x86", "x86_64": "windows-x64"}
+}.get(platform.system(), {}).get(minecraft_arch)
 
 
 def make_standard_sequence(version_id: str, *, 
-    context: Optional[Context] = None, 
+    context: Optional[Context] = None,
+    jvm: bool = False,
     version_manifest: Optional[VersionManifest] = None) -> Sequence:
     """Make standard installer for installing standard Minecraft versions.
 
@@ -820,5 +888,7 @@ def make_standard_sequence(version_id: str, *,
     seq.append_task(AssetsTask())
     seq.append_task(LibrariesTask())
     seq.append_task(LoggerTask())
+    if jvm:
+        seq.append_task(JvmTask())
     seq.append_task(DownloadTask())
     return seq

@@ -1,8 +1,8 @@
 """CLI languages management.
 """
 
-from ..util import get_jvm_bin_filename
 from ..download import DownloadError
+from ..util import jvm_bin_filename
 
 from typing import Optional
 
@@ -59,7 +59,7 @@ lang = {
     "args.start.disable_chat": "Disable the online chat (>= 1.16).",
     "args.start.demo": "Start game in demo mode.",
     "args.start.resolution": "Set a custom start resolution (<width>x<height>, >= 1.6).",
-    "args.start.jvm": f"Set a custom JVM '{get_jvm_bin_filename()}' executable path. If this argument is omitted a public build "
+    "args.start.jvm": f"Set a custom JVM '{jvm_bin_filename}' executable path. If this argument is omitted a public build "
         "of a JVM is downloaded from Mojang services.",
     "args.start.jvm_args": "Change the default JVM arguments.",
     "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
@@ -135,32 +135,25 @@ lang = {
     "addon.show.authors": "Authors: {authors}",
     "addon.show.description": "Description: {description}",
     # Command start
-    "start.metadata.begin": "Resolving metadata...",
-    "start.metadata.version_resolving": "Resolving version {id}...",
-    "start.metadata.version_resolved": "Resolved version {id}.",
-
-
     "start.version.resolving": "Resolving version {version}... ",
     "start.version.resolved": "Resolved version {version}.",
-    "start.version.fixed.lwjgl": "Fixed LWJGL version to {version}",
-    "start.version.jar.loading": "Loading version JAR... ",
-    "start.version.jar.loaded": "Loaded version JAR.",
-    # f"start.version.error.{VersionError.NOT_FOUND}": "Version {version} not found.",
-    # f"start.version.error.{VersionError.TO_MUCH_PARENTS}": "The version {version} has to much parents.",
-    # f"start.version.error.{VersionError.JAR_NOT_FOUND}": "Version {version} JAR not found.",
-    # f"start.version.error.{VersionError.INVALID_ID}": "Version id {version} is invalid for the file system.",
-    "start.assets.checking": "Checking assets... ",
-    "start.assets.checked": "Checked {count} assets.",
-    "start.logger.loading": "Loading logger... ",
-    "start.logger.loaded": "Loaded logger.",
-    "start.logger.loaded_pretty": "Loaded pretty logger.",
-    "start.libraries.loading": "Loading libraries... ",
-    "start.libraries.loaded": "Loaded {count} libraries.",
-    "start.libraries.exclude.unused": "Library exclusion '{pattern}' didn't match a libary.",
-    "start.libraries.exclude.usage": "Library exclusion '{pattern}' matched {count} libraries.",
-    "start.jvm.loading": "Loading Java... ",
-    "start.jvm.system_fallback": "Loaded system Java at {path}.",
-    "start.jvm.loaded": "Loaded Mojang Java {version}.",
+    "start.version.fixed.lwjgl": "Fixed LWJGL version to {version}",  # TODO:
+    "start.jar.found": "Using version {version} executable.",
+    "start.assets.resolving": "Checking assets v{index_version}... ",
+    "start.assets.resolved": "Checked {count} assets v{index_version}.",
+    "start.libraries.resolving": "Checking libraries...",
+    "start.libraries.resolved": "Checked {count} libraries.",
+    "start.logger.found": "Using logger {version}.",
+    "start.jvm.resolving": "Checking java {version}...",
+    "start.jvm.resolved": "Checked {count} files for java {version}.",
+    "start.jvm.unknown_version": "unknown",
+    # "start.libraries.loading": "Loading libraries... ",
+    # "start.libraries.loaded": "Loaded {count} libraries.",
+    # "start.libraries.exclude.unused": "Library exclusion '{pattern}' didn't match a libary.",
+    # "start.libraries.exclude.usage": "Library exclusion '{pattern}' matched {count} libraries.",
+    # "start.jvm.loading": "Loading Java... ",
+    # "start.jvm.system_fallback": "Loaded system Java at {path}.",
+    # "start.jvm.loaded": "Loaded Mojang Java {version}.",
     # f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
     #     "use --jvm argument to manually set the path to your JVM executable.",
     # f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, "

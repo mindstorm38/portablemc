@@ -5,15 +5,17 @@ import itertools
 import time
 import sys
 
-from .util import format_locale_date, format_number, format_duration
-from .output import Output, OutputTable, OutputTask
+from .util import format_locale_date, format_number
+from .output import Output, OutputTable
 from .parse import register_arguments
 from .lang import get as _
 
+from ..standard import make_standard_sequence, Context, VersionResolveEvent, \
+    JarFoundEvent, AssetsResolveEvent, LibraryResolveEvent, LoggerFoundEvent, \
+    JvmResolveEvent
 from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, DownloadError
-from ..standard import make_standard_sequence, Context, MetadataTask, JarTask, AssetsTask
 from ..manifest import VersionManifest, VersionManifestError
-from ..task import Watcher, Task
+from ..task import Watcher
 
 from typing import TYPE_CHECKING, Optional, List, Union, Dict, Callable, Any
 
@@ -141,7 +143,7 @@ def cmd_start(ns: "StartNs"):
 
     version_id, alias = manifest.filter_latest(ns.version)
         
-    sequence = make_standard_sequence(version_id, context=context, version_manifest=manifest)
+    sequence = make_standard_sequence(version_id, context=context, jvm=True, version_manifest=manifest)
     sequence.add_watcher(StartWatcher(ns.out))
     sequence.add_watcher(DownloadWatcher(ns.out))
 
@@ -159,10 +161,44 @@ class StartWatcher(Watcher):
 
     def __init__(self, out: Output) -> None:
         self.out = out
-        self.out_task: Optional[OutputTask]
     
     def on_event(self, event: Any) -> None:
-        pass
+        
+        if isinstance(event, VersionResolveEvent):
+            if event.done:
+                self.out.task("OK", "start.version.resolved", version=event.version_id)
+                self.out.finish()
+            else:
+                self.out.task("..", "start.version.resolving", version=event.version_id)
+        
+        elif isinstance(event, JarFoundEvent):
+            self.out.task("OK", "start.jar.found", version=event.version_id)
+            self.out.finish()
+        
+        elif isinstance(event, AssetsResolveEvent):
+            if event.count is None:
+                self.out.task("..", "start.assets.resolving", index_version=event.index_version)
+            else:
+                self.out.task("OK", "start.assets.resolved", index_version=event.index_version, count=event.count)
+                self.out.finish()
+        
+        elif isinstance(event, LibraryResolveEvent):
+            if event.count is None:
+                self.out.task("..", "start.libraries.resolving")
+            else:
+                self.out.task("OK", "start.libraries.resolved", count=event.count)
+                self.out.finish()
+
+        elif isinstance(event, LoggerFoundEvent):
+            self.out.task("OK", "start.logger.found", version=event.version)
+        
+        elif isinstance(event, JvmResolveEvent):
+            if event.count is None:
+                self.out.task("..", "start.jvm.resolving", version=event.version or _("start.jvm.unknown_version"))
+            else:
+                self.out.task("OK", "start.jvm.resolved", version=event.version or _("start.jvm.unknown_version"), count=event.count)
+                self.out.finish()
+
 
 
 class DownloadWatcher(Watcher):
@@ -172,7 +208,6 @@ class DownloadWatcher(Watcher):
     def __init__(self, out: Output) -> None:
 
         self.out = out
-        self.out_task: OutputTask
 
         self.entries_count: int
         self.total_size: int
@@ -186,32 +221,30 @@ class DownloadWatcher(Watcher):
             self.total_size = event.size
             self.size = 0
             self.speeds = [0.0] * event.threads_count
-            self.out_task = self.out.task()
-            self.out_task.update("..", "download.start")
+            self.out.task("..", "download.start")
 
         elif isinstance(event, DownloadProgressEvent):
             self.speeds[event.thread_id] = event.speed
             speed = sum(self.speeds)
             self.size += event.size
-            self.out_task.update("..", "download.progress", 
+            self.out.task("..", "download.progress", 
                 speed=f"{format_number(speed)}o/s",
                 count=event.count,
                 total_count=self.entries_count,
                 size=f"{format_number(self.size)}o")
             
         elif isinstance(event, DownloadCompleteEvent):
-            self.out_task.update("OK", None)
-            self.out_task.finish()
+            self.out.task("OK", None)
+            self.out.finish()
 
-    def on_error(self, error: Exception) -> bool:
+    # def on_error(self, error: Exception) -> bool:
 
-        if isinstance(error, DownloadError):
-            self.out_task.update("FAILED", None)
-            self.out_task.finish()
-            for entry, code in error.errors:
-                task = self.out.task()
-                task.update(None, "download.error", name=entry.name, message=_(f"download.error.{code}"))
-                task.finish()
-            return True
+    #     if isinstance(error, DownloadError):
+    #         self.out.task("FAILED", None)
+    #         self.out.finish()
+    #         for entry, code in error.errors:
+    #             self.out.task(None, "download.error", name=entry.name, message=_(f"download.error.{code}"))
+    #             self.out.finish()
+    #         return True
         
-        return False
+    #     return False
