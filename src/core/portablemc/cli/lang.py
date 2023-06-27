@@ -1,6 +1,7 @@
 """CLI languages management.
 """
 
+from ..vanilla import JvmNotFoundError
 from ..download import DownloadError
 from ..util import jvm_bin_filename
 
@@ -137,8 +138,10 @@ lang = {
     # Command start
     "start.version.resolving": "Resolving version {version}... ",
     "start.version.resolved": "Resolved version {version}.",
-    "start.version.fixed.lwjgl": "Fixed LWJGL version to {version}",  # TODO:
-    "start.jar.found": "Using version {version} executable.",
+    "start.version.not_found": "Version {version} not found.",
+    "start.version.too_much_parents": "Too much parents while resolving versions.",
+    "start.jar.found": "Using version {version} jar.",
+    "start.jar.not_found": "Version jar not found.",
     "start.assets.resolving": "Checking assets v{index_version}... ",
     "start.assets.resolved": "Checked {count} assets v{index_version}.",
     "start.libraries.resolving": "Checking libraries...",
@@ -147,22 +150,20 @@ lang = {
     "start.jvm.resolving": "Checking java {version}...",
     "start.jvm.resolved": "Checked {count} files for java {version}.",
     "start.jvm.unknown_version": "unknown",
-    # "start.libraries.loading": "Loading libraries... ",
-    # "start.libraries.loaded": "Loaded {count} libraries.",
+    f"start.jvm.not_found.{JvmNotFoundError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
+        "use --jvm argument to manually set the path to your JVM executable.",
+    f"start.jvm.not_found.{JvmNotFoundError.UNSUPPORTED_VERSION}": "No JVM download was found, "
+        "use --jvm argument to manually set the path to your JVM executable.",
+    f"start.jvm.not_found.{JvmNotFoundError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
+        "use --jvm argument to manually set the path to your JVM executable.",
+
+    # TODO: 
+    # "start.version.fixed.lwjgl": "Fixed LWJGL version to {version}",
     # "start.libraries.exclude.unused": "Library exclusion '{pattern}' didn't match a libary.",
     # "start.libraries.exclude.usage": "Library exclusion '{pattern}' matched {count} libraries.",
-    # "start.jvm.loading": "Loading Java... ",
-    # "start.jvm.system_fallback": "Loaded system Java at {path}.",
-    # "start.jvm.loaded": "Loaded Mojang Java {version}.",
-    # f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
-    #     "use --jvm argument to manually set the path to your JVM executable.",
-    # f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_VERSION}": "No JVM download was found, "
-    #     "use --jvm argument to manually set the path to your JVM executable.",
-    # f"start.jvm.error.{JvmLoadingError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
-    #     "use --jvm argument to manually set the path to your JVM executable.",
-    "start.additional_binary_not_found": "The additional binary '{bin}' doesn't exists.",
-    "start.starting": "Starting the game...",
-    "start.starting_info": "Username: {username} ({uuid})",
+    # "start.additional_binary_not_found": "The additional binary '{bin}' doesn't exists.",
+    # "start.starting": "Starting the game...",
+    # "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
     "download.start": "Download starting...",
     "download.progress": "Download: {count:4}/{total_count} {size:>8} @ {speed}",
@@ -171,6 +172,9 @@ lang = {
     f"download.error.{DownloadError.NOT_FOUND}": "Not found",
     f"download.error.{DownloadError.INVALID_SIZE}": "Invalid size",
     f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
+    # Common errors
+
+
     # Auth common
     "auth.refreshing": "Invalid session, refreshing...",
     "auth.refreshed": "Session refreshed for {email}.",
@@ -195,4 +199,7 @@ lang = {
     # f"auth.error.{AuthError.MICROSOFT_DOES_NOT_OWN_MINECRAFT}": "This account does not own Minecraft.",
     # f"auth.error.{AuthError.MICROSOFT_OUTDATED_TOKEN}": "The token is no longer valid.",
     # f"auth.error.{AuthError.MICROSOFT}": "Misc error: {details}."
+
+    # Common
+    "echo": "{echo}"
 }
