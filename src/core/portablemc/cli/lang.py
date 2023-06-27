@@ -109,10 +109,10 @@ lang = {
     # # Json Request
     # f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid JSON response from {method} {url}, status: {status}, data: {data}",
     # Misc errors
-    "error.generic": "An unexpected error happened, please report it to the authors:",
+    "error.os": "An unexpected OS error happened:",
     "error.socket": "This operation requires an operational network, but a socket error happened:",
     "error.cert": "Certificate verification failed, you can try installing 'certifi' package:",
-    "error.keyboard_interrupt": "Interrupted.",
+    "error.keyboard_interrupt": "Keyboard interrupted.",
     # Command search
     "search.type": "Type",
     "search.name": "Identifier",
@@ -172,9 +172,6 @@ lang = {
     f"download.error.{DownloadError.NOT_FOUND}": "Not found",
     f"download.error.{DownloadError.INVALID_SIZE}": "Invalid size",
     f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
-    # Common errors
-
-
     # Auth common
     "auth.refreshing": "Invalid session, refreshing...",
     "auth.refreshed": "Session refreshed for {email}.",
