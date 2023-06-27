@@ -5,63 +5,64 @@ from .output import Output, HumanOutput, JsonOutput
 from .util import LibrarySpecifierFilter
 from .lang import get as _
 
-from typing import TYPE_CHECKING, Optional, Type, Tuple, List
+from typing import Optional, Type, Tuple, List
 
 
-if TYPE_CHECKING:
+# The following classes are only used for type checking and represent a typed namespace
+# as produced by the arguments registered to the argument parser.
 
-    class RootNs(Namespace):
-        main_dir: Optional[Path]
-        work_dir: Optional[Path]
-        timeout: float
-        out: Output
-    
-    class SearchNs(RootNs):
-        kind: str
-        input: str
+class RootNs(Namespace):
+    main_dir: Optional[Path]
+    work_dir: Optional[Path]
+    timeout: float
+    out: Output
 
-    class StartNs(RootNs):
-        dry: bool
-        disable_mp: bool
-        disable_chat: bool
-        demo: bool
-        resolution: Optional[Tuple[int, int]]
-        jvm: Optional[str]
-        jvm_args: Optional[str]
-        no_better_logging: bool
-        anonymize: bool
-        no_legacy_fix: bool
-        lwjgl: Optional[str]
-        exclude_lib: Optional[List[LibrarySpecifierFilter]]
-        include_bin: Optional[List[str]]
-        temp_login: bool
-        login: str
-        login_service: str
-        username: Optional[str]
-        uuid: Optional[str]
-        server: Optional[str]
-        server_port: Optional[int]
-        version: str
+class SearchNs(RootNs):
+    kind: str
+    input: str
 
-    class LoginNs(RootNs):
-        login_service: str
-        email_or_username: str
+class StartNs(RootNs):
+    dry: bool
+    disable_mp: bool
+    disable_chat: bool
+    demo: bool
+    resolution: Optional[Tuple[int, int]]
+    jvm: Optional[str]
+    jvm_args: Optional[str]
+    no_better_logging: bool
+    anonymize: bool
+    no_legacy_fix: bool
+    lwjgl: Optional[str]
+    exclude_lib: Optional[List[LibrarySpecifierFilter]]
+    include_bin: Optional[List[str]]
+    temp_login: bool
+    login: str
+    login_service: str
+    username: Optional[str]
+    uuid: Optional[str]
+    server: Optional[str]
+    server_port: Optional[int]
+    version: str
 
-    class LogoutNs(RootNs):
-        login_service: str
-        email_or_username: str
-    
-    class ShowNs(RootNs):
-        pass
+class LoginNs(RootNs):
+    login_service: str
+    email_or_username: str
 
-    class ShowAboutNs(ShowNs):
-        pass
+class LogoutNs(RootNs):
+    login_service: str
+    email_or_username: str
 
-    class ShowAuthNs(ShowNs):
-        pass
+class ShowNs(RootNs):
+    pass
 
-    class ShowLangNs(ShowNs):
-        pass
+class ShowAboutNs(ShowNs):
+    pass
+
+class ShowAuthNs(ShowNs):
+    pass
+
+class ShowLangNs(ShowNs):
+    pass
 
 
 def register_arguments() -> ArgumentParser:

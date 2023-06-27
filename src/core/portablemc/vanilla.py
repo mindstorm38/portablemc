@@ -51,14 +51,16 @@ class Context:
         """
         return Version(version_id, self.versions_dir / version_id)
 
-    # def list_versions(self) -> Generator[Tuple[str, int], None, None]:
-    #     """ A generator method that yields all versions (version, mtime) that have a version metadata file. """
-    #     if path.isdir(self.versions_dir):
-    #         for version in os.listdir(self.versions_dir):
-    #             try:
-    #                 yield version, path.getmtime(path.join(self.versions_dir, version, f"{version}.json"))
-    #             except OSError:
-    #                 pass
+    def list_versions(self) -> "Iterator[Version]":
+        """List versions in the context. 
+        Only versions with existing metadata are returned.
+        """
+        if self.versions_dir.is_dir():
+            for version_dir in self.versions_dir.iterdir():
+                if version_dir.is_dir():
+                    version = Version(version_dir.name, version_dir)
+                    if version.metadata_exists():
+                        yield version
 
 
 class VersionId:
@@ -192,20 +194,20 @@ class VersionJvm:
         self.version = version
 
 
-class TooMuchParentError(Exception):
-    """Raised when a 
+class VersionNotFoundError(Exception):
+    """Raised when a version was not found. The version that was not found is given
     """
 
-class MetadataInvalidError(Exception):
-    """A specialized error type when metadata is invalid. This errors contains the path
-    of the value being problematic and the expected type. The value may be None, in such
-    case it means that the value was not present as required.
+    def __init__(self, version: Version) -> None:
+        self.version = version
+
+class TooMuchParentsError(Exception):
+    """Raised when a version hierarchy is too deep. The hierarchy of versions is given
+    in property `versions`.
     """
 
-    def __init__(self, value: Any, expected_type: type, path: str) -> None:
-        self.value = value
-        self.expected_type = expected_type
-        self.path = path
+    def __init__(self, versions: List[Version]) -> None:
+        self.versions = versions
 
 class JarNotFoundError(Exception):
     """Raised when no version's JAR file could be found from the metadata.
@@ -218,6 +220,9 @@ class JvmNotFoundError(Exception):
     UNSUPPORTED_LIBC = "unsupported_libc"
     UNSUPPORTED_ARCH = "unsupported_arch"
     UNSUPPORTED_VERSION = "unsupported_version"
+
+    def __init__(self, code: str) -> None:
+        self.code = code
 
 
 class VersionResolveEvent:
@@ -285,7 +290,7 @@ class MetadataTask(Task):
         while version_id is not None:
 
             if len(versions) > self.max_parents:
-                raise TooMuchParentError()
+                raise TooMuchParentsError(versions)
             
             watcher.on_event(VersionResolveEvent(version_id, False))
             version = context.get_version(version_id)
@@ -362,7 +367,7 @@ class MetadataTask(Task):
 
         version_super_meta = manifest.get_version(version.id)
         if version_super_meta is None:
-            raise ValueError("Version not found")  # TODO: Specialized error
+            raise VersionNotFoundError(version)
         
         code, raw_data = http_request(version_super_meta["url"], "GET")
         if code != 200:
@@ -704,7 +709,7 @@ class JvmTask(Task):
             raise ValueError("metadata: /javaVersion/component must be a string")
 
         jvm_dir = context.jvm_dir / jvm_version_type
-        jvm_manifest_file = jvm_dir / f"{jvm_version_type}.json"
+        jvm_manifest_file = context.jvm_dir / f"{jvm_version_type}.json"
 
         try:
             with jvm_manifest_file.open("rt") as jvm_manifest_fp:
@@ -763,6 +768,11 @@ class JvmTask(Task):
         
         state.insert(VersionJvm(jvm_exec, jvm_version))
         watcher.on_event(JvmResolveEvent(jvm_version, len(jvm_files)))
+
+
+class LwjglFixTask(Task):
+    """This special task can be optionally used to 
+    """
 
 
 class RunTask(Task):
@@ -869,26 +879,33 @@ minecraft_jvm_os = None if minecraft_arch is None else {
 }.get(platform.system(), {}).get(minecraft_arch)
 
 
-def make_standard_sequence(version_id: str, *, 
+def make_vanilla_sequence(version_id: str, *, 
     context: Optional[Context] = None,
+    version_manifest: Optional[VersionManifest] = None,
     jvm: bool = False,
-    version_manifest: Optional[VersionManifest] = None) -> Sequence:
-    """Make standard installer for installing standard Minecraft versions.
-
-    :param context: The directory context of the game's installation.
-    :return: The installer, ready to install a standard game.
+    run: bool = False,
+) -> Sequence:
+    """Make vanilla sequence for installing and running vanilla Minecraft versions.
     """
 
     seq = Sequence()
+
     seq.insert_state(VersionId(version_id))
     seq.insert_state(context or Context())
     seq.insert_state(version_manifest or VersionManifest())
+
     seq.append_task(MetadataTask())
     seq.append_task(JarTask())
     seq.append_task(AssetsTask())
     seq.append_task(LibrariesTask())
     seq.append_task(LoggerTask())
+
     if jvm:
         seq.append_task(JvmTask())
+
     seq.append_task(DownloadTask())
+
+    if run:
+        seq.append_task(RunTask())
+
     return seq

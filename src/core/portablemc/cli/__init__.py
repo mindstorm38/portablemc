@@ -5,26 +5,31 @@ import itertools
 import time
 import sys
 
+from .parse import register_arguments, RootNs, SearchNs, StartNs
 from .util import format_locale_date, format_number
 from .output import Output, OutputTable
-from .parse import register_arguments
 from .lang import get as _
 
-from ..standard import make_standard_sequence, Context, VersionResolveEvent, \
-    JarFoundEvent, AssetsResolveEvent, LibraryResolveEvent, LoggerFoundEvent, \
-    JvmResolveEvent
 from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, DownloadError
 from ..manifest import VersionManifest, VersionManifestError
 from ..task import Watcher
 
-from typing import TYPE_CHECKING, Optional, List, Union, Dict, Callable, Any
+from ..vanilla import make_vanilla_sequence, Context, \
+    VersionResolveEvent, VersionNotFoundError, TooMuchParentsError, \
+    JarFoundEvent, JarNotFoundError, \
+    AssetsResolveEvent, \
+    LibraryResolveEvent, \
+    LoggerFoundEvent, \
+    JvmResolveEvent, JvmNotFoundError
 
-if TYPE_CHECKING:
-    from .parse import RootNs, SearchNs, StartNs
+from typing import cast, Optional, List, Union, Dict, Callable, Any
 
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
+
+CommandHandler = Callable[[Any], Any]
+CommandTree = Dict[str, Union[CommandHandler, "CommandTree"]]
 
 
 def main(args: Optional[List[str]] = None):
@@ -34,7 +39,7 @@ def main(args: Optional[List[str]] = None):
     """
 
     parser = register_arguments()
-    ns = parser.parse_args(args or sys.argv[1:])
+    ns: RootNs = cast(RootNs, parser.parse_args(args or sys.argv[1:]))
 
     command_handlers = get_command_handlers()
     command_attr = "subcommand"
@@ -45,7 +50,7 @@ def main(args: Optional[List[str]] = None):
             parser.print_help()
             sys.exit(EXIT_FAILURE)
         elif callable(handler):
-            handler(ns)
+            cmd(handler, ns)
         elif isinstance(handler, dict):
             command_attr = f"{command}_{command_attr}"
             command_handlers = handler
@@ -53,11 +58,8 @@ def main(args: Optional[List[str]] = None):
         sys.exit(EXIT_OK)
 
 
-CommandFunc = Callable[[Any], Any]
-CommandDict = Dict[str, Union[CommandFunc, "CommandDict"]]
 
-
-def get_command_handlers() -> CommandDict:
+def get_command_handlers() -> CommandTree:
     """This internal function returns the tree of command handlers for each subcommand
     of the CLI argument parser.
     """
@@ -79,7 +81,47 @@ def get_command_handlers() -> CommandDict:
     }
 
 
-def cmd_search(ns: "SearchNs"):
+def cmd(handler: CommandHandler, ns: RootNs):
+    """Generic command handler that launch the given handler with the given namespace,
+    it handles error in order to pretty print them.
+    """
+    try:
+        handler(ns)
+    
+    except ValueError as error:
+        ns.out.task("FAILED", None)
+        ns.out.finish()
+        for arg in error.args:
+            ns.out.task(None, "echo", echo=arg)
+            ns.out.finish()
+    
+    except VersionNotFoundError as error:
+        ns.out.task("FAILED", "start.version.not_found", version=error.version.id)
+        ns.out.finish()
+    
+    except TooMuchParentsError as error:
+        ns.out.task("FAILED", "start.version.too_much_parents")
+        ns.out.finish()
+        ns.out.task(None, "echo", echo=", ".join(map(lambda v: v.id, error.versions)))
+        ns.out.finish()
+
+    except JarNotFoundError as error:
+        ns.out.task("FAILED", "start.jar.not_found")
+        ns.out.finish()
+
+    except JvmNotFoundError as error:
+        ns.out.task("FAILED", f"start.jvm.not_found.{error.code}")
+        ns.out.finish()
+
+    except DownloadError as error:
+        ns.out.task("FAILED", None)
+        ns.out.finish()
+        for entry, code in error.errors:
+            ns.out.task(None, "download.error", name=entry.name, message=_(f"download.error.{code}"))
+            ns.out.finish()
+
+
+def cmd_search(ns: SearchNs):
 
     def cmd_search_manifest(search: Optional[str], table: OutputTable):
         
@@ -122,7 +164,9 @@ def cmd_search(ns: "SearchNs"):
             _("search.last_modified"))
         table.separator()
 
-        raise NotImplementedError
+        context = new_context(ns)
+        for version in context.list_versions():
+            table.add(version.id, format_locale_date(version.metadata_file().stat().st_mtime))
 
     search_handler = {
         "manifest": cmd_search_manifest,
@@ -136,24 +180,24 @@ def cmd_search(ns: "SearchNs"):
     sys.exit(EXIT_OK)
 
 
-def cmd_start(ns: "StartNs"):
+def cmd_start(ns: StartNs):
     
     context = new_context(ns)
     manifest = new_version_manifest(ns)
 
     version_id, alias = manifest.filter_latest(ns.version)
         
-    sequence = make_standard_sequence(version_id, context=context, jvm=True, version_manifest=manifest)
+    sequence = make_vanilla_sequence(version_id, context=context, jvm=True, version_manifest=manifest)
     sequence.add_watcher(StartWatcher(ns.out))
     sequence.add_watcher(DownloadWatcher(ns.out))
 
     sequence.execute()
 
 
-def new_context(ns: "RootNs") -> Context:
+def new_context(ns: RootNs) -> Context:
     return Context(ns.main_dir, ns.work_dir)
 
-def new_version_manifest(ns: "RootNs") -> VersionManifest:
+def new_version_manifest(ns: RootNs) -> VersionManifest:
     return VersionManifest()
 
     
@@ -236,15 +280,3 @@ class DownloadWatcher(Watcher):
         elif isinstance(event, DownloadCompleteEvent):
             self.out.task("OK", None)
             self.out.finish()
-
-    # def on_error(self, error: Exception) -> bool:
-
-    #     if isinstance(error, DownloadError):
-    #         self.out.task("FAILED", None)
-    #         self.out.finish()
-    #         for entry, code in error.errors:
-    #             self.out.task(None, "download.error", name=entry.name, message=_(f"download.error.{code}"))
-    #             self.out.finish()
-    #         return True
-        
-    #     return False
