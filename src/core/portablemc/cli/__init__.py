@@ -1,8 +1,11 @@
 """Main 
 """
 
+from urllib.error import URLError
 import itertools
+import socket
 import time
+import ssl
 import sys
 
 from .parse import register_arguments, RootNs, SearchNs, StartNs
@@ -85,8 +88,10 @@ def cmd(handler: CommandHandler, ns: RootNs):
     """Generic command handler that launch the given handler with the given namespace,
     it handles error in order to pretty print them.
     """
+    
     try:
         handler(ns)
+        sys.exit(EXIT_OK)
     
     except ValueError as error:
         ns.out.task("FAILED", None)
@@ -95,6 +100,28 @@ def cmd(handler: CommandHandler, ns: RootNs):
             ns.out.task(None, "echo", echo=arg)
             ns.out.finish()
     
+    except KeyboardInterrupt:
+        ns.out.finish()
+        ns.out.task("HALT", "error.keyboard_interrupt")
+        ns.out.finish()
+    
+    except OSError as error:
+
+        key = "error.os"
+
+        if isinstance(error, URLError) and isinstance(error.reason, ssl.SSLCertVerificationError):
+            key = "error.cert"
+        elif isinstance(error, (URLError, socket.gaierror, socket.timeout)):
+            key = "error.socket"
+        
+        ns.out.task("FAILED", None)
+        ns.out.finish()
+        ns.out.task(None, key)
+        ns.out.finish()
+
+        import traceback
+        traceback.print_exc()
+
     except VersionNotFoundError as error:
         ns.out.task("FAILED", "start.version.not_found", version=error.version.id)
         ns.out.finish()
@@ -119,6 +146,8 @@ def cmd(handler: CommandHandler, ns: RootNs):
         for entry, code in error.errors:
             ns.out.task(None, "download.error", name=entry.name, message=_(f"download.error.{code}"))
             ns.out.finish()
+    
+    sys.exit(EXIT_FAILURE)
 
 
 def cmd_search(ns: SearchNs):
