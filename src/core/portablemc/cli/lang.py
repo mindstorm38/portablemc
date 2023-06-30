@@ -48,6 +48,8 @@ lang = {
     "args.timeout": "Set a global timeout (in decimal seconds) that can be used by various requests done by the launcher or "
         "addons. A value of 0 is usually interpreted as an 'offline mode', this means that the launcher "
         "will try to use a cached copy of the requests' response.",
+    "args.output": "Set the output format of the launcher, defaults to 'human' for human readable output, but you can select "
+        "'json' for outputting one JSON object per line that describes the state.",
     # Args common langs
     "args.common.login_service": "Authentication service type to use for logging in the game.",
     # Args search
@@ -102,8 +104,8 @@ lang = {
     "args.addon.list": "List addons.",
     "args.addon.show": "Show an addon details.",
     # Common
-    "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
-    "cancelled": "Cancelled.",
+    # "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
+    # "cancelled": "Cancelled.",
     # Version manifest error
     # f"version_manifest.error.{VersionManifestError.NOT_FOUND}": "Failed to load version manifest, timed out or not locally cached.",
     # # Json Request
