@@ -11,6 +11,52 @@ import ssl
 from typing import Optional, Tuple, cast
 
 
+class HttpResponse:
+    
+    def __init__(self, status: int, data: bytes) -> None:
+        self.status = status
+        self.data = data
+
+
+class HttpError(Exception):
+
+    def __init__(self, res: HttpResponse) -> None:
+        self.res = res
+
+
+class HttpSession:
+    """Represent an HTTP session with practical methods for requesting files or resources
+    from REST APIs.
+    """
+
+    def __init__(self, *, timeout: Optional[float] = None) -> None:
+        self.timeout = timeout
+    
+    def request(self, method: str, url: str, *,
+        data: Optional[bytes] = None,
+        headers: Optional[dict] = None,
+    ) -> HttpResponse:
+        
+        if headers is None:
+            headers = {}
+        
+        try:
+
+            try:
+                import certifi
+                ctx = ssl.create_default_context(cafile=certifi.where())
+            except ImportError:
+                ctx = None
+
+            req = urllib.request.Request(url, data, headers, method=method)
+            res: HTTPResponse = urllib.request.urlopen(req, timeout=self.timeout, context=ctx)
+            
+            return HttpResponse(res.status, res.read())
+
+        except HTTPError as error:
+            raise HttpError(HttpResponse(error.status or 0, error.read()))
+
+
 def http_request(url: str, method: str, *,
     data: Optional[bytes] = None,
     headers: Optional[dict] = None,
@@ -52,7 +98,7 @@ def http_request(url: str, method: str, *,
         for header_name, header_value in res.getheaders():
             rcv_headers[header_name] = header_value
 
-    return res.status, res.read()
+    return res.status, res.read() 
 
 
 def json_request(
