@@ -6,6 +6,7 @@ module).
 from json import JSONDecodeError
 from pathlib import Path
 import platform
+import shutil
 import json
 import re
 import os
@@ -257,11 +258,11 @@ class VersionAssets:
     directory.
     """
     
-    def __init__(self, index_version: str, assets: Dict[str, Path], virtual: bool, resources: bool) -> None:
+    def __init__(self, index_version: str, assets: Dict[str, Path], virtual_dir: Optional[Path], resources_dir: Optional[Path]) -> None:
         self.index_version = index_version
         self.assets = assets
-        self.virtual = virtual
-        self.resources = resources
+        self.virtual_dir = virtual_dir
+        self.resources_dir = resources_dir
 
 class VersionLibraries:
     """Represent the loaded libraries for the current version. This contains both 
@@ -653,8 +654,32 @@ class AssetsTask(Task):
                 asset_url = f"{RESOURCES_URL}{asset_hash_prefix}/{asset_hash}"
                 dl.add(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id))
         
-        state.insert(VersionAssets(assets_index_version, assets, assets_virtual, assets_resources))
+        virtual_dir = context.assets_dir.joinpath("virtual", assets_index_version) if assets_virtual else None
+        resources_dir = context.work_dir / "resources" if assets_resources else None
+
+        state.insert(VersionAssets(assets_index_version, assets, virtual_dir, resources_dir))
         watcher.on_event(AssetsResolveEvent(assets_index_version, len(assets)))
+
+
+class AssetsFinalizeTask(Task):
+    """This task finalize the installation of assets after being downloaded.
+    """
+
+    def execute(self, state: State, watcher: Watcher) -> None:
+        
+        assets = state[VersionAssets]
+
+        if assets.resources_dir is not None:
+            for asset_id, asset_file in assets.assets.items():
+                dst_file = assets.resources_dir / asset_id
+                dst_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(str(asset_file), str(dst_file))
+
+        if assets.virtual_dir is not None:
+            for asset_id, asset_file in assets.assets.items():
+                dst_file = assets.virtual_dir / asset_id
+                dst_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(str(asset_file), str(dst_file))
 
 
 class LibrariesTask(Task):
@@ -972,7 +997,7 @@ class ArgsTask(Task):
             "version_type": metadata.get("type", ""),
             # Game (legacy)
             "auth_session": auth_session.format_token_argument(True),
-            # "game_assets": self.version.assets_virtual_dir,  TODO:
+            "game_assets": str(assets.virtual_dir or ""),
             "user_properties": "{}",
             # JVM
             "natives_directory": "",
@@ -1154,6 +1179,7 @@ minecraft_jvm_os = None if minecraft_arch is None else {
     "Windows": {"x86": "windows-x86", "x86_64": "windows-x64"}
 }.get(platform.system(), {}).get(minecraft_arch)
 
+# JVM arguments used if no arguments are specified.
 legacy_jvm_args = [
     {
         "rules": [{"action": "allow", "os": {"name": "osx"}}],
@@ -1206,6 +1232,7 @@ def make_vanilla_sequence(version_id: str, *,
         seq.append_task(JvmTask())
 
     seq.append_task(DownloadTask())
+    seq.append_task(AssetsFinalizeTask())
 
     seq.append_task(ArgsTask())
 
