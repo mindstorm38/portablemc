@@ -9,13 +9,12 @@ import platform
 import json
 import re
 
-from .task import Sequence, Task, State, Watcher
-from .download import DownloadList, DownloadEntry, DownloadTask
-from .manifest import VersionManifest
-from .http import http_request, json_simple_request
 from .util import LibrarySpecifier, calc_input_sha1, merge_dict, jvm_bin_filename
+from .download import DownloadList, DownloadEntry, DownloadTask
+from .task import Sequence, Task, State, Watcher
+from .http import HttpSession, HttpError
 
-from typing import Optional, List, Iterator, Any, Dict
+from typing import Optional, List, Iterator, Any, Dict, Tuple
 
 
 class Context:
@@ -61,6 +60,99 @@ class Context:
                     version = Version(version_dir.name, version_dir)
                     if version.metadata_exists():
                         yield version
+
+
+class VersionManifest:
+    """The Mojang's official version manifest. Providing officially
+    available versions with optional cache file.
+    """
+
+    def __init__(self, http: HttpSession, cache_file: Optional[Path] = None) -> None:
+        self.http = http
+        self.data: Optional[dict] = None
+        self.cache_file = cache_file
+        self.sync = False
+
+    def _ensure_data(self) -> dict:
+        """Internal method that ensure that the manifest data is up-to-date.
+
+        :return: The full data of the manifest.
+        :raises HttpError: Underlying HTTP error if manifest could not be requested.
+        """
+
+        if self.data is None:
+
+            headers = {}
+            cache_data = None
+
+            # If a cache file should be used, try opening it and read the last modified
+            # time that will be used for requesting the manifest, only if needed.
+            if self.cache_file is not None:
+                try:
+                    with self.cache_file.open("rt") as cache_fp:
+                        cache_data = json.load(cache_fp)
+                    if "last_modified" in cache_data:
+                        headers["If-Modified-Since"] = cache_data["last_modified"]
+                except (OSError, json.JSONDecodeError):
+                    pass
+            
+            try:
+
+                res = self.http.request("GET", VERSION_MANIFEST_URL, 
+                    headers=headers, 
+                    accept="application/json")
+                
+                self.data = res.json()
+
+                if "Last-Modified" in res.headers:
+                    self.data["last_modified"] = res.headers["Last-Modified"]
+
+                if self.cache_file is not None:
+                    self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+                    with self.cache_file.open("wt") as cache_fp:
+                        json.dump(self.data, cache_fp, indent=2)
+
+            except HttpError as error:
+                res = error.res
+                if res.status == 304 and cache_data is not None:
+                    self.data = cache_data
+                else:
+                    raise
+
+        return self.data
+
+    def filter_latest(self, version: str) -> Tuple[str, bool]:
+        """Filter a version identifier if 'release' or 'snapshot' alias is used, then it's
+        replaced by the full version identifier, like `1.19.3`.
+
+        :param version: The version id or alias.
+        :return: A tuple containing the full version id and a boolean indicating if the
+        given version identifier is an alias.
+        :raises HttpError: Underlying HTTP error if manifest could not be requested.
+        """
+
+        if version in ("release", "snapshot"):
+            latest = self._ensure_data()["latest"].get(version)
+            if latest is not None:
+                return latest, True
+        return version, False
+
+    def get_version(self, version: str) -> Optional[dict]:
+        """Get a manifest's version metadata. Containing the metadata's URL, its SHA1 and
+        its type.
+
+        :param version: The version identifier.
+        :return: If found, the version is returned.
+        :raises HttpError: Underlying HTTP error if manifest could not be requested.
+        """
+        version, _alias = self.filter_latest(version)
+        for version_data in self._ensure_data()["versions"]:
+            if version_data["id"] == version:
+                return version_data
+        return None
+
+    def all_versions(self) -> list:
+        return self._ensure_data()["versions"]
 
 
 class VersionId:
@@ -262,6 +354,7 @@ class JvmResolveEvent:
 RESOURCES_URL = "https://resources.download.minecraft.net/"
 LIBRARIES_URL = "https://libraries.minecraft.net/"
 JVM_META_URL = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
+VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
 
 
 class MetadataTask(Task):
@@ -283,6 +376,7 @@ class MetadataTask(Task):
 
         context = state[Context]
         manifest = state[VersionManifest]
+        http = state[HttpSession]
 
         version_id: Optional[str] = state[VersionId].id
         versions: List[Version] = []
@@ -294,7 +388,7 @@ class MetadataTask(Task):
             
             watcher.on_event(VersionResolveEvent(version_id, False))
             version = context.get_version(version_id)
-            self.ensure_version_meta(version, manifest)
+            self.ensure_version_meta(version, manifest, http)
             watcher.on_event(VersionResolveEvent(version_id, True))
 
             # Set the parent of the last version to the version being resolved.
@@ -311,7 +405,7 @@ class MetadataTask(Task):
         state.insert(versions[0])
         state.insert(versions[0].merge())
 
-    def ensure_version_meta(self, version: Version, manifest: VersionManifest) -> None:
+    def ensure_version_meta(self, version: Version, manifest: VersionManifest, http: HttpSession) -> None:
         """This function tries to load and get the directory path of a given version id.
         This function proceeds in multiple steps: it tries to load the version's metadata,
         if the metadata is found then it's validated with the `validate_version_meta`
@@ -322,14 +416,14 @@ class MetadataTask(Task):
         """
 
         if version.read_metadata_file():
-            if self.validate_version_meta(version, manifest):
+            if self.validate_version_meta(version, manifest, http):
                 # If the version is successfully loaded and valid, return as-is.
                 return
         
         # If not loadable or not validated, fetch metadata.
-        self.fetch_version_meta(version, manifest)
+        self.fetch_version_meta(version, manifest, http)
 
-    def validate_version_meta(self, version: Version, manifest: VersionManifest) -> bool:
+    def validate_version_meta(self, version: Version, manifest: VersionManifest, http: HttpSession) -> bool:
         """This function checks that version metadata is correct.
 
         An internal method to check if a version's metadata is 
@@ -344,7 +438,12 @@ class MetadataTask(Task):
         :return: True if the given version.
         """
 
-        version_super_meta = manifest.get_version(version.id)
+        try:
+            version_super_meta = manifest.get_version(version.id)
+        except HttpError:
+            # Silently ignoring HTTP errors, we want to be able to launch offline.
+            return True
+        
         if version_super_meta is None:
             return True
         else:
@@ -358,28 +457,26 @@ class MetadataTask(Task):
                     return False
             return True
 
-    def fetch_version_meta(self, version: Version, manifest: VersionManifest) -> None:
+    def fetch_version_meta(self, version: Version, manifest: VersionManifest, http: HttpSession) -> None:
         """Internal method to fetch the data of the given version.
 
         :param version: The version meta to fetch data into.
-        :raises VersionError: TODO
+        :raises VersionNotFoundError: In case of error finding the version.
         """
 
         version_super_meta = manifest.get_version(version.id)
         if version_super_meta is None:
             raise VersionNotFoundError(version)
-        
-        code, raw_data = http_request(version_super_meta["url"], "GET")
-        if code != 200:
-            raise ValueError("HTTP error: {raw_data}")  # TODO: Specialized error
+
+        res = http.request("GET", version_super_meta["url"], accept="application/json")
         
         # First decode the data and set it to the version meta. Raising if invalid.
-        version.metadata = json.loads(raw_data)
+        version.metadata = res.json()
         
         # If successful, write the raw data directly to the file.
         version.dir.mkdir(parents=True, exist_ok=True)
         with version.metadata_file().open("wb") as fp:
-            fp.write(raw_data)
+            fp.write(res.data)
 
 
 class JarTask(Task):
@@ -434,6 +531,7 @@ class AssetsTask(Task):
         
         context = state[Context]
         metadata = state[FullMetadata].data
+        http = state[HttpSession]
         dl = state[DownloadList]
 
         assets_index_info = metadata.get("assetIndex")
@@ -468,8 +566,7 @@ class AssetsTask(Task):
             if not isinstance(assets_index_url, str):
                 raise ValueError("metadata: /assetIndex/url must be a string")
             
-            # TODO: Handle non-200 codes.
-            assets_index = json_simple_request(assets_index_url)
+            assets_index = http.request("GET", assets_index_url, accept="application/json").json()
             assets_indexes_dir.mkdir(parents=True, exist_ok=True)
             with assets_index_file.open("wt") as assets_index_fp:
                 json.dump(assets_index, assets_index_fp)
@@ -699,6 +796,7 @@ class JvmTask(Task):
 
         context = state[Context]
         metadata = state[FullMetadata].data
+        http = state[HttpSession]
         dl = state[DownloadList]
 
         if platform.system() == "Linux" and platform.libc_ver()[0] != "glibc":
@@ -716,7 +814,7 @@ class JvmTask(Task):
                 jvm_manifest = json.load(jvm_manifest_fp)
         except (OSError, JSONDecodeError):
 
-            all_jvm_meta = json_simple_request(JVM_META_URL)
+            all_jvm_meta = http.request("GET", JVM_META_URL, accept="application/json").json()
             if not isinstance(all_jvm_meta, dict):
                 raise ValueError("jvm metadata: / must be an object")
             
@@ -736,7 +834,7 @@ class JvmTask(Task):
             if not isinstance(jvm_meta_manifest_url, str):
                 raise ValueError(f"jvm metadata: /{minecraft_jvm_os}/{jvm_version_type}/0/manifest/url must be a string")
 
-            jvm_manifest = json_simple_request(jvm_meta_manifest_url)
+            jvm_manifest = http.request("GET", jvm_meta_manifest_url, accept="application/json").json()
 
             if not isinstance(jvm_manifest, dict):
                 raise ValueError("jvm manifest: / must be an object")
@@ -881,6 +979,7 @@ minecraft_jvm_os = None if minecraft_arch is None else {
 
 def make_vanilla_sequence(version_id: str, *, 
     context: Optional[Context] = None,
+    http: Optional[HttpSession] = None,
     version_manifest: Optional[VersionManifest] = None,
     jvm: bool = False,
     run: bool = False,
@@ -888,11 +987,15 @@ def make_vanilla_sequence(version_id: str, *,
     """Make vanilla sequence for installing and running vanilla Minecraft versions.
     """
 
+    if http is None:
+        http = HttpSession()
+
     seq = Sequence()
 
     seq.insert_state(VersionId(version_id))
     seq.insert_state(context or Context())
-    seq.insert_state(version_manifest or VersionManifest())
+    seq.insert_state(http)
+    seq.insert_state(version_manifest or VersionManifest(http))
 
     seq.append_task(MetadataTask())
     seq.append_task(JarTask())
