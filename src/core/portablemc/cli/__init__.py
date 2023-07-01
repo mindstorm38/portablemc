@@ -14,10 +14,10 @@ from .output import Output, OutputTable
 from .lang import get as _
 
 from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, DownloadError
-from ..manifest import VersionManifest, VersionManifestError
+from ..http import HttpSession
 from ..task import Watcher
 
-from ..vanilla import make_vanilla_sequence, Context, \
+from ..vanilla import make_vanilla_sequence, Context, VersionManifest, \
     VersionResolveEvent, VersionNotFoundError, TooMuchParentsError, \
     JarFoundEvent, JarNotFoundError, \
     AssetsResolveEvent, \
@@ -30,6 +30,9 @@ from typing import cast, Optional, List, Union, Dict, Callable, Any
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
+
+AUTH_DATABASE_FILE_NAME = "portablemc_auth.json"
+MANIFEST_CACHE_FILE_NAME = "portablemc_version_manifest.json"
 
 CommandHandler = Callable[[Any], Any]
 CommandTree = Dict[str, Union[CommandHandler, "CommandTree"]]
@@ -44,6 +47,12 @@ def main(args: Optional[List[str]] = None):
     parser = register_arguments()
     ns: RootNs = cast(RootNs, parser.parse_args(args or sys.argv[1:]))
 
+    # Setup common objects in the namespace.
+    ns.context = Context(ns.main_dir, ns.work_dir)
+    ns.http = HttpSession(timeout=ns.timeout)
+    ns.version_manifest = VersionManifest(ns.http, ns.context.work_dir / MANIFEST_CACHE_FILE_NAME)
+
+    # Find the command handler and run it.
     command_handlers = get_command_handlers()
     command_attr = "subcommand"
     while True:
@@ -161,30 +170,20 @@ def cmd_search(ns: SearchNs):
             _("search.flags"))
         table.separator()
 
-        context = new_context(ns)
-        manifest = new_version_manifest(ns)
+        if search is not None:
+            search, alias = ns.version_manifest.filter_latest(search)
+        else:
+            alias = False
 
-        try:
-
-            if search is not None:
-                search, alias = manifest.filter_latest(search)
-            else:
-                alias = False
-
-            for version_data in manifest.all_versions():
-                version_id = version_data["id"]
-                if search is None or (alias and search == version_id) or (not alias and search in version_id):
-                    version = context.get_version(version_id)
-                    table.add(
-                        version_data["type"], 
-                        version_id, 
-                        format_locale_date(version_data["releaseTime"]),
-                        _("search.flags.local") if version.metadata_exists() else "")
-
-        except VersionManifestError as err:
-            pass
-            # print_task("FAILED", f"version_manifest.error.{err.code}", done=True)
-            # sys.exit(EXIT_VERSION_NOT_FOUND)
+        for version_data in ns.version_manifest.all_versions():
+            version_id = version_data["id"]
+            if search is None or (alias and search == version_id) or (not alias and search in version_id):
+                version = ns.context.get_version(version_id)
+                table.add(
+                    version_data["type"], 
+                    version_id, 
+                    format_locale_date(version_data["releaseTime"]),
+                    _("search.flags.local") if version.metadata_exists() else "")
 
     def cmd_search_local(search: Optional[str], table: OutputTable):
 
@@ -193,8 +192,7 @@ def cmd_search(ns: SearchNs):
             _("search.last_modified"))
         table.separator()
 
-        context = new_context(ns)
-        for version in context.list_versions():
+        for version in ns.context.list_versions():
             table.add(version.id, format_locale_date(version.metadata_file().stat().st_mtime))
 
     search_handler = {
@@ -211,23 +209,17 @@ def cmd_search(ns: SearchNs):
 
 def cmd_start(ns: StartNs):
     
-    context = new_context(ns)
-    manifest = new_version_manifest(ns)
-
-    version_id, alias = manifest.filter_latest(ns.version)
-        
-    sequence = make_vanilla_sequence(version_id, context=context, jvm=True, version_manifest=manifest)
+    version_id, _alias = ns.version_manifest.filter_latest(ns.version)
+    
+    sequence = make_vanilla_sequence(version_id, 
+            context=ns.context, 
+            version_manifest=ns.version_manifest,
+            jvm=True)
+    
     sequence.add_watcher(StartWatcher(ns.out))
     sequence.add_watcher(DownloadWatcher(ns.out))
 
     sequence.execute()
-
-
-def new_context(ns: RootNs) -> Context:
-    return Context(ns.main_dir, ns.work_dir)
-
-def new_version_manifest(ns: RootNs) -> VersionManifest:
-    return VersionManifest()
 
     
 class StartWatcher(Watcher):

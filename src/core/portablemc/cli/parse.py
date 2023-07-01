@@ -1,6 +1,9 @@
 from argparse import ArgumentParser, HelpFormatter, Namespace
 from pathlib import Path
 
+from ..vanilla import Context, VersionManifest
+from ..http import HttpSession
+
 from .output import Output, HumanOutput, JsonOutput
 from .util import LibrarySpecifierFilter
 from .lang import get as _
@@ -16,6 +19,10 @@ class RootNs(Namespace):
     work_dir: Optional[Path]
     timeout: float
     out: Output
+    # Initialized by main function after argument parsing.
+    http: HttpSession
+    context: Context
+    version_manifest: VersionManifest
 
 class SearchNs(RootNs):
     kind: str
