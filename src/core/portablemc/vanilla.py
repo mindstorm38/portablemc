@@ -8,13 +8,23 @@ from pathlib import Path
 import platform
 import json
 import re
+import os
 
 from .util import LibrarySpecifier, calc_input_sha1, merge_dict, jvm_bin_filename
 from .download import DownloadList, DownloadEntry, DownloadTask
+from .auth import AuthSession, OfflineAuthSession
 from .task import Sequence, Task, State, Watcher
 from .http import HttpSession, HttpError
 
-from typing import Optional, List, Iterator, Any, Dict, Tuple
+from . import LAUNCHER_NAME, LAUNCHER_VERSION
+
+from typing import Optional, List, Iterator, Any, Dict, Tuple, Union
+
+
+RESOURCES_URL = "https://resources.download.minecraft.net/"
+LIBRARIES_URL = "https://libraries.minecraft.net/"
+JVM_META_URL = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
+VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
 
 
 class Context:
@@ -260,7 +270,7 @@ class VersionLibraries:
     longer used in modern versions.
     """
 
-    def __init__(self, class_libs: List[str], native_libs: List[str]) -> None:
+    def __init__(self, class_libs: List[Path], native_libs: List[Path]) -> None:
         self.class_libs = class_libs
         self.native_libs = native_libs
 
@@ -270,8 +280,8 @@ class VersionLogging:
     contains a format placeholder '${path}' that should be replaced with the file's path.
     """
 
-    def __init__(self, file: Path, arg: str) -> None:
-        self.file = file
+    def __init__(self, path: Path, arg: str) -> None:
+        self.path = path
         self.arg = arg
 
 class VersionJvm:
@@ -284,6 +294,50 @@ class VersionJvm:
     def __init__(self, executable_file: Path, version: Optional[str]) -> None:
         self.executable_file = executable_file
         self.version = version
+
+class VersionArgsOptions:
+    """Options used for the preparation of `VersionArgs` by `ArgsTask`. These options are
+    optional for this task but can be used to specify various options such as 
+    authentication session to use or server address to start Minecraft with.
+    """
+
+    def __init__(self):
+        self.auth_session: Optional[AuthSession] = None
+        self.demo: bool = False
+        self.resolution: Optional[Tuple[int, int]] = None
+        self.disable_multiplayer: bool = False
+        self.disable_chat: bool = False
+        self.server_address: Optional[str] = None
+        self.server_port: Optional[int] = None
+        self.fix_legacy: bool = True         # For legacy merge sort and betacraft proxy.
+        self.features: Dict[str, bool] = {}  # Additional features for metadata args.
+
+    @classmethod
+    def with_online(cls, auth_session: AuthSession) -> "VersionArgsOptions":
+        """Make arguments options with an online authentication session.
+        """
+        opts = cls()
+        opts.auth_session = auth_session
+        return opts
+
+    @classmethod
+    def with_offline(cls, username: Optional[str], uuid: Optional[str]) -> "VersionArgsOptions":
+        """Make arguments options with an offline username and UUID.
+        """
+        opts = cls()
+        opts.auth_session = OfflineAuthSession(uuid, username)
+        return opts
+
+class VersionArgs:
+    """Indicates java arguments, game arguments and main class required to run the game.
+    This can later be used to run the game and is usually prepared by the `ArgsTask`.
+    """
+
+    def __init__(self, jvm_args: List[str], game_args: List[str], main_class: str, args_replacements: Dict[str, str]) -> None:
+        self.jvm_args = jvm_args
+        self.game_args = game_args
+        self.main_class = main_class
+        self.args_replacements = args_replacements
 
 
 class VersionNotFoundError(Exception):
@@ -349,12 +403,6 @@ class JvmResolveEvent:
     def __init__(self, version: Optional[str], count: Optional[int]) -> None:
         self.version = version
         self.count = count
-
-
-RESOURCES_URL = "https://resources.download.minecraft.net/"
-LIBRARIES_URL = "https://libraries.minecraft.net/"
-JVM_META_URL = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
-VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
 
 
 class MetadataTask(Task):
@@ -739,6 +787,7 @@ class LoggerTask(Task):
     :in Context: The installation context.
     :in FullMetadata: The full version metadata.
     :in DownloadList: Used to add the JAR file to download if relevant.
+    :out VersionLogging: Optional, the logging configuration if this version specifies it.
     """
 
     def execute(self, state: State, watcher: Watcher) -> None:
@@ -873,10 +922,123 @@ class LwjglFixTask(Task):
     """
 
 
-class RunTask(Task):
+class ArgsTask(Task):
+    """This task compute the `VersionArgs` 
+    """
 
     def execute(self, state: State, watcher: Watcher) -> None:
-        pass
+        
+        context = state[Context]
+        version = state[Version]
+        metadata = state[FullMetadata].data
+        jar = state[VersionJar]
+        libraries = state[VersionLibraries]
+        assets = state[VersionAssets]
+        logging = state.get(VersionLogging)
+        jvm = state[VersionJvm]
+        opts = state.get(VersionArgsOptions) or VersionArgsOptions()
+
+        # Main class
+        main_class = metadata.get("mainClass")
+        if not isinstance(main_class, str):
+            raise ValueError("metadata: /mainClass must be a string")
+        
+        # Features
+        features = {
+            "is_demo_user": opts.demo,
+            "has_custom_resolution": opts.resolution is not None,
+            **opts.features
+        }
+
+        # Get authentication of create a random offline.
+        auth_session = opts.auth_session or OfflineAuthSession(None, None)
+        uuid = auth_session.uuid
+        username = auth_session.username
+
+        # Arguments replacements
+        args_replacements: Dict[str, str] = {
+            # Game
+            "auth_player_name": username,
+            "version_name": version.id,
+            "library_directory": str(context.libraries_dir),
+            "game_directory": str(context.work_dir),
+            "assets_root": str(context.assets_dir),
+            "assets_index_name": assets.index_version,
+            "auth_uuid": uuid,
+            "auth_access_token": auth_session.format_token_argument(False),
+            "auth_xuid": auth_session.get_xuid(),
+            "clientid": auth_session.client_id,
+            "user_type": auth_session.user_type,
+            "version_type": metadata.get("type", ""),
+            # Game (legacy)
+            "auth_session": auth_session.format_token_argument(True),
+            # "game_assets": self.version.assets_virtual_dir,  TODO:
+            "user_properties": "{}",
+            # JVM
+            "natives_directory": "",
+            "launcher_name": LAUNCHER_NAME,
+            "launcher_version": LAUNCHER_VERSION,
+            "classpath_separator": os.pathsep,
+            "classpath": os.pathsep.join(map(str, libraries.class_libs))
+        }
+
+        if opts.resolution is not None:
+            args_replacements["resolution_width"] = str(opts.resolution[0])
+            args_replacements["resolution_height"] = str(opts.resolution[1])
+        
+        # Arguments
+        modern_args = metadata.get("arguments", {})
+        modern_jvm_args = modern_args.get("jvm")
+        modern_game_args = modern_args.get("game")
+
+        jvm_args = [str(jvm.executable_file)]
+        game_args = []
+
+        # Interpret JVM arguments.
+        interpret_args(legacy_jvm_args if modern_jvm_args is None else modern_jvm_args, features, jvm_args)
+        
+        # JVM argument for logging config
+        if logging is not None:
+            jvm_args.append(logging.arg.replace("${path}", str(logging.path)))
+
+        # JVM argument for launch wrapper JAR path
+        if main_class == "net.minecraft.launchwrapper.Launch":
+            jvm_args.append(f"-Dminecraft.client.jar={str(jar.path)}")
+
+        # Add old fix JVM args
+        if opts.fix_legacy:
+            version_split = version.id.split(".", 2)
+            if version_split[0].endswith("b1") or version_split[0].endswith("a1"):
+                jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
+                jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
+            elif len(version_split) >= 2 and len(version_split[1]) == 1 and ord("0") <= ord(version_split[1][0]) <= ord("5"):
+                jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
+        
+        # Game arguments
+        if modern_game_args is None:
+            # If no modern arguments were found, we try finding legacy game arguments.
+            game_args.extend(metadata.get("minecraftArguments", "").split(" "))
+            # If the resolution is set but we are using legacy arguments, we
+            # manually add resolution arguments to the game args.
+            if opts.resolution is not None:
+                game_args.extend((
+                    "--width", str(opts.resolution[0]),
+                    "--height", str(opts.resolution[1]),
+                ))
+        else:
+            interpret_args(modern_game_args, features, game_args)
+
+        # Global options.        
+        if opts.disable_multiplayer:
+            game_args.append("--disableMultiplayer")
+        if opts.disable_chat:
+            game_args.append("--disableChat")
+        if opts.server_address is not None:
+            game_args.extend(("--server", opts.server_address))
+        if opts.server_port is not None:
+            game_args.extend(("--port", str(opts.server_port)))
+
+        state.insert(VersionArgs(jvm_args, game_args, main_class, args_replacements))
 
 
 def parse_download_entry(value: Any, dst: Path, path: str) -> DownloadEntry:
@@ -943,6 +1105,22 @@ def interpret_rule_os(rule_os: dict) -> bool:
     return False
 
 
+def interpret_args(args: List[Union[str, dict]], features: Dict[str, bool], dst: List[str]) -> None:
+    for arg in args:
+        if isinstance(arg, str):
+            dst.append(arg)
+        else:
+            rules = arg.get("rules")
+            if rules is not None:
+                if not interpret_rule(rules, features):
+                    continue
+            arg_value = arg["value"]
+            if isinstance(arg_value, list):
+                dst.extend(arg_value)
+            elif isinstance(arg_value, str):
+                dst.append(arg_value)
+
+
 # Name of the OS has used by Minecraft.
 minecraft_os = {
     "Linux": "linux", 
@@ -976,6 +1154,27 @@ minecraft_jvm_os = None if minecraft_arch is None else {
     "Windows": {"x86": "windows-x86", "x86_64": "windows-x64"}
 }.get(platform.system(), {}).get(minecraft_arch)
 
+legacy_jvm_args = [
+    {
+        "rules": [{"action": "allow", "os": {"name": "osx"}}],
+        "value": ["-XstartOnFirstThread"]
+    },
+    {
+        "rules": [{"action": "allow", "os": {"name": "windows"}}],
+        "value": "-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump"
+    },
+    {
+        "rules": [{"action": "allow", "os": {"name": "windows", "version": "^10\\."}}],
+        "value": ["-Dos.name=Windows 10", "-Dos.version=10.0"]
+    },
+    "-Djava.library.path=${natives_directory}",
+    "-Dminecraft.launcher.brand=${launcher_name}",
+    "-Dminecraft.launcher.version=${launcher_version}",
+    "-cp",
+    "${classpath}"
+]
+
+
 
 def make_vanilla_sequence(version_id: str, *, 
     context: Optional[Context] = None,
@@ -1008,7 +1207,10 @@ def make_vanilla_sequence(version_id: str, *,
 
     seq.append_task(DownloadTask())
 
+    seq.append_task(ArgsTask())
+
     if run:
-        seq.append_task(RunTask())
+        # seq.append_task(RunTask())
+        pass
 
     return seq
