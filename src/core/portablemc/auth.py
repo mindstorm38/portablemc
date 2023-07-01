@@ -9,7 +9,7 @@ import json
 
 from uuid import UUID, uuid4, uuid5
 
-from .http import json_request
+from .http import HttpSession
 
 from typing import Optional, Dict, Type, Tuple
 

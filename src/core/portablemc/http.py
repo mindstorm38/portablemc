@@ -1,10 +1,11 @@
 """HTTP primitive functions.
 """
 
+from http.client import HTTPConnection, HTTPSConnection, HTTPException
 from http.client import HTTPResponse
 from urllib.error import HTTPError
-from json import JSONDecodeError
 import urllib.request
+import urllib.parse
 import json
 import ssl
 
@@ -73,19 +74,41 @@ class HttpSession:
         
         if accept is not None:
             headers["Accept"] = accept
+            
+        # url_parsed = urllib.parse.urlparse(url)
+        # if url_parsed.scheme not in ("http", "https"):
+        #     raise ValueError(f"Illegal URL scheme '{url_parsed.scheme}://' for HTTP connection.")
         
+        # if url_parsed.scheme == "https":
+
+        #     try:
+        #         import certifi
+        #         ctx = ssl.create_default_context(cafile=certifi.where())
+        #     except ImportError:
+        #         ctx = None
+            
+        #     conn = HTTPSConnection(url_parsed.netloc, context=ctx)
+        # else:
+        #     conn = HTTPConnection(url_parsed.netloc)
+
+        # conn.request(method, url, body=data, headers=headers)
+        # res = conn.getresponse()
+
+        # if res.status == 200:
+        #     return HttpResponse(res)
+        # else:
+        #     raise HttpError(HttpResponse(res), method, url)
+
         try:
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            ctx = None
 
-            try:
-                import certifi
-                ctx = ssl.create_default_context(cafile=certifi.where())
-            except ImportError:
-                ctx = None
-
+        try:
             req = urllib.request.Request(url, data, headers, method=method)
             res: HTTPResponse = urllib.request.urlopen(req, timeout=self.timeout, context=ctx)
             return HttpResponse(res)
-
         except HTTPError as error:
             raise HttpError(HttpResponse(cast(HTTPResponse, error)), method, url)
     
