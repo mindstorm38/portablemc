@@ -82,7 +82,6 @@ class VersionManifest:
         self.http = http
         self.data: Optional[dict] = None
         self.cache_file = cache_file
-        self.sync = False
 
     def _ensure_data(self) -> dict:
         """Internal method that ensure that the manifest data is up-to-date.
