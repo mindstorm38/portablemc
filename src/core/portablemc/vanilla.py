@@ -864,6 +864,10 @@ class JvmTask(Task):
 
     def execute(self, state: State, watcher: Watcher) -> None:
 
+        # Don't do anything if JVM is already provided.
+        if state.get(VersionJvm) is not None:
+            return
+        
         context = state[Context]
         metadata = state[FullMetadata].data
         dl = state[DownloadList]
@@ -1201,7 +1205,6 @@ def make_vanilla_sequence(version_id: str, *,
     context: Optional[Context] = None,
     version_manifest: Optional[VersionManifest] = None,
     jvm: bool = False,
-    run: bool = False,
 ) -> Sequence:
     """Make vanilla sequence for installing and running vanilla Minecraft versions.
     """
@@ -1218,16 +1221,11 @@ def make_vanilla_sequence(version_id: str, *,
     seq.append_task(LibrariesTask())
     seq.append_task(LoggerTask())
 
-    if jvm:
-        seq.append_task(JvmTask())
+    seq.append_task(JvmTask())
 
     seq.append_task(DownloadTask())
     seq.append_task(AssetsFinalizeTask())
 
     seq.append_task(ArgsTask())
-
-    if run:
-        # seq.append_task(RunTask())
-        pass
 
     return seq

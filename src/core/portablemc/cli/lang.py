@@ -51,7 +51,7 @@ lang = {
     "args.output": "Set the output format of the launcher, defaults to 'human' for human readable output, but you can select "
         "'json' for outputting one JSON object per line that describes the state.",
     # Args common langs
-    "args.common.login_service": "Authentication service type to use for logging in the game.",
+    "args.common.auth_service": "Authentication service type to use for logging in the game.",
     # Args search
     "args.search": "Search for Minecraft versions.",
     "args.search.kind": "Select the kind of search to operate.",
@@ -67,7 +67,7 @@ lang = {
     "args.start.jvm_args": "Change the default JVM arguments.",
     "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
         "order to improve the log readability in the console.",
-    "args.start.anonymize": "Anonymize your email or username for authentication messages.",
+    "args.start.auth_anonymize": "Anonymize your email or username for authentication messages.",
     "args.start.no_legacy_fix": "Flag that disable fixes for old versions (legacy merge sort, betacraft proxy), "
         "enabled by default.",
     "args.start.lwjgl": "Change the default LWJGL version used by Minecraft."
@@ -83,7 +83,7 @@ lang = {
         "Read the --exclude-lib help for use cases.",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
         "not already cached, disabled by default.",
-    "args.start.login": "Use a email (or deprecated username) to authenticate using selected service (with --login-service, also overrides --username and --uuid).",
+    "args.start.login": "Use a email (or deprecated username) to authenticate using selected service (with --auth-service, also overrides --username and --uuid).",
     "args.start.username": "Set a custom user name to play.",
     "args.start.uuid": "Set a custom user UUID to play.",
     "args.start.server": "Start the game and auto-connect to this server address (>= 1.6).",
