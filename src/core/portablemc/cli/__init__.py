@@ -2,6 +2,7 @@
 """
 
 from urllib.error import URLError
+from pathlib import Path
 import socket
 import ssl
 import sys
@@ -13,7 +14,7 @@ from .lang import get as _
 
 from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, DownloadError
 from ..auth import AuthDatabase, AuthSession, MicrosoftAuthSession, YggdrasilAuthSession, \
-    AuthError
+    OfflineAuthSession, AuthError
 from ..task import Watcher
 
 from ..vanilla import make_vanilla_sequence, Context, VersionManifest, \
@@ -22,7 +23,8 @@ from ..vanilla import make_vanilla_sequence, Context, VersionManifest, \
     AssetsResolveEvent, \
     LibraryResolveEvent, \
     LoggerFoundEvent, \
-    JvmResolveEvent, JvmNotFoundError
+    VersionJvm, JvmResolveEvent, JvmNotFoundError, \
+    VersionArgsOptions
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
 
@@ -132,24 +134,6 @@ def cmd(handler: CommandHandler, ns: RootNs):
         import traceback
         traceback.print_exc()
 
-    except VersionNotFoundError as error:
-        ns.out.task("FAILED", "start.version.not_found", version=error.version.id)
-        ns.out.finish()
-    
-    except TooMuchParentsError as error:
-        ns.out.task("FAILED", "start.version.too_much_parents")
-        ns.out.finish()
-        ns.out.task(None, "echo", echo=", ".join(map(lambda v: v.id, error.versions)))
-        ns.out.finish()
-
-    except JarNotFoundError as error:
-        ns.out.task("FAILED", "start.jar.not_found")
-        ns.out.finish()
-
-    except JvmNotFoundError as error:
-        ns.out.task("FAILED", f"start.jvm.not_found.{error.code}")
-        ns.out.finish()
-
     except DownloadError as error:
         ns.out.task("FAILED", None)
         ns.out.finish()
@@ -218,10 +202,53 @@ def cmd_start(ns: StartNs):
             version_manifest=ns.version_manifest,
             jvm=True)
     
+    args_opts = VersionArgsOptions()
+    args_opts.disable_multiplayer = ns.disable_mp
+    args_opts.disable_chat = ns.disable_chat
+    args_opts.demo = ns.demo
+    args_opts.server_address = ns.server
+    args_opts.server_port = ns.server_port
+    args_opts.fix_legacy = not ns.no_legacy_fix
+    args_opts.resolution = ns.resolution
+
+    if ns.login is not None:
+        args_opts.auth_session = prompt_authenticate(ns, ns.login, not ns.temp_login, ns.auth_service, ns.auth_anonymize)
+        if args_opts.auth_session is None:
+            sys.exit(EXIT_FAILURE)
+    else:
+        args_opts.auth_session = OfflineAuthSession(ns.username, ns.uuid)
+
+    sequence.insert_state(args_opts)
+
+    if ns.jvm is not None:
+        sequence.insert_state(VersionJvm(Path(ns.jvm), None))
+
     sequence.add_watcher(StartWatcher(ns.out))
     sequence.add_watcher(DownloadWatcher(ns.out))
 
-    sequence.execute()
+    try:
+        sequence.execute()
+        sys.exit(EXIT_OK)
+
+    except VersionNotFoundError as error:
+        ns.out.task("FAILED", "start.version.not_found", version=error.version.id)
+        ns.out.finish()
+    
+    except TooMuchParentsError as error:
+        ns.out.task("FAILED", "start.version.too_much_parents")
+        ns.out.finish()
+        ns.out.task(None, "echo", echo=", ".join(map(lambda v: v.id, error.versions)))
+        ns.out.finish()
+
+    except JarNotFoundError as error:
+        ns.out.task("FAILED", "start.jar.not_found")
+        ns.out.finish()
+
+    except JvmNotFoundError as error:
+        ns.out.task("FAILED", f"start.jvm.not_found.{error.code}")
+        ns.out.finish()
+    
+    sys.exit(EXIT_FAILURE)
 
     
 class StartWatcher(Watcher):
@@ -306,14 +333,20 @@ class DownloadWatcher(Watcher):
 
 
 def cmd_login(ns: LoginNs):
-    session = prompt_authenticate(ns, ns.email_or_username, True, ns.login_service)
+    session = prompt_authenticate(ns, ns.email_or_username, True, ns.auth_service)
     sys.exit(EXIT_FAILURE if session is None else EXIT_OK)
 
 
 def cmd_logout(ns: LogoutNs):
-    ns.out.task("", f"logout.{ns.login_service}.pending", email=ns.email_or_username)
+
+    session_class = {
+        "microsoft": MicrosoftAuthSession,
+        "yggdrasil": YggdrasilAuthSession,
+    }[ns.auth_service]
+
+    ns.out.task("", f"logout.{ns.auth_service}.pending", email=ns.email_or_username)
     ns.auth_database.load()
-    session = ns.auth_database.remove(ns.email_or_username, MicrosoftAuthSession if ns.microsoft else YggdrasilAuthSession)
+    session = ns.auth_database.remove(ns.email_or_username, session_class)
     if session is not None:
         session.invalidate()
         ns.auth_database.save()

@@ -14,7 +14,7 @@ from typing import Optional, Type, Tuple, List
 # The following classes are only used for type checking and represent a typed namespace
 # as produced by the arguments registered to the argument parser.
 
-class RootNs(Namespace):
+class RootNs:
     main_dir: Optional[Path]
     work_dir: Optional[Path]
     timeout: float
@@ -37,14 +37,14 @@ class StartNs(RootNs):
     jvm: Optional[str]
     jvm_args: Optional[str]
     no_better_logging: bool
-    anonymize: bool
     no_legacy_fix: bool
     lwjgl: Optional[str]
     exclude_lib: Optional[List[LibrarySpecifierFilter]]
     include_bin: Optional[List[str]]
     temp_login: bool
     login: str
-    login_service: str
+    auth_service: str
+    auth_anonymize: bool
     username: Optional[str]
     uuid: Optional[str]
     server: Optional[str]
@@ -52,11 +52,11 @@ class StartNs(RootNs):
     version: str
 
 class LoginNs(RootNs):
-    login_service: str
+    auth_service: str
     email_or_username: str
 
 class LogoutNs(RootNs):
-    login_service: str
+    auth_service: str
     email_or_username: str
 
 
@@ -84,8 +84,8 @@ def register_search_arguments(parser: ArgumentParser):
     parser.add_argument("input", nargs="?")
 
 
-def register_common_login_service(parser: ArgumentParser):
-    parser.add_argument("--login-service", help=_("args.common.login_service"), default="microsoft", choices=["microsoft", "yggdrasil"])
+def register_common_auth_service(parser: ArgumentParser):
+    parser.add_argument("--auth-service", help=_("args.common.auth_service"), default="microsoft", choices=["microsoft", "yggdrasil"])
 
 
 def register_start_arguments(parser: ArgumentParser):
@@ -106,12 +106,12 @@ def register_start_arguments(parser: ArgumentParser):
     parser.add_argument("--jvm", help=_("args.start.jvm"))
     parser.add_argument("--jvm-args", help=_("args.start.jvm_args"))
     parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
-    parser.add_argument("--anonymize", help=_("args.start.anonymize"), action="store_true")
     parser.add_argument("--no-legacy-fix", help=_("args.start.no_legacy_fix"), action="store_true")
     parser.add_argument("--lwjgl", help=_("args.start.lwjgl"), choices=["3.2.3", "3.3.0", "3.3.1"])
     parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), action="append", type=LibrarySpecifierFilter.from_str)
     parser.add_argument("--include-bin", help=_("args.start.include_bin"), action="append")
-    register_common_login_service(parser)
+    parser.add_argument("--auth-anonymize", help=_("args.start.auth_anonymize"), action="store_true")
+    register_common_auth_service(parser)
     parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
     parser.add_argument("-l", "--login", help=_("args.start.login"))
     parser.add_argument("-u", "--username", help=_("args.start.username"), metavar="NAME")
@@ -122,12 +122,12 @@ def register_start_arguments(parser: ArgumentParser):
 
 
 def register_login_arguments(parser: ArgumentParser):
-    register_common_login_service(parser)
+    register_common_auth_service(parser)
     parser.add_argument("email_or_username")
 
 
 def register_logout_arguments(parser: ArgumentParser):
-    register_common_login_service(parser)
+    register_common_auth_service(parser)
     parser.add_argument("email_or_username")
 
 
