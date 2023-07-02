@@ -2,7 +2,7 @@ from argparse import ArgumentParser, HelpFormatter, Namespace
 from pathlib import Path
 
 from ..vanilla import Context, VersionManifest
-from ..http import HttpSession
+from ..auth import AuthDatabase
 
 from .output import Output, HumanOutput, JsonOutput
 from .util import LibrarySpecifierFilter
@@ -20,9 +20,9 @@ class RootNs(Namespace):
     timeout: float
     out: Output
     # Initialized by main function after argument parsing.
-    http: HttpSession
     context: Context
     version_manifest: VersionManifest
+    auth_database: AuthDatabase
 
 class SearchNs(RootNs):
     kind: str
@@ -59,18 +59,6 @@ class LogoutNs(RootNs):
     login_service: str
     email_or_username: str
 
-class ShowNs(RootNs):
-    pass
-
-class ShowAboutNs(ShowNs):
-    pass
-
-class ShowAuthNs(ShowNs):
-    pass
-
-class ShowLangNs(ShowNs):
-    pass
-
 
 def register_arguments() -> ArgumentParser:
     parser = ArgumentParser(allow_abbrev=False, prog="portablemc", description=_("args"))
@@ -97,7 +85,7 @@ def register_search_arguments(parser: ArgumentParser):
 
 
 def register_common_login_service(parser: ArgumentParser):
-    parser.add_argument("--login-service", help=_("args.common.login_service"), default="microsoft", choices=["microsoft", "mojang"])
+    parser.add_argument("--login-service", help=_("args.common.login_service"), default="microsoft", choices=["microsoft", "yggdrasil"])
 
 
 def register_start_arguments(parser: ArgumentParser):

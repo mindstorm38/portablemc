@@ -2,19 +2,18 @@
 """
 
 from urllib.error import URLError
-import itertools
 import socket
-import time
 import ssl
 import sys
 
-from .parse import register_arguments, RootNs, SearchNs, StartNs
-from .util import format_locale_date, format_number
+from .parse import register_arguments, RootNs, SearchNs, StartNs, LoginNs, LogoutNs
+from .util import format_locale_date, format_number, anonymize_email
 from .output import Output, OutputTable
 from .lang import get as _
 
 from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, DownloadError
-from ..http import HttpSession
+from ..auth import AuthDatabase, AuthSession, MicrosoftAuthSession, YggdrasilAuthSession, \
+    AuthError
 from ..task import Watcher
 
 from ..vanilla import make_vanilla_sequence, Context, VersionManifest, \
@@ -25,7 +24,7 @@ from ..vanilla import make_vanilla_sequence, Context, VersionManifest, \
     LoggerFoundEvent, \
     JvmResolveEvent, JvmNotFoundError
 
-from typing import cast, Optional, List, Union, Dict, Callable, Any
+from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
 
 
 EXIT_OK = 0
@@ -33,6 +32,7 @@ EXIT_FAILURE = 1
 
 AUTH_DATABASE_FILE_NAME = "portablemc_auth.json"
 MANIFEST_CACHE_FILE_NAME = "portablemc_version_manifest.json"
+MICROSOFT_AZURE_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
 
 CommandHandler = Callable[[Any], Any]
 CommandTree = Dict[str, Union[CommandHandler, "CommandTree"]]
@@ -49,8 +49,9 @@ def main(args: Optional[List[str]] = None):
 
     # Setup common objects in the namespace.
     ns.context = Context(ns.main_dir, ns.work_dir)
-    ns.http = HttpSession(timeout=ns.timeout)
-    ns.version_manifest = VersionManifest(ns.http, ns.context.work_dir / MANIFEST_CACHE_FILE_NAME)
+    ns.version_manifest = VersionManifest(ns.context.work_dir / MANIFEST_CACHE_FILE_NAME)
+    ns.auth_database = AuthDatabase(ns.context.work_dir / AUTH_DATABASE_FILE_NAME)
+    socket.setdefaulttimeout(ns.timeout)
 
     # Find the command handler and run it.
     command_handlers = get_command_handlers()
@@ -79,13 +80,13 @@ def get_command_handlers() -> CommandTree:
     return {
         "search": cmd_search,
         "start": cmd_start,
-        # "login": cmd_login,
-        # "logout": cmd_logout,
-        # "show": {
-        #     "about": cmd_show_about,
-        #     "auth": cmd_show_auth,
-        #     "lang": cmd_show_lang,
-        # },
+        "login": cmd_login,
+        "logout": cmd_logout,
+        "show": {
+            "about": cmd_show_about,
+            "auth": cmd_show_auth,
+            "lang": cmd_show_lang,
+        },
         # "addon": {
         #     "list": cmd_addon_list,
         #     "show": cmd_addon_show
@@ -160,6 +161,7 @@ def cmd(handler: CommandHandler, ns: RootNs):
 
 
 def cmd_search(ns: SearchNs):
+
 
     def cmd_search_manifest(search: Optional[str], table: OutputTable):
         
@@ -301,3 +303,251 @@ class DownloadWatcher(Watcher):
         elif isinstance(event, DownloadCompleteEvent):
             self.out.task("OK", None)
             self.out.finish()
+
+
+def cmd_login(ns: LoginNs):
+    session = prompt_authenticate(ns, ns.email_or_username, True, ns.login_service)
+    sys.exit(EXIT_FAILURE if session is None else EXIT_OK)
+
+
+def cmd_logout(ns: LogoutNs):
+    ns.out.task("", f"logout.{ns.login_service}.pending", email=ns.email_or_username)
+    ns.auth_database.load()
+    session = ns.auth_database.remove(ns.email_or_username, MicrosoftAuthSession if ns.microsoft else YggdrasilAuthSession)
+    if session is not None:
+        session.invalidate()
+        ns.auth_database.save()
+        ns.out.task("OK", "logout.success", email=ns.email_or_username)
+        ns.out.finish()
+        sys.exit(EXIT_OK)
+    else:
+        ns.out.task("FAILED", "logout.unknown_session", email=ns.email_or_username)
+        ns.out.finish()
+        sys.exit(EXIT_FAILURE)
+
+
+def prompt_authenticate(ns: RootNs, email: str, caching: bool, service: str, anonymise: bool = False) -> Optional[AuthSession]:
+    """Prompt the user to login using the given email (or legacy username) for specific 
+    service (Microsoft or Yggdrasil) and return the :class:`AuthSession` if successful, 
+    None otherwise. This function handles task printing and all exceptions are caught 
+    internally.
+    """
+
+    session_class = {
+        "microsoft": MicrosoftAuthSession,
+        "yggdrasil": YggdrasilAuthSession,
+    }[service]
+
+    ns.auth_database.load()
+
+    task_text = f"auth.{service}"
+    email_text = anonymize_email(email) if anonymise else email
+
+    ns.out.task("..", task_text, email=email_text)
+
+    session = ns.auth_database.get(email, session_class)
+    if session is not None:
+        try:
+            
+            if not session.validate():
+                ns.out.task(None, "auth.refreshing")
+                session.refresh()
+                ns.auth_database.save()
+                ns.out.task("OK", "auth.refreshed", email=email_text)
+            else:
+                ns.out.task("OK", "auth.validated", email=email_text)
+
+            ns.out.finish()
+            return session
+        
+        except AuthError as error:
+            ns.out.task("FAILED", None)
+            ns.out.task(None, "auth.error", message=str(error))
+            ns.out.finish()
+
+    ns.out.task("..", task_text, email=email_text)
+    ns.out.finish()
+
+    try:
+
+        if service == "microsoft":
+            session = prompt_microsoft_authenticate(ns, email)
+        else:
+            session = prompt_yggdrasil_authenticate(ns, email)
+        
+    except AuthError as error:
+        ns.out.task("FAILED", None)
+        ns.out.task(None, "auth.error", message=str(error))
+        ns.out.finish()
+        return None
+
+    if session is None:
+        return None
+    if caching:
+        ns.out.task("..", "auth.caching")
+        ns.auth_database.put(email, session)
+        ns.auth_database.save()
+    
+    ns.out.task("OK", "auth.logged_in")
+    ns.out.finish()
+
+    return session
+
+
+def prompt_yggdrasil_authenticate(ns: RootNs, email_or_username: str) -> Optional[YggdrasilAuthSession]:
+    ns.out.task(None, "auth.yggdrasil.enter_password")
+    password = ns.out.prompt(password=True)
+    if password is None:
+        ns.out.task("FAILED", "cancelled")
+        ns.out.finish()
+        return None
+    else:
+        return YggdrasilAuthSession.authenticate(ns.auth_database.get_client_id(), email_or_username, password)
+
+
+def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftAuthSession]:
+
+    from .. import LAUNCHER_NAME, LAUNCHER_VERSION
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import urllib.parse
+    import webbrowser
+    import uuid
+
+    server_port = 12782
+    app_id = MICROSOFT_AZURE_APP_ID
+    redirect_auth = "http://localhost:{}".format(server_port)
+    code_redirect_uri = "{}/code".format(redirect_auth)
+    exit_redirect_uri = "{}/exit".format(redirect_auth)
+
+    nonce = uuid.uuid4().hex
+
+    auth_url = MicrosoftAuthSession.get_authentication_url(app_id, code_redirect_uri, email, nonce)
+    if not webbrowser.open(auth_url):
+        ns.out.task("FAILED", "auth.microsoft.no_browser")
+        ns.out.finish()
+        return None
+
+    class AuthServer(HTTPServer):
+
+        def __init__(self):
+            super().__init__(("", server_port), RequestHandler)
+            self.timeout = 0.5
+            self.ms_auth_done = False
+            self.ms_auth_id_token: Optional[str] = None
+            self.ms_auth_code: Optional[str] = None
+
+    class RequestHandler(BaseHTTPRequestHandler):
+
+        server_version = f"{LAUNCHER_NAME}/{LAUNCHER_VERSION}"
+
+        def __init__(self, request, client_address: Tuple[str, int], auth_server: AuthServer) -> None:
+            super().__init__(request, client_address, auth_server)
+
+        def log_message(self, _format: str, *args: Any):
+            return
+
+        def send_auth_response(self, msg: str):
+            self.end_headers()
+            self.wfile.write("{}\n\n{}".format(msg, _('auth.microsoft.close_tab_and_return') if cast(AuthServer, self.server).ms_auth_done else "").encode())
+            self.wfile.flush()
+
+        def do_POST(self):
+            if self.path.startswith("/code") and self.headers.get_content_type() == "application/x-www-form-urlencoded":
+                content_length = int(self.headers["Content-Length"])
+                qs = urllib.parse.parse_qs(self.rfile.read(content_length).decode())
+                auth_server = cast(AuthServer, self.server)
+                if "code" in qs and "id_token" in qs:
+                    self.send_response(307)
+                    # We log out the user directly after authorization, this just clear the browser cache to allow
+                    # another user to authenticate with another email after. This doesn't invalid the access token.
+                    self.send_header("Location", MicrosoftAuthSession.get_logout_url(app_id, exit_redirect_uri))
+                    auth_server.ms_auth_id_token = qs["id_token"][0]
+                    auth_server.ms_auth_code = qs["code"][0]
+                    self.send_auth_response("Redirecting...")
+                elif "error" in qs:
+                    self.send_response(400)
+                    auth_server.ms_auth_done = True
+                    self.send_auth_response("Error: {} ({}).".format(qs["error_description"][0], qs["error"][0]))
+                else:
+                    self.send_response(404)
+                    self.send_auth_response("Missing parameters.")
+            else:
+                self.send_response(404)
+                self.send_auth_response("Unexpected page.")
+
+        def do_GET(self):
+            auth_server = cast(AuthServer, self.server)
+            if self.path.startswith("/exit"):
+                self.send_response(200)
+                auth_server.ms_auth_done = True
+                self.send_auth_response("Logged in.")
+            else:
+                self.send_response(404)
+                self.send_auth_response("Unexpected page.")
+
+    ns.out.task("", "auth.microsoft.opening_browser_and_listening")
+
+    with AuthServer() as server:
+        try:
+            while not server.ms_auth_done:
+                server.handle_request()
+        except KeyboardInterrupt:
+            pass
+
+    if server.ms_auth_code is None or server.ms_auth_id_token is None:
+        ns.out.task("FAILED", "auth.microsoft.failed_to_authenticate")
+        ns.out.finish()
+        return None
+    else:
+        ns.out.task("", "auth.microsoft.processing")
+        if MicrosoftAuthSession.check_token_id(server.ms_auth_id_token, email, nonce):
+            return MicrosoftAuthSession.authenticate(ns.auth_database.get_client_id(), app_id, server.ms_auth_code, code_redirect_uri)
+        else:
+            ns.out.task("FAILED", "auth.microsoft.incoherent_data")
+            ns.out.finish()
+            return None
+
+
+def cmd_show_about(ns: RootNs):
+    
+    from .. import LAUNCHER_VERSION, LAUNCHER_AUTHORS, LAUNCHER_URL, LAUNCHER_COPYRIGHT
+
+    print(f"Version: {LAUNCHER_VERSION}")
+    print(f"Authors: {', '.join(LAUNCHER_AUTHORS)}")
+    print(f"Website: {LAUNCHER_URL}")
+    print(f"License: {LAUNCHER_COPYRIGHT}")
+    print( "         This program comes with ABSOLUTELY NO WARRANTY. This is free software,")
+    print( "         and you are welcome to redistribute it under certain conditions.")
+    print( "         See <https://www.gnu.org/licenses/gpl-3.0.html>.")
+
+
+def cmd_show_auth(ns: RootNs):
+
+    ns.auth_database.load()
+    table = ns.out.table()
+
+     # Intentionally not i18n for now because used for debug purpose.
+    table.add("Type", "Email", "Username", "UUID")
+    table.separator()
+
+    for auth_type, auth_type_sessions in ns.auth_database.sessions.items():
+        for email, sess in auth_type_sessions.items():
+            table.add(auth_type, email, sess.username, sess.uuid)
+    
+    table.print()
+
+
+def cmd_show_lang(ns: RootNs):
+
+    from .lang import lang
+
+    table = ns.out.table()
+
+     # Intentionally not i18n for now because used for debug purpose.
+    table.add("Key", "Message")
+    table.separator()
+
+    for key, msg in lang.items():
+        table.add(key, msg)
+
+    table.print()

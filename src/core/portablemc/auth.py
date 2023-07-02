@@ -2,14 +2,13 @@
 """
 
 from urllib import parse as url_parse
+from uuid import UUID, uuid4, uuid5
 from pathlib import Path
 import platform
 import base64
 import json
 
-from uuid import UUID, uuid4, uuid5
-
-from .http import HttpSession
+from .http import HttpError, http_request
 
 from typing import Optional, Dict, Type, Tuple
 
@@ -159,15 +158,18 @@ class YggdrasilAuthSession(AuthSession):
         return sess
 
     @classmethod
-    def request(cls, req: str, payload: dict, error: bool = True) -> Tuple[int, dict]:
-        code, res = json_request(f"https://authserver.mojang.com/{req}", 
-            "POST",
-            data=json.dumps(payload).encode("ascii"),
-            headers={"Content-Type": "application/json"},
-            ignore_error=True)
-        if error and code != 200:
-            raise AuthError(res["errorMessage"])
-        return code, res
+    def request(cls, req: str, payload: dict, raise_error: bool = True) -> Tuple[int, dict]:
+        try:
+            res = http_request("POST", f"https://authserver.mojang.com/{req}", 
+                data=json.dumps(payload).encode("ascii"),
+                accept="application/json",
+                content_type="application/json")
+            return res.status, res.json()
+        except HttpError as error:
+            if raise_error:
+                raise AuthError(error.res.json()["errorMessage"])
+            else:
+                return error.res.status, error.res.json()
 
 
 class MicrosoftAuthSession(AuthSession):
@@ -201,14 +203,15 @@ class MicrosoftAuthSession(AuthSession):
 
     def validate(self) -> bool:
         self._new_username = None
-        code, res = self.mc_request_profile(self.access_token)
-        if code == 200:
+        try:
+            res = self.mc_request_profile(self.access_token)
             username = res["name"]
             if self.username != username:
                 self._new_username = username
                 return False
             return True
-        return False
+        except HttpError:
+            return False
 
     def refresh(self):
         if self._new_username is not None:
@@ -274,15 +277,15 @@ class MicrosoftAuthSession(AuthSession):
     def authenticate_base(cls, request_token_payload: dict) -> dict:
 
         # Microsoft OAuth
-        _, res = cls.ms_request("https://login.live.com/oauth20_token.srf", request_token_payload, payload_url_encoded=True)
-
-        if "error" in res:
+        try:
+            res = cls.ms_request("https://login.live.com/oauth20_token.srf", request_token_payload, payload_url_encoded=True)
+        except HttpError:
             raise OutdatedTokenError()
 
         ms_refresh_token = res.get("refresh_token")
 
         # Xbox Live Token
-        _, res = cls.ms_request("https://user.auth.xboxlive.com/user/authenticate", {
+        res = cls.ms_request("https://user.auth.xboxlive.com/user/authenticate", {
             "Properties": {
                 "AuthMethod": "RPS",
                 "SiteName": "user.auth.xboxlive.com",
@@ -296,7 +299,7 @@ class MicrosoftAuthSession(AuthSession):
         xbl_user_hash = res["DisplayClaims"]["xui"][0]["uhs"]
 
         # Xbox Live XSTS Token
-        _, res = cls.ms_request("https://xsts.auth.xboxlive.com/xsts/authorize", {
+        res = cls.ms_request("https://xsts.auth.xboxlive.com/xsts/authorize", {
             "Properties": {
                 "SandboxId": "RETAIL",
                 "UserTokens": [xbl_token]
@@ -310,20 +313,22 @@ class MicrosoftAuthSession(AuthSession):
             raise AuthError("inconsistent user hash")
 
         # MC Services Auth
-        _, res = cls.ms_request("https://api.minecraftservices.com/authentication/login_with_xbox", {
+        res = cls.ms_request("https://api.minecraftservices.com/authentication/login_with_xbox", {
             "identityToken": f"XBL3.0 x={xbl_user_hash};{xsts_token}"
         })
         mc_access_token = res["access_token"]
 
         # MC Services Profile
-        code, res = cls.mc_request_profile(mc_access_token)
-
-        if code == 404:
-            raise DoesNotOwnMinecraftError()
-        elif code == 401:
-            raise OutdatedTokenError()
-        elif "error" in res or code != 200:
-            raise AuthError(res.get("errorMessage", res.get("error", "Unknown error")))
+        try:
+            res = cls.mc_request_profile(mc_access_token)
+        except HttpError as error:
+            if error.res.status == 404:
+                raise DoesNotOwnMinecraftError()
+            elif error.res.status == 401:
+                raise OutdatedTokenError()
+            else:
+                res = error.res.json()
+                raise AuthError(res.get("errorMessage", res.get("error", "Unknown error")))
 
         return {
             "refresh_token": ms_refresh_token,
@@ -333,15 +338,15 @@ class MicrosoftAuthSession(AuthSession):
         }
 
     @classmethod
-    def ms_request(cls, url: str, payload: dict, *, payload_url_encoded: bool = False) -> Tuple[int, dict]:
+    def ms_request(cls, url: str, payload: dict, *, payload_url_encoded: bool = False) -> dict:
         data = (url_parse.urlencode(payload) if payload_url_encoded else json.dumps(payload)).encode("ascii")
         content_type = "application/x-www-form-urlencoded" if payload_url_encoded else "application/json"
-        return json_request(url, "POST", data=data, headers={"Content-Type": content_type})
+        return http_request("POST", url, data=data, content_type=content_type).json()
 
     @classmethod
-    def mc_request_profile(cls, bearer: str) -> Tuple[int, dict]:
+    def mc_request_profile(cls, bearer: str) -> dict:
         url = "https://api.minecraftservices.com/minecraft/profile"
-        return json_request(url, "GET", headers={"Authorization": f"Bearer {bearer}"}, ignore_error=True)
+        return http_request("GET", url, headers={"Authorization": f"Bearer {bearer}"}).json()
 
     @classmethod
     def base64url_decode(cls, s: str) -> bytes:
@@ -356,7 +361,7 @@ class MicrosoftAuthSession(AuthSession):
 
 
 class AuthDatabase:
-    """The authentication database used to keep sessions stored. It also keeps a client
+    """The authentication database used to keep sessions stored. It also keeps a clien
     id which is common to all sessions to identify the client.
     """
 

@@ -70,6 +70,11 @@ class Output:
         """
         raise NotImplementedError
 
+    def prompt(self, password: bool = False) -> Optional[str]:
+        """Prompt for a line to come on standard input.
+        """
+        raise NotImplementedError
+
 
 class HumanOutput(Output):
 
@@ -123,6 +128,16 @@ class HumanOutput(Output):
     def finish(self) -> None:
         if self.last_len is not None:
             print()
+    
+    def prompt(self, password: bool = False) -> Optional[str]:
+        try:
+            if password:
+                import getpass
+                return getpass.getpass("")
+            else:
+                return input("")
+        except KeyboardInterrupt:
+            return None
 
 class HumanTable(OutputTable):
     
@@ -138,15 +153,20 @@ class HumanTable(OutputTable):
         total_length = 1 + sum(x + 3 for x in columns_length)
         max_length = self.out.get_term_width() - 1
         if total_length > max_length:
+            
             overflow_length = total_length - max_length
-            total_cell_length = sum(columns_length)
+            total_columns_length = sum(columns_length)
+
             for i in range(columns_count):
-                cell_overflow_length = int(columns_length[i] / total_cell_length * overflow_length)
+                column_ratio = columns_length[i] / max_length
+                cell_overflow_length = int(columns_length[i] / total_columns_length * column_ratio * overflow_length)
                 overflow_length -= cell_overflow_length
                 columns_length[i] -= cell_overflow_length
                 if i == columns_count - 1:
                     columns_length[i] -= overflow_length
         
+        print(columns_length)
+
         format_string = "│ {} │".format(" │ ".join((f"{{:{length}s}}" for length in columns_length)))
         columns_lines = ["─" * length for length in columns_length]
 
@@ -171,8 +191,10 @@ class HumanTable(OutputTable):
                     format_columns[col_index] = col_real
                     # If wrapped, take the rest and save it for next iteration.
                     if col != col_real:
-                        wrapped_row[col_index] = col[col_len:]
+                        wrapped_row[col_index] = f" {col[col_len:]}"
                         wrapped = True
+                    else:
+                        wrapped_row[col_index] = ""
                 
                 print(format_string.format(*format_columns))
         
@@ -189,6 +211,17 @@ class JsonOutput(Output):
 
     def finish(self) -> None:
         pass
+
+    def prompt(self, password: bool = False) -> Optional[str]:
+        print(json.dumps({"prompt": True, "password": password}))
+        try:
+            if password:
+                import getpass
+                return getpass.getpass("")
+            else:
+                return input("")
+        except KeyboardInterrupt:
+            return None
 
 class JsonTable(OutputTable):
 
