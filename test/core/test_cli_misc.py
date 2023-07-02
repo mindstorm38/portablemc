@@ -1,7 +1,7 @@
 
 def test_format_locale_date():
 
-    from portablemc.cli import format_locale_date
+    from portablemc.cli.util import format_locale_date
 
     assert isinstance(format_locale_date("2022-06-23T17:01:27+00:00"), str)
     assert isinstance(format_locale_date(1656164315.0), str)
@@ -9,53 +9,44 @@ def test_format_locale_date():
 
 def test_format_number():
 
-    from portablemc.cli import format_number, format_bytes
+    from portablemc.cli.util import format_number, format_duration
 
     assert format_number(0) == "0"
     assert format_number(999) == "999"
-    assert format_number(1000) == "1.0k"
-    assert format_number(999999) == "999.9k"
-    assert format_number(1000000) == "1.0M"
-    assert format_number(999999999) == "999.9M"
-    assert format_number(1000000000) == "1.0G"
-    assert format_number(1000000000000) == "1000.0G"
+    assert format_number(1000) == "1.0 k"
+    assert format_number(999999) == "999.9 k"
+    assert format_number(1000000) == "1.0 M"
+    assert format_number(999999999) == "999.9 M"
+    assert format_number(1000000000) == "1.0 G"
+    assert format_number(1000000000000) == "1000.0 G"
 
-    assert format_bytes(0) == "0B"
-    assert format_bytes(999) == "999B"
-    assert format_bytes(1000) == "1.0kB"
-    assert format_bytes(999999) == "999.9kB"
-    assert format_bytes(1000000) == "1.0MB"
-    assert format_bytes(999999999) == "999.9MB"
-    assert format_bytes(1000000000) == "1.0GB"
-    assert format_bytes(1000000000000) == "1000.0GB"
-
-
-def test_ellipsis_str():
-
-    from portablemc.cli import ellipsis_str
-
-    assert ellipsis_str("abc", 4) == "abc"
-    assert ellipsis_str("abcd", 4) == "abcd"
-    assert ellipsis_str("abcde", 4) == "a..."
+    assert format_duration(0) == "0 s"
+    assert format_duration(59) == "59 s"
+    assert format_duration(60) == "1 m"
+    assert format_duration(119) == "1 m"
+    assert format_duration(120) == "2 m"
+    assert format_duration(3599) == "59 m"
+    assert format_duration(3600) == "1 h"
+    assert format_duration(7200) == "2 h"
 
 
 def test_anonymise_email():
-    from portablemc.cli import anonymise_email
-    assert anonymise_email("foo.bar@baz.com") == "f*****r@b*z.com"
+    from portablemc.cli.util import anonymize_email
+    assert anonymize_email("foo.bar@baz.com") == "f*****r@b*z.com"
 
 
 def test_register_arguments():
 
     from portablemc.cli import register_arguments
 
-    # Ensure that the arguments registering successfuly works.
+    # Ensure that the arguments registering successfully works.
     register_arguments()
 
 
 def test_library_specifier_filter():
     
-    from portablemc.cli import LibrarySpecifierFilter
-    from portablemc import LibrarySpecifier
+    from portablemc.cli.util import LibrarySpecifierFilter
+    from portablemc.util import LibrarySpecifier
 
     assert str(LibrarySpecifierFilter("baz", None, None)) == "baz:"
     assert str(LibrarySpecifierFilter("baz", "0.1.0", None)) == "baz:0.1.0"
