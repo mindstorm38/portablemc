@@ -1,14 +1,16 @@
-from portablemc import Context, Version, Start, StartOptions
-from os import path
 from pathlib import Path
-import pytest
+from os import path
 import shutil
+import pytest
+
+from portablemc.vanilla import Context
+# from portablemc import Context, Version, Start, StartOptions
 
 
-class NoValidationVersion(Version):
+# class NoValidationVersion(Version):
 
-    def _validate_version_meta(self, version_id: str, version_dir: str, version_meta_file: str, version_meta: dict) -> bool:
-        return True  # To avoid fetching the online manifest
+#     def _validate_version_meta(self, version_id: str, version_dir: str, version_meta_file: str, version_meta: dict) -> bool:
+#         return True  # To avoid fetching the online manifest
 
 
 @pytest.mark.parametrize("version", ["b1.8.1", "1.5.2", "1.7.10", "1.16.5", "1.17.1", "1.18.1.nopath", "1.19"])
