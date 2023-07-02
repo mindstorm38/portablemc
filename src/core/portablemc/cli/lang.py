@@ -32,7 +32,7 @@ def get(key: str, **kwargs) -> str:
 
 
 lang = {
-        # Addons
+    # Addons
     "addon.import_error": "The addon '{addon}' has failed to build because some packages is missing:",
     "addon.unknown_error": "The addon '{addon}' has failed to build for unknown reason:",
     # Args root
@@ -103,13 +103,6 @@ lang = {
     "args.addon": "Addons management subcommands.",
     "args.addon.list": "List addons.",
     "args.addon.show": "Show an addon details.",
-    # Common
-    # "continue_using_main_dir": "Continue using this main directory ({})? (y/N) ",
-    # "cancelled": "Cancelled.",
-    # Version manifest error
-    # f"version_manifest.error.{VersionManifestError.NOT_FOUND}": "Failed to load version manifest, timed out or not locally cached.",
-    # # Json Request
-    # f"json_request.error.{JsonRequestError.INVALID_RESPONSE_NOT_JSON}": "Invalid JSON response from {method} {url}, status: {status}, data: {data}",
     # Misc errors
     "error.os": "An unexpected OS error happened:",
     "error.socket": "This operation requires an operational network, but a socket error happened:",
@@ -198,5 +191,6 @@ lang = {
     # f"auth.error.{AuthError.MICROSOFT}": "Misc error: {details}."
 
     # Common
-    "echo": "{echo}"
+    "echo": "{echo}",
+    "cancelled": "Cancelled.",
 }
