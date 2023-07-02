@@ -12,7 +12,7 @@ import os
 
 from .task import Task, State, Watcher
 
-from typing import Optional, Dict, List, Tuple, Union
+from typing import Optional, Dict, List, Tuple, Union, Iterator
 
 
 class DownloadTask(Task):
@@ -20,11 +20,7 @@ class DownloadTask(Task):
 
     This task performs a mass download of files, this is basically
     used to download assets and libraries. This task setup a state
-    that holds a `DownloadList` object. The state key can be specified
-    and defaults to "dl".
-
-    Input:
-        <key> (Path): The download list 
+    that holds a `DownloadList` object.
     """
 
     def setup(self, state: State) -> None:
@@ -34,35 +30,17 @@ class DownloadTask(Task):
 
         dl = state[DownloadList]
         entries_count = len(dl.entries)
-        if entries_count == 0:
+
+        if not entries_count:
             return
-
-        threads_count = (os.cpu_count() or 1) * 4
-        threads: List[Thread] = []
-
-        entries_queue = Queue()
-        result_queue = Queue()
-
-        for th_id in range(threads_count):
-            th = Thread(target=_download_thread, 
-                        args=(th_id, entries_queue, result_queue), 
-                        daemon=True, 
-                        name=f"Download Thread {th_id}")
-            th.start()
-            threads.append(th)
         
-        result_count = 0
+        threads_count = (os.cpu_count() or 1) * 4
+        errors = []
+
         watcher.on_event(DownloadStartEvent(threads_count, entries_count, dl.size))
 
-        for entry in dl.entries:
-            entries_queue.put(entry)
-        
-        errors = []
-        
-        while result_count < entries_count:
-            result = result_queue.get()
-            result_count += 1
-            if isinstance(result, _DownloadProgress):
+        for result_count, result in dl.download(threads_count):
+            if isinstance(result, DownloadResultProgress):
                 watcher.on_event(DownloadProgressEvent(
                     result.thread_id,
                     result_count,
@@ -70,21 +48,14 @@ class DownloadTask(Task):
                     result.size,
                     result.speed
                 ))
-            elif isinstance(result, _DownloadError):
+            elif isinstance(result, DownloadResultError):
                 errors.append((result.entry, result.code))
 
-        # Send 'threads_count' sentinels.
-        for th_id in range(threads_count):
-            entries_queue.put(None)
-        
-        # If errors are present, 
+        # If errors are present, raise an error.
         if len(errors):
             raise DownloadError(errors)
         
         watcher.on_event(DownloadCompleteEvent())
-
-        # We intentionally don't join thread because it takes some time for unknown 
-        # reason. And we don't care of these threads because these are daemon ones.
 
 
 class DownloadEntry:
@@ -146,6 +117,34 @@ class _DownloadEntry:
             entry)
 
 
+class DownloadResult:
+    """Base class for download result yielded by `DownloadList.download` function.
+    """
+    __slots__ = "thread_id", "entry"
+    def __init__(self, thread_id: int, entry: DownloadEntry) -> None:
+        self.thread_id = thread_id
+        self.entry = entry
+
+
+class DownloadResultProgress(DownloadResult):
+    """Subclass of result when a file's download has been successful.
+    """
+    __slots__ = "size", "speed"
+    def __init__(self, thread_id: int, entry: DownloadEntry, size: int, speed: float) -> None:
+        super().__init__(thread_id, entry)
+        self.size = size
+        self.speed = speed
+
+
+class DownloadResultError(DownloadResult):
+    """Subclass of result when a file's download has failed.
+    """
+    __slots__ = "code",
+    def __init__(self, thread_id: int, entry: DownloadEntry, code: str) -> None:
+        super().__init__(thread_id, entry)
+        self.code = code
+
+
 class DownloadList:
     """ A download list.
     """
@@ -157,7 +156,7 @@ class DownloadList:
         self.count = 0
         self.size = 0
 
-    def add(self, entry: DownloadEntry, *, verify: bool = False):
+    def add(self, entry: DownloadEntry, *, verify: bool = False) -> None:
         """Add a download entry to this list.
 
         :param entry: The entry to add.
@@ -172,28 +171,48 @@ class DownloadList:
         self.count += 1
         if entry.size is not None:
             self.size += entry.size
+    
+    def download(self, threads_count: int) -> Iterator[Tuple[int, DownloadResult]]:
+        """Execute the download.
+        
+        :param threads_count: The number of threads to run the download on.
+        :return: This function returns an iterator that yields a tuple that contain the
+        total number of results and the new result that came in.
+        """
 
+        entries_count = len(self.entries)
+        if not entries_count or threads_count < 1:
+            return
 
-class _DownloadResult:
-    __slots__ = "thread_id", "entry"
-    def __init__(self, thread_id: int, entry: DownloadEntry) -> None:
-        self.thread_id = thread_id
-        self.entry = entry
+        threads: List[Thread] = []
 
+        entries_queue = Queue()
+        result_queue = Queue()
 
-class _DownloadProgress(_DownloadResult):
-    __slots__ = "size", "speed"
-    def __init__(self, thread_id: int, entry: DownloadEntry, size: int, speed: float) -> None:
-        super().__init__(thread_id, entry)
-        self.size = size
-        self.speed = speed
+        for th_id in range(threads_count):
+            th = Thread(target=_download_thread, 
+                        args=(th_id, entries_queue, result_queue), 
+                        daemon=True, 
+                        name=f"Download Thread {th_id}")
+            th.start()
+            threads.append(th)
+        
+        result_count = 0
 
+        for entry in self.entries:
+            entries_queue.put(entry)
+        
+        while result_count < entries_count:
+            result = result_queue.get()
+            result_count += 1
+            yield result_count, result
 
-class _DownloadError(_DownloadResult):
-    __slots__ = "code",
-    def __init__(self, thread_id: int, entry: DownloadEntry, code: str) -> None:
-        super().__init__(thread_id, entry)
-        self.code = code
+        # Send 'threads_count' sentinels.
+        for th_id in range(threads_count):
+            entries_queue.put(None)
+
+        # We intentionally don't join thread because it takes some time for unknown 
+        # reason. And we don't care of these threads because these are daemon ones.
 
 
 def _download_thread(
@@ -252,7 +271,7 @@ def _download_thread(
             if try_num > max_try_count:
                 # Retrying implies that we have set an error.
                 assert last_error is not None
-                result_queue.put(_DownloadError(thread_id, entry, last_error))
+                result_queue.put(DownloadResultError(thread_id, entry, last_error))
                 break
             
             start_time = time.monotonic()
@@ -327,7 +346,7 @@ def _download_thread(
                 last_error = DownloadError.INVALID_SHA1
             else:
                 
-                result_queue.put(_DownloadProgress(
+                result_queue.put(DownloadResultProgress(
                     thread_id,
                     entry,
                     size,
