@@ -15,7 +15,7 @@ from .util import LibrarySpecifier, calc_input_sha1, merge_dict, jvm_bin_filenam
 from .download import DownloadList, DownloadEntry, DownloadTask
 from .auth import AuthSession, OfflineAuthSession
 from .task import Sequence, Task, State, Watcher
-from .http import HttpSession, HttpError
+from .http import HttpError, http_request
 
 from . import LAUNCHER_NAME, LAUNCHER_VERSION
 
@@ -78,8 +78,7 @@ class VersionManifest:
     available versions with optional cache file.
     """
 
-    def __init__(self, http: HttpSession, cache_file: Optional[Path] = None) -> None:
-        self.http = http
+    def __init__(self, cache_file: Optional[Path] = None) -> None:
         self.data: Optional[dict] = None
         self.cache_file = cache_file
 
@@ -108,7 +107,7 @@ class VersionManifest:
             
             try:
 
-                res = self.http.request("GET", VERSION_MANIFEST_URL, 
+                res = http_request("GET", VERSION_MANIFEST_URL, 
                     headers=headers, 
                     accept="application/json")
                 
@@ -424,7 +423,6 @@ class MetadataTask(Task):
 
         context = state[Context]
         manifest = state[VersionManifest]
-        http = state[HttpSession]
 
         version_id: Optional[str] = state[VersionId].id
         versions: List[Version] = []
@@ -436,7 +434,7 @@ class MetadataTask(Task):
             
             watcher.on_event(VersionResolveEvent(version_id, False))
             version = context.get_version(version_id)
-            self.ensure_version_meta(version, manifest, http)
+            self.ensure_version_meta(version, manifest)
             watcher.on_event(VersionResolveEvent(version_id, True))
 
             # Set the parent of the last version to the version being resolved.
@@ -453,7 +451,7 @@ class MetadataTask(Task):
         state.insert(versions[0])
         state.insert(versions[0].merge())
 
-    def ensure_version_meta(self, version: Version, manifest: VersionManifest, http: HttpSession) -> None:
+    def ensure_version_meta(self, version: Version, manifest: VersionManifest) -> None:
         """This function tries to load and get the directory path of a given version id.
         This function proceeds in multiple steps: it tries to load the version's metadata,
         if the metadata is found then it's validated with the `validate_version_meta`
@@ -464,14 +462,14 @@ class MetadataTask(Task):
         """
 
         if version.read_metadata_file():
-            if self.validate_version_meta(version, manifest, http):
+            if self.validate_version_meta(version, manifest):
                 # If the version is successfully loaded and valid, return as-is.
                 return
         
         # If not loadable or not validated, fetch metadata.
-        self.fetch_version_meta(version, manifest, http)
+        self.fetch_version_meta(version, manifest)
 
-    def validate_version_meta(self, version: Version, manifest: VersionManifest, http: HttpSession) -> bool:
+    def validate_version_meta(self, version: Version, manifest: VersionManifest) -> bool:
         """This function checks that version metadata is correct.
 
         An internal method to check if a version's metadata is 
@@ -505,7 +503,7 @@ class MetadataTask(Task):
                     return False
             return True
 
-    def fetch_version_meta(self, version: Version, manifest: VersionManifest, http: HttpSession) -> None:
+    def fetch_version_meta(self, version: Version, manifest: VersionManifest) -> None:
         """Internal method to fetch the data of the given version.
 
         :param version: The version meta to fetch data into.
@@ -516,7 +514,7 @@ class MetadataTask(Task):
         if version_super_meta is None:
             raise VersionNotFoundError(version)
 
-        res = http.request("GET", version_super_meta["url"], accept="application/json")
+        res = http_request("GET", version_super_meta["url"], accept="application/json")
         
         # First decode the data and set it to the version meta. Raising if invalid.
         version.metadata = res.json()
@@ -579,7 +577,6 @@ class AssetsTask(Task):
         
         context = state[Context]
         metadata = state[FullMetadata].data
-        http = state[HttpSession]
         dl = state[DownloadList]
 
         assets_index_info = metadata.get("assetIndex")
@@ -614,7 +611,7 @@ class AssetsTask(Task):
             if not isinstance(assets_index_url, str):
                 raise ValueError("metadata: /assetIndex/url must be a string")
             
-            assets_index = http.request("GET", assets_index_url, accept="application/json").json()
+            assets_index = http_request("GET", assets_index_url, accept="application/json").json()
             assets_indexes_dir.mkdir(parents=True, exist_ok=True)
             with assets_index_file.open("wt") as assets_index_fp:
                 json.dump(assets_index, assets_index_fp)
@@ -869,7 +866,6 @@ class JvmTask(Task):
 
         context = state[Context]
         metadata = state[FullMetadata].data
-        http = state[HttpSession]
         dl = state[DownloadList]
 
         if platform.system() == "Linux" and platform.libc_ver()[0] != "glibc":
@@ -887,7 +883,7 @@ class JvmTask(Task):
                 jvm_manifest = json.load(jvm_manifest_fp)
         except (OSError, JSONDecodeError):
 
-            all_jvm_meta = http.request("GET", JVM_META_URL, accept="application/json").json()
+            all_jvm_meta = http_request("GET", JVM_META_URL, accept="application/json").json()
             if not isinstance(all_jvm_meta, dict):
                 raise ValueError("jvm metadata: / must be an object")
             
@@ -907,7 +903,7 @@ class JvmTask(Task):
             if not isinstance(jvm_meta_manifest_url, str):
                 raise ValueError(f"jvm metadata: /{minecraft_jvm_os}/{jvm_version_type}/0/manifest/url must be a string")
 
-            jvm_manifest = http.request("GET", jvm_meta_manifest_url, accept="application/json").json()
+            jvm_manifest = http_request("GET", jvm_meta_manifest_url, accept="application/json").json()
 
             if not isinstance(jvm_manifest, dict):
                 raise ValueError("jvm manifest: / must be an object")
@@ -1203,7 +1199,6 @@ legacy_jvm_args = [
 
 def make_vanilla_sequence(version_id: str, *, 
     context: Optional[Context] = None,
-    http: Optional[HttpSession] = None,
     version_manifest: Optional[VersionManifest] = None,
     jvm: bool = False,
     run: bool = False,
@@ -1211,15 +1206,11 @@ def make_vanilla_sequence(version_id: str, *,
     """Make vanilla sequence for installing and running vanilla Minecraft versions.
     """
 
-    if http is None:
-        http = HttpSession()
-
     seq = Sequence()
 
     seq.insert_state(VersionId(version_id))
     seq.insert_state(context or Context())
-    seq.insert_state(http)
-    seq.insert_state(version_manifest or VersionManifest(http))
+    seq.insert_state(version_manifest or VersionManifest())
 
     seq.append_task(MetadataTask())
     seq.append_task(JarTask())

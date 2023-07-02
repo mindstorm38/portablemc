@@ -38,6 +38,24 @@ def format_duration(n: float) -> str:
         return f"{int(n / 60)} m"
     else:
         return f"{int(n / 3600)} h"
+    
+
+def anonymize_email(email: str) -> str:
+    """Return a visually anonymized email.
+    """
+
+    def anonymize_part(email_part: str) -> str:
+        return f"{email_part[0]}{'*' * (len(email_part) - 2)}{email_part[-1]}"
+    
+    parts = []
+
+    for i, part in enumerate(email.split("@", maxsplit=1)):
+        if i == 0:
+            parts.append(anonymize_part(part))
+        else:
+            parts.append(".".join((anonymize_part(server_part) if j == 0 else server_part for j, server_part in enumerate(part.split(".", maxsplit=1)))))
+    
+    return "@".join(parts)
 
 
 class LibrarySpecifierFilter:

@@ -126,8 +126,8 @@ lang = {
     # Command logout
     "logout.yggdrasil.pending": "Logging out {email} from Mojang...",
     "logout.microsoft.pending": "Logging out {email} from Microsoft...",
-    "logout.success": "Logged out {email}.",
-    "logout.unknown_session": "No session for {email}.",
+    "logout.success": "Logged out {email}",
+    "logout.unknown_session": "No session for {email}",
     # Command addon list
     "addon.list.id": "ID ({count})",
     "addon.list.version": "Version",
@@ -176,21 +176,19 @@ lang = {
     f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
     # Auth common
     "auth.refreshing": "Invalid session, refreshing...",
-    "auth.refreshed": "Session refreshed for {email}.",
-    "auth.validated": "Session validated for {email}.",
+    "auth.refreshed": "Session refreshed for {email}",
+    "auth.validated": "Session validated for {email}",
     "auth.caching": "Caching your session...",
     "auth.logged_in": "Logged in",
-    "auth.microsoft_requires_email": "Even if you are using -m (--microsoft), you must use -l argument with your "
-                                     "Microsoft email.",
+    "auth.error": "Error authenticating: {message}",
     # Auth Yggdrasil
     "auth.yggdrasil": "Authenticating {email} with Mojang...",
-    "auth.yggdrasil.note_for_microsoft": "Logging in with Mojang is now deprecated, if you intented to log into a Microsoft account, add -m flag in your command.",
     "auth.yggdrasil.enter_password": "Password: ",
-    # f"auth.error.{AuthError.YGGDRASIL}": "{details}",
     # Auth Microsoft
     "auth.microsoft": "Authenticating {email} with Microsoft...",
-    "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser is supported.",
+    "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser found on your system.",
     "auth.microsoft.opening_browser_and_listening": "Opened authentication page in browser...",
+    "auth.microsoft.close_tab_and_return": "Close this tab and return to the launcher.",
     "auth.microsoft.failed_to_authenticate": "Failed to authenticate.",
     "auth.microsoft.processing": "Processing authentication against Minecraft services...",
     "auth.microsoft.incoherent_data": "Incoherent authentication data, please retry.",
