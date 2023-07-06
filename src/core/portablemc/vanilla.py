@@ -1204,7 +1204,6 @@ legacy_jvm_args = [
 def make_vanilla_sequence(version_id: str, *, 
     context: Optional[Context] = None,
     version_manifest: Optional[VersionManifest] = None,
-    jvm: bool = False,
 ) -> Sequence:
     """Make vanilla sequence for installing and running vanilla Minecraft versions.
     """

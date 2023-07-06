@@ -48,8 +48,8 @@ lang = {
     "args.timeout": "Set a global timeout (in decimal seconds) that can be used by various requests done by the launcher or "
         "addons. A value of 0 is usually interpreted as an 'offline mode', this means that the launcher "
         "will try to use a cached copy of the requests' response.",
-    "args.output": "Set the output format of the launcher, defaults to 'human' for human readable output, but you can select "
-        "'json' for outputting one JSON object per line that describes the state.",
+    "args.output": "Set the output format of the launcher, defaults to 'human-color' (or 'human' for no color) for human "
+        "readable output, but you can select 'json' for outputting one JSON object per line that describes the state.",
     # Args common langs
     "args.common.auth_service": "Authentication service type to use for logging in the game.",
     # Args search
