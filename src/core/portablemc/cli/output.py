@@ -78,11 +78,18 @@ class Output:
 
 class HumanOutput(Output):
 
-    def __init__(self) -> None:
+    state_colors = {
+        "OK": "\033[92m",
+        "FAILED": "\033[31m",
+        "WARN": "\033[33m",
+    }
+
+    def __init__(self, color: bool) -> None:
         super().__init__()
         self.term_width = 0
         self.term_width_update_time = 0
         self.last_len = None
+        self.color = color
 
     def get_term_width(self) -> int:
         """Internal method used to get terminal width with a cache interval of 1 second.
@@ -102,9 +109,19 @@ class HumanOutput(Output):
         term_width = self.get_term_width()
         if term_width < 20:
             return
+        
+        # Get header for the given state (with optional color).
+        if state is None:
+            state_msg = "\r         "
+        else:
+            color = self.state_colors.get(state) if self.color else None
+            if color is not None:
+                state_msg = f"\r[{color}{state:^6s}\033[0m] "
+            else:
+                state_msg = f"\r[{state:^6s}] "
 
-        state_msg = "\r         " if state is None else "\r[{:^6s}] ".format(state)
-        print(state_msg, end="")
+        # state_msg = "\r         " if state is None else f"\r[{state:^6s}] "
+        print(state_msg, end="", flush=False)
 
         if key is None:
             return
@@ -115,11 +132,11 @@ class HumanOutput(Output):
         
         msg_len = len(msg)
 
-        print(msg, end="")
+        print(msg, end="", flush=False)
 
         if self.last_len is not None and self.last_len > msg_len:
             missing_len = self.last_len - msg_len
-            print(" " * missing_len, end="")
+            print(" " * missing_len, end="", flush=False)
         
         sys.stdout.flush()
 
@@ -165,19 +182,17 @@ class HumanTable(OutputTable):
                 if i == columns_count - 1:
                     columns_length[i] -= overflow_length
         
-        print(columns_length)
-
         format_string = "│ {} │".format(" │ ".join((f"{{:{length}s}}" for length in columns_length)))
         columns_lines = ["─" * length for length in columns_length]
 
-        print("┌─{}─┐".format("─┬─".join(columns_lines)))
+        print("┌─{}─┐".format("─┬─".join(columns_lines)), flush=False)
 
         format_columns = [""] * columns_count
 
         for row in self.rows:
 
             if row is None:
-                print("├─{}─┤".format("─┼─".join(columns_lines)))
+                print("├─{}─┤".format("─┼─".join(columns_lines)), flush=False)
                 continue
 
             wrapped_row = list(row)
@@ -196,7 +211,7 @@ class HumanTable(OutputTable):
                     else:
                         wrapped_row[col_index] = ""
                 
-                print(format_string.format(*format_columns))
+                print(format_string.format(*format_columns), flush=False)
         
         print("└─{}─┘".format("─┴─".join(columns_lines)))
 

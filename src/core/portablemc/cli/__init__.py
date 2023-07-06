@@ -199,8 +199,7 @@ def cmd_start(ns: StartNs):
     
     sequence = make_vanilla_sequence(version_id, 
             context=ns.context, 
-            version_manifest=ns.version_manifest,
-            jvm=True)
+            version_manifest=ns.version_manifest)
     
     args_opts = VersionArgsOptions()
     args_opts.disable_multiplayer = ns.disable_mp

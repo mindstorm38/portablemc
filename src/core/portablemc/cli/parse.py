@@ -65,7 +65,7 @@ def register_arguments() -> ArgumentParser:
     parser.add_argument("--main-dir", help=_("args.main_dir"), type=Path)
     parser.add_argument("--work-dir", help=_("args.work_dir"), type=Path)
     parser.add_argument("--timeout", help=_("args.timeout"), type=float)
-    parser.add_argument("--output", help=_("args.output"), dest="out", type=get_output_from_str, default="human")
+    parser.add_argument("--output", help=_("args.output"), dest="out", type=output_from_str, default="human-color")
     register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
     return parser
 
@@ -156,11 +156,13 @@ def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
     return CustomHelpFormatter
 
 
-def get_output_from_str(s: str) -> Output:
+def output_from_str(s: str) -> Output:
     """This function is used to parse the output argument given.
     """
-    if s == "human":
-        return HumanOutput()
+    if s == "human-color":
+        return HumanOutput(True)
+    elif s == "human":
+        return HumanOutput(False)
     elif s == "json":
         return JsonOutput();
     else:
