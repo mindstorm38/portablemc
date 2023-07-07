@@ -24,7 +24,7 @@ from ..vanilla import make_vanilla_sequence, Context, VersionManifest, \
     LibraryResolveEvent, \
     LoggerFoundEvent, \
     VersionJvm, JvmResolveEvent, JvmNotFoundError, \
-    VersionArgsOptions
+    VersionArgsOptions, VersionArgs
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
 
@@ -194,13 +194,22 @@ def cmd_search(ns: SearchNs):
 
 
 def cmd_start(ns: StartNs):
+
+    version_raw = ns.version.split(":", maxsplit=1)
     
-    version_id, _alias = ns.version_manifest.filter_latest(ns.version)
+    if len(version_raw) == 2:
+        version_kind, version_id = version_raw
+    else:
+        version_kind = None
+        version_id = version_raw[0]
     
-    sequence = make_vanilla_sequence(version_id, 
+    version_id, _alias = ns.version_manifest.filter_latest(version_id)
+    
+    seq = make_vanilla_sequence(version_id, 
             context=ns.context, 
             version_manifest=ns.version_manifest)
     
+    # Various options for ArgsTask in order to setup the arguments to start the game.
     args_opts = VersionArgsOptions()
     args_opts.disable_multiplayer = ns.disable_mp
     args_opts.disable_chat = ns.disable_chat
@@ -217,16 +226,23 @@ def cmd_start(ns: StartNs):
     else:
         args_opts.auth_session = OfflineAuthSession(ns.username, ns.uuid)
 
-    sequence.insert_state(args_opts)
+    seq.state.insert(args_opts)
 
+    # If a manual JVM is specified, we set the JVM state so that JvmTask won't run.
     if ns.jvm is not None:
-        sequence.insert_state(VersionJvm(Path(ns.jvm), None))
+        seq.state.insert(VersionJvm(Path(ns.jvm), None))
 
-    sequence.add_watcher(StartWatcher(ns.out))
-    sequence.add_watcher(DownloadWatcher(ns.out))
+    # Add watchers of the installation.
+    seq.add_watcher(StartWatcher(ns.out))
+    seq.add_watcher(DownloadWatcher(ns.out))
 
     try:
-        sequence.execute()
+        
+        seq.execute()
+
+        # Take compute arguments.
+        args1 = seq.state[VersionArgs]
+
         sys.exit(EXIT_OK)
 
     except VersionNotFoundError as error:

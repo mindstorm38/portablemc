@@ -73,106 +73,6 @@ class Context:
                         yield version
 
 
-class VersionManifest:
-    """The Mojang's official version manifest. Providing officially
-    available versions with optional cache file.
-    """
-
-    def __init__(self, cache_file: Optional[Path] = None) -> None:
-        self.data: Optional[dict] = None
-        self.cache_file = cache_file
-
-    def _ensure_data(self) -> dict:
-        """Internal method that ensure that the manifest data is up-to-date.
-
-        :return: The full data of the manifest.
-        :raises HttpError: Underlying HTTP error if manifest could not be requested.
-        """
-
-        if self.data is None:
-
-            headers = {}
-            cache_data = None
-
-            # If a cache file should be used, try opening it and read the last modified
-            # time that will be used for requesting the manifest, only if needed.
-            if self.cache_file is not None:
-                try:
-                    with self.cache_file.open("rt") as cache_fp:
-                        cache_data = json.load(cache_fp)
-                    if "last_modified" in cache_data:
-                        headers["If-Modified-Since"] = cache_data["last_modified"]
-                except (OSError, json.JSONDecodeError):
-                    pass
-            
-            try:
-
-                res = http_request("GET", VERSION_MANIFEST_URL, 
-                    headers=headers, 
-                    accept="application/json")
-                
-                self.data = res.json()
-
-                if "Last-Modified" in res.headers:
-                    self.data["last_modified"] = res.headers["Last-Modified"]
-
-                if self.cache_file is not None:
-                    self.cache_file.parent.mkdir(parents=True, exist_ok=True)
-                    with self.cache_file.open("wt") as cache_fp:
-                        json.dump(self.data, cache_fp, indent=2)
-
-            except HttpError as error:
-                res = error.res
-                if res.status == 304 and cache_data is not None:
-                    self.data = cache_data
-                else:
-                    raise
-
-        return self.data
-
-    def filter_latest(self, version: str) -> Tuple[str, bool]:
-        """Filter a version identifier if 'release' or 'snapshot' alias is used, then it's
-        replaced by the full version identifier, like `1.19.3`.
-
-        :param version: The version id or alias.
-        :return: A tuple containing the full version id and a boolean indicating if the
-        given version identifier is an alias.
-        :raises HttpError: Underlying HTTP error if manifest could not be requested.
-        """
-
-        if version in ("release", "snapshot"):
-            latest = self._ensure_data()["latest"].get(version)
-            if latest is not None:
-                return latest, True
-        return version, False
-
-    def get_version(self, version: str) -> Optional[dict]:
-        """Get a manifest's version metadata. Containing the metadata's URL, its SHA1 and
-        its type.
-
-        :param version: The version identifier.
-        :return: If found, the version is returned.
-        :raises HttpError: Underlying HTTP error if manifest could not be requested.
-        """
-        version, _alias = self.filter_latest(version)
-        for version_data in self._ensure_data()["versions"]:
-            if version_data["id"] == version:
-                return version_data
-        return None
-
-    def all_versions(self) -> list:
-        return self._ensure_data()["versions"]
-
-
-class VersionId:
-    """Small class used to specify which Minecraft version to launch.
-    """
-
-    __slots__ = "id",
-
-    def __init__(self, id: str) -> None:
-        self.id = id
-
 class FullMetadata:
     """Fully computed metadata, all the layers are merged together.
     """
@@ -241,6 +141,48 @@ class Version:
         for version_meta in self.recurse():
             merge_dict(result, version_meta.metadata)
         return FullMetadata(result)
+
+
+class VersionRepository:
+    """Abstract class for a version repository. A repository provides a way of validating
+    and if required, fetching the version metadata associated to the version.
+
+    Examples of repositories includes the Mojang's version manifest, fabric/quilt 
+    repositories or even archive.org repository.
+    """
+
+    def validate_version_meta(self, version: Version) -> bool:
+        """This function checks that version metadata is correct.
+
+        This method checks if a version's metadata is up-to-date, returns `True` if it is.
+        If `False`, the version  metadata is re-fetched, this is the default when version 
+        metadata doesn't exist.
+
+        :param version: The version metadata to validate or not.
+        :return: True if the given version.
+        """
+        raise NotImplementedError
+
+    def fetch_version_meta(self, version: Version) -> None:
+        """Fetch the data of the given version.
+
+        :param version: The version meta to fetch data into.
+        :raises VersionNotFoundError: In case of error finding the version.
+        """
+        raise NotImplementedError
+
+
+class VersionRoot:
+    """Small class used to specify the root version to load with its parents 
+    by `MetadataTask`. An optional repository can be specified to be used for resolve
+    this particular version, instead of the default `VersionManifest`.
+    """
+
+    __slots__ = "id", "repository"
+
+    def __init__(self, id: str, repository: Optional[VersionRepository] = None) -> None:
+        self.id = id
+        self.repository = repository
 
 class VersionJar:
     """This state object contains the version JAR to use for launching the game.
@@ -337,71 +279,27 @@ class VersionArgs:
         self.game_args = game_args
         self.main_class = main_class
         self.args_replacements = args_replacements
+    
+    def username(self) -> Optional[str]:
+        """Retrieve the authenticated username from `args_replacements` (if provided).
+        """
+        return self.args_replacements.get("auth_player_name")
 
+    def uuid(self) -> Optional[str]:
+        """Retrieve the authenticated UUID from `args_replacements` (if provided).
+        """
+        return self.args_replacements.get("auth_uuid")
 
-class VersionNotFoundError(Exception):
-    """Raised when a version was not found. The version that was not found is given
-    """
-
-    def __init__(self, version: Version) -> None:
-        self.version = version
-
-class TooMuchParentsError(Exception):
-    """Raised when a version hierarchy is too deep. The hierarchy of versions is given
-    in property `versions`.
-    """
-
-    def __init__(self, versions: List[Version]) -> None:
-        self.versions = versions
-
-class JarNotFoundError(Exception):
-    """Raised when no version's JAR file could be found from the metadata.
-    """
-
-class JvmNotFoundError(Exception):
-    """Raised when the 
-    """
-
-    UNSUPPORTED_LIBC = "unsupported_libc"
-    UNSUPPORTED_ARCH = "unsupported_arch"
-    UNSUPPORTED_VERSION = "unsupported_version"
-
-    def __init__(self, code: str) -> None:
-        self.code = code
-
-
-class VersionResolveEvent:
-    __slots__ = "version_id", "done"
-    def __init__(self, version_id: str, done: bool) -> None:
-        self.version_id = version_id
-        self.done = done
-
-class JarFoundEvent:
-    __slots__ = "version_id",
-    def __init__(self, version_id: str) -> None:
-        self.version_id = version_id
-
-class AssetsResolveEvent:
-    __slots__ = "index_version", "count"
-    def __init__(self, index_version: str, count: Optional[int]) -> None:
-        self.index_version = index_version
-        self.count = count
-
-class LibraryResolveEvent:
-    __slots__ = "count",
-    def __init__(self, count: Optional[int]) -> None:
-        self.count = count
-
-class LoggerFoundEvent:
-    __slots__ = "version"
-    def __init__(self, version: str) -> None:
-        self.version = version
-
-class JvmResolveEvent:
-    __slots__ = "version", "count"
-    def __init__(self, version: Optional[str], count: Optional[int]) -> None:
-        self.version = version
-        self.count = count
+    def full_args(self) -> List[str]:
+        """Compute the full arguments list, starting with the JVM executable, followed by
+        JVM arguments, the main class name and then the game arguments. All arguments are
+        formatted using `args_replacements` mapping.
+        """
+        return [
+            *replace_list_vars(self.jvm_args, self.args_replacements),
+            self.main_class,
+            *replace_list_vars(self.game_args, self.args_replacements)
+        ]
 
 
 class MetadataTask(Task):
@@ -411,8 +309,9 @@ class MetadataTask(Task):
     versions.
 
     :in Context: The installation context.
-    :in VersionId: Describe which version to resolve.
+    :in VersionRoot: Describe which root version to start resolving.
     :in VersionManifest: Version manifest to use for fetching online official versions.
+    :out Version: The root version.
     :out VersionMetadata: The resolved version metadata.
     """
 
@@ -423,8 +322,9 @@ class MetadataTask(Task):
 
         context = state[Context]
         manifest = state[VersionManifest]
+        repo: VersionRepository = state[VersionRoot].repository or manifest
 
-        version_id: Optional[str] = state[VersionId].id
+        version_id: Optional[str] = state[VersionRoot].id
         versions: List[Version] = []
 
         while version_id is not None:
@@ -434,7 +334,7 @@ class MetadataTask(Task):
             
             watcher.on_event(VersionResolveEvent(version_id, False))
             version = context.get_version(version_id)
-            self.ensure_version_meta(version, manifest)
+            self.ensure_version_meta(version, repo)
             watcher.on_event(VersionResolveEvent(version_id, True))
 
             # Set the parent of the last version to the version being resolved.
@@ -446,83 +346,32 @@ class MetadataTask(Task):
             
             if version_id is not None and not isinstance(version_id, str):
                 raise ValueError("metadata: /inheritsFrom must be a string")
+            
+            # Inherited versions are forced to use VersionManifest.
+            repo = manifest
 
         # The metadata is included to the state.
         state.insert(versions[0])
         state.insert(versions[0].merge())
 
-    def ensure_version_meta(self, version: Version, manifest: VersionManifest) -> None:
+    def ensure_version_meta(self, version: Version, repo: VersionRepository) -> None:
         """This function tries to load and get the directory path of a given version id.
         This function proceeds in multiple steps: it tries to load the version's metadata,
         if the metadata is found then it's validated with the `validate_version_meta`
         method. If the version was not found or is not valid, then the metadata is fetched
         by `fetch_version_meta` method.
 
-        :param version: The version metadata to fill with 
+        :param version: The version metadata to check.
+        :param repo: The repository to handle this version.
         """
 
         if version.read_metadata_file():
-            if self.validate_version_meta(version, manifest):
+            if repo.validate_version_meta(version):
                 # If the version is successfully loaded and valid, return as-is.
                 return
         
         # If not loadable or not validated, fetch metadata.
-        self.fetch_version_meta(version, manifest)
-
-    def validate_version_meta(self, version: Version, manifest: VersionManifest) -> bool:
-        """This function checks that version metadata is correct.
-
-        An internal method to check if a version's metadata is 
-        up-to-date, returns `True` if it is. If `False`, the version 
-        metadata is re-fetched, this is the default when version 
-        metadata doesn't exist.
-
-        The default implementation check official versions against the
-        expected SHA1 hash of the metadata file.
-
-        :param version: The version metadata to validate or not.
-        :return: True if the given version.
-        """
-
-        try:
-            version_super_meta = manifest.get_version(version.id)
-        except HttpError:
-            # Silently ignoring HTTP errors, we want to be able to launch offline.
-            return True
-        
-        if version_super_meta is None:
-            return True
-        else:
-            expected_sha1 = version_super_meta.get("sha1")
-            if expected_sha1 is not None:
-                try:
-                    with version.metadata_file().open("rb") as version_meta_fp:
-                        current_sha1 = calc_input_sha1(version_meta_fp)
-                        return expected_sha1 == current_sha1
-                except OSError:
-                    return False
-            return True
-
-    def fetch_version_meta(self, version: Version, manifest: VersionManifest) -> None:
-        """Internal method to fetch the data of the given version.
-
-        :param version: The version meta to fetch data into.
-        :raises VersionNotFoundError: In case of error finding the version.
-        """
-
-        version_super_meta = manifest.get_version(version.id)
-        if version_super_meta is None:
-            raise VersionNotFoundError(version)
-
-        res = http_request("GET", version_super_meta["url"], accept="application/json")
-        
-        # First decode the data and set it to the version meta. Raising if invalid.
-        version.metadata = res.json()
-        
-        # If successful, write the raw data directly to the file.
-        version.dir.mkdir(parents=True, exist_ok=True)
-        with version.metadata_file().open("wb") as fp:
-            fp.write(res.data)
+        repo.fetch_version_meta(version)
 
 
 class JarTask(Task):
@@ -942,12 +791,23 @@ class JvmTask(Task):
 
 
 class LwjglFixTask(Task):
-    """This special task can be optionally used to 
+    """TODO:
     """
 
 
 class ArgsTask(Task):
-    """This task compute the `VersionArgs` 
+    """This task compute the `VersionArgs` from all previous states.
+
+    :in Context: The installation context.
+    :in Version: The version object that's being installed.
+    :in FullMetadata: The full version metadata.
+    :in VersionJar: Version JAR file.
+    :in VersionLibraries: Version libraries listing.
+    :in VersionAssets: Version assets listing.
+    :in VersionLogging: Version logging (optional).
+    :in VersionJvm: Version JVM for execution.
+    :in VersionArgsOptions: Options for this task to customize arguments (optional).
+    :out VersionArgs: Computed version arguments.
     """
 
     def execute(self, state: State, watcher: Watcher) -> None:
@@ -1065,7 +925,207 @@ class ArgsTask(Task):
         state.insert(VersionArgs(jvm_args, game_args, main_class, args_replacements))
 
 
+class RunTask(Task):
+    """
+    """
+
+
+class VersionManifest(VersionRepository):
+    """The Mojang's official version manifest. Providing officially
+    available versions with optional cache file.
+    """
+
+    def __init__(self, cache_file: Optional[Path] = None) -> None:
+        self.data: Optional[dict] = None
+        self.cache_file = cache_file
+
+    def _ensure_data(self) -> dict:
+        """Internal method that ensure that the manifest data is up-to-date.
+
+        :return: The full data of the manifest.
+        :raises HttpError: Underlying HTTP error if manifest could not be requested.
+        """
+
+        if self.data is None:
+
+            headers = {}
+            cache_data = None
+
+            # If a cache file should be used, try opening it and read the last modified
+            # time that will be used for requesting the manifest, only if needed.
+            if self.cache_file is not None:
+                try:
+                    with self.cache_file.open("rt") as cache_fp:
+                        cache_data = json.load(cache_fp)
+                    if "last_modified" in cache_data:
+                        headers["If-Modified-Since"] = cache_data["last_modified"]
+                except (OSError, json.JSONDecodeError):
+                    pass
+            
+            try:
+
+                res = http_request("GET", VERSION_MANIFEST_URL, 
+                    headers=headers, 
+                    accept="application/json")
+                
+                self.data = res.json()
+
+                if "Last-Modified" in res.headers:
+                    self.data["last_modified"] = res.headers["Last-Modified"]
+
+                if self.cache_file is not None:
+                    self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+                    with self.cache_file.open("wt") as cache_fp:
+                        json.dump(self.data, cache_fp, indent=2)
+
+            except HttpError as error:
+                res = error.res
+                if res.status == 304 and cache_data is not None:
+                    self.data = cache_data
+                else:
+                    raise
+
+        return self.data
+
+    def filter_latest(self, version: str) -> Tuple[str, bool]:
+        """Filter a version identifier if 'release' or 'snapshot' alias is used, then it's
+        replaced by the full version identifier, like `1.19.3`.
+
+        :param version: The version id or alias.
+        :return: A tuple containing the full version id and a boolean indicating if the
+        given version identifier is an alias.
+        :raises HttpError: Underlying HTTP error if manifest could not be requested.
+        """
+
+        if version in ("release", "snapshot"):
+            latest = self._ensure_data()["latest"].get(version)
+            if latest is not None:
+                return latest, True
+        return version, False
+
+    def get_version(self, version: str) -> Optional[dict]:
+        """Get a manifest's version metadata. Containing the metadata's URL, its SHA1 and
+        its type.
+
+        :param version: The version identifier.
+        :return: If found, the version is returned.
+        :raises HttpError: Underlying HTTP error if manifest could not be requested.
+        """
+        version, _alias = self.filter_latest(version)
+        for version_data in self._ensure_data()["versions"]:
+            if version_data["id"] == version:
+                return version_data
+        return None
+
+    def all_versions(self) -> list:
+        return self._ensure_data()["versions"]
+    
+    def validate_version_meta(self, version: Version) -> bool:
+        
+        try:
+            version_super_meta = self.get_version(version.id)
+        except HttpError:
+            # Silently ignoring HTTP errors, we want to be able to launch offline.
+            return True
+        
+        if version_super_meta is None:
+            return True
+        else:
+            expected_sha1 = version_super_meta.get("sha1")
+            if expected_sha1 is not None:
+                try:
+                    with version.metadata_file().open("rb") as version_meta_fp:
+                        current_sha1 = calc_input_sha1(version_meta_fp)
+                        return expected_sha1 == current_sha1
+                except OSError:
+                    return False
+            return True
+    
+    def fetch_version_meta(self, version: Version) -> None:
+        
+        version_super_meta = self.get_version(version.id)
+        if version_super_meta is None:
+            raise VersionNotFoundError(version)
+
+        res = http_request("GET", version_super_meta["url"], accept="application/json")
+        
+        # First decode the data and set it to the version meta. Raising if invalid.
+        version.metadata = res.json()
+        
+        # If successful, write the raw data directly to the file.
+        version.dir.mkdir(parents=True, exist_ok=True)
+        with version.metadata_file().open("wb") as fp:
+            fp.write(res.data)
+
+
+class VersionNotFoundError(Exception):
+    """Raised when a version was not found. The version that was not found is given
+    """
+
+    def __init__(self, version: Version) -> None:
+        self.version = version
+
+class TooMuchParentsError(Exception):
+    """Raised when a version hierarchy is too deep. The hierarchy of versions is given
+    in property `versions`.
+    """
+
+    def __init__(self, versions: List[Version]) -> None:
+        self.versions = versions
+
+class JarNotFoundError(Exception):
+    """Raised when no version's JAR file could be found from the metadata.
+    """
+
+class JvmNotFoundError(Exception):
+    """Raised when the 
+    """
+
+    UNSUPPORTED_LIBC = "unsupported_libc"
+    UNSUPPORTED_ARCH = "unsupported_arch"
+    UNSUPPORTED_VERSION = "unsupported_version"
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+
+
+class VersionResolveEvent:
+    __slots__ = "version_id", "done"
+    def __init__(self, version_id: str, done: bool) -> None:
+        self.version_id = version_id
+        self.done = done
+
+class JarFoundEvent:
+    __slots__ = "version_id",
+    def __init__(self, version_id: str) -> None:
+        self.version_id = version_id
+
+class AssetsResolveEvent:
+    __slots__ = "index_version", "count"
+    def __init__(self, index_version: str, count: Optional[int]) -> None:
+        self.index_version = index_version
+        self.count = count
+
+class LibraryResolveEvent:
+    __slots__ = "count",
+    def __init__(self, count: Optional[int]) -> None:
+        self.count = count
+
+class LoggerFoundEvent:
+    __slots__ = "version"
+    def __init__(self, version: str) -> None:
+        self.version = version
+
+class JvmResolveEvent:
+    __slots__ = "version", "count"
+    def __init__(self, version: Optional[str], count: Optional[int]) -> None:
+        self.version = version
+        self.count = count
+
+
 def parse_download_entry(value: Any, dst: Path, path: str) -> DownloadEntry:
+    """Common function to parse a download entry from a metadata JSON file.
+    """
 
     if not isinstance(value, dict):
         raise ValueError(f"{path} must an object")
@@ -1145,6 +1205,22 @@ def interpret_args(args: List[Union[str, dict]], features: Dict[str, bool], dst:
                 dst.append(arg_value)
 
 
+def replace_vars(text: str, replacements: Dict[str, str]) -> str:
+    """Replace all variables of the form `${foo}` in a string. If some keys are missing,
+    the unformatted text is returned.
+    """
+    try:
+        return text.replace("${", "{").format_map(replacements)
+    except KeyError:
+        return text
+
+
+def replace_list_vars(text_list: List[str], replacements: Dict[str, str]) -> Iterator[str]:
+    """Call `replace_vars` on multiple texts in a list with the same replacements.
+    """
+    return (replace_vars(elt, replacements) for elt in text_list)
+
+
 # Name of the OS has used by Minecraft.
 minecraft_os = {
     "Linux": "linux", 
@@ -1200,19 +1276,28 @@ legacy_jvm_args = [
 ]
 
 
-
 def make_vanilla_sequence(version_id: str, *, 
     context: Optional[Context] = None,
     version_manifest: Optional[VersionManifest] = None,
+    run: bool = False,
 ) -> Sequence:
-    """Make vanilla sequence for installing and running vanilla Minecraft versions.
+    """Make vanilla sequence for installing vanilla Minecraft versions.
+
+    By default, this function will use the default context (standard .minecraft directory)
+    and a default version manifest for querying official Mojang versions.
+
+    When this installer sequence is executed and all tasks succeeds, the final 
+    interesting state that can be used to run the game is `VersionArgs`. It contains
+    JVM binary path, JVM arguments and game arguments.
+
+    This function can optionally run the game using a `RunTask`.
     """
 
     seq = Sequence()
 
-    seq.insert_state(VersionId(version_id))
-    seq.insert_state(context or Context())
-    seq.insert_state(version_manifest or VersionManifest())
+    seq.state.insert(VersionRoot(version_id))
+    seq.state.insert(context or Context())
+    seq.state.insert(version_manifest or VersionManifest())
 
     seq.append_task(MetadataTask())
     seq.append_task(JarTask())
@@ -1220,11 +1305,18 @@ def make_vanilla_sequence(version_id: str, *,
     seq.append_task(LibrariesTask())
     seq.append_task(LoggerTask())
 
+    # This task will only run if needed.
     seq.append_task(JvmTask())
 
+    # Download and finalize assets that need to be copied.
     seq.append_task(DownloadTask())
     seq.append_task(AssetsFinalizeTask())
 
+    # Finally, compute all arguments.
     seq.append_task(ArgsTask())
+
+    # Then run, if requested.
+    if run:
+        seq.append_task(RunTask())
 
     return seq

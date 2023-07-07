@@ -111,15 +111,9 @@ class Sequence:
     """
 
     def __init__(self) -> None:
-        self._tasks: List[Task] = []
-        self._state: State = State()
+        self.tasks: List[Task] = []
+        self.state: State = State()
         self._watchers = WatcherGroup()
-
-    def get_state(self) -> State:
-        return self._state
-    
-    def insert_state(self, value: object) -> None:
-        self._state.insert(value)
 
     def insert_task(self, task: Task, index: int) -> None:
         """Insert a task at a given index.
@@ -129,8 +123,8 @@ class Sequence:
         for builtin lists, an index to big will just add the task at
         the end.
         """
-        self._tasks.insert(index, task)
-        task.setup(self._state)
+        self.tasks.insert(index, task)
+        task.setup(self.state)
 
     def append_task(self, task: Task, *, 
         after: Optional[Type[Task]] = None
@@ -142,10 +136,10 @@ class Sequence:
         given task type.
         """
         if after is not None:
-            for i, task in enumerate(self._tasks):
+            for i, task in enumerate(self.tasks):
                 if type(task) is after:
                     self.insert_task(task, i + 1)
-        self.insert_task(task, len(self._tasks))
+        self.insert_task(task, len(self.tasks))
     
     def prepend_task(self, task: Task, *, 
         before: Optional[Type[Task]] = None
@@ -157,7 +151,7 @@ class Sequence:
         the given task type.
         """
         if before is not None:
-            for i, task in enumerate(self._tasks):
+            for i, task in enumerate(self.tasks):
                 if type(task) is before:
                     self.insert_task(task, i)
         self.insert_task(task, 0)
@@ -175,16 +169,16 @@ class Sequence:
     def reset(self) -> None:
         """Reset the internal state and re-init all tasks.
         """
-        self._state.clear()
-        for task in self._tasks:
-            task.setup(self._state)
+        self.state.clear()
+        for task in self.tasks:
+            task.setup(self.state)
 
     def execute(self) -> None:
         """Sequentially execute the tasks of this sequence.
         """
-        for task in self._tasks:
+        for task in self.tasks:
             try:
-                task.execute(self._state, self._watchers)
+                task.execute(self.state, self._watchers)
             except Exception as e:
                 self._watchers.on_error(e)
                 raise
