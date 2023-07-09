@@ -15,16 +15,16 @@ from .lang import get as _
 from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, DownloadError
 from ..auth import AuthDatabase, AuthSession, MicrosoftAuthSession, YggdrasilAuthSession, \
     OfflineAuthSession, AuthError
-from ..task import Watcher
+from ..task import Watcher, Sequence
 
-from ..vanilla import make_vanilla_sequence, Context, VersionManifest, \
+from ..vanilla import alter_vanilla_sequence, Context, VersionManifest, \
     VersionResolveEvent, VersionNotFoundError, TooMuchParentsError, \
     JarFoundEvent, JarNotFoundError, \
     AssetsResolveEvent, \
     LibraryResolveEvent, \
     LoggerFoundEvent, \
-    VersionJvm, JvmResolveEvent, JvmNotFoundError, \
-    VersionArgsOptions, VersionArgs
+    Jvm, JvmResolveEvent, JvmNotFoundError, \
+    ArgsOptions, Args
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
 
@@ -197,6 +197,8 @@ def cmd_start(ns: StartNs):
 
     version_raw = ns.version.split(":", maxsplit=1)
     
+
+
     if len(version_raw) == 2:
         version_kind, version_id = version_raw
     else:
@@ -205,12 +207,17 @@ def cmd_start(ns: StartNs):
     
     version_id, _alias = ns.version_manifest.filter_latest(version_id)
     
-    seq = make_vanilla_sequence(version_id, 
-            context=ns.context, 
-            version_manifest=ns.version_manifest)
+    seq = Sequence()
+    alter_vanilla_sequence(seq, run=not ns.dry)
+
+    
+
+    # seq = make_vanilla_sequence(version_id, 
+    #         context=ns.context, 
+    #         version_manifest=ns.version_manifest)
     
     # Various options for ArgsTask in order to setup the arguments to start the game.
-    args_opts = VersionArgsOptions()
+    args_opts = ArgsOptions()
     args_opts.disable_multiplayer = ns.disable_mp
     args_opts.disable_chat = ns.disable_chat
     args_opts.demo = ns.demo
@@ -230,7 +237,7 @@ def cmd_start(ns: StartNs):
 
     # If a manual JVM is specified, we set the JVM state so that JvmTask won't run.
     if ns.jvm is not None:
-        seq.state.insert(VersionJvm(Path(ns.jvm), None))
+        seq.state.insert(Jvm(Path(ns.jvm), None))
 
     # Add watchers of the installation.
     seq.add_watcher(StartWatcher(ns.out))
@@ -241,7 +248,7 @@ def cmd_start(ns: StartNs):
         seq.execute()
 
         # Take compute arguments.
-        args1 = seq.state[VersionArgs]
+        args1 = seq.state[Args]
 
         sys.exit(EXIT_OK)
 
@@ -307,7 +314,6 @@ class StartWatcher(Watcher):
             else:
                 self.out.task("OK", "start.jvm.resolved", version=event.version or _("start.jvm.unknown_version"), count=event.count)
                 self.out.finish()
-
 
 
 class DownloadWatcher(Watcher):

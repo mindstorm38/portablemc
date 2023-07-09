@@ -172,9 +172,9 @@ class VersionRepository:
         raise NotImplementedError
 
 
-class VersionRoot:
-    """Small class used to specify the root version to load with its parents 
-    by `MetadataTask`. An optional repository can be specified to be used for resolve
+class MetadataRoot:
+    """Small class used to specify the root version to load with its parents by 
+    `MetadataTask`. An optional repository can be specified to be used for resolve
     this particular version, instead of the default `VersionManifest`.
     """
 
@@ -184,7 +184,7 @@ class VersionRoot:
         self.id = id
         self.repository = repository
 
-class VersionJar:
+class Jar:
     """This state object contains the version JAR to use for launching the game.
     """
 
@@ -192,7 +192,7 @@ class VersionJar:
         self.version_id = version_id
         self.path = path
 
-class VersionAssets:
+class Assets:
     """Represent the loaded assets for the current version. This contains the index 
     version as well as all assets and if they need to copied to virtual or resources
     directory.
@@ -204,7 +204,7 @@ class VersionAssets:
         self.virtual_dir = virtual_dir
         self.resources_dir = resources_dir
 
-class VersionLibraries:
+class Libraries:
     """Represent the loaded libraries for the current version. This contains both 
     classpath libraries that should be added to the classpath, and the native libraries
     that should be extracted in a temporary bin directory. These native libraries are no
@@ -215,7 +215,7 @@ class VersionLibraries:
         self.class_libs = class_libs
         self.native_libs = native_libs
 
-class VersionLogging:
+class Logger:
     """Represent the loaded logging configuration for the current version. It contain
     the logging file's path and the argument to add to the command line, this argument
     contains a format placeholder '${path}' that should be replaced with the file's path.
@@ -225,7 +225,7 @@ class VersionLogging:
         self.path = path
         self.arg = arg
 
-class VersionJvm:
+class Jvm:
     """Indicates JVM to use for running the game. This state is automatically generated
     by the 'JvmTask' when used and successful. It specifies the executable file's path
     and the JVM version selected. The JVM version is optional because it may not be
@@ -236,8 +236,8 @@ class VersionJvm:
         self.executable_file = executable_file
         self.version = version
 
-class VersionArgsOptions:
-    """Options used for the preparation of `VersionArgs` by `ArgsTask`. These options are
+class ArgsOptions:
+    """Options used for the preparation of arguments by `ArgsTask`. These options are
     optional for this task but can be used to specify various options such as 
     authentication session to use or server address to start Minecraft with.
     """
@@ -254,7 +254,7 @@ class VersionArgsOptions:
         self.features: Dict[str, bool] = {}  # Additional features for metadata args.
 
     @classmethod
-    def with_online(cls, auth_session: AuthSession) -> "VersionArgsOptions":
+    def with_online(cls, auth_session: AuthSession) -> "ArgsOptions":
         """Make arguments options with an online authentication session.
         """
         opts = cls()
@@ -262,14 +262,14 @@ class VersionArgsOptions:
         return opts
 
     @classmethod
-    def with_offline(cls, username: Optional[str], uuid: Optional[str]) -> "VersionArgsOptions":
+    def with_offline(cls, username: Optional[str], uuid: Optional[str]) -> "ArgsOptions":
         """Make arguments options with an offline username and UUID.
         """
         opts = cls()
         opts.auth_session = OfflineAuthSession(uuid, username)
         return opts
 
-class VersionArgs:
+class Args:
     """Indicates java arguments, game arguments and main class required to run the game.
     This can later be used to run the game and is usually prepared by the `ArgsTask`.
     """
@@ -309,7 +309,7 @@ class MetadataTask(Task):
     versions.
 
     :in Context: The installation context.
-    :in VersionRoot: Describe which root version to start resolving.
+    :in MetadataRoot: Describe which root version to start resolving.
     :in VersionManifest: Version manifest to use for fetching online official versions.
     :out Version: The root version.
     :out VersionMetadata: The resolved version metadata.
@@ -322,9 +322,10 @@ class MetadataTask(Task):
 
         context = state[Context]
         manifest = state[VersionManifest]
-        repo: VersionRepository = state[VersionRoot].repository or manifest
+        version_root = state[MetadataRoot]
 
-        version_id: Optional[str] = state[VersionRoot].id
+        version_id: Optional[str] = version_root.id
+        version_repo: VersionRepository = version_root.repository or manifest
         versions: List[Version] = []
 
         while version_id is not None:
@@ -334,7 +335,7 @@ class MetadataTask(Task):
             
             watcher.on_event(VersionResolveEvent(version_id, False))
             version = context.get_version(version_id)
-            self.ensure_version_meta(version, repo)
+            self.ensure_version_meta(version, version_repo)
             watcher.on_event(VersionResolveEvent(version_id, True))
 
             # Set the parent of the last version to the version being resolved.
@@ -344,11 +345,11 @@ class MetadataTask(Task):
             versions.append(version)
             version_id = version.metadata.pop("inheritsFrom", None)
             
+            # Inherited versions are forced to use VersionManifest.
+            version_repo = manifest
+            
             if version_id is not None and not isinstance(version_id, str):
                 raise ValueError("metadata: /inheritsFrom must be a string")
-            
-            # Inherited versions are forced to use VersionManifest.
-            repo = manifest
 
         # The metadata is included to the state.
         state.insert(versions[0])
@@ -382,7 +383,7 @@ class JarTask(Task):
 
     :in VersionMetadata: The version metadata.
     :in DownloadList: Used to add the JAR file to download if relevant.
-    :out VersionJar: The resolved version JAR with associated version ID providing it.
+    :out Jar: The resolved version JAR with associated version ID providing it.
     """
 
     def execute(self, state: State, watcher: Watcher) -> None:
@@ -399,12 +400,12 @@ class JarTask(Task):
                 if client_dl is not None:
                     entry = parse_download_entry(client_dl, jar_file, "metadata: /downloads/client")
                     state[DownloadList].add(entry, verify=True)
-                    state.insert(VersionJar(version_meta.id, jar_file))
+                    state.insert(Jar(version_meta.id, jar_file))
                     watcher.on_event(JarFoundEvent(version_meta.id))
                     return
             # If no download entry has been found, but the JAR exists, we use it.
             if jar_file.is_file():
-                state.insert(VersionJar(version_meta.id, jar_file))
+                state.insert(Jar(version_meta.id, jar_file))
                 watcher.on_event(JarFoundEvent(version_meta.id))
                 return
         
@@ -419,7 +420,7 @@ class AssetsTask(Task):
     :in Context: The installation context.
     :in FullMetadata: The full version metadata.
     :in DownloadList: Used to add the JAR file to download if relevant.
-    :out VersionAssets: Optional, present if the assets are specified.
+    :out Assets: Optional, present if the assets are specified.
     """
 
     def execute(self, state: State, watcher: Watcher) -> None:
@@ -502,7 +503,7 @@ class AssetsTask(Task):
         virtual_dir = context.assets_dir.joinpath("virtual", assets_index_version) if assets_virtual else None
         resources_dir = context.work_dir / "resources" if assets_resources else None
 
-        state.insert(VersionAssets(assets_index_version, assets, virtual_dir, resources_dir))
+        state.insert(Assets(assets_index_version, assets, virtual_dir, resources_dir))
         watcher.on_event(AssetsResolveEvent(assets_index_version, len(assets)))
 
 
@@ -512,7 +513,7 @@ class AssetsFinalizeTask(Task):
 
     def execute(self, state: State, watcher: Watcher) -> None:
         
-        assets = state[VersionAssets]
+        assets = state[Assets]
 
         if assets.resources_dir is not None:
             for asset_id, asset_file in assets.assets.items():
@@ -535,7 +536,7 @@ class LibrariesTask(Task):
     :in Context: The installation context.
     :in FullMetadata: The full version metadata.
     :in DownloadList: Used to add the JAR file to download if relevant.
-    :out VersionLibraries: Optional, present if the libraries are specified.
+    :out Libraries: Optional, present if the libraries are specified.
     """
 
     def execute(self, state: State, watcher: Watcher) -> None:
@@ -645,7 +646,7 @@ class LibrariesTask(Task):
                 dl_entry.name = str(spec)
                 dl.add(dl_entry, verify=True)
 
-        state.insert(VersionLibraries(class_libs, native_libs))
+        state.insert(Libraries(class_libs, native_libs))
         watcher.on_event(LibraryResolveEvent(len(class_libs) + len(native_libs)))
 
 
@@ -657,7 +658,7 @@ class LoggerTask(Task):
     :in Context: The installation context.
     :in FullMetadata: The full version metadata.
     :in DownloadList: Used to add the JAR file to download if relevant.
-    :out VersionLogging: Optional, the logging configuration if this version specifies it.
+    :out Logger: Optional, the logging configuration if this version specifies it.
     """
 
     def execute(self, state: State, watcher: Watcher) -> None:
@@ -696,7 +697,7 @@ class LoggerTask(Task):
         dl_entry = parse_download_entry(file_info, file_path, "metadata: /logging/client/file")
         dl.add(dl_entry, verify=True)
 
-        state.insert(VersionLogging(file_path, argument))
+        state.insert(Logger(file_path, argument))
         watcher.on_event(LoggerFoundEvent(file_id.replace(".xml", "")))
 
 
@@ -708,13 +709,13 @@ class JvmTask(Task):
     :in Context: The installation context.
     :in FullMetadata: The full version metadata.
     :in DownloadList: Used to add the JAR file to download if relevant.
-    :out VersionJvm: If JVM is found.
+    :out Jvm: If JVM is found.
     """
 
     def execute(self, state: State, watcher: Watcher) -> None:
 
         # Don't do anything if JVM is already provided.
-        if state.get(VersionJvm) is not None:
+        if state.get(Jvm) is not None:
             return
         
         context = state[Context]
@@ -786,7 +787,7 @@ class JvmTask(Task):
 
                 dl.add(jvm_download_entry, verify=True)
         
-        state.insert(VersionJvm(jvm_exec, jvm_version))
+        state.insert(Jvm(jvm_exec, jvm_version))
         watcher.on_event(JvmResolveEvent(jvm_version, len(jvm_files)))
 
 
@@ -796,18 +797,18 @@ class LwjglFixTask(Task):
 
 
 class ArgsTask(Task):
-    """This task compute the `VersionArgs` from all previous states.
+    """This task compute the final arguments from all previous states.
 
     :in Context: The installation context.
     :in Version: The version object that's being installed.
     :in FullMetadata: The full version metadata.
-    :in VersionJar: Version JAR file.
-    :in VersionLibraries: Version libraries listing.
-    :in VersionAssets: Version assets listing.
-    :in VersionLogging: Version logging (optional).
-    :in VersionJvm: Version JVM for execution.
-    :in VersionArgsOptions: Options for this task to customize arguments (optional).
-    :out VersionArgs: Computed version arguments.
+    :in Jar: Version JAR file.
+    :in Assets: Version assets listing.
+    :in Libraries: Version libraries listing.
+    :in Logger: Version logger (optional).
+    :in Jvm: Version JVM for execution.
+    :in ArgsOptions: Options for this task to customize arguments (optional).
+    :out Args: Computed version arguments.
     """
 
     def execute(self, state: State, watcher: Watcher) -> None:
@@ -815,12 +816,12 @@ class ArgsTask(Task):
         context = state[Context]
         version = state[Version]
         metadata = state[FullMetadata].data
-        jar = state[VersionJar]
-        libraries = state[VersionLibraries]
-        assets = state[VersionAssets]
-        logging = state.get(VersionLogging)
-        jvm = state[VersionJvm]
-        opts = state.get(VersionArgsOptions) or VersionArgsOptions()
+        jar = state[Jar]
+        libraries = state[Libraries]
+        assets = state[Assets]
+        logging = state.get(Logger)
+        jvm = state[Jvm]
+        opts = state.get(ArgsOptions) or ArgsOptions()
 
         # Main class
         main_class = metadata.get("mainClass")
@@ -922,7 +923,7 @@ class ArgsTask(Task):
         if opts.server_port is not None:
             game_args.extend(("--port", str(opts.server_port)))
 
-        state.insert(VersionArgs(jvm_args, game_args, main_class, args_replacements))
+        state.insert(Args(jvm_args, game_args, main_class, args_replacements))
 
 
 class RunTask(Task):
@@ -1059,7 +1060,7 @@ class VersionManifest(VersionRepository):
 
 
 class VersionNotFoundError(Exception):
-    """Raised when a version was not found. The version that was not found is given
+    """Raised when a version was not found. The version that was not found is given.
     """
 
     def __init__(self, version: Version) -> None:
@@ -1276,28 +1277,18 @@ legacy_jvm_args = [
 ]
 
 
-def make_vanilla_sequence(version_id: str, *, 
-    context: Optional[Context] = None,
-    version_manifest: Optional[VersionManifest] = None,
-    run: bool = False,
-) -> Sequence:
-    """Make vanilla sequence for installing vanilla Minecraft versions.
+def alter_vanilla_sequence(seq: Sequence, run: bool = False) -> None:
+    """Alter a task sequence by inserting tasks for running a standard game. Vanilla 
+    sequence is the most basic and required logic to run a game based on Mojang's version
+    metadata format.
 
-    By default, this function will use the default context (standard .minecraft directory)
-    and a default version manifest for querying official Mojang versions.
-
-    When this installer sequence is executed and all tasks succeeds, the final 
-    interesting state that can be used to run the game is `VersionArgs`. It contains
-    JVM binary path, JVM arguments and game arguments.
-
-    This function can optionally run the game using a `RunTask`.
+    This sequence take as input a `MetadataRoot` instance for the root version to load,
+    a `Context` for knowing game's directories and a `VersionManifest` for downloading
+    missing vanilla versions.
+    
+    The output of this sequence is `Args`, and the `run` argument can specify if
+    you want or not to add the `RunTask` that will take these arguments to run the game.
     """
-
-    seq = Sequence()
-
-    seq.state.insert(VersionRoot(version_id))
-    seq.state.insert(context or Context())
-    seq.state.insert(version_manifest or VersionManifest())
 
     seq.append_task(MetadataTask())
     seq.append_task(JarTask())
@@ -1319,4 +1310,23 @@ def make_vanilla_sequence(version_id: str, *,
     if run:
         seq.append_task(RunTask())
 
-    return seq
+
+
+# seq.state.insert(VersionRoot(version_id))
+# seq.state.insert(context or Context())
+# seq.state.insert(version_manifest or VersionManifest())
+
+# """Make vanilla sequence for installing vanilla Minecraft versions.
+
+# The given version id may be given as an alias (release, snapshot) or a mod loader 
+# identifier (fabric:release, fabric:1.18.2), only if the mod loader task is added.
+
+# By default, this function will use the default context (standard .minecraft directory)
+# and a default version manifest for querying official Mojang versions.
+
+# When this installer sequence is executed and all tasks succeeds, the final 
+# interesting state that can be used to run the game is `Args`. It contains
+# JVM binary path, JVM arguments and game arguments.
+
+# This function can optionally run the game using a `RunTask`.
+# """

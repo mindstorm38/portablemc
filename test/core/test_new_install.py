@@ -1,4 +1,4 @@
-from portablemc.vanilla import Context, make_vanilla_sequence
+from portablemc.vanilla import Context, alter_vanilla_sequence
 from portablemc.task import Task, Watcher
 
 from pathlib import Path
@@ -8,7 +8,7 @@ def test_install(tmp_path: Path):
 
     ctx = Context(tmp_path)
 
-    installer = make_vanilla_sequence(ctx, "1.19.3")
+    installer = alter_vanilla_sequence(ctx, "1.19.3")
     installer.add_watcher(LogWatcher())
     
     print("installing...")
