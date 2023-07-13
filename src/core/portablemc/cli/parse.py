@@ -118,7 +118,7 @@ def register_start_arguments(parser: ArgumentParser):
     parser.add_argument("-i", "--uuid", help=_("args.start.uuid"))
     parser.add_argument("-s", "--server", help=_("args.start.server"))
     parser.add_argument("-p", "--server-port", type=int, help=_("args.start.server_port"), metavar="PORT")
-    parser.add_argument("version", nargs="?", default="release")
+    parser.add_argument("version", nargs="?", default="release", help=_("args.start.version", formats=", ".join(map(lambda s: _(f"args.start.version.{s}"), ("vanilla", "fabric", "quilt", "forge")))))
 
 
 def register_login_arguments(parser: ArgumentParser):

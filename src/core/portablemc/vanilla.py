@@ -11,6 +11,8 @@ import json
 import re
 import os
 
+from portablemc.task import State
+
 from .util import LibrarySpecifier, calc_input_sha1, merge_dict, jvm_bin_filename
 from .download import DownloadList, DownloadEntry, DownloadTask
 from .auth import AuthSession, OfflineAuthSession
@@ -81,7 +83,8 @@ class FullMetadata:
         self.data = data
 
 class Version:
-    """This class holds version's metadata, as resolved by `MetadataTask`.
+    """This class holds version's metadata, as resolved by `MetadataTask`. Can be 
+    obtained from `Version.merge()`.
     """
 
     __slots__ = "id", "dir", "metadata", "parent"
@@ -171,18 +174,33 @@ class VersionRepository:
         """
         raise NotImplementedError
 
+class VersionRepositories:
+    """Mapping of version identifiers to the repository to use for them. This state is
+    set up by `MetadataTask` and can be altered in order to add a repository.
+
+    If no mapping is present, the default repository is the `VersionManifest` repository
+    that provides Mojang's official versions.
+    """
+
+    def __init__(self) -> None:
+        self.mapping: Dict[str, VersionRepository] = {}
+    
+    def get(self, version_id: str, default: VersionRepository) -> VersionRepository:
+        return self.mapping.get(version_id, default)
+    
+    def insert(self, version_id: str, repository: VersionRepository) -> None:
+        self.mapping[version_id] = repository
+
 
 class MetadataRoot:
     """Small class used to specify the root version to load with its parents by 
-    `MetadataTask`. An optional repository can be specified to be used for resolve
-    this particular version, instead of the default `VersionManifest`.
+    `MetadataTask`.
     """
 
-    __slots__ = "id", "repository"
+    __slots__ = "version_id"
 
-    def __init__(self, id: str, repository: Optional[VersionRepository] = None) -> None:
-        self.id = id
-        self.repository = repository
+    def __init__(self, version_id: str) -> None:
+        self.version_id = version_id
 
 class Jar:
     """This state object contains the version JAR to use for launching the game.
@@ -311,6 +329,8 @@ class MetadataTask(Task):
     :in Context: The installation context.
     :in MetadataRoot: Describe which root version to start resolving.
     :in VersionManifest: Version manifest to use for fetching online official versions.
+    :in(setup) VersionRepositories: Mapping of version identifiers to their repository,
+    this state is added by the task at setup.
     :out Version: The root version.
     :out VersionMetadata: The resolved version metadata.
     """
@@ -318,14 +338,16 @@ class MetadataTask(Task):
     def __init__(self, *, max_parents: int = 10) -> None:
         self.max_parents = max_parents
 
+    def setup(self, state: State) -> None:
+        state.insert(VersionRepositories())
+
     def execute(self, state: State, watcher: Watcher) -> None:
 
         context = state[Context]
         manifest = state[VersionManifest]
-        version_root = state[MetadataRoot]
+        repositories = state[VersionRepositories]
 
-        version_id: Optional[str] = version_root.id
-        version_repo: VersionRepository = version_root.repository or manifest
+        version_id: Optional[str] = state[MetadataRoot].version_id
         versions: List[Version] = []
 
         while version_id is not None:
@@ -335,7 +357,7 @@ class MetadataTask(Task):
             
             watcher.on_event(VersionResolveEvent(version_id, False))
             version = context.get_version(version_id)
-            self.ensure_version_meta(version, version_repo)
+            self.ensure_version_meta(version, repositories.get(version_id, manifest))
             watcher.on_event(VersionResolveEvent(version_id, True))
 
             # Set the parent of the last version to the version being resolved.
@@ -344,9 +366,6 @@ class MetadataTask(Task):
             
             versions.append(version)
             version_id = version.metadata.pop("inheritsFrom", None)
-            
-            # Inherited versions are forced to use VersionManifest.
-            version_repo = manifest
             
             if version_id is not None and not isinstance(version_id, str):
                 raise ValueError("metadata: /inheritsFrom must be a string")
@@ -931,6 +950,71 @@ class RunTask(Task):
     """
 
 
+class VersionNotFoundError(Exception):
+    """Raised when a version was not found. The version that was not found is given.
+    """
+
+    def __init__(self, version: Version) -> None:
+        self.version = version
+
+class TooMuchParentsError(Exception):
+    """Raised when a version hierarchy is too deep. The hierarchy of versions is given
+    in property `versions`.
+    """
+
+    def __init__(self, versions: List[Version]) -> None:
+        self.versions = versions
+
+class JarNotFoundError(Exception):
+    """Raised when no version's JAR file could be found from the metadata.
+    """
+
+class JvmNotFoundError(Exception):
+    """Raised when the 
+    """
+
+    UNSUPPORTED_LIBC = "unsupported_libc"
+    UNSUPPORTED_ARCH = "unsupported_arch"
+    UNSUPPORTED_VERSION = "unsupported_version"
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+
+
+class VersionResolveEvent:
+    __slots__ = "version_id", "done"
+    def __init__(self, version_id: str, done: bool) -> None:
+        self.version_id = version_id
+        self.done = done
+
+class JarFoundEvent:
+    __slots__ = "version_id",
+    def __init__(self, version_id: str) -> None:
+        self.version_id = version_id
+
+class AssetsResolveEvent:
+    __slots__ = "index_version", "count"
+    def __init__(self, index_version: str, count: Optional[int]) -> None:
+        self.index_version = index_version
+        self.count = count
+
+class LibraryResolveEvent:
+    __slots__ = "count",
+    def __init__(self, count: Optional[int]) -> None:
+        self.count = count
+
+class LoggerFoundEvent:
+    __slots__ = "version"
+    def __init__(self, version: str) -> None:
+        self.version = version
+
+class JvmResolveEvent:
+    __slots__ = "version", "count"
+    def __init__(self, version: Optional[str], count: Optional[int]) -> None:
+        self.version = version
+        self.count = count
+
+
 class VersionManifest(VersionRepository):
     """The Mojang's official version manifest. Providing officially
     available versions with optional cache file.
@@ -1057,71 +1141,6 @@ class VersionManifest(VersionRepository):
         version.dir.mkdir(parents=True, exist_ok=True)
         with version.metadata_file().open("wb") as fp:
             fp.write(res.data)
-
-
-class VersionNotFoundError(Exception):
-    """Raised when a version was not found. The version that was not found is given.
-    """
-
-    def __init__(self, version: Version) -> None:
-        self.version = version
-
-class TooMuchParentsError(Exception):
-    """Raised when a version hierarchy is too deep. The hierarchy of versions is given
-    in property `versions`.
-    """
-
-    def __init__(self, versions: List[Version]) -> None:
-        self.versions = versions
-
-class JarNotFoundError(Exception):
-    """Raised when no version's JAR file could be found from the metadata.
-    """
-
-class JvmNotFoundError(Exception):
-    """Raised when the 
-    """
-
-    UNSUPPORTED_LIBC = "unsupported_libc"
-    UNSUPPORTED_ARCH = "unsupported_arch"
-    UNSUPPORTED_VERSION = "unsupported_version"
-
-    def __init__(self, code: str) -> None:
-        self.code = code
-
-
-class VersionResolveEvent:
-    __slots__ = "version_id", "done"
-    def __init__(self, version_id: str, done: bool) -> None:
-        self.version_id = version_id
-        self.done = done
-
-class JarFoundEvent:
-    __slots__ = "version_id",
-    def __init__(self, version_id: str) -> None:
-        self.version_id = version_id
-
-class AssetsResolveEvent:
-    __slots__ = "index_version", "count"
-    def __init__(self, index_version: str, count: Optional[int]) -> None:
-        self.index_version = index_version
-        self.count = count
-
-class LibraryResolveEvent:
-    __slots__ = "count",
-    def __init__(self, count: Optional[int]) -> None:
-        self.count = count
-
-class LoggerFoundEvent:
-    __slots__ = "version"
-    def __init__(self, version: str) -> None:
-        self.version = version
-
-class JvmResolveEvent:
-    __slots__ = "version", "count"
-    def __init__(self, version: Optional[str], count: Optional[int]) -> None:
-        self.version = version
-        self.count = count
 
 
 def parse_download_entry(value: Any, dst: Path, path: str) -> DownloadEntry:
