@@ -136,9 +136,10 @@ class Sequence:
         given task type.
         """
         if after is not None:
-            for i, task in enumerate(self.tasks):
-                if type(task) is after:
+            for i, i_task in enumerate(self.tasks):
+                if type(i_task) is after:
                     self.insert_task(task, i + 1)
+                    return
         self.insert_task(task, len(self.tasks))
     
     def prepend_task(self, task: Task, *, 
@@ -151,9 +152,10 @@ class Sequence:
         the given task type.
         """
         if before is not None:
-            for i, task in enumerate(self.tasks):
-                if type(task) is before:
+            for i, i_task in enumerate(self.tasks):
+                if type(i_task) is before:
                     self.insert_task(task, i)
+                    return
         self.insert_task(task, 0)
 
     def add_watcher(self, watcher: Watcher) -> None:

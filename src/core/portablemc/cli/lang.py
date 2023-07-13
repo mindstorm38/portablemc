@@ -56,7 +56,12 @@ lang = {
     "args.search": "Search for Minecraft versions.",
     "args.search.kind": "Select the kind of search to operate.",
     # Args start
-    "args.start": "Start a Minecraft version, default to the latest release.",
+    "args.start": "Start a Minecraft version.",
+    "args.start.version": "Version identifier (default to release): {formats}.",
+    "args.start.version.vanilla": "release|snapshot|<vanilla-version>",
+    "args.start.version.fabric": "fabric:[<vanilla-version>[:<loader-version>]]",
+    "args.start.version.quilt": "quilt:[<vanilla-version>[:<loader-version>]]",
+    "args.start.version.forge": "forge:[<forge-version>]",
     "args.start.dry": "Simulate game starting.",
     "args.start.disable_multiplayer": "Disable the multiplayer buttons (>= 1.16).",
     "args.start.disable_chat": "Disable the online chat (>= 1.16).",
@@ -131,6 +136,8 @@ lang = {
     "addon.show.authors": "Authors: {authors}",
     "addon.show.description": "Description: {description}",
     # Command start
+    "start.version.invalid_id": "Invalid version id, expected: {expected}",
+    "start.version.invalid_id_unknown_format": "Invalid version id, unknown format (read help).",
     "start.version.resolving": "Resolving version {version}... ",
     "start.version.resolved": "Resolved version {version}",
     "start.version.not_found": "Version {version} not found",

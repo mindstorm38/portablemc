@@ -19,8 +19,9 @@ class DownloadTask(Task):
     """A download task.
 
     This task performs a mass download of files, this is basically
-    used to download assets and libraries. This task setup a state
-    that holds a `DownloadList` object.
+    used to download assets and libraries.
+
+    :in(setup) DownloadList: This task adds and uses a `DownloadList` state.
     """
 
     def setup(self, state: State) -> None:

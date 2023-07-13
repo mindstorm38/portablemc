@@ -18,7 +18,7 @@ from ..auth import AuthDatabase, AuthSession, MicrosoftAuthSession, YggdrasilAut
 from ..task import Watcher, Sequence
 
 from ..vanilla import alter_vanilla_sequence, Context, VersionManifest, \
-    VersionResolveEvent, VersionNotFoundError, TooMuchParentsError, \
+    MetadataRoot, VersionResolveEvent, VersionNotFoundError, TooMuchParentsError, \
     JarFoundEvent, JarNotFoundError, \
     AssetsResolveEvent, \
     LibraryResolveEvent, \
@@ -195,26 +195,55 @@ def cmd_search(ns: SearchNs):
 
 def cmd_start(ns: StartNs):
 
-    version_raw = ns.version.split(":", maxsplit=1)
-    
+    version_parts = ns.version.split(":")
+    vanilla_version = None
+    loader_version = None
 
+    # Parse raw version id to find eventual mod loader formats.
+    if len(version_parts) == 1:
+        loader = "vanilla"
+        vanilla_version = version_parts[0]
 
-    if len(version_raw) == 2:
-        version_kind, version_id = version_raw
+    elif version_parts[0] in ("fabric", "quilt"):
+        # Fabric/Quilt version parsing.
+        loader = version_parts[0]
+        if len(version_parts) <= 3:
+            vanilla_version = version_parts[1] or "release"
+            loader_version = version_parts[2] if len(version_parts) == 3 else None
+    elif version_parts[0] == "forge":
+        loader = "forge"
+        if len(version_parts) == 2:
+            vanilla_version = version_parts[1]
     else:
-        version_kind = None
-        version_id = version_raw[0]
+        ns.out.task("FAILED", "start.version.invalid_id_unknown_format")
+        ns.out.finish()
+        sys.exit(EXIT_FAILURE)
     
-    version_id, _alias = ns.version_manifest.filter_latest(version_id)
+    if vanilla_version is None:
+        ns.out.task("FAILED", "start.version.invalid_id", expected=_(f"args.start.version.{loader}"))
+        ns.out.finish()
+        sys.exit(EXIT_FAILURE)
+
+    # Game version can always be some alias, so we check it here.
+    vanilla_version, _alias = ns.version_manifest.filter_latest(vanilla_version)
     
+    # Create sequence with supported mod loaders.
     seq = Sequence()
     alter_vanilla_sequence(seq, run=not ns.dry)
 
+    if loader == "fabric":
+        from ..fabric import alter_fabric_sequence, FabricRoot
+        alter_fabric_sequence(seq)
+        seq.state.insert(FabricRoot(vanilla_version, loader_version))
+    elif loader == "quilt":
+        from ..fabric import alter_quilt_sequence, FabricRoot
+        alter_quilt_sequence(seq)
+    else:
+        seq.state.insert(MetadataRoot(vanilla_version))
     
-
-    # seq = make_vanilla_sequence(version_id, 
-    #         context=ns.context, 
-    #         version_manifest=ns.version_manifest)
+    # Add mandatory states.
+    seq.state.insert(ns.context)
+    seq.state.insert(ns.version_manifest)
     
     # Various options for ArgsTask in order to setup the arguments to start the game.
     args_opts = ArgsOptions()
@@ -244,12 +273,10 @@ def cmd_start(ns: StartNs):
     seq.add_watcher(DownloadWatcher(ns.out))
 
     try:
-        
+
+        # print(f"tasks: {seq.tasks}")
+
         seq.execute()
-
-        # Take compute arguments.
-        args1 = seq.state[Args]
-
         sys.exit(EXIT_OK)
 
     except VersionNotFoundError as error:
