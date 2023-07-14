@@ -11,6 +11,8 @@ import json
 import re
 import os
 
+from portablemc.task import State
+
 from .util import LibrarySpecifier, calc_input_sha1, merge_dict, jvm_bin_filename
 from .download import DownloadList, DownloadEntry, DownloadTask
 from .auth import AuthSession, OfflineAuthSession
@@ -218,30 +220,33 @@ class Assets:
         self.virtual_dir = virtual_dir
         self.resources_dir = resources_dir
 
-# class LibrariesPredicates:
-#     """A list of predicates used when resolving libraries, if a predicate returns false,
-#     then the library is excluded and not resolved. This state is set up by LibrariesTask
-#     in order to be modified afterward.
-#     """
+class LibrariesOptions:
+    """Options for resolving libraries, for now this only provides predicates to 
+    filtering out some libraries.
 
-#     __slots__ = "predicates",
-
-#     def __init__(self) -> None:
-#         self.predicates: List[Callable[[LibrarySpecifier], bool]] = []
-
-#     def add(self, predicate: Callable[[LibrarySpecifier], bool]) -> None:
-#         self.predicates.append(predicate)
+    This state is set up by `LibrariesTask`.
+    """
+    __slots__ = "predicates",
+    def __init__(self) -> None:
+        self.predicates: List[Callable[[LibrarySpecifier], bool]] = []
 
 class Libraries:
     """Represent the loaded libraries for the current version. This contains both 
     class path libraries that should be added to the class path, and the native libraries
     that should be extracted in a temporary bin directory. These native libraries are no
     longer used in modern versions.
+
+    Native libraries may points either to a JAR file where so/dll/dylib files are stored,
+    or directly to a shared library, in such case a symlink is created to the game's
+    binaries directory (or copied if not possible). If the file is .so and has version 
+    numbers like .so.1.2.3, the version numbers are removed.
+
+    This state is set up by `LibrariesTask`.
     """
     __slots__ = "class_libs", "native_libs"
-    def __init__(self, class_libs: List[Path], native_libs: List[Path]) -> None:
-        self.class_libs = class_libs
-        self.native_libs = native_libs
+    def __init__(self) -> None:
+        self.class_libs: List[Path] = []
+        self.native_libs: List[Path] = []
 
 class Logger:
     """Represent the loaded logging configuration for the current version. It contain
@@ -281,21 +286,10 @@ class ArgsOptions:
         self.fix_legacy: bool = True         # For legacy merge sort and betacraft proxy.
         self.features: Dict[str, bool] = {}  # Additional features for metadata args.
 
-    @classmethod
-    def with_online(cls, auth_session: AuthSession) -> "ArgsOptions":
-        """Make arguments options with an online authentication session.
+    def set_offline(self, username: Optional[str], uuid: Optional[str]) -> None:
+        """Shortcut for setting an offline session with the given username/uuid pair.
         """
-        opts = cls()
-        opts.auth_session = auth_session
-        return opts
-
-    @classmethod
-    def with_offline(cls, username: Optional[str], uuid: Optional[str]) -> "ArgsOptions":
-        """Make arguments options with an offline username and UUID.
-        """
-        opts = cls()
-        opts.auth_session = OfflineAuthSession(uuid, username)
-        return opts
+        self.auth_session = OfflineAuthSession(uuid, username)
 
 class Args:
     """Indicates java arguments, game arguments and main class required to run the game.
@@ -566,35 +560,36 @@ class LibrariesTask(Task):
 
     :in Context: The installation context.
     :in FullMetadata: The full version metadata.
-    :in(setup) LibrariesPredicates: List of predicates to filter libraries.
+    :in(setup) LibrariesOptions: Options for library resolution.
     :in DownloadList: Used to add the JAR file to download if relevant.
     :out Libraries: Optional, present if the libraries are specified.
     """
 
-    # def setup(self, state: State) -> None:
-    #     state.insert(LibrariesPredicates())
+    def setup(self, state: State) -> None:
+        state.insert(LibrariesOptions())
+        state.insert(Libraries())
 
     def execute(self, state: State, watcher: Watcher) -> None:
         
         context = state[Context]
         metadata = state[FullMetadata].data
-        # predicates = state[LibrariesPredicates].predicates
+        options = state[LibrariesOptions]
+        libraries = state[Libraries]
         dl = state[DownloadList]
 
-        class_libs = []
-        native_libs = []
-
-        libraries = metadata.get("libraries")
-        if libraries is None:
+        metadata_libraries = metadata.get("libraries")
+        if metadata_libraries is None:
             # Libraries are not inherently required.
             return
             
-        watcher.on_event(LibraryResolveEvent(None))
+        watcher.on_event(LibrariesResolvingEvent())
 
-        if not isinstance(libraries, list):
+        if not isinstance(metadata_libraries, list):
             raise ValueError("metadata: /libraries must be a list")
+        
+        excluded_libs = []
 
-        for library_idx, library in enumerate(libraries):
+        for library_idx, library in enumerate(metadata_libraries):
 
             if not isinstance(library, dict):
                 raise ValueError(f"metadata: /libraries/{library_idx} must be an object")
@@ -630,13 +625,18 @@ class LibrariesTask(Task):
                     continue
 
                 if minecraft_arch_bits is not None:
-                    spec.classifier = spec.classifier.replace("${arch}", minecraft_arch_bits)
+                    spec.classifier = spec.classifier.replace("${arch}", str(minecraft_arch_bits))
                 
-                libs = native_libs
+                libs = libraries.native_libs
 
             else:
-                libs = class_libs
+                libs = libraries.class_libs
             
+            # Apply predicates after the final classifier has been set, if relevant.
+            if not all((pred(spec) for pred in options.predicates)):
+                excluded_libs.append(spec)
+                continue
+
             dl_entry: Optional[DownloadEntry] = None
             jar_path_rel = spec.jar_file_path()
             jar_path = context.libraries_dir / jar_path_rel
@@ -680,8 +680,10 @@ class LibrariesTask(Task):
                 dl_entry.name = str(spec)
                 dl.add(dl_entry, verify=True)
 
-        state.insert(Libraries(class_libs, native_libs))
-        watcher.on_event(LibraryResolveEvent(len(class_libs) + len(native_libs)))
+        watcher.on_event(LibrariesResolvedEvent(
+            len(libraries.class_libs), 
+            len(libraries.native_libs), 
+            excluded_libs))
 
 
 class LoggerTask(Task):
@@ -836,9 +838,12 @@ class ArgsTask(Task):
     :in Libraries: Version libraries listing.
     :in Logger: Version logger (optional).
     :in Jvm: Version JVM for execution.
-    :in ArgsOptions: Options for this task to customize arguments (optional).
+    :in(setup) ArgsOptions: Options for this task to customize arguments.
     :out Args: Computed version arguments.
     """
+
+    def setup(self, state: State) -> None:
+        state.insert(ArgsOptions())
 
     def execute(self, state: State, watcher: Watcher) -> None:
         
@@ -850,7 +855,7 @@ class ArgsTask(Task):
         assets = state[Assets]
         logging = state.get(Logger)
         jvm = state[Jvm]
-        opts = state.get(ArgsOptions) or ArgsOptions()
+        opts = state[ArgsOptions]
 
         # Main class
         main_class = metadata.get("mainClass")
@@ -1008,10 +1013,18 @@ class AssetsResolveEvent:
         self.index_version = index_version
         self.count = count
 
-class LibraryResolveEvent:
-    __slots__ = "count",
-    def __init__(self, count: Optional[int]) -> None:
-        self.count = count
+class LibrariesResolvingEvent:
+    """Event triggered when libraries start being resolved.
+    """
+
+class LibrariesResolvedEvent:
+    """Event triggered when all libraries has been successfully resolved.
+    """
+    __slots__ = "class_libs_count", "native_libs_count", "excluded_libs"
+    def __init__(self, class_libs_count: int, native_libs_count: int, excluded_libs: List[LibrarySpecifier]) -> None:
+        self.class_libs_count = class_libs_count
+        self.native_libs_count = native_libs_count
+        self.excluded_libs = excluded_libs
 
 class LoggerFoundEvent:
     __slots__ = "version"
@@ -1273,8 +1286,8 @@ minecraft_arch = {
 
 # Stores the bits length of pointers on the current system.
 minecraft_arch_bits = {
-    "64bit": "64",
-    "32bit": "32"
+    "64bit": 64,
+    "32bit": 32
 }.get(platform.architecture()[0])
 
 # Name of the OS has used by Mojang for officially distributed JVMs.

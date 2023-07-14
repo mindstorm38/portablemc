@@ -14,7 +14,7 @@ from .lang import get as _, lang
 
 from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, DownloadError
 from ..auth import AuthDatabase, AuthSession, MicrosoftAuthSession, YggdrasilAuthSession, \
-    OfflineAuthSession, AuthError
+    AuthError
 from ..task import Watcher, Sequence
 from ..util import LibrarySpecifier
 
@@ -22,10 +22,10 @@ from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
     MetadataRoot, VersionResolveEvent, VersionNotFoundError, TooMuchParentsError, \
     JarFoundEvent, JarNotFoundError, \
     AssetsResolveEvent, \
-    LibraryResolveEvent, \
+    LibrariesOptions, Libraries, LibrariesResolvingEvent, LibrariesResolvedEvent, \
     LoggerFoundEvent, \
     Jvm, JvmResolveEvent, JvmNotFoundError, \
-    ArgsOptions, Args
+    ArgsOptions
 
 from ..lwjgl import add_lwjgl_tasks, LwjglVersion, LwjglVersionEvent
 from ..fabric import add_fabric_tasks, FabricRoot, FabricResolveEvent
@@ -243,7 +243,7 @@ def cmd_start(ns: StartNs):
         sys.exit(EXIT_FAILURE)
     
     # Various options for ArgsTask in order to setup the arguments to start the game.
-    args_opts = ArgsOptions()
+    args_opts = seq.state[ArgsOptions]
     args_opts.disable_multiplayer = ns.disable_mp
     args_opts.disable_chat = ns.disable_chat
     args_opts.demo = ns.demo
@@ -257,21 +257,23 @@ def cmd_start(ns: StartNs):
         if args_opts.auth_session is None:
             sys.exit(EXIT_FAILURE)
     else:
-        args_opts.auth_session = OfflineAuthSession(ns.username, ns.uuid)
+        args_opts.set_offline(ns.username, ns.uuid)
+    
+    # Included binaries
+    if ns.include_bin is not None:
+        seq.state[Libraries].native_libs.extend(map(Path, ns.include_bin))
 
-    seq.state.insert(args_opts)
-
-    # # Excluded libraries
-    # if ns.exclude_lib is not None:
-    #     exclude_filters = ns.exclude_lib
-    #     exclude_filters_usage = {exclude_filter: 0 for exclude_filter in exclude_filters}
-    #     def libraries_predicate(spec: LibrarySpecifier) -> bool:
-    #         for spec_filter in exclude_filters:
-    #             if spec_filter.matches(spec):
-    #                 exclude_filters_usage[spec_filter] += 1
-    #                 return False
-    #         return True
-    #     seq.state[LibrariesPredicates].add(libraries_predicate)
+    # Excluded libraries
+    if ns.exclude_lib is not None:
+        exclude_filters = ns.exclude_lib
+        # exclude_filters_usage = {exclude_filter: 0 for exclude_filter in exclude_filters}
+        def libraries_predicate(spec: LibrarySpecifier) -> bool:
+            for spec_filter in exclude_filters:
+                if spec_filter.matches(spec):
+                    # exclude_filters_usage[spec_filter] += 1
+                    return False
+            return True
+        seq.state[LibrariesOptions].predicates.append(libraries_predicate)
     # else:
     #     exclude_filters_usage = None
 
@@ -650,15 +652,19 @@ class StartWatcher(Watcher):
                 self.out.task("OK", "start.assets.resolved", index_version=event.index_version, count=event.count)
                 self.out.finish()
         
-        elif isinstance(event, LibraryResolveEvent):
-            if event.count is None:
-                self.out.task("..", "start.libraries.resolving")
-            else:
-                self.out.task("OK", "start.libraries.resolved", count=event.count)
+        elif isinstance(event, LibrariesResolvingEvent):
+            self.out.task("..", "start.libraries.resolving")
+        
+        elif isinstance(event, LibrariesResolvedEvent):
+            self.out.task("OK", "start.libraries.resolved", class_libs_count=event.class_libs_count, native_libs_count=event.native_libs_count)
+            self.out.finish()
+            for spec in event.excluded_libs:
+                self.out.task(None, "start.libraries.excluded", spec=str(spec))
                 self.out.finish()
 
         elif isinstance(event, LoggerFoundEvent):
             self.out.task("OK", "start.logger.found", version=event.version)
+            self.out.finish()
         
         elif isinstance(event, JvmResolveEvent):
             if event.count is None:
