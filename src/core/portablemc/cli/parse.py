@@ -19,6 +19,7 @@ class RootNs:
     work_dir: Optional[Path]
     timeout: float
     out_kind: str
+    verbose: bool
     # Initialized by main function after argument parsing.
     out: Output
     context: Context
@@ -69,6 +70,7 @@ def register_arguments() -> ArgumentParser:
     parser.add_argument("--work-dir", help=_("args.work_dir"), type=Path)
     parser.add_argument("--timeout", help=_("args.timeout"), type=float)
     parser.add_argument("--output", help=_("args.output"), dest="out_kind", choices=get_outputs(), default="human-color")
+    parser.add_argument("-v", "--verbose", help=_("args.verbose"), action="store_true")
     register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
     return parser
 

@@ -293,6 +293,10 @@ def cmd_start(ns: StartNs):
     seq.add_watcher(StartWatcher(ns.out))
     seq.add_watcher(DownloadWatcher(ns.out))
 
+    if ns.verbose:
+        ns.out.task("INFO", "start.verbose.tasks", tasks=", ".join((type(task).__name__ for task in seq.tasks)))
+        ns.out.finish()
+    
     try:
         seq.execute()
         sys.exit(EXIT_OK)
