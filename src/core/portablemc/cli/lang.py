@@ -48,8 +48,7 @@ lang = {
     "args.timeout": "Set a global timeout (in decimal seconds) that can be used by various requests done by the launcher or "
         "addons. A value of 0 is usually interpreted as an 'offline mode', this means that the launcher "
         "will try to use a cached copy of the requests' response.",
-    "args.output": "Set the output format of the launcher, defaults to 'human-color' (or 'human' for no color) for human "
-        "readable output, but you can select 'json' for outputting one JSON object per line that describes the state.",
+    "args.output": "Set the output format of the launcher, defaults to human-color.",
     # Args common langs
     "args.common.auth_service": "Authentication service type to use for logging in the game.",
     # Args search
@@ -67,16 +66,18 @@ lang = {
     "args.start.disable_chat": "Disable the online chat (>= 1.16).",
     "args.start.demo": "Start game in demo mode.",
     "args.start.resolution": "Set a custom start resolution (<width>x<height>, >= 1.6).",
+    "args.start.resolution.invalid": "invalid format '{given}', expected <width>x<height>",
     "args.start.jvm": f"Set a custom JVM '{jvm_bin_filename}' executable path. If this argument is omitted a public build "
-        "of a JVM is downloaded from Mojang services.",
+        "of a JVM is downloaded from Mojang services (if Mojang does not support your system, error is returned).",
     "args.start.jvm_args": "Change the default JVM arguments.",
     "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
         "order to improve the log readability in the console.",
-    "args.start.auth_anonymize": "Anonymize your email or username for authentication messages.",
     "args.start.no_legacy_fix": "Flag that disable fixes for old versions (legacy merge sort, betacraft proxy), "
         "enabled by default.",
-    "args.start.lwjgl": "Change the default LWJGL version used by Minecraft."
-        "This argument makes additional changes in order to support additional architectures such as ARM32/ARM64. "
+    "args.start.fabric_prefix": "Change the prefix of the version ID when starting with Fabric (<prefix>-<vanilla-version>-<loader-version>).",
+    "args.start.quilt_prefix": "Change the prefix of the version ID when starting with Quilt (<prefix>-<vanilla-version>-<loader-version>).",
+    "args.start.lwjgl": "Change the default LWJGL version used by Minecraft. "
+        "This argument makes additional changes in order to support additional architectures such as Arm. "
         "It's not guaranteed to work with every version of Minecraft and downgrading LWJGL version is not recommended.",
     "args.start.exclude_lib": "Specify Java libraries to exclude from the classpath (and download) "
         "before launching the game. Follow this pattern to specify libraries: <artifact>[:[<version>][:<classifier>]]. "
@@ -86,12 +87,13 @@ lang = {
         "given files are symlinked in the directory if possible, copied if not. "
         "On linux, version numbers are discarded (e.g. /usr/lib/foo.so.1.22.2 -> foo.so). "
         "Read the --exclude-lib help for use cases.",
+    "args.start.auth_anonymize": "Anonymize your email or username for authentication messages.",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
         "not already cached, disabled by default.",
     "args.start.login": "Use a email (or deprecated username) to authenticate using selected service (with --auth-service, also overrides --username and --uuid).",
     "args.start.username": "Set a custom user name to play.",
     "args.start.uuid": "Set a custom user UUID to play.",
-    "args.start.server": "Start the game and auto-connect to this server address (>= 1.6).",
+    "args.start.server": "Start the game and directly connect to a multiplayer server (>= 1.6).",
     "args.start.server_port": "Set the server address port (given with -s, --server, >= 1.6).",
     # Args login
     "args.login": "Login into your account and save the session.",
@@ -158,6 +160,8 @@ lang = {
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.not_found.{JvmNotFoundError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
         "use --jvm argument to manually set the path to your JVM executable.",
+    "start.fabric.resolving_loader": "Resolving fabric loader for {vanilla_version}",
+    "start.fabric.resolved": "Resolved fabric loader {loader_version} for {vanilla_version}",
 
     # TODO: 
     # "start.version.fixed.lwjgl": "Fixed LWJGL version to {version}",

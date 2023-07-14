@@ -1,14 +1,14 @@
 """Utilities specific to formatting the output of the CLI.
 """
 
-from . import lang
+from .lang import get_raw as _raw
 
 import shutil
 import time
 import json
 import sys
 
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, Iterable
 
 
 class OutputTable:
@@ -126,7 +126,7 @@ class HumanOutput(Output):
         if key is None:
             return
 
-        msg = lang.get_raw(key, kwargs)
+        msg = _raw(key, kwargs)
         if len(msg) + 9 > term_width:
             msg = f"{msg[:term_width - 9 - 3]}..."
         
@@ -216,29 +216,42 @@ class HumanTable(OutputTable):
         print("└─{}─┘".format("─┴─".join(columns_lines)))
 
 
-class JsonOutput(Output):
-    
+class MachineOutput(Output):
+
+    def print_function(self, name: str, *args: str, **kwargs) -> None:
+        """Print a machine-readable line for a function with some parameters.
+        """
+        print(name, ":", ",".join((arg.replace(",", "\\,") for arg in [
+            *args,
+            *(f"{k}={v}" for k, v in kwargs.items())
+        ])), sep="")
+
     def table(self) -> OutputTable:
-        return JsonTable()
-
-    def update(self, state: Optional[str], key: Optional[str], **kwargs) -> None:
-        print(json.dumps({"state": state, "key": key, "args": kwargs}))
-
+        return MachineTable(self)
+    
+    def task(self, state: Optional[str], key: Optional[str], **kwargs) -> None:
+        self.print_function("task", str(state), str(key), **kwargs)
+    
     def finish(self) -> None:
         pass
-
-    def prompt(self, password: bool = False) -> Optional[str]:
-        print(json.dumps({"prompt": True, "password": password}))
+    
+    def prompt(self, password: bool = False) -> str | None:
+        self.print_function("prompt", password=str(int(password)))
         try:
-            if password:
-                import getpass
-                return getpass.getpass("")
-            else:
-                return input("")
+            return input("")
         except KeyboardInterrupt:
             return None
 
-class JsonTable(OutputTable):
+class MachineTable(OutputTable):
 
+    def __init__(self, out: MachineOutput) -> None:
+        super().__init__()
+        self.out = out
+    
     def print(self) -> None:
-        print(json.dumps(self.rows, indent=2))
+        self.out.print_function("table", str(len(self.rows)))
+        for row in self.rows:
+            if row is None:
+                self.out.print_function("sep")
+            else:
+                self.out.print_function("row", *row)
