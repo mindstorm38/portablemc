@@ -77,7 +77,9 @@ class LibrarySpecifierFilter:
         if len(parts) > 3:
             raise ValueError("Invalid parts count")
 
-        return cls(parts[0], parts[1] or None, parts[2] or None)
+        return cls(parts[0], 
+                   parts[1] or None if len(parts) >= 2 else None, 
+                   parts[2] or None if len(parts) >= 3 else None)
 
     def matches(self, spec: LibrarySpecifier) -> bool:
         return self.artifact == spec.artifact \
@@ -86,3 +88,6 @@ class LibrarySpecifierFilter:
 
     def __str__(self) -> str:
         return f"{self.artifact}:{self.version or ''}" + ("" if self.classifier is None else f":{self.classifier}")
+
+    def __repr__(self) -> str:
+        return f"<LibrarySpecifierFilter {self}>"

@@ -144,7 +144,6 @@ lang = {
     "start.version.resolved": "Resolved version {version}",
     "start.version.not_found": "Version {version} not found",
     "start.version.too_much_parents": "Too much parents while resolving versions.",
-    "start.lwjgl.fixed": "Fixed LWJGL version to {version}",
     "start.jar.found": "Using version {version} jar",
     "start.jar.not_found": "Version jar not found",
     "start.assets.resolving": "Checking assets v{index_version}... ",
@@ -161,13 +160,12 @@ lang = {
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.not_found.{JvmNotFoundError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
         "use --jvm argument to manually set the path to your JVM executable.",
+    "start.lwjgl.version": "Forced LWJGL version to {version}",
     "start.fabric.resolving_loader": "Resolving {api} loader for {vanilla_version}",
-    "start.fabric.resolved": "Resolved {api} loader {loader_version} for {vanilla_version}",
-
-    # TODO: 
-    # "start.version.fixed.lwjgl": "Fixed LWJGL version to {version}",
-    # "start.libraries.exclude.unused": "Library exclusion '{pattern}' didn't match a libary.",
-    # "start.libraries.exclude.usage": "Library exclusion '{pattern}' matched {count} libraries.",
+    "start.fabric.resolved_loader": "Resolved {api} loader {loader_version} for {vanilla_version}",
+    "start.libraries.exclude.unused": "Library exclusion '{pattern}' didn't match any library.",
+    "start.libraries.exclude.usage": "Library exclusion '{pattern}' matched {count} libraries.",
+    # TODO:
     # "start.additional_binary_not_found": "The additional binary '{bin}' doesn't exists.",
     # "start.starting": "Starting the game...",
     # "start.starting_info": "Username: {username} ({uuid})",

@@ -5,10 +5,9 @@ from .lang import get_raw as _raw
 
 import shutil
 import time
-import json
 import sys
 
-from typing import List, Tuple, Union, Optional, Iterable
+from typing import List, Tuple, Union, Optional
 
 
 class OutputTable:
@@ -82,6 +81,7 @@ class HumanOutput(Output):
         "OK": "\033[92m",
         "FAILED": "\033[31m",
         "WARN": "\033[33m",
+        "INFO": "\033[36m"
     }
 
     def __init__(self, color: bool) -> None:

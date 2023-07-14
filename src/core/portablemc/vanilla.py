@@ -11,8 +11,6 @@ import json
 import re
 import os
 
-from portablemc.task import State, Watcher
-
 from .util import LibrarySpecifier, calc_input_sha1, merge_dict, jvm_bin_filename
 from .download import DownloadList, DownloadEntry, DownloadTask
 from .auth import AuthSession, OfflineAuthSession
@@ -21,7 +19,7 @@ from .http import HttpError, http_request
 
 from . import LAUNCHER_NAME, LAUNCHER_VERSION
 
-from typing import Optional, List, Iterator, Any, Dict, Tuple, Union
+from typing import Optional, List, Iterator, Any, Dict, Tuple, Union, Callable
 
 
 RESOURCES_URL = "https://resources.download.minecraft.net/"
@@ -200,15 +198,6 @@ class MetadataRoot:
     def __init__(self, version_id: str) -> None:
         self.version_id = version_id
 
-class LwjglVersion:
-    """This state specifies, if present, the LWJGL version to replace the current 
-    full metadata with. This is usually used for supporting exotic systems like Arm,
-    because the default metadata doesn't support such systems by default.
-    """
-    __slots__ = "version",
-    def __init__(self, version: str) -> None:
-        self.version = version
-
 class Jar:
     """This state object contains the version JAR to use for launching the game.
     """
@@ -229,9 +218,23 @@ class Assets:
         self.virtual_dir = virtual_dir
         self.resources_dir = resources_dir
 
+# class LibrariesPredicates:
+#     """A list of predicates used when resolving libraries, if a predicate returns false,
+#     then the library is excluded and not resolved. This state is set up by LibrariesTask
+#     in order to be modified afterward.
+#     """
+
+#     __slots__ = "predicates",
+
+#     def __init__(self) -> None:
+#         self.predicates: List[Callable[[LibrarySpecifier], bool]] = []
+
+#     def add(self, predicate: Callable[[LibrarySpecifier], bool]) -> None:
+#         self.predicates.append(predicate)
+
 class Libraries:
     """Represent the loaded libraries for the current version. This contains both 
-    classpath libraries that should be added to the classpath, and the native libraries
+    class path libraries that should be added to the class path, and the native libraries
     that should be extracted in a temporary bin directory. These native libraries are no
     longer used in modern versions.
     """
@@ -403,98 +406,6 @@ class MetadataTask(Task):
         repo.fetch_version_meta(version)
 
 
-class LwjglFixTask(Task):
-    """Fix the full merged metadata by modifying the LWJGL versions used.
-
-    This task alter the full metadata by replacing current LWJGL libraries by the one
-    specified by the `LwjglVersion` state. The currently supported LWJGL versions are:
-    3.2.3, 3.3.0, 3.3.1.
-
-    *The current version of this task alter the metadata, but in the future this may be
-    changed to be more efficient by directly modifying the resolved libraries state.*
-
-    :in FullMetadata: Full metadata, altered by this task.
-    :in LwjglVersion: Option, if present this task will trigger.
-    """
-
-    def execute(self, state: State, watcher: Watcher) -> None:
-
-        lwjgl_version = state.get(LwjglVersion)
-        if lwjgl_version is None:
-            return
-        
-        lwjgl_version = lwjgl_version.version
-        if lwjgl_version not in ("3.2.3", "3.3.0", "3.3.1"):
-            raise ValueError(f"unsupported lwjgl fix version: {lwjgl_version}")
-
-        metadata = state[FullMetadata].data
-
-        lwjgl_libs = [
-            "lwjgl",
-            "lwjgl-jemalloc",
-            "lwjgl-openal",
-            "lwjgl-opengl",
-            "lwjgl-glfw",
-            "lwjgl-stb",
-            "lwjgl-tinyfd",
-        ]
-
-        lwjgl_natives = {
-            "windows": ["natives-windows", "natives-windows-x86"],
-            "linux": ["natives-linux", "natives-linux-arm64", "natives-linux-arm32"],
-            "osx": ["natives-macos"]
-        }
-
-        if lwjgl_version in ("3.3.0", "3.3.1"):
-            lwjgl_natives["windows"].append("natives-windows-arm64")
-            lwjgl_natives["osx"].append("natives-macos-arm64")
-        
-        metadata_libs = metadata["libraries"]
-
-        libraries_to_remove = []
-        for idx, lib_obj in enumerate(metadata_libs):
-            if "name" in lib_obj and lib_obj["name"].startswith("org.lwjgl:"):
-                libraries_to_remove.append(idx)
-
-        for idx_to_remove in reversed(libraries_to_remove):
-            metadata_libs.pop(idx_to_remove)
-
-        maven_repo_url = "https://repo1.maven.org/maven2"
-
-        for lwjgl_lib in lwjgl_libs:
-
-            lib_path = f"org/lwjgl/{lwjgl_lib}/{lwjgl_version}/{lwjgl_lib}-{lwjgl_version}.jar"
-            lib_url = f"{maven_repo_url}/{lib_path}"
-            lib_name = f"org.lwjgl:{lwjgl_lib}:{lwjgl_version}"
-
-            metadata_libs.append({
-                "downloads": {
-                    "artifact": {
-                        "path": lib_path,
-                        "url": lib_url
-                    }
-                },
-                "name": lib_name
-            })
-
-            for lwjgl_os, lwjgl_classifiers in lwjgl_natives.items():
-                for lwjgl_classifier in lwjgl_classifiers:
-                    classifier_path = f"org/lwjgl/{lwjgl_lib}/{lwjgl_version}/{lwjgl_lib}-{lwjgl_version}-{lwjgl_classifier}.jar"
-                    classifier_url = f"{maven_repo_url}/{classifier_path}"
-                    metadata_libs.append({
-                        "downloads": {
-                            "artifact": {
-                                "path": classifier_path,
-                                "url": classifier_url
-                            }
-                        },
-                        "name": f"{lib_name}:{lwjgl_classifier}",
-                        "rules": [{"action": "allow", "os": {"name": lwjgl_os}}]
-                    })
-        
-        watcher.on_event(LwjglFixedEvent(lwjgl_version))
-
-
 class JarTask(Task):
     """Version JAR file resolving task.
 
@@ -655,14 +566,19 @@ class LibrariesTask(Task):
 
     :in Context: The installation context.
     :in FullMetadata: The full version metadata.
+    :in(setup) LibrariesPredicates: List of predicates to filter libraries.
     :in DownloadList: Used to add the JAR file to download if relevant.
     :out Libraries: Optional, present if the libraries are specified.
     """
+
+    # def setup(self, state: State) -> None:
+    #     state.insert(LibrariesPredicates())
 
     def execute(self, state: State, watcher: Watcher) -> None:
         
         context = state[Context]
         metadata = state[FullMetadata].data
+        # predicates = state[LibrariesPredicates].predicates
         dl = state[DownloadList]
 
         class_libs = []
@@ -674,7 +590,7 @@ class LibrariesTask(Task):
             return
             
         watcher.on_event(LibraryResolveEvent(None))
-        
+
         if not isinstance(libraries, list):
             raise ValueError("metadata: /libraries must be a list")
 
@@ -697,8 +613,6 @@ class LibrariesTask(Task):
                 
                 if not interpret_rule(rules):
                     continue
-
-            # TODO: Predicates??
 
             # Old metadata files provides a 'natives' mapping from OS to the classifier
             # specific for this OS.
@@ -1083,11 +997,6 @@ class VersionResolveEvent:
         self.version_id = version_id
         self.done = done
 
-class LwjglFixedEvent:
-    __slots__ = "version",
-    def __init__(self, version: str) -> None:
-        self.version = version
-
 class JarFoundEvent:
     __slots__ = "version_id",
     def __init__(self, version_id: str) -> None:
@@ -1411,7 +1320,6 @@ def add_vanilla_tasks(seq: Sequence, run: bool = False) -> None:
     """
 
     seq.append_task(MetadataTask())
-    seq.append_task(LwjglFixTask())
     seq.append_task(JarTask())
     seq.append_task(AssetsTask())
     seq.append_task(LibrariesTask())
