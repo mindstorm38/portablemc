@@ -19,6 +19,7 @@ from ..task import Watcher, Sequence
 
 from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
     MetadataRoot, VersionResolveEvent, VersionNotFoundError, TooMuchParentsError, \
+    LwjglVersion, LwjglFixedEvent, \
     JarFoundEvent, JarNotFoundError, \
     AssetsResolveEvent, \
     LibraryResolveEvent, \
@@ -239,6 +240,10 @@ def cmd_start(ns: StartNs):
             ns.out.task("FAILED", "start.version.invalid_id", expected=_(format_key))
         ns.out.finish()
         sys.exit(EXIT_FAILURE)
+    
+    # If LWJGL fix is required.
+    if ns.lwjgl is not None:
+        seq.state.insert(LwjglVersion(ns.lwjgl))
     
     # Various options for ArgsTask in order to setup the arguments to start the game.
     args_opts = ArgsOptions()
@@ -603,6 +608,10 @@ class StartWatcher(Watcher):
             else:
                 self.out.task("..", "start.version.resolving", version=event.version_id)
         
+        elif isinstance(event, LwjglFixedEvent):
+            self.out.task("OK", "start.lwjgl.fixed", version=event.version)
+            self.out.finish()
+
         elif isinstance(event, JarFoundEvent):
             self.out.task("OK", "start.jar.found", version=event.version_id)
             self.out.finish()

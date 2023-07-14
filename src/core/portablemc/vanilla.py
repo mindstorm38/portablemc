@@ -11,7 +11,7 @@ import json
 import re
 import os
 
-from portablemc.task import State
+from portablemc.task import State, Watcher
 
 from .util import LibrarySpecifier, calc_input_sha1, merge_dict, jvm_bin_filename
 from .download import DownloadList, DownloadEntry, DownloadTask
@@ -196,16 +196,23 @@ class MetadataRoot:
     """Small class used to specify the root version to load with its parents by 
     `MetadataTask`.
     """
-
-    __slots__ = "version_id"
-
+    __slots__ = "version_id",
     def __init__(self, version_id: str) -> None:
         self.version_id = version_id
+
+class LwjglVersion:
+    """This state specifies, if present, the LWJGL version to replace the current 
+    full metadata with. This is usually used for supporting exotic systems like Arm,
+    because the default metadata doesn't support such systems by default.
+    """
+    __slots__ = "version",
+    def __init__(self, version: str) -> None:
+        self.version = version
 
 class Jar:
     """This state object contains the version JAR to use for launching the game.
     """
-
+    __slots__ = "version_id", "path"
     def __init__(self, version_id: str, path: Path) -> None:
         self.version_id = version_id
         self.path = path
@@ -215,7 +222,7 @@ class Assets:
     version as well as all assets and if they need to copied to virtual or resources
     directory.
     """
-    
+    __slots__ = "index_version", "assets", "virtual_dir", "resources_dir"
     def __init__(self, index_version: str, assets: Dict[str, Path], virtual_dir: Optional[Path], resources_dir: Optional[Path]) -> None:
         self.index_version = index_version
         self.assets = assets
@@ -228,7 +235,7 @@ class Libraries:
     that should be extracted in a temporary bin directory. These native libraries are no
     longer used in modern versions.
     """
-
+    __slots__ = "class_libs", "native_libs"
     def __init__(self, class_libs: List[Path], native_libs: List[Path]) -> None:
         self.class_libs = class_libs
         self.native_libs = native_libs
@@ -238,7 +245,7 @@ class Logger:
     the logging file's path and the argument to add to the command line, this argument
     contains a format placeholder '${path}' that should be replaced with the file's path.
     """
-
+    __slots__ = "path", "arg"
     def __init__(self, path: Path, arg: str) -> None:
         self.path = path
         self.arg = arg
@@ -249,7 +256,7 @@ class Jvm:
     and the JVM version selected. The JVM version is optional because it may not be
     known at this time.
     """
-
+    __slots__ = "executable_file", "version"
     def __init__(self, executable_file: Path, version: Optional[str]) -> None:
         self.executable_file = executable_file
         self.version = version
@@ -291,6 +298,8 @@ class Args:
     """Indicates java arguments, game arguments and main class required to run the game.
     This can later be used to run the game and is usually prepared by the `ArgsTask`.
     """
+
+    __slots__ = "jvm_args", "game_args", "main_class", "args_replacements"
 
     def __init__(self, jvm_args: List[str], game_args: List[str], main_class: str, args_replacements: Dict[str, str]) -> None:
         self.jvm_args = jvm_args
@@ -392,6 +401,98 @@ class MetadataTask(Task):
         
         # If not loadable or not validated, fetch metadata.
         repo.fetch_version_meta(version)
+
+
+class LwjglFixTask(Task):
+    """Fix the full merged metadata by modifying the LWJGL versions used.
+
+    This task alter the full metadata by replacing current LWJGL libraries by the one
+    specified by the `LwjglVersion` state. The currently supported LWJGL versions are:
+    3.2.3, 3.3.0, 3.3.1.
+
+    *The current version of this task alter the metadata, but in the future this may be
+    changed to be more efficient by directly modifying the resolved libraries state.*
+
+    :in FullMetadata: Full metadata, altered by this task.
+    :in LwjglVersion: Option, if present this task will trigger.
+    """
+
+    def execute(self, state: State, watcher: Watcher) -> None:
+
+        lwjgl_version = state.get(LwjglVersion)
+        if lwjgl_version is None:
+            return
+        
+        lwjgl_version = lwjgl_version.version
+        if lwjgl_version not in ("3.2.3", "3.3.0", "3.3.1"):
+            raise ValueError(f"unsupported lwjgl fix version: {lwjgl_version}")
+
+        metadata = state[FullMetadata].data
+
+        lwjgl_libs = [
+            "lwjgl",
+            "lwjgl-jemalloc",
+            "lwjgl-openal",
+            "lwjgl-opengl",
+            "lwjgl-glfw",
+            "lwjgl-stb",
+            "lwjgl-tinyfd",
+        ]
+
+        lwjgl_natives = {
+            "windows": ["natives-windows", "natives-windows-x86"],
+            "linux": ["natives-linux", "natives-linux-arm64", "natives-linux-arm32"],
+            "osx": ["natives-macos"]
+        }
+
+        if lwjgl_version in ("3.3.0", "3.3.1"):
+            lwjgl_natives["windows"].append("natives-windows-arm64")
+            lwjgl_natives["osx"].append("natives-macos-arm64")
+        
+        metadata_libs = metadata["libraries"]
+
+        libraries_to_remove = []
+        for idx, lib_obj in enumerate(metadata_libs):
+            if "name" in lib_obj and lib_obj["name"].startswith("org.lwjgl:"):
+                libraries_to_remove.append(idx)
+
+        for idx_to_remove in reversed(libraries_to_remove):
+            metadata_libs.pop(idx_to_remove)
+
+        maven_repo_url = "https://repo1.maven.org/maven2"
+
+        for lwjgl_lib in lwjgl_libs:
+
+            lib_path = f"org/lwjgl/{lwjgl_lib}/{lwjgl_version}/{lwjgl_lib}-{lwjgl_version}.jar"
+            lib_url = f"{maven_repo_url}/{lib_path}"
+            lib_name = f"org.lwjgl:{lwjgl_lib}:{lwjgl_version}"
+
+            metadata_libs.append({
+                "downloads": {
+                    "artifact": {
+                        "path": lib_path,
+                        "url": lib_url
+                    }
+                },
+                "name": lib_name
+            })
+
+            for lwjgl_os, lwjgl_classifiers in lwjgl_natives.items():
+                for lwjgl_classifier in lwjgl_classifiers:
+                    classifier_path = f"org/lwjgl/{lwjgl_lib}/{lwjgl_version}/{lwjgl_lib}-{lwjgl_version}-{lwjgl_classifier}.jar"
+                    classifier_url = f"{maven_repo_url}/{classifier_path}"
+                    metadata_libs.append({
+                        "downloads": {
+                            "artifact": {
+                                "path": classifier_path,
+                                "url": classifier_url
+                            }
+                        },
+                        "name": f"{lib_name}:{lwjgl_classifier}",
+                        "rules": [{"action": "allow", "os": {"name": lwjgl_os}}]
+                    })
+        
+        watcher.on_event(LwjglFixedEvent(lwjgl_version))
 
 
 class JarTask(Task):
@@ -810,11 +911,6 @@ class JvmTask(Task):
         watcher.on_event(JvmResolveEvent(jvm_version, len(jvm_files)))
 
 
-class LwjglFixTask(Task):
-    """TODO:
-    """
-
-
 class ArgsTask(Task):
     """This task compute the final arguments from all previous states.
 
@@ -986,6 +1082,11 @@ class VersionResolveEvent:
     def __init__(self, version_id: str, done: bool) -> None:
         self.version_id = version_id
         self.done = done
+
+class LwjglFixedEvent:
+    __slots__ = "version",
+    def __init__(self, version: str) -> None:
+        self.version = version
 
 class JarFoundEvent:
     __slots__ = "version_id",
@@ -1310,6 +1411,7 @@ def add_vanilla_tasks(seq: Sequence, run: bool = False) -> None:
     """
 
     seq.append_task(MetadataTask())
+    seq.append_task(LwjglFixTask())
     seq.append_task(JarTask())
     seq.append_task(AssetsTask())
     seq.append_task(LibrariesTask())
