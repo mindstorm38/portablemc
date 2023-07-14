@@ -991,7 +991,7 @@ class RunTask(Task):
             for src_file in libraries.native_libs:
 
                 if not src_file.is_file():
-                    raise RunBinNotFound(src_file)
+                    raise ValueError(f"source native file not found: {src_file}")
 
                 native_name = src_file.name
                 if native_name.endswith((".zip", ".jar")):
@@ -1024,26 +1024,23 @@ class RunTask(Task):
                     except OSError:
                         shutil.copyfile(src_file, dst_file)
 
-        from subprocess import Popen, PIPE, STDOUT
-        import subprocess
-
-        # process = Popen([
-        #     *replace_list_vars(args.jvm_args, replacements),
-        #     args.main_class,
-        #     *replace_list_vars(args.game_args, replacements)
-        # ], cwd=context.work_dir) # , stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True
-
-        # process.wait()
-
-        args = [
+        self.run([
             *replace_list_vars(args.jvm_args, replacements),
             args.main_class,
             *replace_list_vars(args.game_args, replacements)
-        ]
+        ], context.work_dir)
 
-        # print(f"{args=}")
+        cleanup()
 
-        subprocess.run(args, cwd=context.work_dir)
+    def run(self, args: List[str], work_dir: Path) -> None:
+        """Called to start the game with final arguments and work directory.
+        This function should usually block until the game returns, and this function can
+        be freely redefined when subclassing.
+        """
+        
+        import subprocess
+        subprocess.run(args, cwd=work_dir)
+
 
 class VersionNotFoundError(Exception):
     """Raised when a version was not found. The version that was not found is given.
@@ -1072,10 +1069,6 @@ class JvmNotFoundError(Exception):
 
     def __init__(self, code: str) -> None:
         self.code = code
-
-class RunBinNotFound(Exception):
-    def __init__(self, file: Path) -> None:
-        self.file = file
 
 
 class VersionResolveEvent:

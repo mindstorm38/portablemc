@@ -164,10 +164,7 @@ lang = {
     "start.fabric.resolving_loader": "Resolving {api} loader for {vanilla_version}",
     "start.fabric.resolved_loader": "Resolved {api} loader {loader_version} for {vanilla_version}",
     "start.libraries.excluded": "Excluded library {spec}",
-    "start.libraries.exclude.unused": "Library exclusion '{pattern}' didn't match any library.",
-    "start.libraries.exclude.usage": "Library exclusion '{pattern}' matched {count} libraries.",
-    # TODO:
-    # "start.additional_binary_not_found": "The additional binary '{bin}' doesn't exists.",
+    "start.additional_binary_not_found": "The additional binary '{path}' doesn't exists.",
     # "start.starting": "Starting the game...",
     # "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
