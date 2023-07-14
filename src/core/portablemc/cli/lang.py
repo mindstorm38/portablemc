@@ -144,6 +144,7 @@ lang = {
     "start.version.resolved": "Resolved version {version}",
     "start.version.not_found": "Version {version} not found",
     "start.version.too_much_parents": "Too much parents while resolving versions.",
+    "start.lwjgl.fixed": "Fixed LWJGL version to {version}",
     "start.jar.found": "Using version {version} jar",
     "start.jar.not_found": "Version jar not found",
     "start.assets.resolving": "Checking assets v{index_version}... ",
