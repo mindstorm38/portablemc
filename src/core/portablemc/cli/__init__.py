@@ -16,10 +16,10 @@ from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadComple
 from ..auth import AuthDatabase, AuthSession, MicrosoftAuthSession, YggdrasilAuthSession, \
     OfflineAuthSession, AuthError
 from ..task import Watcher, Sequence
+from ..util import LibrarySpecifier
 
 from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
     MetadataRoot, VersionResolveEvent, VersionNotFoundError, TooMuchParentsError, \
-    LwjglVersion, LwjglFixedEvent, \
     JarFoundEvent, JarNotFoundError, \
     AssetsResolveEvent, \
     LibraryResolveEvent, \
@@ -27,6 +27,7 @@ from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
     Jvm, JvmResolveEvent, JvmNotFoundError, \
     ArgsOptions, Args
 
+from ..lwjgl import add_lwjgl_tasks, LwjglVersion, LwjglVersionEvent
 from ..fabric import add_fabric_tasks, FabricRoot, FabricResolveEvent
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
@@ -241,10 +242,6 @@ def cmd_start(ns: StartNs):
         ns.out.finish()
         sys.exit(EXIT_FAILURE)
     
-    # If LWJGL fix is required.
-    if ns.lwjgl is not None:
-        seq.state.insert(LwjglVersion(ns.lwjgl))
-    
     # Various options for ArgsTask in order to setup the arguments to start the game.
     args_opts = ArgsOptions()
     args_opts.disable_multiplayer = ns.disable_mp
@@ -264,6 +261,25 @@ def cmd_start(ns: StartNs):
 
     seq.state.insert(args_opts)
 
+    # # Excluded libraries
+    # if ns.exclude_lib is not None:
+    #     exclude_filters = ns.exclude_lib
+    #     exclude_filters_usage = {exclude_filter: 0 for exclude_filter in exclude_filters}
+    #     def libraries_predicate(spec: LibrarySpecifier) -> bool:
+    #         for spec_filter in exclude_filters:
+    #             if spec_filter.matches(spec):
+    #                 exclude_filters_usage[spec_filter] += 1
+    #                 return False
+    #         return True
+    #     seq.state[LibrariesPredicates].add(libraries_predicate)
+    # else:
+    #     exclude_filters_usage = None
+
+    # If LWJGL fix is required.
+    if ns.lwjgl is not None:
+        add_lwjgl_tasks(seq)
+        seq.state.insert(LwjglVersion(ns.lwjgl))
+
     # If a manual JVM is specified, we set the JVM state so that JvmTask won't run.
     if ns.jvm is not None:
         seq.state.insert(Jvm(Path(ns.jvm), None))
@@ -273,7 +289,18 @@ def cmd_start(ns: StartNs):
     seq.add_watcher(DownloadWatcher(ns.out))
 
     try:
+
         seq.execute()
+
+        # # Summary of filters usage, to improve UX.
+        # if exclude_filters_usage is not None:
+        #     for exclude_filter, count in exclude_filters_usage.items():
+        #         if not count:
+        #             ns.out.task("WARN", "start.libraries.exclude.unused", pattern=exclude_filter)
+        #         else:
+        #             ns.out.task("INFO", "start.libraries.exclude.usage", pattern=exclude_filter, count=count)
+        #         ns.out.finish()
+        
         sys.exit(EXIT_OK)
 
     except VersionNotFoundError as error:
@@ -608,8 +635,8 @@ class StartWatcher(Watcher):
             else:
                 self.out.task("..", "start.version.resolving", version=event.version_id)
         
-        elif isinstance(event, LwjglFixedEvent):
-            self.out.task("OK", "start.lwjgl.fixed", version=event.version)
+        elif isinstance(event, LwjglVersionEvent):
+            self.out.task("OK", "start.lwjgl.version", version=event.version)
             self.out.finish()
 
         elif isinstance(event, JarFoundEvent):
@@ -644,7 +671,7 @@ class StartWatcher(Watcher):
             if event.loader_version is None:
                 self.out.task("..", "start.fabric.resolving_loader", api=event.api.name, vanilla_version=event.vanilla_version)
             else:
-                self.out.task("OK", "start.fabric.resolved", api=event.api.name, loader_version=event.loader_version, vanilla_version=event.vanilla_version)
+                self.out.task("OK", "start.fabric.resolved_loader", api=event.api.name, loader_version=event.loader_version, vanilla_version=event.vanilla_version)
                 self.out.finish()
 
 
