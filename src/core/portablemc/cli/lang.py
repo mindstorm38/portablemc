@@ -149,7 +149,7 @@ lang = {
     "start.assets.resolving": "Checking assets v{index_version}... ",
     "start.assets.resolved": "Checked {count} assets v{index_version}",
     "start.libraries.resolving": "Checking libraries...",
-    "start.libraries.resolved": "Checked {count} libraries",
+    "start.libraries.resolved": "Checked {class_libs_count} class and {native_libs_count} native libraries",
     "start.logger.found": "Using logger {version}",
     "start.jvm.resolving": "Checking java {version}...",
     "start.jvm.resolved": "Checked {count} files for java {version}",
@@ -163,6 +163,7 @@ lang = {
     "start.lwjgl.version": "Forced LWJGL version to {version}",
     "start.fabric.resolving_loader": "Resolving {api} loader for {vanilla_version}",
     "start.fabric.resolved_loader": "Resolved {api} loader {loader_version} for {vanilla_version}",
+    "start.libraries.excluded": "Excluded library {spec}",
     "start.libraries.exclude.unused": "Library exclusion '{pattern}' didn't match any library.",
     "start.libraries.exclude.usage": "Library exclusion '{pattern}' matched {count} libraries.",
     # TODO:
