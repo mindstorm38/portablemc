@@ -261,21 +261,24 @@ def cmd_start(ns: StartNs):
     
     # Included binaries
     if ns.include_bin is not None:
-        seq.state[Libraries].native_libs.extend(map(Path, ns.include_bin))
+        native_libs = seq.state[Libraries].native_libs
+        for bin_path in ns.include_bin:
+            bin_path = Path(bin_path)
+            if not bin_path.is_file():
+                ns.out.task("FAILED", "start.additional_binary_not_found", path=bin_path)
+                ns.out.finish()
+                sys.exit(EXIT_FAILURE)
+            native_libs.append(bin_path)
 
     # Excluded libraries
     if ns.exclude_lib is not None:
         exclude_filters = ns.exclude_lib
-        # exclude_filters_usage = {exclude_filter: 0 for exclude_filter in exclude_filters}
         def libraries_predicate(spec: LibrarySpecifier) -> bool:
             for spec_filter in exclude_filters:
                 if spec_filter.matches(spec):
-                    # exclude_filters_usage[spec_filter] += 1
                     return False
             return True
         seq.state[LibrariesOptions].predicates.append(libraries_predicate)
-    # else:
-    #     exclude_filters_usage = None
 
     # If LWJGL fix is required.
     if ns.lwjgl is not None:
@@ -291,18 +294,7 @@ def cmd_start(ns: StartNs):
     seq.add_watcher(DownloadWatcher(ns.out))
 
     try:
-
         seq.execute()
-
-        # # Summary of filters usage, to improve UX.
-        # if exclude_filters_usage is not None:
-        #     for exclude_filter, count in exclude_filters_usage.items():
-        #         if not count:
-        #             ns.out.task("WARN", "start.libraries.exclude.unused", pattern=exclude_filter)
-        #         else:
-        #             ns.out.task("INFO", "start.libraries.exclude.usage", pattern=exclude_filter, count=count)
-        #         ns.out.finish()
-        
         sys.exit(EXIT_OK)
 
     except VersionNotFoundError as error:
