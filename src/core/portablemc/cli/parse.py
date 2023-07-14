@@ -92,7 +92,6 @@ def register_common_auth_service(parser: ArgumentParser):
 
 
 def register_start_arguments(parser: ArgumentParser):
-    
     parser.formatter_class = new_help_formatter_class(32)
     parser.add_argument("--dry", help=_("args.start.dry"), action="store_true")
     parser.add_argument("--disable-mp", help=_("args.start.disable_multiplayer"), action="store_true")
