@@ -234,7 +234,7 @@ def cmd_start(ns: StartNs):
     if not cmd_start_handler(ns, version_parts[0], version_parts[1:], seq):
         format_key = f"args.start.version.{version_parts[0]}"
         if format_key not in lang:
-            ns.out.task("FAILED", "start.version.invalid_id_unknown_format")
+            ns.out.task("FAILED", "start.version.invalid_id_unknown_kind", kind=version_parts[0])
         else:
             ns.out.task("FAILED", "start.version.invalid_id", expected=_(format_key))
         ns.out.finish()
@@ -633,9 +633,9 @@ class StartWatcher(Watcher):
         
         elif isinstance(event, FabricResolveEvent):
             if event.loader_version is None:
-                self.out.task("..", "start.fabric.resolving_loader", vanilla_version=event.vanilla_version)
+                self.out.task("..", "start.fabric.resolving_loader", api=event.api.name, vanilla_version=event.vanilla_version)
             else:
-                self.out.task("OK", "start.fabric.resolved", loader_version=event.loader_version, vanilla_version=event.vanilla_version)
+                self.out.task("OK", "start.fabric.resolved", api=event.api.name, loader_version=event.loader_version, vanilla_version=event.vanilla_version)
                 self.out.finish()
 
 
