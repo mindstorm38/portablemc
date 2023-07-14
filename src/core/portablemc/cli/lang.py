@@ -139,7 +139,7 @@ lang = {
     "addon.show.description": "Description: {description}",
     # Command start
     "start.version.invalid_id": "Invalid version id, expected: {expected}",
-    "start.version.invalid_id_unknown_format": "Invalid version id, unknown format (read help).",
+    "start.version.invalid_id_unknown_kind": "Invalid version id, unknown kind: {kind}.",
     "start.version.resolving": "Resolving version {version}... ",
     "start.version.resolved": "Resolved version {version}",
     "start.version.not_found": "Version {version} not found",
@@ -160,8 +160,8 @@ lang = {
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.not_found.{JvmNotFoundError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
         "use --jvm argument to manually set the path to your JVM executable.",
-    "start.fabric.resolving_loader": "Resolving fabric loader for {vanilla_version}",
-    "start.fabric.resolved": "Resolved fabric loader {loader_version} for {vanilla_version}",
+    "start.fabric.resolving_loader": "Resolving {api} loader for {vanilla_version}",
+    "start.fabric.resolved": "Resolved {api} loader {loader_version} for {vanilla_version}",
 
     # TODO: 
     # "start.version.fixed.lwjgl": "Fixed LWJGL version to {version}",
