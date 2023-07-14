@@ -5,13 +5,12 @@ module).
 
 from json import JSONDecodeError
 from pathlib import Path
+from uuid import uuid4
 import platform
 import shutil
 import json
 import re
 import os
-
-from portablemc.task import State
 
 from .util import LibrarySpecifier, calc_input_sha1, merge_dict, jvm_bin_filename
 from .download import DownloadList, DownloadEntry, DownloadTask
@@ -898,7 +897,7 @@ class ArgsTask(Task):
             "launcher_name": LAUNCHER_NAME,
             "launcher_version": LAUNCHER_VERSION,
             "classpath_separator": os.pathsep,
-            "classpath": os.pathsep.join(map(str, libraries.class_libs))
+            "classpath": os.pathsep.join(map(str, (jar.path, *libraries.class_libs)), )
         }
 
         if opts.resolution is not None:
@@ -922,7 +921,7 @@ class ArgsTask(Task):
 
         # JVM argument for launch wrapper JAR path
         if main_class == "net.minecraft.launchwrapper.Launch":
-            jvm_args.append(f"-Dminecraft.client.jar={str(jar.path)}")
+            jvm_args.append(f"-Dminecraft.client.jar={jar.path}")
 
         # Add old fix JVM args
         if opts.fix_legacy:
@@ -961,9 +960,90 @@ class ArgsTask(Task):
 
 
 class RunTask(Task):
-    """
+    """This task run the game.
+
+    :in Context: The installation context.
+    :in Args: Resolved arguments for running the game.
+    :in Libraries: For retrieving native libraries to extract.
     """
 
+    def execute(self, state: State, watcher: Watcher) -> None:
+
+        context = state[Context]
+        args = state[Args]
+        libraries = state[Libraries]
+
+        bin_dir = context.bin_dir / str(uuid4())
+        replacements = args.args_replacements.copy()
+        replacements["natives_directory"] = str(bin_dir)
+        
+        from zipfile import ZipFile
+        import atexit
+
+        def cleanup():
+            shutil.rmtree(bin_dir, ignore_errors=True)
+
+        atexit.register(cleanup)
+
+        bin_dir.mkdir(parents=True, exist_ok=True)
+
+        if len(libraries.native_libs):
+            for src_file in libraries.native_libs:
+
+                if not src_file.is_file():
+                    raise RunBinNotFound(src_file)
+
+                native_name = src_file.name
+                if native_name.endswith((".zip", ".jar")):
+
+                    with ZipFile(src_file, "r") as native_zip:
+                        for native_zip_info in native_zip.infolist():
+                            native_name = native_zip_info.filename
+                            if native_name.endswith((".so", ".dll", ".dylib")):
+
+                                try:
+                                    native_name = native_name[native_name.rindex("/") + 1:]
+                                except ValueError:
+                                    native_name = native_name
+                                
+                                dst_file = bin_dir / native_name
+
+                                with native_zip.open(native_zip_info, "r") as src_fp:
+                                    with dst_file.open("wb") as dst_fp:
+                                        shutil.copyfileobj(src_fp, dst_fp)
+
+                else:
+                    # Here we try to remove the version numbers of .so files.
+                    so_idx = native_name.rfind(".so")
+                    if so_idx >= 0:
+                        native_name = native_name[:so_idx + len(".so")]
+                    # Try to symlink the file in the bin dir, and fallback to simple copy.
+                    dst_file = bin_dir / native_name
+                    try:
+                        dst_file.symlink_to(src_file)
+                    except OSError:
+                        shutil.copyfile(src_file, dst_file)
+
+        from subprocess import Popen, PIPE, STDOUT
+        import subprocess
+
+        # process = Popen([
+        #     *replace_list_vars(args.jvm_args, replacements),
+        #     args.main_class,
+        #     *replace_list_vars(args.game_args, replacements)
+        # ], cwd=context.work_dir) # , stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True
+
+        # process.wait()
+
+        args = [
+            *replace_list_vars(args.jvm_args, replacements),
+            args.main_class,
+            *replace_list_vars(args.game_args, replacements)
+        ]
+
+        # print(f"{args=}")
+
+        subprocess.run(args, cwd=context.work_dir)
 
 class VersionNotFoundError(Exception):
     """Raised when a version was not found. The version that was not found is given.
@@ -985,8 +1065,6 @@ class JarNotFoundError(Exception):
     """
 
 class JvmNotFoundError(Exception):
-    """Raised when the 
-    """
 
     UNSUPPORTED_LIBC = "unsupported_libc"
     UNSUPPORTED_ARCH = "unsupported_arch"
@@ -994,6 +1072,10 @@ class JvmNotFoundError(Exception):
 
     def __init__(self, code: str) -> None:
         self.code = code
+
+class RunBinNotFound(Exception):
+    def __init__(self, file: Path) -> None:
+        self.file = file
 
 
 class VersionResolveEvent:
@@ -1036,6 +1118,11 @@ class JvmResolveEvent:
     def __init__(self, version: Optional[str], count: Optional[int]) -> None:
         self.version = version
         self.count = count
+
+class RunBinEvent:
+    __slots__ = "bin_dir",
+    def __init__(self, bin_dir: Path) -> None:
+        self.bin_dir = bin_dir
 
 
 class VersionManifest(VersionRepository):

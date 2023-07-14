@@ -22,5 +22,11 @@ classifiers = [
 [tool.poetry.dependencies]
 python = ">=3.6"
 
+[tool.poetry.group.console]
+optional = true
+
+[tool.poetry.group.console.dependencies]
+prompt-toolkit = "~3.0.16"
+
 [tool.poetry.scripts]
 portablemc = "portablemc.cli:main"
