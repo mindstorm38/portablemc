@@ -633,7 +633,7 @@ class StartWatcher(Watcher):
         
         elif isinstance(event, FabricResolveEvent):
             if event.loader_version is None:
-                self.out.task("OK", "start.fabric.resolving_loader", vanilla_version=event.vanilla_version)
+                self.out.task("..", "start.fabric.resolving_loader", vanilla_version=event.vanilla_version)
             else:
                 self.out.task("OK", "start.fabric.resolved", loader_version=event.loader_version, vanilla_version=event.vanilla_version)
                 self.out.finish()
