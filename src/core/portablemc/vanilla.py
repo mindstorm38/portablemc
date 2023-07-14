@@ -1296,7 +1296,7 @@ legacy_jvm_args = [
 ]
 
 
-def alter_vanilla_sequence(seq: Sequence, run: bool = False) -> None:
+def add_vanilla_tasks(seq: Sequence, run: bool = False) -> None:
     """Alter a task sequence by inserting tasks for running a standard game. Vanilla 
     sequence is the most basic and required logic to run a game based on Mojang's version
     metadata format.
@@ -1328,24 +1328,3 @@ def alter_vanilla_sequence(seq: Sequence, run: bool = False) -> None:
     # Then run, if requested.
     if run:
         seq.append_task(RunTask())
-
-
-
-# seq.state.insert(VersionRoot(version_id))
-# seq.state.insert(context or Context())
-# seq.state.insert(version_manifest or VersionManifest())
-
-# """Make vanilla sequence for installing vanilla Minecraft versions.
-
-# The given version id may be given as an alias (release, snapshot) or a mod loader 
-# identifier (fabric:release, fabric:1.18.2), only if the mod loader task is added.
-
-# By default, this function will use the default context (standard .minecraft directory)
-# and a default version manifest for querying official Mojang versions.
-
-# When this installer sequence is executed and all tasks succeeds, the final 
-# interesting state that can be used to run the game is `Args`. It contains
-# JVM binary path, JVM arguments and game arguments.
-
-# This function can optionally run the game using a `RunTask`.
-# """

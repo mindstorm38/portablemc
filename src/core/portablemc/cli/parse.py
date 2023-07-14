@@ -1,11 +1,11 @@
-from argparse import ArgumentParser, HelpFormatter, Namespace
+from argparse import ArgumentParser, HelpFormatter, ArgumentTypeError
 from pathlib import Path
 
 from ..vanilla import Context, VersionManifest
 from ..auth import AuthDatabase
 
-from .output import Output, HumanOutput, JsonOutput
 from .util import LibrarySpecifierFilter
+from .output import Output
 from .lang import get as _
 
 from typing import Optional, Type, Tuple, List
@@ -18,8 +18,9 @@ class RootNs:
     main_dir: Optional[Path]
     work_dir: Optional[Path]
     timeout: float
-    out: Output
+    out_kind: str
     # Initialized by main function after argument parsing.
+    out: Output
     context: Context
     version_manifest: VersionManifest
     auth_database: AuthDatabase
@@ -38,6 +39,8 @@ class StartNs(RootNs):
     jvm_args: Optional[str]
     no_better_logging: bool
     no_legacy_fix: bool
+    fabric_prefix: str
+    quilt_prefix: str
     lwjgl: Optional[str]
     exclude_lib: Optional[List[LibrarySpecifierFilter]]
     include_bin: Optional[List[str]]
@@ -65,7 +68,7 @@ def register_arguments() -> ArgumentParser:
     parser.add_argument("--main-dir", help=_("args.main_dir"), type=Path)
     parser.add_argument("--work-dir", help=_("args.work_dir"), type=Path)
     parser.add_argument("--timeout", help=_("args.timeout"), type=float)
-    parser.add_argument("--output", help=_("args.output"), dest="out", type=output_from_str, default="human-color")
+    parser.add_argument("--output", help=_("args.output"), dest="out_kind", choices=get_outputs(), default="human-color")
     register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
     return parser
 
@@ -80,36 +83,31 @@ def register_subcommands(subparsers):
 
 
 def register_search_arguments(parser: ArgumentParser):
-    parser.add_argument("-k", "--kind", help=_("args.search.kind"), default="manifest", choices=["manifest", "local"])
+    parser.add_argument("-k", "--kind", help=_("args.search.kind"), default="manifest", choices=get_search_kinds())
     parser.add_argument("input", nargs="?")
 
 
 def register_common_auth_service(parser: ArgumentParser):
-    parser.add_argument("--auth-service", help=_("args.common.auth_service"), default="microsoft", choices=["microsoft", "yggdrasil"])
+    parser.add_argument("--auth-service", help=_("args.common.auth_service"), default="microsoft", choices=get_auth_services())
 
 
 def register_start_arguments(parser: ArgumentParser):
-
-    def resolution(raw: str) -> Tuple[int, int]:
-        parts = raw.split("x")
-        if len(parts) == 2:
-            return (int(parts[0]), int(parts[1]))
-        else:
-            raise ValueError("Expected format: <width>x<height>")
     
     parser.formatter_class = new_help_formatter_class(32)
     parser.add_argument("--dry", help=_("args.start.dry"), action="store_true")
     parser.add_argument("--disable-mp", help=_("args.start.disable_multiplayer"), action="store_true")
     parser.add_argument("--disable-chat", help=_("args.start.disable_chat"), action="store_true")
     parser.add_argument("--demo", help=_("args.start.demo"), action="store_true")
-    parser.add_argument("--resolution", help=_("args.start.resolution"), type=resolution)
+    parser.add_argument("--resolution", help=_("args.start.resolution"), type=resolution_from_str)
     parser.add_argument("--jvm", help=_("args.start.jvm"))
-    parser.add_argument("--jvm-args", help=_("args.start.jvm_args"))
+    parser.add_argument("--jvm-args", help=_("args.start.jvm_args"), metavar="ARGS")
     parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
     parser.add_argument("--no-legacy-fix", help=_("args.start.no_legacy_fix"), action="store_true")
+    parser.add_argument("--fabric-prefix", help=_("args.start.fabric_prefix"), default="fabric", metavar="PREFIX")
+    parser.add_argument("--quilt-prefix", help=_("args.start.quilt_prefix"), default="quilt", metavar="PREFIX")
     parser.add_argument("--lwjgl", help=_("args.start.lwjgl"), choices=["3.2.3", "3.3.0", "3.3.1"])
-    parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), action="append", type=LibrarySpecifierFilter.from_str)
-    parser.add_argument("--include-bin", help=_("args.start.include_bin"), action="append")
+    parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), action="append", metavar="SPEC", type=LibrarySpecifierFilter.from_str)
+    parser.add_argument("--include-bin", help=_("args.start.include_bin"), action="append", metavar="PATH")
     parser.add_argument("--auth-anonymize", help=_("args.start.auth_anonymize"), action="store_true")
     register_common_auth_service(parser)
     parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
@@ -156,14 +154,21 @@ def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
     return CustomHelpFormatter
 
 
-def output_from_str(s: str) -> Output:
-    """This function is used to parse the output argument given.
-    """
-    if s == "human-color":
-        return HumanOutput(True)
-    elif s == "human":
-        return HumanOutput(False)
-    elif s == "json":
-        return JsonOutput();
+def get_outputs() -> List[str]:
+    return ["human-color", "human", "machine"]
+
+
+def get_search_kinds() -> List[str]:
+    return ["manifest", "local"]
+
+
+def get_auth_services() -> List[str]:
+    return ["microsoft", "yggdrasil"]
+
+
+def resolution_from_str(s: str) -> Tuple[int, int]:
+    parts = s.split("x")
+    if len(parts) == 2:
+        return (int(parts[0]), int(parts[1]))
     else:
-        raise ValueError(f"invalid type: {s}")
+        raise ArgumentTypeError(_("args.start.resolution.invalid", given=s))

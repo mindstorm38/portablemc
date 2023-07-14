@@ -9,15 +9,15 @@ import sys
 
 from .parse import register_arguments, RootNs, SearchNs, StartNs, LoginNs, LogoutNs
 from .util import format_locale_date, format_number, anonymize_email
-from .output import Output, OutputTable
-from .lang import get as _
+from .output import Output, HumanOutput, MachineOutput, OutputTable
+from .lang import get as _, lang
 
 from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, DownloadError
 from ..auth import AuthDatabase, AuthSession, MicrosoftAuthSession, YggdrasilAuthSession, \
     OfflineAuthSession, AuthError
 from ..task import Watcher, Sequence
 
-from ..vanilla import alter_vanilla_sequence, Context, VersionManifest, \
+from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
     MetadataRoot, VersionResolveEvent, VersionNotFoundError, TooMuchParentsError, \
     JarFoundEvent, JarNotFoundError, \
     AssetsResolveEvent, \
@@ -25,6 +25,8 @@ from ..vanilla import alter_vanilla_sequence, Context, VersionManifest, \
     LoggerFoundEvent, \
     Jvm, JvmResolveEvent, JvmNotFoundError, \
     ArgsOptions, Args
+
+from ..fabric import add_fabric_tasks, FabricRoot, FabricResolveEvent
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
 
@@ -50,6 +52,7 @@ def main(args: Optional[List[str]] = None):
     ns: RootNs = cast(RootNs, parser.parse_args(args or sys.argv[1:]))
 
     # Setup common objects in the namespace.
+    ns.out = get_output(ns.out_kind)
     ns.context = Context(ns.main_dir, ns.work_dir)
     ns.version_manifest = VersionManifest(ns.context.work_dir / MANIFEST_CACHE_FILE_NAME)
     ns.auth_database = AuthDatabase(ns.context.work_dir / AUTH_DATABASE_FILE_NAME)
@@ -73,9 +76,23 @@ def main(args: Optional[List[str]] = None):
         sys.exit(EXIT_OK)
 
 
+def get_output(kind: str) -> Output:
+    """Internal function that construct the output depending on its kind.
+    The kind is constrained by choices set to the arguments parser.
+    """
+
+    if kind == "human-color":
+        return HumanOutput(True)
+    elif kind == "human":
+        return HumanOutput(False)
+    elif kind == "machine":
+        return MachineOutput()
+    else:
+        raise ValueError()
+
 
 def get_command_handlers() -> CommandTree:
-    """This internal function returns the tree of command handlers for each subcommand
+    """Internal function returns the tree of command handlers for each subcommand
     of the CLI argument parser.
     """
 
@@ -145,9 +162,17 @@ def cmd(handler: CommandHandler, ns: RootNs):
 
 
 def cmd_search(ns: SearchNs):
+    table = ns.out.table()
+    cmd_search_handler(ns, ns.kind, table)
+    table.print()
+    sys.exit(EXIT_OK)
 
+def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
+    """Internal function that handles searching a particular kind of search.
+    The value of "kind" is constrained by choices in the argument parser.
+    """
 
-    def cmd_search_manifest(search: Optional[str], table: OutputTable):
+    if kind == "manifest":
         
         table.add(
             _("search.type"),
@@ -156,6 +181,8 @@ def cmd_search(ns: SearchNs):
             _("search.flags"))
         table.separator()
 
+        search = ns.input
+        search = ns.input
         if search is not None:
             search, alias = ns.version_manifest.filter_latest(search)
         else:
@@ -170,80 +197,48 @@ def cmd_search(ns: SearchNs):
                     version_id, 
                     format_locale_date(version_data["releaseTime"]),
                     _("search.flags.local") if version.metadata_exists() else "")
-
-    def cmd_search_local(search: Optional[str], table: OutputTable):
+    
+    elif kind == "local":
 
         table.add(
             _("search.name"),
             _("search.last_modified"))
         table.separator()
 
+        search = ns.input
         for version in ns.context.list_versions():
-            table.add(version.id, format_locale_date(version.metadata_file().stat().st_mtime))
-
-    search_handler = {
-        "manifest": cmd_search_manifest,
-        "local": cmd_search_local
-    }[ns.kind]
-
-    table = ns.out.table()
-    search_handler(ns.input, table)
-
-    table.print()
-    sys.exit(EXIT_OK)
+            if search is None or search in version.id:
+                table.add(version.id, format_locale_date(version.metadata_file().stat().st_mtime))
+    
+    else:
+        raise ValueError()
 
 
 def cmd_start(ns: StartNs):
 
     version_parts = ns.version.split(":")
-    vanilla_version = None
-    loader_version = None
 
-    # Parse raw version id to find eventual mod loader formats.
+    # If no split, the kind of version is "vanilla": parts have at least 2 elements.
     if len(version_parts) == 1:
-        loader = "vanilla"
-        vanilla_version = version_parts[0]
-
-    elif version_parts[0] in ("fabric", "quilt"):
-        # Fabric/Quilt version parsing.
-        loader = version_parts[0]
-        if len(version_parts) <= 3:
-            vanilla_version = version_parts[1] or "release"
-            loader_version = version_parts[2] if len(version_parts) == 3 else None
-    elif version_parts[0] == "forge":
-        loader = "forge"
-        if len(version_parts) == 2:
-            vanilla_version = version_parts[1]
-    else:
-        ns.out.task("FAILED", "start.version.invalid_id_unknown_format")
-        ns.out.finish()
-        sys.exit(EXIT_FAILURE)
-    
-    if vanilla_version is None:
-        ns.out.task("FAILED", "start.version.invalid_id", expected=_(f"args.start.version.{loader}"))
-        ns.out.finish()
-        sys.exit(EXIT_FAILURE)
-
-    # Game version can always be some alias, so we check it here.
-    vanilla_version, _alias = ns.version_manifest.filter_latest(vanilla_version)
+        version_parts = ["vanilla", version_parts[0]]
     
     # Create sequence with supported mod loaders.
     seq = Sequence()
-    alter_vanilla_sequence(seq, run=not ns.dry)
-
-    if loader == "fabric":
-        from ..fabric import alter_fabric_sequence, FabricRoot
-        alter_fabric_sequence(seq)
-        seq.state.insert(FabricRoot(vanilla_version, loader_version))
-    elif loader == "quilt":
-        from ..fabric import alter_quilt_sequence, FabricRoot
-        alter_quilt_sequence(seq)
-    else:
-        seq.state.insert(MetadataRoot(vanilla_version))
+    add_vanilla_tasks(seq, run=not ns.dry)
     
     # Add mandatory states.
     seq.state.insert(ns.context)
     seq.state.insert(ns.version_manifest)
+    
+    # No handler means that the format is invalid.
+    if not cmd_start_handler(ns, version_parts[0], version_parts[1:], seq):
+        format_key = f"args.start.version.{version_parts[0]}"
+        if format_key not in lang:
+            ns.out.task("FAILED", "start.version.invalid_id_unknown_format")
+        else:
+            ns.out.task("FAILED", "start.version.invalid_id", expected=_(format_key))
+        ns.out.finish()
+        sys.exit(EXIT_FAILURE)
     
     # Various options for ArgsTask in order to setup the arguments to start the game.
     args_opts = ArgsOptions()
@@ -273,9 +268,6 @@ def cmd_start(ns: StartNs):
     seq.add_watcher(DownloadWatcher(ns.out))
 
     try:
-
-        # print(f"tasks: {seq.tasks}")
-
         seq.execute()
         sys.exit(EXIT_OK)
 
@@ -299,85 +291,48 @@ def cmd_start(ns: StartNs):
     
     sys.exit(EXIT_FAILURE)
 
-    
-class StartWatcher(Watcher):
+def cmd_start_handler(ns: StartNs, kind: str, parts: List[str], seq: Sequence) -> bool:
+    """This function handles particular kind of versions. If this function successfully
+    decodes, the corresponding tasks and states should be configured in the given 
+    sequence. The global version's format being parsed is <kind>[:<part>..].
 
-    def __init__(self, out: Output) -> None:
-        self.out = out
-    
-    def on_event(self, event: Any) -> None:
-        
-        if isinstance(event, VersionResolveEvent):
-            if event.done:
-                self.out.task("OK", "start.version.resolved", version=event.version_id)
-                self.out.finish()
-            else:
-                self.out.task("..", "start.version.resolving", version=event.version_id)
-        
-        elif isinstance(event, JarFoundEvent):
-            self.out.task("OK", "start.jar.found", version=event.version_id)
-            self.out.finish()
-        
-        elif isinstance(event, AssetsResolveEvent):
-            if event.count is None:
-                self.out.task("..", "start.assets.resolving", index_version=event.index_version)
-            else:
-                self.out.task("OK", "start.assets.resolved", index_version=event.index_version, count=event.count)
-                self.out.finish()
-        
-        elif isinstance(event, LibraryResolveEvent):
-            if event.count is None:
-                self.out.task("..", "start.libraries.resolving")
-            else:
-                self.out.task("OK", "start.libraries.resolved", count=event.count)
-                self.out.finish()
+    The parts list contains at least one element, parts may be empty.
 
-        elif isinstance(event, LoggerFoundEvent):
-            self.out.task("OK", "start.logger.found", version=event.version)
-        
-        elif isinstance(event, JvmResolveEvent):
-            if event.count is None:
-                self.out.task("..", "start.jvm.resolving", version=event.version or _("start.jvm.unknown_version"))
-            else:
-                self.out.task("OK", "start.jvm.resolved", version=event.version or _("start.jvm.unknown_version"), count=event.count)
-                self.out.finish()
-
-
-class DownloadWatcher(Watcher):
-    """A watcher for pretty printing download task.
+    This function returns false if parsing fail, in such case the expected format is
+    printed out to the user on output (lang's key: "args.start.version.<kind>").
     """
 
-    def __init__(self, out: Output) -> None:
+    if kind == "vanilla":
+        if len(parts) != 1:
+            return False
+        
+        vanilla_version = ns.version_manifest.filter_latest(parts[0] or "release")[0]
+        seq.state.insert(MetadataRoot(vanilla_version))
 
-        self.out = out
+    elif kind in ("fabric", "quilt"):
+        if len(parts) > 2:
+            return False
+        
+        vanilla_version = ns.version_manifest.filter_latest(parts[0] or "release")[0]
+        loader_version = parts[1] if len(parts) == 2 else None
+        
+        constructor = FabricRoot.with_fabric if kind == "fabric" else FabricRoot.with_quilt
 
-        self.entries_count: int
-        self.total_size: int
-        self.size: int
-        self.speeds: List[float]
+        add_fabric_tasks(seq)
+        seq.state.insert(constructor(kind, vanilla_version, loader_version))
     
-    def on_event(self, event: Any) -> None:
+    elif kind == "forge":
+        if len(parts) != 1:
+            return False
+        
+        vanilla_version = parts[0]
 
-        if isinstance(event, DownloadStartEvent):
-            self.entries_count = event.entries_count
-            self.total_size = event.size
-            self.size = 0
-            self.speeds = [0.0] * event.threads_count
-            self.out.task("..", "download.start")
+        # TODO: 
+    
+    else:
+        return False
 
-        elif isinstance(event, DownloadProgressEvent):
-            self.speeds[event.thread_id] = event.speed
-            speed = sum(self.speeds)
-            self.size += event.size
-            self.out.task("..", "download.progress", 
-                speed=f"{format_number(speed)}o/s",
-                count=event.count,
-                total_count=self.entries_count,
-                size=f"{format_number(self.size)}o")
-            
-        elif isinstance(event, DownloadCompleteEvent):
-            self.out.task("OK", None)
-            self.out.finish()
+    return True
 
 
 def cmd_login(ns: LoginNs):
@@ -405,6 +360,51 @@ def cmd_logout(ns: LogoutNs):
         ns.out.task("FAILED", "logout.unknown_session", email=ns.email_or_username)
         ns.out.finish()
         sys.exit(EXIT_FAILURE)
+
+
+def cmd_show_about(ns: RootNs):
+    
+    from .. import LAUNCHER_VERSION, LAUNCHER_AUTHORS, LAUNCHER_URL, LAUNCHER_COPYRIGHT
+
+    print(f"Version: {LAUNCHER_VERSION}")
+    print(f"Authors: {', '.join(LAUNCHER_AUTHORS)}")
+    print(f"Website: {LAUNCHER_URL}")
+    print(f"License: {LAUNCHER_COPYRIGHT}")
+    print( "         This program comes with ABSOLUTELY NO WARRANTY. This is free software,")
+    print( "         and you are welcome to redistribute it under certain conditions.")
+    print( "         See <https://www.gnu.org/licenses/gpl-3.0.html>.")
+
+
+def cmd_show_auth(ns: RootNs):
+
+    ns.auth_database.load()
+    table = ns.out.table()
+
+     # Intentionally not i18n for now because used for debug purpose.
+    table.add("Type", "Email", "Username", "UUID")
+    table.separator()
+
+    for auth_type, auth_type_sessions in ns.auth_database.sessions.items():
+        for email, sess in auth_type_sessions.items():
+            table.add(auth_type, email, sess.username, sess.uuid)
+    
+    table.print()
+
+
+def cmd_show_lang(ns: RootNs):
+
+    from .lang import lang
+
+    table = ns.out.table()
+
+     # Intentionally not i18n for now because used for debug purpose.
+    table.add("Key", "Message")
+    table.separator()
+
+    for key, msg in lang.items():
+        table.add(key, msg)
+
+    table.print()
 
 
 def prompt_authenticate(ns: RootNs, email: str, caching: bool, service: str, anonymise: bool = False) -> Optional[AuthSession]:
@@ -496,9 +496,9 @@ def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftA
 
     server_port = 12782
     app_id = MICROSOFT_AZURE_APP_ID
-    redirect_auth = "http://localhost:{}".format(server_port)
-    code_redirect_uri = "{}/code".format(redirect_auth)
-    exit_redirect_uri = "{}/exit".format(redirect_auth)
+    redirect_auth = f"http://localhost:{server_port}"
+    code_redirect_uri = f"{redirect_auth}/code"
+    exit_redirect_uri = f"{redirect_auth}/exit"
 
     nonce = uuid.uuid4().hex
 
@@ -588,47 +588,89 @@ def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftA
             ns.out.finish()
             return None
 
-
-def cmd_show_about(ns: RootNs):
     
-    from .. import LAUNCHER_VERSION, LAUNCHER_AUTHORS, LAUNCHER_URL, LAUNCHER_COPYRIGHT
+class StartWatcher(Watcher):
 
-    print(f"Version: {LAUNCHER_VERSION}")
-    print(f"Authors: {', '.join(LAUNCHER_AUTHORS)}")
-    print(f"Website: {LAUNCHER_URL}")
-    print(f"License: {LAUNCHER_COPYRIGHT}")
-    print( "         This program comes with ABSOLUTELY NO WARRANTY. This is free software,")
-    print( "         and you are welcome to redistribute it under certain conditions.")
-    print( "         See <https://www.gnu.org/licenses/gpl-3.0.html>.")
-
-
-def cmd_show_auth(ns: RootNs):
-
-    ns.auth_database.load()
-    table = ns.out.table()
-
-     # Intentionally not i18n for now because used for debug purpose.
-    table.add("Type", "Email", "Username", "UUID")
-    table.separator()
-
-    for auth_type, auth_type_sessions in ns.auth_database.sessions.items():
-        for email, sess in auth_type_sessions.items():
-            table.add(auth_type, email, sess.username, sess.uuid)
+    def __init__(self, out: Output) -> None:
+        self.out = out
     
-    table.print()
+    def on_event(self, event: Any) -> None:
+        
+        if isinstance(event, VersionResolveEvent):
+            if event.done:
+                self.out.task("OK", "start.version.resolved", version=event.version_id)
+                self.out.finish()
+            else:
+                self.out.task("..", "start.version.resolving", version=event.version_id)
+        
+        elif isinstance(event, JarFoundEvent):
+            self.out.task("OK", "start.jar.found", version=event.version_id)
+            self.out.finish()
+        
+        elif isinstance(event, AssetsResolveEvent):
+            if event.count is None:
+                self.out.task("..", "start.assets.resolving", index_version=event.index_version)
+            else:
+                self.out.task("OK", "start.assets.resolved", index_version=event.index_version, count=event.count)
+                self.out.finish()
+        
+        elif isinstance(event, LibraryResolveEvent):
+            if event.count is None:
+                self.out.task("..", "start.libraries.resolving")
+            else:
+                self.out.task("OK", "start.libraries.resolved", count=event.count)
+                self.out.finish()
+
+        elif isinstance(event, LoggerFoundEvent):
+            self.out.task("OK", "start.logger.found", version=event.version)
+        
+        elif isinstance(event, JvmResolveEvent):
+            if event.count is None:
+                self.out.task("..", "start.jvm.resolving", version=event.version or _("start.jvm.unknown_version"))
+            else:
+                self.out.task("OK", "start.jvm.resolved", version=event.version or _("start.jvm.unknown_version"), count=event.count)
+                self.out.finish()
+        
+        elif isinstance(event, FabricResolveEvent):
+            if event.loader_version is None:
+                self.out.task("OK", "start.fabric.resolving_loader", vanilla_version=event.vanilla_version)
+            else:
+                self.out.task("OK", "start.fabric.resolved", loader_version=event.loader_version, vanilla_version=event.vanilla_version)
+                self.out.finish()
 
 
-def cmd_show_lang(ns: RootNs):
+class DownloadWatcher(Watcher):
+    """A watcher for pretty printing download task.
+    """
 
-    from .lang import lang
+    def __init__(self, out: Output) -> None:
 
-    table = ns.out.table()
+        self.out = out
 
-     # Intentionally not i18n for now because used for debug purpose.
-    table.add("Key", "Message")
-    table.separator()
+        self.entries_count: int
+        self.total_size: int
+        self.size: int
+        self.speeds: List[float]
+    
+    def on_event(self, event: Any) -> None:
 
-    for key, msg in lang.items():
-        table.add(key, msg)
+        if isinstance(event, DownloadStartEvent):
+            self.entries_count = event.entries_count
+            self.total_size = event.size
+            self.size = 0
+            self.speeds = [0.0] * event.threads_count
+            self.out.task("..", "download.start")
 
-    table.print()
+        elif isinstance(event, DownloadProgressEvent):
+            self.speeds[event.thread_id] = event.speed
+            speed = sum(self.speeds)
+            self.size += event.size
+            self.out.task("..", "download.progress", 
+                speed=f"{format_number(speed)}o/s",
+                count=event.count,
+                total_count=self.entries_count,
+                size=f"{format_number(self.size)}o")
+            
+        elif isinstance(event, DownloadCompleteEvent):
+            self.out.task("OK", None)
+            self.out.finish()
