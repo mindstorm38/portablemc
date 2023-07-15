@@ -31,6 +31,11 @@ class HttpResponse:
         """Parse the data as JSON. This may raise a JSONDecodeError.
         """
         return json.loads(self.data)
+    
+    def text(self) -> str:
+        """Parse the data as UTF-8 text.
+        """
+        return self.data.decode()
 
     def __repr__(self) -> str:
         return f"<HttpResponse {self.status}>"

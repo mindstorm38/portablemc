@@ -25,7 +25,10 @@ class DownloadTask(Task):
     """
 
     def setup(self, state: State) -> None:
-        state.insert(DownloadList())
+        # Do not overwrite potentially existing list, this allows multiple 
+        # download tasks to be chained if needed.
+        if DownloadList not in state:
+            state.insert(DownloadList())
 
     def execute(self, state: State, watcher: Watcher) -> None:
 
@@ -55,6 +58,10 @@ class DownloadTask(Task):
         # If errors are present, raise an error.
         if len(errors):
             raise DownloadError(errors)
+        
+        # Clear entries if successful, therefore multiple DownloadTask can be chained if
+        # needed, without re-downloading the same files.
+        dl.entries.clear()
         
         watcher.on_event(DownloadCompleteEvent())
 
@@ -154,6 +161,13 @@ class DownloadList:
 
     def __init__(self):
         self.entries: List[_DownloadEntry] = []
+        self.count = 0
+        self.size = 0
+    
+    def clear(self) -> None:
+        """Clear the download entry, removing all entries and computed count/size.
+        """
+        self.entries.clear()
         self.count = 0
         self.size = 0
 

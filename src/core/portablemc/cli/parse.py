@@ -42,6 +42,7 @@ class StartNs(RootNs):
     no_legacy_fix: bool
     fabric_prefix: str
     quilt_prefix: str
+    forge_prefix: str
     lwjgl: Optional[str]
     exclude_lib: Optional[List[LibrarySpecifierFilter]]
     include_bin: Optional[List[str]]
@@ -106,6 +107,7 @@ def register_start_arguments(parser: ArgumentParser):
     parser.add_argument("--no-legacy-fix", help=_("args.start.no_legacy_fix"), action="store_true")
     parser.add_argument("--fabric-prefix", help=_("args.start.fabric_prefix"), default="fabric", metavar="PREFIX")
     parser.add_argument("--quilt-prefix", help=_("args.start.quilt_prefix"), default="quilt", metavar="PREFIX")
+    parser.add_argument("--forge-prefix", help=_("args.start.forge_prefix"), default="forge", metavar="PREFIX")
     parser.add_argument("--lwjgl", help=_("args.start.lwjgl"), choices=["3.2.3", "3.3.0", "3.3.1"])
     parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), action="append", metavar="SPEC", type=LibrarySpecifierFilter.from_str)
     parser.add_argument("--include-bin", help=_("args.start.include_bin"), action="append", metavar="PATH")
