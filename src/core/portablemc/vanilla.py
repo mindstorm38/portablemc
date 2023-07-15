@@ -72,6 +72,13 @@ class Context:
                     version = Version(version_dir.name, version_dir)
                     if version.metadata_exists():
                         yield version
+    
+    def gen_bin_dir(self) -> Path:
+        """Generate a random named binary directory, may be used for any kind of temporary
+        files and data. Usually for shared libraries used by the game. Note that this 
+        directory isn't created by this method, only its path is returned.
+        """
+        return self.bin_dir / str(uuid4())
 
 
 class FullMetadata:
@@ -153,22 +160,27 @@ class VersionRepository:
     repositories or even archive.org repository.
     """
 
-    def validate_version_meta(self, version: Version) -> bool:
-        """This function checks that version metadata is correct.
+    def load_version(self, version: Version, state: State) -> bool:
+        """This function is responsible for loading a version's metadata. Note that 
+        implementations are free to load other things.
 
-        This method checks if a version's metadata is up-to-date, returns `True` if it is.
-        If `False`, the version  metadata is re-fetched, this is the default when version 
-        metadata doesn't exist.
+        This function returns true if loading was successful, if this function returns
+        false, the `fetch_version` function is then called to fetch the version. This can
+        be used to check integrity of a version.
+
+        De default implementation of this function just read metadata file.
 
         :param version: The version metadata to validate or not.
-        :return: True if the given version.
+        :param state: Sequence state when the MetadataTask execute.
+        :return: True if the given version is valid and its metadata was properly loaded.
         """
-        raise NotImplementedError
+        return version.read_metadata_file()
 
-    def fetch_version_meta(self, version: Version) -> None:
+    def fetch_version(self, version: Version, state: State) -> None:
         """Fetch the data of the given version.
 
         :param version: The version meta to fetch data into.
+        :param state: Sequence state when the MetadataTask execute.
         :raises VersionNotFoundError: In case of error finding the version.
         """
         raise NotImplementedError
@@ -328,8 +340,7 @@ class Args:
 class MetadataTask(Task):
     """Version metadata resolving.
 
-    This task resolves the current version's metadata and inherited 
-    versions.
+    This task resolves the current version's metadata and inherited versions.
 
     :in Context: The installation context.
     :in MetadataRoot: Describe which root version to start resolving.
@@ -360,10 +371,17 @@ class MetadataTask(Task):
             if len(versions) > self.max_parents:
                 raise TooMuchParentsError(versions)
             
-            watcher.on_event(VersionResolveEvent(version_id, False))
+            watcher.on_event(VersionLoadingEvent(version_id))
+
+            # Get version instance and load/fetch is needed.
             version = context.get_version(version_id)
-            self.ensure_version_meta(version, repositories.get(version_id, manifest))
-            watcher.on_event(VersionResolveEvent(version_id, True))
+            repo = repositories.get(version_id, manifest)
+
+            if not repo.load_version(version, state):
+                watcher.on_event(VersionLoadingEvent(version_id))
+                repo.fetch_version(version, state)
+            
+            watcher.on_event(VersionLoadedEvent(version_id))
 
             # Set the parent of the last version to the version being resolved.
             if len(versions):
@@ -378,25 +396,6 @@ class MetadataTask(Task):
         # The metadata is included to the state.
         state.insert(versions[0])
         state.insert(versions[0].merge())
-
-    def ensure_version_meta(self, version: Version, repo: VersionRepository) -> None:
-        """This function tries to load and get the directory path of a given version id.
-        This function proceeds in multiple steps: it tries to load the version's metadata,
-        if the metadata is found then it's validated with the `validate_version_meta`
-        method. If the version was not found or is not valid, then the metadata is fetched
-        by `fetch_version_meta` method.
-
-        :param version: The version metadata to check.
-        :param repo: The repository to handle this version.
-        """
-
-        if version.read_metadata_file():
-            if repo.validate_version_meta(version):
-                # If the version is successfully loaded and valid, return as-is.
-                return
-        
-        # If not loadable or not validated, fetch metadata.
-        repo.fetch_version_meta(version)
 
 
 class JarTask(Task):
@@ -558,7 +557,7 @@ class LibrariesTask(Task):
     This task resolves which libraries should be used for running the selected version.
 
     :in Context: The installation context.
-    :in FullMetadata: The full version metadata.
+    :in Version: The root version, used to recursively resolve libraries.
     :in(setup) LibrariesOptions: Options for library resolution.
     :in DownloadList: Used to add the JAR file to download if relevant.
     :out Libraries: Optional, present if the libraries are specified.
@@ -571,113 +570,115 @@ class LibrariesTask(Task):
     def execute(self, state: State, watcher: Watcher) -> None:
         
         context = state[Context]
-        metadata = state[FullMetadata].data
+        version = state[Version]
         options = state[LibrariesOptions]
         libraries = state[Libraries]
         dl = state[DownloadList]
-
-        metadata_libraries = metadata.get("libraries")
-        if metadata_libraries is None:
-            # Libraries are not inherently required.
-            return
             
+        excluded_libs = []
         watcher.on_event(LibrariesResolvingEvent())
 
-        if not isinstance(metadata_libraries, list):
-            raise ValueError("metadata: /libraries must be a list")
-        
-        excluded_libs = []
+        # Recursion order is important for libraries resolving, root libraries should
+        # be placed first.
+        for version in state[Version].recurse():
 
-        for library_idx, library in enumerate(metadata_libraries):
-
-            if not isinstance(library, dict):
-                raise ValueError(f"metadata: /libraries/{library_idx} must be an object")
-            
-            name = library.get("name")
-            if not isinstance(name, str):
-                raise ValueError(f"metadata: /libraries/{library_idx}/name must be a string")
-            
-            spec = LibrarySpecifier.from_str(name)
-
-            rules = library.get("rules")
-            if rules is not None:
-
-                if not isinstance(rules, list):
-                    raise ValueError(f"metadata: /libraries/{library_idx}/rules must be a list")
-                
-                if not interpret_rule(rules):
-                    continue
-
-            # Old metadata files provides a 'natives' mapping from OS to the classifier
-            # specific for this OS.
-            natives = library.get("natives")
-
-            if natives is not None:
-
-                if not isinstance(natives, dict):
-                    raise ValueError(f"metadata: /libraries/{library_idx}/natives must be an object")
-                
-                # If natives object is present, the classifier associated to the
-                # OS overrides the lib_spec classifier.
-                spec.classifier = natives.get(minecraft_os)
-                if spec.classifier is None:
-                    continue
-
-                if minecraft_arch_bits is not None:
-                    spec.classifier = spec.classifier.replace("${arch}", str(minecraft_arch_bits))
-                
-                libs = libraries.native_libs
-
-            else:
-                libs = libraries.class_libs
-            
-            # Apply predicates after the final classifier has been set, if relevant.
-            if not all((pred(spec) for pred in options.predicates)):
-                excluded_libs.append(spec)
+            metadata_libraries = version.metadata.get("libraries")
+            if metadata_libraries is None:
                 continue
 
-            dl_entry: Optional[DownloadEntry] = None
-            jar_path_rel = spec.jar_file_path()
-            jar_path = context.libraries_dir / jar_path_rel
-            
-            downloads = library.get("downloads")
-            if downloads is not None:
+            if not isinstance(metadata_libraries, list):
+                raise ValueError("metadata: /libraries must be a list")
 
-                if not isinstance(downloads, dict):
-                    raise ValueError(f"metadata: /libraries/{library_idx}/downloads must be an object")
+            for library_idx, library in enumerate(metadata_libraries):
+
+                if not isinstance(library, dict):
+                    raise ValueError(f"metadata: /libraries/{library_idx} must be an object")
+                
+                name = library.get("name")
+                if not isinstance(name, str):
+                    raise ValueError(f"metadata: /libraries/{library_idx}/name must be a string")
+                
+                spec = LibrarySpecifier.from_str(name)
+
+                rules = library.get("rules")
+                if rules is not None:
+
+                    if not isinstance(rules, list):
+                        raise ValueError(f"metadata: /libraries/{library_idx}/rules must be a list")
+                    
+                    if not interpret_rule(rules):
+                        continue
+
+                # Old metadata files provides a 'natives' mapping from OS to the classifier
+                # specific for this OS.
+                natives = library.get("natives")
 
                 if natives is not None:
-                    # Only check classifiers if natives mapping is present.
-                    lib_dl_classifiers = downloads.get("classifiers")
-                    dl_meta = None if lib_dl_classifiers is None else lib_dl_classifiers.get(spec.classifier)
+
+                    if not isinstance(natives, dict):
+                        raise ValueError(f"metadata: /libraries/{library_idx}/natives must be an object")
+                    
+                    # If natives object is present, the classifier associated to the
+                    # OS overrides the lib_spec classifier.
+                    spec.classifier = natives.get(minecraft_os)
+                    if spec.classifier is None:
+                        continue
+
+                    if minecraft_arch_bits is not None:
+                        spec.classifier = spec.classifier.replace("${arch}", str(minecraft_arch_bits))
+                    
+                    libs = libraries.native_libs
+
                 else:
-                    # If we are not dealing with natives, just take the artifact.
-                    dl_meta = downloads.get("artifact")
-
-                if dl_meta is not None:
-                    dl_entry = parse_download_entry(dl_meta, jar_path, f"metadata: /libraries/{library_idx}/downloads/artifact")
-
-            # If no download entry can be found, add a default one that points to official
-            # library repository, this may not work.
-            if dl_entry is None:
-
-                # The official launcher seems to default to their repository, it will also
-                # allows us to prevent launch if such lib cannot be found.
-                repo_url = library.get("url", LIBRARIES_URL)
-                if not isinstance(repo_url, str):
-                    raise ValueError(f"metadata: /libraries/{library_idx}/url must be a string")
+                    libs = libraries.class_libs
                 
-                # Let's be sure to have a '/' as last character.
-                if repo_url[-1] != "/":
-                    repo_url += "/"
+                # Apply predicates after the final classifier has been set, if relevant.
+                if not all((pred(spec) for pred in options.predicates)):
+                    excluded_libs.append(spec)
+                    continue
+
+                dl_entry: Optional[DownloadEntry] = None
+                jar_path_rel = spec.file_path()
+                jar_path = context.libraries_dir / jar_path_rel
                 
-                dl_entry = DownloadEntry(f"{repo_url}{jar_path_rel}", jar_path)
+                downloads = library.get("downloads")
+                if downloads is not None:
 
-            libs.append(jar_path)
+                    if not isinstance(downloads, dict):
+                        raise ValueError(f"metadata: /libraries/{library_idx}/downloads must be an object")
 
-            if dl_entry is not None:
-                dl_entry.name = str(spec)
-                dl.add(dl_entry, verify=True)
+                    if natives is not None:
+                        # Only check classifiers if natives mapping is present.
+                        lib_dl_classifiers = downloads.get("classifiers")
+                        dl_meta = None if lib_dl_classifiers is None else lib_dl_classifiers.get(spec.classifier)
+                    else:
+                        # If we are not dealing with natives, just take the artifact.
+                        dl_meta = downloads.get("artifact")
+
+                    if dl_meta is not None:
+                        dl_entry = parse_download_entry(dl_meta, jar_path, f"metadata: /libraries/{library_idx}/downloads/artifact")
+
+                # If no download entry can be found, add a default one that points to official
+                # library repository, this may not work.
+                if dl_entry is None:
+
+                    # The official launcher seems to default to their repository, it will also
+                    # allows us to prevent launch if such lib cannot be found.
+                    repo_url = library.get("url", LIBRARIES_URL)
+                    if not isinstance(repo_url, str):
+                        raise ValueError(f"metadata: /libraries/{library_idx}/url must be a string")
+                    
+                    # Let's be sure to have a '/' as last character.
+                    if repo_url[-1] != "/":
+                        repo_url += "/"
+                    
+                    dl_entry = DownloadEntry(f"{repo_url}{jar_path_rel}", jar_path)
+
+                libs.append(jar_path)
+
+                if dl_entry is not None:
+                    dl_entry.name = str(spec)
+                    dl.add(dl_entry, verify=True)
 
         watcher.on_event(LibrariesResolvedEvent(
             len(libraries.class_libs), 
@@ -897,7 +898,7 @@ class ArgsTask(Task):
             "launcher_name": LAUNCHER_NAME,
             "launcher_version": LAUNCHER_VERSION,
             "classpath_separator": os.pathsep,
-            "classpath": os.pathsep.join(map(str, (jar.path, *libraries.class_libs)), )
+            "classpath": os.pathsep.join(map(str, (*libraries.class_libs, jar.path)))
         }
 
         if opts.resolution is not None:
@@ -973,7 +974,7 @@ class RunTask(Task):
         args = state[Args]
         libraries = state[Libraries]
 
-        bin_dir = context.bin_dir / str(uuid4())
+        bin_dir = context.gen_bin_dir()
         replacements = args.args_replacements.copy()
         replacements["natives_directory"] = str(bin_dir)
         
@@ -1062,6 +1063,8 @@ class JarNotFoundError(Exception):
     """
 
 class JvmNotFoundError(Exception):
+    """Raised if no JVM can be found, the particular reason is given as code.
+    """
 
     UNSUPPORTED_LIBC = "unsupported_libc"
     UNSUPPORTED_ARCH = "unsupported_arch"
@@ -1071,16 +1074,24 @@ class JvmNotFoundError(Exception):
         self.code = code
 
 
-class VersionResolveEvent:
-    __slots__ = "version_id", "done"
-    def __init__(self, version_id: str, done: bool) -> None:
-        self.version_id = version_id
-        self.done = done
+class VersionEvent:
+    """Base class for events regarding version.
+    """
+    __slots__ = "version",
+    def __init__(self, version: str) -> None:
+        self.version = version
 
-class JarFoundEvent:
-    __slots__ = "version_id",
-    def __init__(self, version_id: str) -> None:
-        self.version_id = version_id
+class VersionLoadingEvent(VersionEvent):
+    pass
+
+class VersionFetchingEvent(VersionEvent):
+    pass
+
+class VersionLoadedEvent(VersionEvent):
+    pass
+
+class JarFoundEvent(VersionEvent):
+    pass
 
 class AssetsResolveEvent:
     __slots__ = "index_version", "count"
@@ -1208,7 +1219,11 @@ class VersionManifest(VersionRepository):
     def all_versions(self) -> list:
         return self._ensure_data()["versions"]
     
-    def validate_version_meta(self, version: Version) -> bool:
+    def load_version(self, version: Version, state: State) -> bool:
+
+        # If default implementation fails.
+        if not super().load_version(version, state):
+            return False
         
         try:
             version_super_meta = self.get_version(version.id)
@@ -1229,7 +1244,7 @@ class VersionManifest(VersionRepository):
                     return False
             return True
     
-    def fetch_version_meta(self, version: Version) -> None:
+    def fetch_version(self, version: Version, state: State) -> None:
         
         version_super_meta = self.get_version(version.id)
         if version_super_meta is None:
@@ -1413,13 +1428,13 @@ def add_vanilla_tasks(seq: Sequence, *, run: bool = False) -> None:
     """
 
     seq.append_task(MetadataTask())
+    
+    # JVM resolution as early as possible, because we may need it after (or for add-ons).
+    seq.append_task(JvmTask())
     seq.append_task(JarTask())
     seq.append_task(AssetsTask())
     seq.append_task(LibrariesTask())
     seq.append_task(LoggerTask())
-
-    # This task will only run if needed.
-    seq.append_task(JvmTask())
 
     # Download and finalize assets that need to be copied.
     seq.append_task(DownloadTask())

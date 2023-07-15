@@ -19,7 +19,8 @@ from ..task import Watcher, Sequence
 from ..util import LibrarySpecifier
 
 from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
-    MetadataRoot, VersionResolveEvent, VersionNotFoundError, TooMuchParentsError, \
+    MetadataRoot, VersionNotFoundError, TooMuchParentsError, \
+    VersionLoadingEvent, VersionFetchingEvent, VersionLoadedEvent, \
     JarFoundEvent, JarNotFoundError, \
     AssetsResolveEvent, \
     LibrariesOptions, Libraries, LibrariesResolvingEvent, LibrariesResolvedEvent, \
@@ -29,6 +30,7 @@ from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
 
 from ..lwjgl import add_lwjgl_tasks, LwjglVersion, LwjglVersionEvent
 from ..fabric import add_fabric_tasks, FabricRoot, FabricResolveEvent
+from ..forge import add_forge_tasks, ForgeRoot, ForgePostProcessingEvent, ForgePostProcessedEvent
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
 
@@ -347,17 +349,19 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str], seq: Sequence) -
         loader_version = parts[1] if len(parts) == 2 else None
         
         constructor = FabricRoot.with_fabric if kind == "fabric" else FabricRoot.with_quilt
-
+        prefix = ns.fabric_prefix if kind == "fabric" else ns.quilt_prefix
+        
         add_fabric_tasks(seq)
-        seq.state.insert(constructor(kind, vanilla_version, loader_version))
+        seq.state.insert(constructor(prefix, vanilla_version, loader_version))
     
     elif kind == "forge":
         if len(parts) != 1:
             return False
         
-        vanilla_version = parts[0]
+        vanilla_version = ns.version_manifest.filter_latest(parts[0] or "release")[0]
 
-        # TODO: 
+        add_forge_tasks(seq)
+        seq.state.insert(ForgeRoot(ns.forge_prefix, vanilla_version))
     
     else:
         return False
@@ -520,9 +524,9 @@ def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftA
 
     from .. import LAUNCHER_NAME, LAUNCHER_VERSION
     from http.server import HTTPServer, BaseHTTPRequestHandler
+    from uuid import uuid4
     import urllib.parse
     import webbrowser
-    import uuid
 
     server_port = 12782
     app_id = MICROSOFT_AZURE_APP_ID
@@ -530,7 +534,7 @@ def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftA
     code_redirect_uri = f"{redirect_auth}/code"
     exit_redirect_uri = f"{redirect_auth}/exit"
 
-    nonce = uuid.uuid4().hex
+    nonce = uuid4().hex
 
     auth_url = MicrosoftAuthSession.get_authentication_url(app_id, code_redirect_uri, email, nonce)
     if not webbrowser.open(auth_url):
@@ -626,19 +630,22 @@ class StartWatcher(Watcher):
     
     def on_event(self, event: Any) -> None:
         
-        if isinstance(event, VersionResolveEvent):
-            if event.done:
-                self.out.task("OK", "start.version.resolved", version=event.version_id)
-                self.out.finish()
-            else:
-                self.out.task("..", "start.version.resolving", version=event.version_id)
+        if isinstance(event, VersionLoadingEvent):
+            self.out.task("..", "start.version.loading", version=event.version)
+        
+        elif isinstance(event, VersionFetchingEvent):
+            self.out.task("..", "start.version.fetching", version=event.version)
+
+        elif isinstance(event, VersionLoadedEvent):
+            self.out.task("OK", "start.version.loaded", version=event.version)
+            self.out.finish()
         
         elif isinstance(event, LwjglVersionEvent):
             self.out.task("OK", "start.lwjgl.version", version=event.version)
             self.out.finish()
 
         elif isinstance(event, JarFoundEvent):
-            self.out.task("OK", "start.jar.found", version=event.version_id)
+            self.out.task("OK", "start.jar.found", version=event.version)
             self.out.finish()
         
         elif isinstance(event, AssetsResolveEvent):
@@ -675,6 +682,13 @@ class StartWatcher(Watcher):
             else:
                 self.out.task("OK", "start.fabric.resolved_loader", api=event.api.name, loader_version=event.loader_version, vanilla_version=event.vanilla_version)
                 self.out.finish()
+        
+        elif isinstance(event, ForgePostProcessingEvent):
+            self.out.task("..", "start.forge.post_processing", task=event.task)
+
+        elif isinstance(event, ForgePostProcessedEvent):
+            self.out.task("OK", "start.forge.post_processed")
+            self.out.finish()
 
 
 class DownloadWatcher(Watcher):

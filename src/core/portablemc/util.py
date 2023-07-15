@@ -26,10 +26,11 @@ def merge_dict(dst: dict, other: dict) -> None:
 
     for k, v in other.items():
         if k in dst:
-            if isinstance(dst[k], dict) and isinstance(v, dict):
-                merge_dict(dst[k], v)
-            elif isinstance(dst[k], list) and isinstance(v, list):
-                dst[k].extend(v)
+            dst_v = dst[k]
+            if isinstance(dst_v, dict) and isinstance(v, dict):
+                merge_dict(dst_v, v)
+            elif isinstance(dst_v, list) and isinstance(v, list):
+                dst[k] = v + dst_v
         else:
             dst[k] = v
 
@@ -73,38 +74,53 @@ class LibrarySpecifier:
     """A maven-style library specifier.
     """
 
-    __slots__ = "group", "artifact", "version", "classifier"
+    __slots__ = "group", "artifact", "version", "classifier", "extension"
 
-    def __init__(self, group: str, artifact: str, version: str, classifier: Optional[str]):
+    def __init__(self, group: str, artifact: str, version: str, classifier: Optional[str], extension: str = "jar"):
         self.group = group
         self.artifact = artifact
         self.version = version
         self.classifier = classifier
+        self.extension = extension
     
     @classmethod
     def from_str(cls, s: str) -> "LibrarySpecifier":
         """Parse a library specifier string 'group:artifact:version[:classifier]'.
         """
-        parts = s.split(":", 3)
+
+        ext_split = s.rsplit("@", maxsplit=1)
+        ext = "jar" if len(ext_split) == 1 else ext_split[1]
+
+        if not len(ext):
+            raise ValueError("invalid library specifier: empty extension")
+        
+        parts = ext_split[0].split(":", 3)
+
         if len(parts) < 3:
-            raise ValueError("Invalid library specifier")
+            raise ValueError("invalid library specifier: too few parts")
         else:
-            return LibrarySpecifier(parts[0], parts[1], parts[2], parts[3] if len(parts) == 4 else None)
+            return LibrarySpecifier(parts[0], parts[1], parts[2], parts[3] if len(parts) == 4 else None, ext)
 
     def __str__(self) -> str:
-        return f"{self.group}:{self.artifact}:{self.version}" + ("" if self.classifier is None else f":{self.classifier}")
+        return f"{self.group}:{self.artifact}:{self.version}" + \
+            ("" if self.classifier is None else f":{self.classifier}") + \
+            ("" if self.extension == "jar" else f"@{self.extension}")
 
     def __repr__(self) -> str:
         return f"<LibrarySpecifier {self}>"
 
-    def jar_file_path(self) -> str:
-        """Return the standard path to store the JAR file of this specifier.
+    def file_path(self) -> str:
+        """Return the standard path to store the file of this specifier.
         
         The path separator will always be forward slashes '/', because it's compatible 
         with linux/mac/windows and URL paths.
 
-        Specifier `com.foo.bar:artifact:version` gives 
-        `com/foo/bar/artifact/version/artifact-version.jar`.
+        Specifier `com.foo.bar:artifact:version@zip` gives 
+        `com/foo/bar/artifact/version/artifact-version.zip`.
         """
-        file_name = f"{self.artifact}-{self.version}" + ("" if self.classifier is None else f"-{self.classifier}") + ".jar"
+        
+        file_name = f"{self.artifact}-{self.version}" + \
+            ("" if self.classifier is None else f"-{self.classifier}") + \
+            f".{self.extension}"
+        
         return "/".join([*self.group.split("."), self.artifact, self.version, file_name])

@@ -2,9 +2,9 @@
 """
 
 from .vanilla import MetadataRoot, MetadataTask, VersionRepository, Version, \
-    VersionRepositories
+    VersionRepositories, VersionNotFoundError
 from .task import Task, State, Watcher, Sequence
-from .http import http_request
+from .http import http_request, HttpError
 
 from typing import Optional, Any
 
@@ -62,9 +62,9 @@ class FabricRoot:
 class FabricInitTask(Task):
     """This task loads metadata for a fabric version.
 
-    :in VersionRoot: The root version to load. If this version's id follow the following
-    format `prefix:[<mc-version>[:<loader-version>]]`, then this task will trigger and
-    prepare the fabric's metadata.
+    :in FabricRoot: Optional, the fabric version to load if present.
+    :in VersionRepositories: Used to register the fabric's version repository.
+    :out MetadataRoot: The root version to load, for metadata task.
     """
 
     def execute(self, state: State, watcher: Watcher) -> None:
@@ -86,26 +86,29 @@ class FabricInitTask(Task):
         version_id = f"{root.prefix}-{vanilla_version}-{loader_version}"
 
         state.insert(MetadataRoot(version_id))
-        state[VersionRepositories].insert(version_id, FabricRepository(root.api, version_id, vanilla_version, loader_version))
+        state[VersionRepositories].insert(version_id, FabricRepository(root.api, vanilla_version, loader_version))
 
 
 class FabricRepository(VersionRepository):
     """Internal class used as instance mapped to the fabric version.
     """
 
-    def __init__(self, api: FabricApi, version_id: str, vanilla_version: str, loader_version: str) -> None:
+    def __init__(self, api: FabricApi, vanilla_version: str, loader_version: str) -> None:
         self.api = api
-        self.version_id = version_id
         self.vanilla_version = vanilla_version
         self.loader_version = loader_version
-
-    def validate_version_meta(self, version: Version) -> bool:
-        assert version.id == self.version_id, "should not trigger for this version"
-        return True
     
-    def fetch_version_meta(self, version: Version) -> None:
-        version.metadata = self.api.request_version_loader_profile(self.vanilla_version, self.loader_version)
-        version.metadata["id"] = self.version_id
+    def fetch_version(self, version: Version, state: State) -> None:
+
+        try:
+            version.metadata = self.api.request_version_loader_profile(self.vanilla_version, self.loader_version)
+        except HttpError as error:
+            if error.res.status not in (404, 400):
+                raise
+            # Generate correct error depending on the http error code.
+            raise VersionNotFoundError(version)
+            
+        version.metadata["id"] = version.id
         version.write_metadata_file()
 
 

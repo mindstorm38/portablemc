@@ -77,6 +77,7 @@ lang = {
         "enabled by default.",
     "args.start.fabric_prefix": "Change the prefix of the version ID when starting with Fabric (<prefix>-<vanilla-version>-<loader-version>).",
     "args.start.quilt_prefix": "Change the prefix of the version ID when starting with Quilt (<prefix>-<vanilla-version>-<loader-version>).",
+    "args.start.forge_prefix": "Change the prefix of the version ID when starting with Forge (<prefix>-<forge-version>).",
     "args.start.lwjgl": "Change the default LWJGL version used by Minecraft. "
         "This argument makes additional changes in order to support additional architectures such as Arm. "
         "It's not guaranteed to work with every version of Minecraft and downgrading LWJGL version is not recommended.",
@@ -142,8 +143,9 @@ lang = {
     "start.verbose.tasks": "Tasks order: {tasks}",
     "start.version.invalid_id": "Invalid version id, expected: {expected}",
     "start.version.invalid_id_unknown_kind": "Invalid version id, unknown kind: {kind}.",
-    "start.version.resolving": "Resolving version {version}... ",
-    "start.version.resolved": "Resolved version {version}",
+    "start.version.loading": "Loading version {version}... ",
+    "start.version.fetching": "Fetching version {version}... ",
+    "start.version.loaded": "Loaded version {version}",
     "start.version.not_found": "Version {version} not found",
     "start.version.too_much_parents": "Too much parents while resolving versions.",
     "start.jar.found": "Using version {version} jar",
@@ -162,11 +164,13 @@ lang = {
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.not_found.{JvmNotFoundError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
         "use --jvm argument to manually set the path to your JVM executable.",
+    "start.libraries.excluded": "Excluded library {spec}",
+    "start.additional_binary_not_found": "The additional binary '{path}' doesn't exists.",
     "start.lwjgl.version": "Forced LWJGL version to {version}",
     "start.fabric.resolving_loader": "Resolving {api} loader for {vanilla_version}",
     "start.fabric.resolved_loader": "Resolved {api} loader {loader_version} for {vanilla_version}",
-    "start.libraries.excluded": "Excluded library {spec}",
-    "start.additional_binary_not_found": "The additional binary '{path}' doesn't exists.",
+    "start.forge.post_processing": "Forge post processing: {task}...",
+    "start.forge.post_processed": "Forge post processing done",
     # "start.starting": "Starting the game...",
     # "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
