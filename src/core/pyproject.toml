@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.6"
+python = ">=3.7"
 
 [tool.poetry.group.console]
 optional = true
