@@ -214,9 +214,8 @@ class MetadataRoot:
 class Jar:
     """This state object contains the version JAR to use for launching the game.
     """
-    __slots__ = "version_id", "path"
-    def __init__(self, version_id: str, path: Path) -> None:
-        self.version_id = version_id
+    __slots__ = "path",
+    def __init__(self, path: Path) -> None:
         self.path = path
 
 class Assets:
@@ -411,26 +410,26 @@ class JarTask(Task):
 
     def execute(self, state: State, watcher: Watcher) -> None:
 
-        # Try finding a JAR to use in the hierarchy of versions.
-        for version_meta in state[Version].recurse():
-            jar_file = version_meta.jar_file()
-            # First try to find a /downloads/client download entry.
-            version_dls = version_meta.metadata.get("downloads")
-            if version_dls is not None:
-                if not isinstance(version_dls, dict):
-                    raise ValueError("metadata: /downloads must be an object")
-                client_dl = version_dls.get("client")
-                if client_dl is not None:
-                    entry = parse_download_entry(client_dl, jar_file, "metadata: /downloads/client")
-                    state[DownloadList].add(entry, verify=True)
-                    state.insert(Jar(version_meta.id, jar_file))
-                    watcher.on_event(JarFoundEvent(version_meta.id))
-                    return
-            # If no download entry has been found, but the JAR exists, we use it.
-            if jar_file.is_file():
-                state.insert(Jar(version_meta.id, jar_file))
-                watcher.on_event(JarFoundEvent(version_meta.id))
+        version = state[Version]
+        metadata = state[FullMetadata].data
+
+        jar_file = version.jar_file()
+        # First try to find a /downloads/client download entry.
+        version_dls = metadata.get("downloads")
+        if version_dls is not None:
+            if not isinstance(version_dls, dict):
+                raise ValueError("metadata: /downloads must be an object")
+            client_dl = version_dls.get("client")
+            if client_dl is not None:
+                state[DownloadList].add(parse_download_entry(client_dl, jar_file, "metadata: /downloads/client"), verify=True)
+                state.insert(Jar(jar_file))
+                watcher.on_event(JarFoundEvent())
                 return
+        # If no download entry has been found, but the JAR exists, we use it.
+        if jar_file.is_file():
+            state.insert(Jar(jar_file))
+            watcher.on_event(JarFoundEvent())
+            return
         
         raise JarNotFoundError()
 
@@ -1090,7 +1089,7 @@ class VersionFetchingEvent(VersionEvent):
 class VersionLoadedEvent(VersionEvent):
     pass
 
-class JarFoundEvent(VersionEvent):
+class JarFoundEvent:
     pass
 
 class AssetsResolveEvent:

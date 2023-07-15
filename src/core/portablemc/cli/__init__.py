@@ -645,7 +645,7 @@ class StartWatcher(Watcher):
             self.out.finish()
 
         elif isinstance(event, JarFoundEvent):
-            self.out.task("OK", "start.jar.found", version=event.version)
+            self.out.task("OK", "start.jar.found")
             self.out.finish()
         
         elif isinstance(event, AssetsResolveEvent):
