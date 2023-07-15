@@ -1399,7 +1399,7 @@ legacy_jvm_args = [
 ]
 
 
-def add_vanilla_tasks(seq: Sequence, run: bool = False) -> None:
+def add_vanilla_tasks(seq: Sequence, *, run: bool = False) -> None:
     """Alter a task sequence by inserting tasks for running a standard game. Vanilla 
     sequence is the most basic and required logic to run a game based on Mojang's version
     metadata format.
@@ -1431,3 +1431,22 @@ def add_vanilla_tasks(seq: Sequence, run: bool = False) -> None:
     # Then run, if requested.
     if run:
         seq.append_task(RunTask())
+
+
+def make_vanilla_sequence(version_id: str, *, 
+    run: bool = False, 
+    context: Optional[Context] = None,
+    version_manifest: Optional[VersionManifest] = None
+) -> Sequence:
+    """Shortcut version of `add_vanilla_tasks` that construct the sequence for you and
+    add required states.
+    """
+
+    seq = Sequence()
+    add_vanilla_tasks(seq, run=run)
+
+    seq.state.insert(context or Context())
+    seq.state.insert(version_manifest or VersionManifest())
+    seq.state.insert(MetadataRoot(version_id))
+
+    return seq
