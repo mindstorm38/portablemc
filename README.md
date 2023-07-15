@@ -39,8 +39,7 @@ addons, official ones can be found below.
 - [Contribute](#contribute)
   - [Setup environment](#setup-environment)
   - [Contributors](#contributors)
-- [API Documentation ⇗](doc/API.md)
-- [Addon API Documentation ⇗](doc/ADDON.md)
+- [API Documentation (v4) ⇗](doc/API.md)
 
 # Installation
 Before starting, please check if your Python version is valid for the launcher by doing 
