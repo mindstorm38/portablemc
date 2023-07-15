@@ -259,12 +259,10 @@ class ForgeFinalizeTask(Task):
         jvm = state[Jvm]
         version = state[Version]
         
-        if version.parent is None:
-            raise ValueError()
-        
-        # Additional missing variables, the parent jar file is the vanilla JAR file.
+        # Additional missing variables, the version's jar file is the same as the vanilla
+        # one, so we use its path.
         info.variables["SIDE"] = "client"
-        info.variables["MINECRAFT_JAR"] = str(version.parent.jar_file())
+        info.variables["MINECRAFT_JAR"] = str(version.jar_file())
 
         def replace_install_args(txt: str) -> str:
             txt = txt.format_map(info.variables)
