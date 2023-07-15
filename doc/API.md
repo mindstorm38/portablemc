@@ -8,6 +8,7 @@ Documented version: `4.0.0`.
 ## Table of contents
 - [Versioning](#versioning)
 - [File structure](#file-structure)
+- [Tasks](#tasks)
 
 ## Versioning
 This launcher uses [semantic versioning](https://semver.org/lang/fr/),
@@ -35,3 +36,54 @@ directory. Files are described in the following tree list:
 - `fabric.py`: fabric/quilt mod loaders support;
 - `forge.py`: forge mod loader support.
 
+## Tasks
+The main concepts of this launcher are tasks, sequences and states.
+Tasks are objects that can be added to a sequence object, the sequence
+object can then be *executed*, this will run all tasks sequentially,
+each task then modifies the shared state. Additionally, a watcher
+mechanism allows tasks to dispatch events while executing.
+
+These classes can be found under `portablemc.tasks` module:
+- `State`, a particular dictionary used to keep the state of a 
+  sequence, it maps the value to its own type, this allows great 
+  static type analysis;
+- `Task`, base class for tasks, provides to functions to redefine:
+  - `setup`, called when the task is added to a sequence, the task
+    can use this to add default states;
+  - `execute`, called when the task is executed;
+- `Watcher`, base class for event watchers;
+- `Sequence`, sequence class to use to prepend/append tasks, manually
+  add states and then execute all of them.
+
+## Vanilla tasks
+This module provides standard tasks for running officially provided
+versions. It also provides primitive classes for defining the 
+running context of the game and querying Mojang's version manifest. 
+
+These classes can be found under `portablemc.vanilla`, there is many 
+tasks and we do not document them here for now.
+
+This module also expose function for easily constructing a sequence: 
+`add_vanilla_tasks(sequence, *, run = False)`, this function extends 
+the given sequence with all required tasks in the right order, you can 
+optionally decide to run the game or not. 
+
+**However**, this function doesn't add base states required to run 
+the game:
+- `Context`, the context of the game are its directories;
+- `VersionManifest`, the version manifest to use to resolve missing 
+  versions;
+- `MetadataRoot`, the root version to start resolving metadata for 
+  when executing the sequence.
+
+To fix this, you can use an easier function that does all the work for
+you, `make_vanilla_sequence`, as seen in the following example:
+```py
+from portablemc.vanilla import make_vanilla_sequence
+
+fn main():
+    # Make a sequence for installing and running 1.20.1
+    seq = make_vanilla_sequence("1.20.1", run=True)
+    # Executing this sequence will install and run the game.
+    seq.execute()
+```
