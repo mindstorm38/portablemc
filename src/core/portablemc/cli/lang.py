@@ -174,6 +174,7 @@ lang = {
     # "start.starting": "Starting the game...",
     # "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
+    "download.verbose.threads_count": "Download threads count: {count}",
     "download.start": "Download starting...",
     "download.progress": "Download: {count}/{total_count} {size:>8} @ {speed}",
     "download.error": "{name}: {message}",

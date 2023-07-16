@@ -293,7 +293,7 @@ def cmd_start(ns: StartNs):
 
     # Add watchers of the installation.
     seq.add_watcher(StartWatcher(ns.out))
-    seq.add_watcher(DownloadWatcher(ns.out))
+    seq.add_watcher(DownloadWatcher(ns.out, ns.verbose))
 
     if ns.verbose:
         ns.out.task("INFO", "start.verbose.tasks", tasks=", ".join((type(task).__name__ for task in seq.tasks)))
@@ -695,9 +695,10 @@ class DownloadWatcher(Watcher):
     """A watcher for pretty printing download task.
     """
 
-    def __init__(self, out: Output) -> None:
+    def __init__(self, out: Output, verbose: bool) -> None:
 
         self.out = out
+        self.verbose = verbose
 
         self.entries_count: int
         self.total_size: int
@@ -707,6 +708,11 @@ class DownloadWatcher(Watcher):
     def on_event(self, event: Any) -> None:
 
         if isinstance(event, DownloadStartEvent):
+
+            if self.verbose:
+                self.out.task("INFO", "download.verbose.threads_count", count=event.threads_count)
+                self.out.finish()
+
             self.entries_count = event.entries_count
             self.total_size = event.size
             self.size = 0
