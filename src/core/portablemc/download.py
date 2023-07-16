@@ -38,7 +38,8 @@ class DownloadTask(Task):
         if not entries_count:
             return
         
-        threads_count = (os.cpu_count() or 1) * 4
+        # Note: do not create more thread than available entries.
+        threads_count = min(entries_count, (os.cpu_count() or 1) * 4)
         errors = []
 
         watcher.on_event(DownloadStartEvent(threads_count, entries_count, dl.size))
