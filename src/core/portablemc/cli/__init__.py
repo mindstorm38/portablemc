@@ -717,11 +717,13 @@ class DownloadWatcher(Watcher):
             self.speeds[event.thread_id] = event.speed
             speed = sum(self.speeds)
             self.size += event.size
+            total_count = str(self.entries_count)
+            count = f"{event.count:{len(total_count)}}"
             self.out.task("..", "download.progress", 
-                speed=f"{format_number(speed)}o/s",
-                count=event.count,
-                total_count=self.entries_count,
-                size=f"{format_number(self.size)}o")
+                count=count,
+                total_count=total_count,
+                size=f"{format_number(self.size)}o",
+                speed=f"{format_number(speed)}o/s")
             
         elif isinstance(event, DownloadCompleteEvent):
             self.out.task("OK", None)

@@ -175,7 +175,7 @@ lang = {
     # "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
     "download.start": "Download starting...",
-    "download.progress": "Download: {count:4}/{total_count} {size:>8} @ {speed}",
+    "download.progress": "Download: {count}/{total_count} {size:>8} @ {speed}",
     "download.error": "{name}: {message}",
     f"download.error.{DownloadError.CONNECTION}": "Connection error",
     f"download.error.{DownloadError.NOT_FOUND}": "Not found",
