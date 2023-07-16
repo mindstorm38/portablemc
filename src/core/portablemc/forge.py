@@ -255,7 +255,7 @@ class FabricRepository(VersionRepository):
 
                 # Forge versions before 1.12.2-14.23.5.2847
                 version.metadata = install_profile.get("versionInfo")
-                if version.metadata is None:
+                if not isinstance(version.metadata, dict):
                     raise ForgeInstallError(self.forge_version, ForgeInstallError.VERSION_METADATA_NOT_FOUND)
                 
                 # Older versions have non standard keys for libraries.
@@ -267,10 +267,15 @@ class FabricRepository(VersionRepository):
                     if "checksums" in version_lib:
                         del version_lib["checksums"]
                 
+                # Old version (<= 1.6.4) of forge are broken, even on official launcher.
+                # So we fix them by manually adding the correct inherited version.
+                if "inheritsFrom" not in version.metadata:
+                    version.metadata["inheritsFrom"] = game_version
+
                 # For "old" installers, that have an "install" section.
                 jar_entry_path = install_profile["install"]["filePath"]
                 jar_spec = LibrarySpecifier.from_str(install_profile["install"]["path"])
-
+                
                 # Here we copy the forge jar stored to libraries.
                 jar_path = context.libraries_dir / jar_spec.file_path()
                 zip_extract_file(install_jar, jar_entry_path, jar_path)
@@ -439,7 +444,7 @@ def request_maven_versions() -> Optional[Set[str]]:
 def request_install_jar(version: str) -> ZipFile:
     """Internal function to request the installation JAR file.
     """
-    
+    print(f"https://maven.minecraftforge.net/net/minecraftforge/forge/{version}/forge-{version}-installer.jar")
     res = http_request("GET", f"https://maven.minecraftforge.net/net/minecraftforge/forge/{version}/forge-{version}-installer.jar",
         accept="application/java-archive")
     
