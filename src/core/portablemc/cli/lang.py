@@ -61,7 +61,7 @@ lang = {
     "args.start.version.vanilla": "release|snapshot|<vanilla-version>",
     "args.start.version.fabric": "fabric:[<vanilla-version>[:<loader-version>]]",
     "args.start.version.quilt": "quilt:[<vanilla-version>[:<loader-version>]]",
-    "args.start.version.forge": "forge:[<forge-version>]",
+    "args.start.version.forge": "forge:[<forge-version>] (forge-version >= 1.5.2)",
     "args.start.dry": "Simulate game starting.",
     "args.start.disable_multiplayer": "Disable the multiplayer buttons (>= 1.16).",
     "args.start.disable_chat": "Disable the online chat (>= 1.16).",
