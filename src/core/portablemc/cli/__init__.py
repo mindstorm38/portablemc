@@ -352,7 +352,7 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str], seq: Sequence) -
         prefix = ns.fabric_prefix if kind == "fabric" else ns.quilt_prefix
         
         add_fabric_tasks(seq)
-        seq.state.insert(constructor(prefix, vanilla_version, loader_version))
+        seq.state.insert(constructor(vanilla_version, loader_version, prefix))
     
     elif kind == "forge":
         if len(parts) != 1:
@@ -361,7 +361,7 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str], seq: Sequence) -
         vanilla_version = ns.version_manifest.filter_latest(parts[0] or "release")[0]
 
         add_forge_tasks(seq)
-        seq.state.insert(ForgeRoot(ns.forge_prefix, vanilla_version))
+        seq.state.insert(ForgeRoot(vanilla_version, ns.forge_prefix))
     
     else:
         return False

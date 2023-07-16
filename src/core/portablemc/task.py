@@ -37,6 +37,9 @@ class State:
 
     def __getitem__(self, ty: Type[T]) -> T:
         return self.data[ty]
+    
+    def __delitem__(self, ty: type) -> None:
+        del self.data[ty]
 
 
 class Task:

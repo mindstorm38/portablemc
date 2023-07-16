@@ -10,7 +10,8 @@ import json
 import os
 
 from .vanilla import parse_download_entry, Context, MetadataRoot, MetadataTask, \
-    VersionRepository, VersionRepositories, Version, VersionNotFoundError, Jvm, JarTask
+    VersionRepository, VersionRepositories, Version, VersionNotFoundError, JarTask, \
+    Jvm, VersionManifest
 from .util import calc_input_sha1, LibrarySpecifier
 from .download import DownloadList, DownloadTask
 from .task import Task, State, Watcher, Sequence
@@ -22,10 +23,10 @@ from typing import Dict, Optional, Set, List
 class ForgeRoot:
     """Represent the root forge version to load.
     """
-    __slots__ = "prefix", "forge_version"
-    def __init__(self, prefix: str, forge_version: str) -> None:
-        self.prefix = prefix
+    __slots__ = "forge_version", "prefix"
+    def __init__(self, forge_version: str, prefix: str = "forge") -> None:
         self.forge_version = forge_version
+        self.prefix = prefix
 
 
 class ForgePostProcessor:
@@ -416,3 +417,27 @@ def add_forge_tasks(seq: Sequence) -> None:
     seq.prepend_task(ForgeInitTask(), before=MetadataTask)
     seq.append_task(ForgeFinalizeTask(), after=JarTask)  # Run after JVM/Jar because need it.
     seq.prepend_task(DownloadTask(), before=ForgeFinalizeTask)  # Between forge tasks.
+
+
+def make_forge_sequence(forge_version: str, *,
+    run: bool = False,
+    context: Optional[Context] = None,
+    version_manifest: Optional[VersionManifest] = None,
+    prefix: str = "forge"
+) -> Sequence:
+    """Shortcut version of `add_vanilla_tasks` followed by `add_forge_tasks` that 
+    construct the sequence for you and add all the required state to get forge installing
+    and running.
+    """
+    
+    from .vanilla import add_vanilla_tasks
+
+    seq = Sequence()
+    add_vanilla_tasks(seq, run=run)
+    add_forge_tasks(seq)
+
+    seq.state.insert(context or Context())
+    seq.state.insert(version_manifest or VersionManifest())
+    seq.state.insert(ForgeRoot(forge_version, prefix))
+
+    return seq

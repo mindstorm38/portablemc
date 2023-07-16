@@ -207,9 +207,9 @@ class MetadataRoot:
     """Small class used to specify the root version to load with its parents by 
     `MetadataTask`.
     """
-    __slots__ = "version_id",
-    def __init__(self, version_id: str) -> None:
-        self.version_id = version_id
+    __slots__ = "version",
+    def __init__(self, version: str) -> None:
+        self.version = version
 
 class Jar:
     """This state object contains the version JAR to use for launching the game.
@@ -362,7 +362,7 @@ class MetadataTask(Task):
         manifest = state[VersionManifest]
         repositories = state[VersionRepositories]
 
-        version_id: Optional[str] = state[MetadataRoot].version_id
+        version_id: Optional[str] = state[MetadataRoot].version
         versions: List[Version] = []
 
         while version_id is not None:
@@ -1447,7 +1447,7 @@ def add_vanilla_tasks(seq: Sequence, *, run: bool = False) -> None:
         seq.append_task(RunTask())
 
 
-def make_vanilla_sequence(version_id: str, *, 
+def make_vanilla_sequence(version: str, *, 
     run: bool = False, 
     context: Optional[Context] = None,
     version_manifest: Optional[VersionManifest] = None
@@ -1461,6 +1461,6 @@ def make_vanilla_sequence(version_id: str, *,
 
     seq.state.insert(context or Context())
     seq.state.insert(version_manifest or VersionManifest())
-    seq.state.insert(MetadataRoot(version_id))
+    seq.state.insert(MetadataRoot(version))
 
     return seq
