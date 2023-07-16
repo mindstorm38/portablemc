@@ -879,9 +879,9 @@ class ArgsTask(Task):
         username = auth_session.username
 
         # Construct class path, JAR isn't inherently required.
-        class_path = list(map(str, libraries.class_libs))
-        class_path.append(str(jar.path))
-
+        class_path = [str(jar.path)] + list(map(str, libraries.class_libs))
+        # FIXME: Change order depending on targeted version.
+        
         # Arguments replacements
         args_replacements: Dict[str, str] = {
             # Game
