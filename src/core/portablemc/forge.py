@@ -270,7 +270,7 @@ class FabricRepository(VersionRepository):
                 # Old version (<= 1.6.4) of forge are broken, even on official launcher.
                 # So we fix them by manually adding the correct inherited version.
                 if "inheritsFrom" not in version.metadata:
-                    version.metadata["inheritsFrom"] = game_version
+                    version.metadata["inheritsFrom"] = install_profile["install"]["minecraft"]
 
                 # For "old" installers, that have an "install" section.
                 jar_entry_path = install_profile["install"]["filePath"]
@@ -444,7 +444,7 @@ def request_maven_versions() -> Optional[Set[str]]:
 def request_install_jar(version: str) -> ZipFile:
     """Internal function to request the installation JAR file.
     """
-    print(f"https://maven.minecraftforge.net/net/minecraftforge/forge/{version}/forge-{version}-installer.jar")
+    # print(f"https://maven.minecraftforge.net/net/minecraftforge/forge/{version}/forge-{version}-installer.jar")
     res = http_request("GET", f"https://maven.minecraftforge.net/net/minecraftforge/forge/{version}/forge-{version}-installer.jar",
         accept="application/java-archive")
     
