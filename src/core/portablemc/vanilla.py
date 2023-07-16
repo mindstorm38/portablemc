@@ -1049,15 +1049,13 @@ class RunTask(Task):
 class VersionNotFoundError(Exception):
     """Raised when a version was not found. The version that was not found is given.
     """
-
-    def __init__(self, version: Version) -> None:
+    def __init__(self, version: str) -> None:
         self.version = version
 
 class TooMuchParentsError(Exception):
     """Raised when a version hierarchy is too deep. The hierarchy of versions is given
     in property `versions`.
     """
-
     def __init__(self, versions: List[Version]) -> None:
         self.versions = versions
 
@@ -1251,7 +1249,7 @@ class VersionManifest(VersionRepository):
         
         version_super_meta = self.get_version(version.id)
         if version_super_meta is None:
-            raise VersionNotFoundError(version)
+            raise VersionNotFoundError(version.id)
 
         res = http_request("GET", version_super_meta["url"], accept="application/json")
         
