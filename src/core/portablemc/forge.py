@@ -70,6 +70,20 @@ class ForgeInitTask(Task):
         
         forge_version = root.forge_version
 
+        # No dash or alias version, resolve against promo version.
+        alias = forge_version.endswith(("-latest", "-recommended"))
+        if "-" not in forge_version or alias:
+            # If it's not an alias, create the alias from the game version.
+            if not alias:
+                forge_version = f"{forge_version}-recommended"
+            # Try to get loader from promo versions.
+            loader_version = request_promo_versions().get(forge_version)
+            if loader_version is None:
+                raise ValueError("version not found (todo)")
+            # Replace the -latest or -recommended with loaded version.
+            last_dash = forge_version.rindex("-")
+            forge_version = f"{forge_version[:last_dash]}-{loader_version}"
+
         # Compute version id and forward to metadata task with specific repository.
         version_id = f"{root.prefix}-{forge_version}"
         state.insert(MetadataRoot(version_id))
