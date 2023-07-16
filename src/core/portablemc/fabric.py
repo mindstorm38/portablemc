@@ -24,8 +24,9 @@ class FabricApi:
         """
         return http_request("GET", f"{self.api_url}{method}", accept="application/json").json()
 
-    def request_fabric_loader_version(self, vanilla_version: str) -> str:
-        return self.request_fabric_meta(f"versions/loader/{vanilla_version}")[0].get("loader", {}).get("version")
+    def request_fabric_loader_version(self, vanilla_version: str) -> Optional[str]:
+        loaders = self.request_fabric_meta(f"versions/loader/{vanilla_version}")
+        return loaders[0].get("loader", {}).get("version") if len(loaders) else None
 
     def request_version_loader_profile(self, vanilla_version: str, loader_version: str) -> dict:
         return self.request_fabric_meta(f"versions/loader/{vanilla_version}/{loader_version}/profile/json")
@@ -77,10 +78,21 @@ class FabricInitTask(Task):
         loader_version = root.loader_version
 
         if loader_version is None:
-            watcher.on_event(FabricResolveEvent(root.api, vanilla_version, None))
-            loader_version = root.api.request_fabric_loader_version(vanilla_version)
 
-        watcher.on_event(FabricResolveEvent(root.api, vanilla_version, loader_version))
+            watcher.on_event(FabricResolveEvent(root.api, vanilla_version, None))
+
+            try:
+                loader_version = root.api.request_fabric_loader_version(vanilla_version)
+            except HttpError as error:
+                if error.res.status not in (404, 400):
+                    raise
+                loader_version = None
+            
+            if loader_version is None:
+                # Correct error if the error is just a not found.
+                raise VersionNotFoundError(f"{root.prefix}-{vanilla_version}-???")
+
+            watcher.on_event(FabricResolveEvent(root.api, vanilla_version, loader_version))
 
         # Update the root version id to a valid one (without :).
         version_id = f"{root.prefix}-{vanilla_version}-{loader_version}"
@@ -105,14 +117,16 @@ class FabricRepository(VersionRepository):
         except HttpError as error:
             if error.res.status not in (404, 400):
                 raise
-            # Generate correct error depending on the http error code.
-            raise VersionNotFoundError(version)
+            # Correct error if the error is just a not found.
+            raise VersionNotFoundError(version.id)
             
         version.metadata["id"] = version.id
         version.write_metadata_file()
 
 
 class FabricResolveEvent:
+    """Event triggered when the loader version is missing and is being resolved.
+    """
     __slots__ = "api", "vanilla_version", "loader_version"
     def __init__(self, api: FabricApi, vanilla_version: str, loader_version: Optional[str]) -> None:
         self.api = api

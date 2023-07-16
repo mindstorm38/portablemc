@@ -88,14 +88,16 @@ class ForgeInitTask(Task):
                 watcher.on_event(ForgeResolveEvent(alias_version, True))
                 loader_version = promo_versions.get(alias_version)
             
-            if loader_version is None:
-                raise ValueError("version not found (todo)")
-
-            # Replace the -latest or -recommended with loaded version.
+            # Remove alias
             last_dash = alias_version.rindex("-")
-            forge_version = f"{alias_version[:last_dash]}-{loader_version}"
+            alias_version = alias_version[:last_dash]
 
-        watcher.on_event(ForgeResolveEvent(forge_version, False))
+            if loader_version is None:
+                raise VersionNotFoundError(f"{root.prefix}-{alias_version}-???")
+
+            forge_version = f"{alias_version}-{loader_version}"
+
+            watcher.on_event(ForgeResolveEvent(forge_version, False))
         
         # Compute version id and forward to metadata task with specific repository.
         version_id = f"{root.prefix}-{forge_version}"
@@ -151,7 +153,7 @@ class FabricRepository(VersionRepository):
                 pass
         
         if install_jar is None:
-            raise VersionNotFoundError(version)
+            raise VersionNotFoundError(version.id)
         
         with install_jar:
 

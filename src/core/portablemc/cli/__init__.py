@@ -304,7 +304,7 @@ def cmd_start(ns: StartNs):
         sys.exit(EXIT_OK)
 
     except VersionNotFoundError as error:
-        ns.out.task("FAILED", "start.version.not_found", version=error.version.id)
+        ns.out.task("FAILED", "start.version.not_found", version=error.version)
         ns.out.finish()
     
     except TooMuchParentsError as error:
