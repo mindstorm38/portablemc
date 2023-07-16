@@ -2,7 +2,7 @@
 """
 
 from .vanilla import MetadataRoot, MetadataTask, VersionRepository, Version, \
-    VersionRepositories, VersionNotFoundError
+    VersionRepositories, VersionNotFoundError, Context, VersionManifest
 from .task import Task, State, Watcher, Sequence
 from .http import http_request, HttpError
 
@@ -40,23 +40,23 @@ class FabricRoot:
     trigger if such state is present.
     """
 
-    def __init__(self, api: FabricApi, prefix: str, vanilla_version: str, loader_version: Optional[str]) -> None:
+    def __init__(self, api: FabricApi, vanilla_version: str, loader_version: Optional[str], prefix: str) -> None:
         self.api = api
-        self.prefix = prefix
         self.vanilla_version = vanilla_version
         self.loader_version = loader_version
+        self.prefix = prefix
 
     @classmethod
-    def with_fabric(cls, prefix: str, vanilla_version: str, loader_version: Optional[str]) -> "FabricRoot":
+    def with_fabric(cls, vanilla_version: str, loader_version: Optional[str], prefix: str = "fabric") -> "FabricRoot":
         """Construct a root for resolving a Fabric version.
         """
-        return cls(FABRIC_API, prefix, vanilla_version, loader_version)
+        return cls(FABRIC_API, vanilla_version, loader_version, prefix)
 
     @classmethod
-    def with_quilt(cls, prefix: str, vanilla_version: str, loader_version: Optional[str]) -> "FabricRoot":
+    def with_quilt(cls, vanilla_version: str, loader_version: Optional[str], prefix: str = "quilt") -> "FabricRoot":
         """Construct a root for resolving a Quilt version.
         """
-        return cls(QUILT_API, prefix, vanilla_version, loader_version)
+        return cls(QUILT_API, vanilla_version, loader_version, prefix)
 
 
 class FabricInitTask(Task):
@@ -129,3 +129,55 @@ def add_fabric_tasks(seq: Sequence) -> None:
     :param seq: The sequence to alter and add tasks to.
     """
     seq.prepend_task(FabricInitTask(), before=MetadataTask)
+
+
+def _make_base_sequence(*,
+    run: bool = False,
+    context: Optional[Context] = None,
+    version_manifest: Optional[VersionManifest] = None,
+) -> Sequence:
+    """Internal function for `make_<fabric|quilt>_sequence` functions.
+    """
+    
+    from .vanilla import add_vanilla_tasks
+
+    seq = Sequence()
+    add_vanilla_tasks(seq, run=run)
+    add_fabric_tasks(seq)
+
+    seq.state.insert(context or Context())
+    seq.state.insert(version_manifest or VersionManifest())
+
+    return seq
+
+
+def make_fabric_sequence(vanilla_version: str, loader_version: Optional[str] = None, *,
+    run: bool = False,
+    context: Optional[Context] = None,
+    version_manifest: Optional[VersionManifest] = None,
+    prefix: str = "fabric"
+) -> Sequence:
+    """Shortcut version of `add_vanilla_tasks` followed by `add_fabric_tasks` that 
+    construct the sequence for you and add all the required state to get fabric installing
+    and running.
+    """
+
+    seq = _make_base_sequence(run=run, context=context, version_manifest=version_manifest)
+    seq.state.insert(FabricRoot.with_fabric(vanilla_version, loader_version, prefix))
+    return seq
+
+
+def make_quilt_sequence(vanilla_version: str, loader_version: Optional[str] = None, *,
+    run: bool = False,
+    context: Optional[Context] = None,
+    version_manifest: Optional[VersionManifest] = None,
+    prefix: str = "quilt"
+) -> Sequence:
+    """Shortcut version of `add_vanilla_tasks` followed by `add_fabric_tasks` that 
+    construct the sequence for you and add all the required state to get quilt installing
+    and running.
+    """
+
+    seq = _make_base_sequence(run=run, context=context, version_manifest=version_manifest)
+    seq.state.insert(FabricRoot.with_quilt(vanilla_version, loader_version, prefix))
+    return seq
