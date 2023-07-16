@@ -120,10 +120,11 @@ class HumanOutput(Output):
             else:
                 state_msg = f"\r[{state:^6s}] "
 
-        # state_msg = "\r         " if state is None else f"\r[{state:^6s}] "
         print(state_msg, end="", flush=False)
 
         if key is None:
+            self.last_len = 0
+            sys.stdout.flush()
             return
 
         msg = _raw(key, kwargs)
