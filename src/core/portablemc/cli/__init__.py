@@ -30,7 +30,7 @@ from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
 
 from ..lwjgl import add_lwjgl_tasks, LwjglVersion, LwjglVersionEvent
 from ..fabric import add_fabric_tasks, FabricRoot, FabricResolveEvent
-from ..forge import add_forge_tasks, ForgeRoot, ForgePostProcessingEvent, ForgePostProcessedEvent
+from ..forge import add_forge_tasks, ForgeRoot, ForgeResolveEvent, ForgePostProcessingEvent, ForgePostProcessedEvent
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
 
@@ -678,9 +678,16 @@ class StartWatcher(Watcher):
         
         elif isinstance(event, FabricResolveEvent):
             if event.loader_version is None:
-                self.out.task("..", "start.fabric.resolving_loader", api=event.api.name, vanilla_version=event.vanilla_version)
+                self.out.task("..", "start.fabric.resolving", api=event.api.name, vanilla_version=event.vanilla_version)
             else:
-                self.out.task("OK", "start.fabric.resolved_loader", api=event.api.name, loader_version=event.loader_version, vanilla_version=event.vanilla_version)
+                self.out.task("OK", "start.fabric.resolved", api=event.api.name, loader_version=event.loader_version, vanilla_version=event.vanilla_version)
+                self.out.finish()
+        
+        elif isinstance(event, ForgeResolveEvent):
+            if event.alias:
+                self.out.task("..", "start.forge.resolving", version=event.forge_version)
+            else:
+                self.out.task("OK", "start.forge.resolved", version=event.forge_version)
                 self.out.finish()
         
         elif isinstance(event, ForgePostProcessingEvent):

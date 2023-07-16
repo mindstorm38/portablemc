@@ -73,17 +73,30 @@ class ForgeInitTask(Task):
         # No dash or alias version, resolve against promo version.
         alias = forge_version.endswith(("-latest", "-recommended"))
         if "-" not in forge_version or alias:
+
             # If it's not an alias, create the alias from the game version.
-            if not alias:
-                forge_version = f"{forge_version}-recommended"
+            alias_version = forge_version if alias else f"{forge_version}-recommended"
+            watcher.on_event(ForgeResolveEvent(alias_version, True))
+
             # Try to get loader from promo versions.
-            loader_version = request_promo_versions().get(forge_version)
+            promo_versions = request_promo_versions()
+            loader_version = promo_versions.get(alias_version)
+
+            # Try with "-latest", some version do not have recommended.
+            if loader_version is None and not alias:
+                alias_version = f"{forge_version}-latest"
+                watcher.on_event(ForgeResolveEvent(alias_version, True))
+                loader_version = promo_versions.get(alias_version)
+            
             if loader_version is None:
                 raise ValueError("version not found (todo)")
-            # Replace the -latest or -recommended with loaded version.
-            last_dash = forge_version.rindex("-")
-            forge_version = f"{forge_version[:last_dash]}-{loader_version}"
 
+            # Replace the -latest or -recommended with loaded version.
+            last_dash = alias_version.rindex("-")
+            forge_version = f"{alias_version[:last_dash]}-{loader_version}"
+
+        watcher.on_event(ForgeResolveEvent(forge_version, False))
+        
         # Compute version id and forward to metadata task with specific repository.
         version_id = f"{root.prefix}-{forge_version}"
         state.insert(MetadataRoot(version_id))
@@ -367,6 +380,16 @@ class ForgeInstallError(Exception):
         self.version = version
         self.code = code
 
+
+class ForgeResolveEvent:
+    """Event triggered when the full forge version has been/is being resolved. 
+    The 'alias' attribute specifies if an alias version is being resolved, if false the
+    resolving has finished and we'll try to install the given version.
+    """
+    __slots__ = "forge_version", "alias"
+    def __init__(self, forge_version: str, alias: bool) -> None:
+        self.forge_version = forge_version
+        self.alias = alias
 
 class ForgePostProcessingEvent:
     """Event triggered when a post processing task is starting.
