@@ -195,6 +195,11 @@ class DownloadList:
         total number of results and the new result that came in.
         """
 
+        # Sort our entries in order to download big files first, this is allows better
+        # parallelization at start and avoid too much blocking at the end of the download.
+        # Note that entries without size are considered 1 Mio, to download early.
+        self.entries.sort(key=lambda e: e.entry.size or 1048576, reverse=True)
+
         entries_count = len(self.entries)
         if not entries_count or threads_count < 1:
             return
