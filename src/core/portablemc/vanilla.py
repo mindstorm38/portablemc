@@ -213,6 +213,7 @@ class MetadataRoot:
 
 class Jar:
     """This state object contains the version JAR to use for launching the game.
+    It may not be present if no jar is specified by the metadata.
     """
     __slots__ = "path",
     def __init__(self, path: Path) -> None:
@@ -414,6 +415,7 @@ class JarTask(Task):
         metadata = state[FullMetadata].data
 
         jar_file = version.jar_file()
+
         # First try to find a /downloads/client download entry.
         version_dls = metadata.get("downloads")
         if version_dls is not None:
@@ -425,6 +427,7 @@ class JarTask(Task):
                 state.insert(Jar(jar_file))
                 watcher.on_event(JarFoundEvent())
                 return
+        
         # If no download entry has been found, but the JAR exists, we use it.
         if jar_file.is_file():
             state.insert(Jar(jar_file))
@@ -834,7 +837,7 @@ class ArgsTask(Task):
     :in Context: The installation context.
     :in Version: The version object that's being installed.
     :in FullMetadata: The full version metadata.
-    :in Jar: Version JAR file.
+    :in Jar: Version JAR file, it is added at the end of class path.
     :in Assets: Version assets listing.
     :in Libraries: Version libraries listing.
     :in Logger: Version logger (optional).
@@ -875,6 +878,10 @@ class ArgsTask(Task):
         uuid = auth_session.uuid
         username = auth_session.username
 
+        # Construct class path, JAR isn't inherently required.
+        class_path = list(map(str, libraries.class_libs))
+        class_path.append(str(jar.path))
+
         # Arguments replacements
         args_replacements: Dict[str, str] = {
             # Game
@@ -899,7 +906,7 @@ class ArgsTask(Task):
             "launcher_name": LAUNCHER_NAME,
             "launcher_version": LAUNCHER_VERSION,
             "classpath_separator": os.pathsep,
-            "classpath": os.pathsep.join(map(str, (*libraries.class_libs, jar.path)))
+            "classpath": os.pathsep.join(class_path)
         }
 
         if opts.resolution is not None:
