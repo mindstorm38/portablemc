@@ -659,6 +659,7 @@ class LibrariesTask(Task):
 
                 # If no download entry can be found, add a default one that points to 
                 # official library repository, this may not work.
+                # TODO: Maybe avoid trying this if the jar file already exists.
                 if dl_entry is None:
 
                     # The official launcher seems to default to their repository, it will also
