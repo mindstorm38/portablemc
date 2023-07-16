@@ -195,6 +195,14 @@ class FabricRepository(VersionRepository):
                         processor.get("outputs", {})
                     ))
 
+                # Some early (still modern) installers (<= 1.16.5) embed the forge JAR,
+                # we need to extract it given its path.
+                forge_spec_raw = install_profile.get("path")
+                if forge_spec_raw is not None:
+                    lib_spec = LibrarySpecifier.from_str(forge_spec_raw)
+                    lib_path = context.libraries_dir / lib_spec.file_path()
+                    zip_extract_file(install_jar, f"maven/{lib_spec.file_path()}", lib_path)
+
                 # We fetch all libraries used to build artifacts, and we store each path 
                 # to each library here. These install profile libraries are only used for
                 # building, and will be used in finalize task.
@@ -311,9 +319,11 @@ class ForgeFinalizeTask(Task):
             elif processor.jar_name.startswith("net.minecraftforge:jarsplitter:"):
                 task = "split_jar"
             elif processor.jar_name.startswith("net.minecraftforge:ForgeAutoRenamingTool:"):
-                task = "auto_renaming"
+                task = "forge_auto_renaming"
             elif processor.jar_name.startswith("net.minecraftforge:binarypatcher:"):
                 task = "patch_binary"
+            elif processor.jar_name.startswith("net.md-5:SpecialSource:"):
+                task = "special_source_renaming"
             else:
                 task = "unknown"
 

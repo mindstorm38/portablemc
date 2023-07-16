@@ -431,7 +431,7 @@ class AuthDatabase:
         sessions = self.sessions.get(sess.db_type)
         if sessions is None:
             if sess.db_type not in self.types:
-                raise ValueError("Given session's type is not supported.")
+                raise ValueError(f"given session type '{sess.db_type}' is not supported")
             sessions = self.sessions[sess.db_type] = {}
         sessions[email.casefold()] = sess
 

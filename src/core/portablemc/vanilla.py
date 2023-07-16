@@ -657,8 +657,8 @@ class LibrariesTask(Task):
                     if dl_meta is not None:
                         dl_entry = parse_download_entry(dl_meta, jar_path, f"metadata: /libraries/{library_idx}/downloads/artifact")
 
-                # If no download entry can be found, add a default one that points to official
-                # library repository, this may not work.
+                # If no download entry can be found, add a default one that points to 
+                # official library repository, this may not work.
                 if dl_entry is None:
 
                     # The official launcher seems to default to their repository, it will also
@@ -675,7 +675,8 @@ class LibrariesTask(Task):
 
                 libs.append(jar_path)
 
-                if dl_entry is not None:
+                # If URL is empty, just ignore the entry.
+                if dl_entry is not None and len(dl_entry.url):
                     dl_entry.name = str(spec)
                     dl.add(dl_entry, verify=True)
 
@@ -1037,6 +1038,8 @@ class RunTask(Task):
         This function should usually block until the game returns, and this function can
         be freely redefined when subclassing.
         """
+
+        # print(f"{args=}")
         
         import subprocess
         subprocess.run(args, cwd=work_dir)

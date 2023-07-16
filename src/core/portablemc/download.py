@@ -117,7 +117,7 @@ class _DownloadEntry:
         # We only support HTTP/HTTPS
         url_parsed = urllib.parse.urlparse(entry.url)
         if url_parsed.scheme not in ("http", "https"):
-            raise ValueError(f"Illegal URL scheme '{url_parsed.scheme}://' for HTTP connection.")
+            raise ValueError(f"unsupported scheme '{url_parsed.scheme}://' from url {entry.url}")
         
         return cls(
             url_parsed.scheme == "https",
