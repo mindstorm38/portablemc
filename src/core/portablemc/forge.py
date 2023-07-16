@@ -293,15 +293,15 @@ class ForgeFinalizeTask(Task):
 
             # Try to find the task name in the arguments, just for information purpose.
             if len(processor.args) >= 2 and processor.args[0] == "--task":
-                task = processor.args[1]
+                task = processor.args[1].lower()
             elif processor.jar_name.startswith("net.minecraftforge:jarsplitter:"):
-                task = "JAR_SPLITTER"
+                task = "split_jar"
             elif processor.jar_name.startswith("net.minecraftforge:ForgeAutoRenamingTool:"):
-                task = "AUTO_RENAMING"
+                task = "auto_renaming"
             elif processor.jar_name.startswith("net.minecraftforge:binarypatcher:"):
-                task = "BINARY_PATCHER"
+                task = "patch_binary"
             else:
-                task = "UNKNOWN"
+                task = "unknown"
 
             # Compute the full arguments list.
             args = [
