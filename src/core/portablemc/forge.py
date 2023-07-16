@@ -414,7 +414,7 @@ def request_promo_versions() -> Dict[str, str]:
         accept="application/json").json()["promos"]
 
 
-def request_maven_versions() -> Optional[Set[str]]:
+def request_maven_versions() -> List[str]:
     """Internal function that parses maven metadata of forge in order to get all 
     supported forge versions.
     """
@@ -422,7 +422,7 @@ def request_maven_versions() -> Optional[Set[str]]:
     text = http_request("GET", "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml", 
         accept="application/xml").text()
     
-    versions = set()
+    versions = list()
     last_idx = 0
 
     # It's not really correct to parse XML like this, but I find this
@@ -435,7 +435,7 @@ def request_maven_versions() -> Optional[Set[str]]:
         end_idx = text.find("</version>", start_idx + 9)
         if end_idx == -1:
             break
-        versions.add(text[(start_idx + 9):end_idx])
+        versions.append(text[(start_idx + 9):end_idx])
         last_idx = end_idx + 10
 
     return versions
