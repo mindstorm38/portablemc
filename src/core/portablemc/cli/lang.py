@@ -1,7 +1,7 @@
 """CLI languages management.
 """
 
-from ..vanilla import JvmNotFoundError
+from ..vanilla import JvmNotFoundError, ArgsFixesEvent
 from ..download import DownloadError
 from ..util import jvm_bin_filename
 
@@ -150,10 +150,11 @@ lang = {
     "start.version.too_much_parents": "Too much parents while resolving versions.",
     "start.jar.found": "Checked version jar",
     "start.jar.not_found": "Version jar not found",
-    "start.assets.resolving": "Checking assets v{index_version}... ",
-    "start.assets.resolved": "Checked {count} assets v{index_version}",
+    "start.assets.resolving": "Checking assets version {index_version}... ",
+    "start.assets.resolved": "Checked {count} assets version {index_version}",
     "start.libraries.resolving": "Checking libraries...",
     "start.libraries.resolved": "Checked {class_libs_count} class and {native_libs_count} native libraries",
+    "start.libraries.excluded": "Excluded library {spec}",
     "start.logger.found": "Using logger {version}",
     "start.jvm.resolving": "Checking java {version}...",
     "start.jvm.resolved": "Checked {count} files for java {version}",
@@ -164,7 +165,11 @@ lang = {
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.not_found.{JvmNotFoundError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
         "use --jvm argument to manually set the path to your JVM executable.",
-    "start.libraries.excluded": "Excluded library {spec}",
+    "start.args.fixes": "Applied the following fixes to arguments:",
+    f"start.args.fix.{ArgsFixesEvent.LEGACY_RESOLUTION}": "Included resolution into game arguments",
+    f"start.args.fix.{ArgsFixesEvent.MAIN_CLASS_FIRST}": "Main class placed first in class path",
+    f"start.args.fix.{ArgsFixesEvent.LEGACY_PROXY}": "Using legacy proxy for online resources",
+    f"start.args.fix.{ArgsFixesEvent.LEGACY_MERGE_SORT}": "Using legacy merge sort",
     "start.additional_binary_not_found": "The additional binary '{path}' doesn't exists.",
     "start.lwjgl.version": "Forced LWJGL version to {version}",
     "start.fabric.resolving": "Resolving {api} loader for {vanilla_version}...",

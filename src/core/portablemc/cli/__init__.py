@@ -26,7 +26,7 @@ from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
     LibrariesOptions, Libraries, LibrariesResolvingEvent, LibrariesResolvedEvent, \
     LoggerFoundEvent, \
     Jvm, JvmResolveEvent, JvmNotFoundError, \
-    ArgsOptions
+    ArgsOptions, ArgsFixesEvent
 
 from ..lwjgl import add_lwjgl_tasks, LwjglVersion, LwjglVersionEvent
 from ..fabric import add_fabric_tasks, FabricRoot, FabricResolveEvent
@@ -279,8 +279,10 @@ def cmd_start(ns: StartNs):
     args_opts.demo = ns.demo
     args_opts.server_address = ns.server
     args_opts.server_port = ns.server_port
-    args_opts.fix_legacy = not ns.no_legacy_fix
     args_opts.resolution = ns.resolution
+
+    if ns.no_legacy_fix:
+        args_opts.fixes.clear()
 
     if ns.login is not None:
         args_opts.auth_session = prompt_authenticate(ns, ns.login, not ns.temp_login, ns.auth_service, ns.auth_anonymize)
@@ -320,7 +322,7 @@ def cmd_start(ns: StartNs):
         seq.state.insert(Jvm(Path(ns.jvm), None))
 
     # Add watchers of the installation.
-    seq.add_watcher(StartWatcher(ns.out))
+    seq.add_watcher(StartWatcher(ns.out, ns.verbose))
     seq.add_watcher(DownloadWatcher(ns.out, ns.verbose))
 
     if ns.verbose:
@@ -653,8 +655,9 @@ def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftA
     
 class StartWatcher(Watcher):
 
-    def __init__(self, out: Output) -> None:
+    def __init__(self, out: Output, verbose: bool) -> None:
         self.out = out
+        self.verbose = verbose
     
     def on_event(self, event: Any) -> None:
         
@@ -703,6 +706,14 @@ class StartWatcher(Watcher):
             else:
                 self.out.task("OK", "start.jvm.resolved", version=event.version or _("start.jvm.unknown_version"), count=event.count)
                 self.out.finish()
+        
+        elif isinstance(event, ArgsFixesEvent):
+            if self.verbose and len(event.fixes):
+                self.out.task("INFO", "start.args.fixes")
+                self.out.finish()
+                for fix in event.fixes:
+                    self.out.task(None, f"start.args.fix.{fix}")
+                    self.out.finish()
         
         elif isinstance(event, FabricResolveEvent):
             if event.loader_version is None:
