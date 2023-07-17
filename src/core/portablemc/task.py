@@ -76,10 +76,6 @@ class Watcher:
     def on_event(self, event: Any) -> None:
         """Called when the current task triggers an event.
         """
-    
-    def on_error(self, error: Exception) -> None:
-        """Called when an error is raised by the execute function of the current task.
-        """
 
 
 class WatcherGroup(Watcher):
@@ -103,10 +99,6 @@ class WatcherGroup(Watcher):
     def on_event(self, event: Any) -> None:
         for watcher in self._children:
             watcher.on_event(event)
-        
-    def on_error(self, error: Exception) -> None:
-        for watcher in self._children:
-            watcher.on_error(error)
 
 
 class Sequence:
@@ -183,7 +175,32 @@ class Sequence:
         """
         for task in self.tasks:
             try:
+                self._watchers.on_event(TaskEvent(task, False))
                 task.execute(self.state, self._watchers)
+                self._watchers.on_event(TaskEvent(task, True))
             except Exception as e:
-                self._watchers.on_error(e)
+                self._watchers.on_event(ErrorEvent(e))
                 raise
+
+
+class ErrorEvent:
+    """Special event, triggered when an error is raised by a task. Note that you should
+    not break the execution flow for this event, just watch it. If you need to actually
+    handle the error, just catch it around `Sequence.execute`.
+    """
+
+    __slots__ = "error",
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+
+class TaskEvent:
+    """Special event, triggered when a new task is being run.
+    """
+
+    __slots__ = "task", "done"
+
+    def __init__(self, task: Task, done: bool) -> None:
+        self.task = task
+        self.done = done

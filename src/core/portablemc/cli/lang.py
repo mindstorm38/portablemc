@@ -140,7 +140,8 @@ lang = {
     "addon.show.authors": "Authors: {authors}",
     "addon.show.description": "Description: {description}",
     # Command start
-    "start.verbose.tasks": "Tasks order: {tasks}",
+    "start.tasks": "Tasks order: {tasks}",
+    "start.task.start": "Task start: {task}",
     "start.version.invalid_id": "Invalid version id, expected: {expected}",
     "start.version.invalid_id_unknown_kind": "Invalid version id, unknown kind: {kind}.",
     "start.version.loading": "Loading version {version}... ",
@@ -181,7 +182,7 @@ lang = {
     # "start.starting": "Starting the game...",
     # "start.starting_info": "Username: {username} ({uuid})",
     # Pretty download
-    "download.verbose.threads_count": "Download threads count: {count}",
+    "download.threads_count": "Download threads count: {count}",
     "download.start": "Download starting...",
     "download.progress": "Download: {count}/{total_count} {size:>8} @ {speed}",
     "download.error": "{name}: {message}",

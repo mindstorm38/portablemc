@@ -15,7 +15,7 @@ from .lang import get as _, lang
 from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, DownloadError
 from ..auth import AuthDatabase, AuthSession, MicrosoftAuthSession, YggdrasilAuthSession, \
     AuthError
-from ..task import Watcher, Sequence
+from ..task import Watcher, Sequence, TaskEvent
 from ..util import LibrarySpecifier
 
 from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
@@ -326,7 +326,7 @@ def cmd_start(ns: StartNs):
     seq.add_watcher(DownloadWatcher(ns.out, ns.verbose))
 
     if ns.verbose:
-        ns.out.task("INFO", "start.verbose.tasks", tasks=", ".join((type(task).__name__ for task in seq.tasks)))
+        ns.out.task("INFO", "start.tasks", tasks=", ".join((type(task).__name__ for task in seq.tasks)))
         ns.out.finish()
     
     try:
@@ -660,7 +660,12 @@ class StartWatcher(Watcher):
         self.verbose = verbose
     
     def on_event(self, event: Any) -> None:
-        
+
+        if isinstance(event, TaskEvent):
+            if not event.done:
+                self.out.task("INFO", "start.task.start", task=type(event.task).__name__)
+                self.out.finish()
+            
         if isinstance(event, VersionLoadingEvent):
             self.out.task("..", "start.version.loading", version=event.version)
         
@@ -756,7 +761,7 @@ class DownloadWatcher(Watcher):
         if isinstance(event, DownloadStartEvent):
 
             if self.verbose:
-                self.out.task("INFO", "download.verbose.threads_count", count=event.threads_count)
+                self.out.task("INFO", "download.threads_count", count=event.threads_count)
                 self.out.finish()
 
             self.entries_count = event.entries_count
