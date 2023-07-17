@@ -284,7 +284,14 @@ class ArgsOptions:
     """Options used for the preparation of arguments by `ArgsTask`. These options are
     optional for this task but can be used to specify various options such as 
     authentication session to use or server address to start Minecraft with.
+
+    This class also provides generic fixes that can be usually applied to the arguments
+    line. These fixes only touch the arguments before launcher, it's all temporary.
     """
+
+    FIX_LEGACY_PROXY = object()
+    FIX_LEGACY_MERGE_SORT = object()
+    FIX_LEGACY_RESOLUTION = object()
 
     def __init__(self):
         self.auth_session: Optional[AuthSession] = None
@@ -294,8 +301,11 @@ class ArgsOptions:
         self.disable_chat: bool = False
         self.server_address: Optional[str] = None
         self.server_port: Optional[int] = None
-        self.fix_legacy: bool = True         # For legacy merge sort and betacraft proxy.
         self.features: Dict[str, bool] = {}  # Additional features for metadata args.
+        self.fixes = { 
+            self.FIX_LEGACY_PROXY, 
+            self.FIX_LEGACY_MERGE_SORT
+        }
 
     def set_offline(self, username: Optional[str], uuid: Optional[str]) -> None:
         """Shortcut for setting an offline session with the given username/uuid pair.
@@ -873,25 +883,122 @@ class ArgsTask(Task):
             **opts.features
         }
 
+        # List of fixes for summary...
+        fixes = []
+
         # Get authentication of create a random offline.
         auth_session = opts.auth_session or OfflineAuthSession(None, None)
-        uuid = auth_session.uuid
-        username = auth_session.username
 
-        # Construct class path, JAR isn't inherently required.
-        class_path = [str(jar.path)] + list(map(str, libraries.class_libs))
-        # FIXME: Change order depending on targeted version.
+        # Class path, without main class (added later depending on arguments present).
+        class_path = list(map(str, libraries.class_libs))
         
+        # Arguments
+        jvm_args = [str(jvm.executable_file)]
+        game_args = []
+
+        # Check if modern arguments are present (> 1.12.2).
+        modern_args = metadata.get("arguments")
+        if modern_args is not None:
+
+            if not isinstance(modern_args, dict):
+                raise ValueError("metadata: /arguments must be an object")
+        
+            # Interpret JVM arguments.
+            modern_jvm_args = modern_args.get("jvm", [])
+            if not isinstance(modern_jvm_args, list):
+                raise ValueError("metadata: /arguments/jvm must be a list")
+            interpret_args(modern_jvm_args, features, jvm_args)
+            
+            # Interpret Game arguments.
+            modern_game_args = modern_args.get("game", [])
+            if not isinstance(modern_game_args, list):
+                raise ValueError("metadata: /arguments/game must be a list")
+            interpret_args(modern_game_args, features, game_args)
+        
+        else:
+
+            interpret_args(legacy_jvm_args, features, jvm_args)
+
+            # Append legacy game arguments, if available.
+            legacy_game_args = metadata.get("minecraftArguments")
+            if legacy_game_args is not None:
+                if not isinstance(legacy_game_args, str):
+                    raise ValueError("metadata: /minecraftArguments must be a string")
+                game_args.extend(legacy_game_args.split(" "))
+
+        # JVM argument for logging config
+        if logging is not None:
+            jvm_args.append(logging.arg.replace("${path}", str(logging.path)))
+
+        # JVM argument for launch wrapper JAR path
+        if main_class == "net.minecraft.launchwrapper.Launch":
+            jvm_args.append(f"-Dminecraft.client.jar={jar.path}")
+
+        # If no modern arguments, fix some arguments.
+        if modern_args is None:
+
+            # Resolution arguments are usually supported by many versions prior to their
+            # addition in the modern game arguments.
+            if opts.resolution is not None:
+                if ArgsOptions.FIX_LEGACY_RESOLUTION in opts.fixes:
+                    fixes.append(ArgsFixesEvent.LEGACY_RESOLUTION)
+                    game_args.extend((
+                        "--width", str(opts.resolution[0]),
+                        "--height", str(opts.resolution[1]),
+                    ))
+            
+            # Old versions seems to prefer having the main class first in class path.
+            # This fix cannot be disabled for now (fixme?).
+            class_path.insert(0, str(jar.path))
+            fixes.append(ArgsFixesEvent.MAIN_CLASS_FIRST)
+
+        else:
+            # Modern versions seems to prefer having the main class last in class path.
+            class_path.append(str(jar.path))
+   
+        # Apply some fixes for legacy versions.
+        if len(opts.fixes):
+
+            # Get the last version in the parent's tree, we use it to apply legacy fixes.
+            ancestor_split = list(version.recurse())[-1].id.split(".", 2)
+            alpha_beta = ancestor_split[0] in ("a1", "b1")
+
+            # Legacy proxy aims to fix things like skins on old versions.
+            # This is applicable to all alpha/beta and 1.0:1.5
+            if ArgsOptions.FIX_LEGACY_PROXY in opts.fixes:
+                if alpha_beta or ( \
+                    len(ancestor_split) >= 2 and ancestor_split[0] == "1" and \
+                    len(ancestor_split[1]) == 1 and \
+                    ord("0") <= ord(ancestor_split[1][0]) <= ord("5")):
+
+                    fixes.append(ArgsFixesEvent.LEGACY_PROXY)
+                    jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
+            
+            # Legacy merge sort is applicable to alpha and beta versions.
+            if ArgsOptions.FIX_LEGACY_MERGE_SORT in opts.fixes and alpha_beta:
+                fixes.append(ArgsFixesEvent.LEGACY_MERGE_SORT)
+                jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
+
+        # Global options.        
+        if opts.disable_multiplayer:
+            game_args.append("--disableMultiplayer")
+        if opts.disable_chat:
+            game_args.append("--disableChat")
+        if opts.server_address is not None:
+            game_args.extend(("--server", opts.server_address))
+        if opts.server_port is not None:
+            game_args.extend(("--port", str(opts.server_port)))
+
         # Arguments replacements
         args_replacements: Dict[str, str] = {
             # Game
-            "auth_player_name": username,
+            "auth_player_name": auth_session.username,
             "version_name": version.id,
             "library_directory": str(context.libraries_dir),
             "game_directory": str(context.work_dir),
             "assets_root": str(context.assets_dir),
             "assets_index_name": assets.index_version,
-            "auth_uuid": uuid,
+            "auth_uuid": auth_session.uuid,
             "auth_access_token": auth_session.format_token_argument(False),
             "auth_xuid": auth_session.get_xuid(),
             "clientid": auth_session.client_id,
@@ -912,59 +1019,8 @@ class ArgsTask(Task):
         if opts.resolution is not None:
             args_replacements["resolution_width"] = str(opts.resolution[0])
             args_replacements["resolution_height"] = str(opts.resolution[1])
-        
-        # Arguments
-        modern_args = metadata.get("arguments", {})
-        modern_jvm_args = modern_args.get("jvm")
-        modern_game_args = modern_args.get("game")
 
-        jvm_args = [str(jvm.executable_file)]
-        game_args = []
-
-        # Interpret JVM arguments.
-        interpret_args(legacy_jvm_args if modern_jvm_args is None else modern_jvm_args, features, jvm_args)
-        
-        # JVM argument for logging config
-        if logging is not None:
-            jvm_args.append(logging.arg.replace("${path}", str(logging.path)))
-
-        # JVM argument for launch wrapper JAR path
-        if main_class == "net.minecraft.launchwrapper.Launch":
-            jvm_args.append(f"-Dminecraft.client.jar={jar.path}")
-
-        # Add old fix JVM args
-        if opts.fix_legacy:
-            version_split = version.id.split(".", 2)
-            if version_split[0].endswith("b1") or version_split[0].endswith("a1"):
-                jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
-                jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
-            elif len(version_split) >= 2 and len(version_split[1]) == 1 and ord("0") <= ord(version_split[1][0]) <= ord("5"):
-                jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
-        
-        # Game arguments
-        if modern_game_args is None:
-            # If no modern arguments were found, we try finding legacy game arguments.
-            game_args.extend(metadata.get("minecraftArguments", "").split(" "))
-            # If the resolution is set but we are using legacy arguments, we
-            # manually add resolution arguments to the game args.
-            if opts.resolution is not None:
-                game_args.extend((
-                    "--width", str(opts.resolution[0]),
-                    "--height", str(opts.resolution[1]),
-                ))
-        else:
-            interpret_args(modern_game_args, features, game_args)
-
-        # Global options.        
-        if opts.disable_multiplayer:
-            game_args.append("--disableMultiplayer")
-        if opts.disable_chat:
-            game_args.append("--disableChat")
-        if opts.server_address is not None:
-            game_args.extend(("--server", opts.server_address))
-        if opts.server_port is not None:
-            game_args.extend(("--port", str(opts.server_port)))
-
+        watcher.on_event(ArgsFixesEvent(fixes))
         state.insert(Args(jvm_args, game_args, main_class, args_replacements))
 
 
@@ -1130,6 +1186,19 @@ class JvmResolveEvent:
     def __init__(self, version: Optional[str], count: Optional[int]) -> None:
         self.version = version
         self.count = count
+
+class ArgsFixesEvent:
+    """Event triggered when arguments where computed, and sum up applied fixes.
+    """
+
+    LEGACY_RESOLUTION = "legacy_resolution"
+    MAIN_CLASS_FIRST = "main_class_first"
+    LEGACY_PROXY = "legacy_proxy"
+    LEGACY_MERGE_SORT = "legacy_merge_sort"
+
+    __slots__ = "fixes",
+    def __init__(self, fixes: List[str]) -> None:
+        self.fixes = fixes
 
 class RunBinEvent:
     __slots__ = "bin_dir",
