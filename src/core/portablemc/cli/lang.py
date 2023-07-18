@@ -49,7 +49,7 @@ lang = {
         "addons. A value of 0 is usually interpreted as an 'offline mode', this means that the launcher "
         "will try to use a cached copy of the requests' response.",
     "args.output": "Set the output format of the launcher, defaults to human-color.",
-    "args.verbose": "Enable verbose output, this will output more debug information, depending on support by subcommands.",
+    "args.verbose": "Enable verbose output. The more -v argument you put, the more verbose the launcher will be, depending on subcommands' support (usually -v, -vv, -vvv).",
     # Args common langs
     "args.common.auth_service": "Authentication service type to use for logging in the game.",
     # Args search
@@ -141,7 +141,7 @@ lang = {
     "addon.show.description": "Description: {description}",
     # Command start
     "start.tasks": "Tasks order: {tasks}",
-    "start.task.start": "Task start: {task}",
+    "start.task.execute": "Execute {task}",
     "start.version.invalid_id": "Invalid version id, expected: {expected}",
     "start.version.invalid_id_unknown_kind": "Invalid version id, unknown kind: {kind}.",
     "start.version.loading": "Loading version {version}... ",

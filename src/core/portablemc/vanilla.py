@@ -381,17 +381,17 @@ class MetadataTask(Task):
             if len(versions) > self.max_parents:
                 raise TooMuchParentsError(versions)
             
-            watcher.on_event(VersionLoadingEvent(version_id))
+            watcher.handle(VersionLoadingEvent(version_id))
 
             # Get version instance and load/fetch is needed.
             version = context.get_version(version_id)
             repo = repositories.get(version_id, manifest)
 
             if not repo.load_version(version, state):
-                watcher.on_event(VersionLoadingEvent(version_id))
+                watcher.handle(VersionLoadingEvent(version_id))
                 repo.fetch_version(version, state)
             
-            watcher.on_event(VersionLoadedEvent(version_id))
+            watcher.handle(VersionLoadedEvent(version_id))
 
             # Set the parent of the last version to the version being resolved.
             if len(versions):
@@ -435,13 +435,13 @@ class JarTask(Task):
             if client_dl is not None:
                 state[DownloadList].add(parse_download_entry(client_dl, jar_file, "metadata: /downloads/client"), verify=True)
                 state.insert(Jar(jar_file))
-                watcher.on_event(JarFoundEvent())
+                watcher.handle(JarFoundEvent())
                 return
         
         # If no download entry has been found, but the JAR exists, we use it.
         if jar_file.is_file():
             state.insert(Jar(jar_file))
-            watcher.on_event(JarFoundEvent())
+            watcher.handle(JarFoundEvent())
             return
         
         raise JarNotFoundError()
@@ -481,7 +481,7 @@ class AssetsTask(Task):
         if not isinstance(assets_index_version, str):
             raise ValueError("metadata: /assets or /assetIndex/id must be a string")
         
-        watcher.on_event(AssetsResolveEvent(assets_index_version, None))
+        watcher.handle(AssetsResolveEvent(assets_index_version, None))
 
         assets_indexes_dir = context.assets_dir / "indexes"
         assets_index_file = assets_indexes_dir / f"{assets_index_version}.json"
@@ -539,7 +539,7 @@ class AssetsTask(Task):
         resources_dir = context.work_dir / "resources" if assets_resources else None
 
         state.insert(Assets(assets_index_version, assets, virtual_dir, resources_dir))
-        watcher.on_event(AssetsResolveEvent(assets_index_version, len(assets)))
+        watcher.handle(AssetsResolveEvent(assets_index_version, len(assets)))
 
 
 class AssetsFinalizeTask(Task):
@@ -588,7 +588,7 @@ class LibrariesTask(Task):
         dl = state[DownloadList]
             
         excluded_libs = []
-        watcher.on_event(LibrariesResolvingEvent())
+        watcher.handle(LibrariesResolvingEvent())
 
         # Recursion order is important for libraries resolving, root libraries should
         # be placed first.
@@ -694,7 +694,7 @@ class LibrariesTask(Task):
                     dl_entry.name = str(spec)
                     dl.add(dl_entry, verify=True)
 
-        watcher.on_event(LibrariesResolvedEvent(
+        watcher.handle(LibrariesResolvedEvent(
             len(libraries.class_libs), 
             len(libraries.native_libs), 
             excluded_libs))
@@ -748,7 +748,7 @@ class LoggerTask(Task):
         dl.add(dl_entry, verify=True)
 
         state.insert(Logger(file_path, argument))
-        watcher.on_event(LoggerFoundEvent(file_id.replace(".xml", "")))
+        watcher.handle(LoggerFoundEvent(file_id.replace(".xml", "")))
 
 
 class JvmTask(Task):
@@ -821,7 +821,7 @@ class JvmTask(Task):
         jvm_exec = jvm_dir.joinpath("bin", jvm_bin_filename)
         jvm_version = jvm_manifest.get("version")
 
-        watcher.on_event(JvmResolveEvent(jvm_version, None))
+        watcher.handle(JvmResolveEvent(jvm_version, None))
 
         jvm_files = jvm_manifest.get("files")
         if not isinstance(jvm_files, dict):
@@ -838,7 +838,7 @@ class JvmTask(Task):
                 dl.add(jvm_download_entry, verify=True)
         
         state.insert(Jvm(jvm_exec, jvm_version))
-        watcher.on_event(JvmResolveEvent(jvm_version, len(jvm_files)))
+        watcher.handle(JvmResolveEvent(jvm_version, len(jvm_files)))
 
 
 class ArgsTask(Task):
@@ -1020,7 +1020,7 @@ class ArgsTask(Task):
             args_replacements["resolution_width"] = str(opts.resolution[0])
             args_replacements["resolution_height"] = str(opts.resolution[1])
 
-        watcher.on_event(ArgsFixesEvent(fixes))
+        watcher.handle(ArgsFixesEvent(fixes))
         state.insert(Args(jvm_args, game_args, main_class, args_replacements))
 
 

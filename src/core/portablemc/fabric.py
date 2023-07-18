@@ -79,7 +79,7 @@ class FabricInitTask(Task):
 
         if loader_version is None:
 
-            watcher.on_event(FabricResolveEvent(root.api, vanilla_version, None))
+            watcher.handle(FabricResolveEvent(root.api, vanilla_version, None))
 
             try:
                 loader_version = root.api.request_fabric_loader_version(vanilla_version)
@@ -92,7 +92,7 @@ class FabricInitTask(Task):
                 # Correct error if the error is just a not found.
                 raise VersionNotFoundError(f"{root.prefix}-{vanilla_version}-???")
 
-            watcher.on_event(FabricResolveEvent(root.api, vanilla_version, loader_version))
+            watcher.handle(FabricResolveEvent(root.api, vanilla_version, loader_version))
 
         # Update the root version id to a valid one (without :).
         version_id = f"{root.prefix}-{vanilla_version}-{loader_version}"

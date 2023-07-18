@@ -1,7 +1,7 @@
 """Base utilities for task-based installer.
 """
 
-from typing import List, Set, Type, TypeVar, Optional, Any
+from typing import List, Set, Type, TypeVar, Optional, Any, Dict, Callable
 T = TypeVar("T")
 
 
@@ -73,8 +73,8 @@ class Watcher:
     """Base class for a watcher of the install process.
     """
     
-    def on_event(self, event: Any) -> None:
-        """Called when the current task triggers an event.
+    def handle(self, event: Any) -> None:
+        """Called when the watcher can handle the given event.
         """
 
 
@@ -84,21 +84,21 @@ class WatcherGroup(Watcher):
     """
 
     def __init__(self) -> None:
-        self._children: Set[Watcher] = set()
+        self.children: Set[Watcher] = set()
     
     def add(self, watcher: Watcher) -> None:
         """Add a watcher to the installer to this group.
         """
-        self._children.add(watcher)
+        self.children.add(watcher)
     
     def remove(self, watcher: Watcher) -> None:
         """Remove a watcher from the group.
         """
-        self._children.remove(watcher)
+        self.children.remove(watcher)
     
-    def on_event(self, event: Any) -> None:
-        for watcher in self._children:
-            watcher.on_event(event)
+    def handle(self, event: Any) -> None:
+        for watcher in self.children:
+            watcher.handle(event)
 
 
 class Sequence:
@@ -175,11 +175,11 @@ class Sequence:
         """
         for task in self.tasks:
             try:
-                self._watchers.on_event(TaskEvent(task, False))
+                self._watchers.handle(TaskEvent(task, False))
                 task.execute(self.state, self._watchers)
-                self._watchers.on_event(TaskEvent(task, True))
+                self._watchers.handle(TaskEvent(task, True))
             except Exception as e:
-                self._watchers.on_event(ErrorEvent(e))
+                self._watchers.handle(ErrorEvent(e))
                 raise
 
 

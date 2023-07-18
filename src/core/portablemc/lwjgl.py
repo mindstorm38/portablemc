@@ -104,7 +104,7 @@ class LwjglVersionTask(Task):
                         "rules": [{"action": "allow", "os": {"name": lwjgl_os}}]
                     })
         
-        watcher.on_event(LwjglVersionEvent(lwjgl_version))
+        watcher.handle(LwjglVersionEvent(lwjgl_version))
 
 
 class LwjglVersionEvent:

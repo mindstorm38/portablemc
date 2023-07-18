@@ -76,7 +76,7 @@ class ForgeInitTask(Task):
 
             # If it's not an alias, create the alias from the game version.
             alias_version = forge_version if alias else f"{forge_version}-recommended"
-            watcher.on_event(ForgeResolveEvent(alias_version, True))
+            watcher.handle(ForgeResolveEvent(alias_version, True))
 
             # Try to get loader from promo versions.
             promo_versions = request_promo_versions()
@@ -85,7 +85,7 @@ class ForgeInitTask(Task):
             # Try with "-latest", some version do not have recommended.
             if loader_version is None and not alias:
                 alias_version = f"{forge_version}-latest"
-                watcher.on_event(ForgeResolveEvent(alias_version, True))
+                watcher.handle(ForgeResolveEvent(alias_version, True))
                 loader_version = promo_versions.get(alias_version)
             
             # Remove alias
@@ -97,7 +97,7 @@ class ForgeInitTask(Task):
 
             forge_version = f"{alias_version}-{loader_version}"
 
-            watcher.on_event(ForgeResolveEvent(forge_version, False))
+            watcher.handle(ForgeResolveEvent(forge_version, False))
         
         # Compute version id and forward to metadata task with specific repository.
         version_id = f"{root.prefix}-{forge_version}"
@@ -355,7 +355,7 @@ class ForgeFinalizeTask(Task):
                 *(replace_install_args(arg) for arg in processor.args)
             ]
 
-            watcher.on_event(ForgePostProcessingEvent(task))
+            watcher.handle(ForgePostProcessingEvent(task))
 
             completed = subprocess.run(args, cwd=context.work_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             if completed.returncode != 0:
@@ -373,7 +373,7 @@ class ForgeFinalizeTask(Task):
         # Finally, remove the temporary directory.
         shutil.rmtree(info.tmp_dir, ignore_errors=True)
 
-        watcher.on_event(ForgePostProcessedEvent())
+        watcher.handle(ForgePostProcessedEvent())
 
 
 class ForgeInstallError(Exception):

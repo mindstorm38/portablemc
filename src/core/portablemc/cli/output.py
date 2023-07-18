@@ -81,7 +81,7 @@ class HumanOutput(Output):
         "OK": "\033[92m",
         "FAILED": "\033[31m",
         "WARN": "\033[33m",
-        "INFO": "\033[36m"
+        "INFO": "\033[34m"
     }
 
     def __init__(self, color: bool) -> None:
@@ -146,6 +146,7 @@ class HumanOutput(Output):
     def finish(self) -> None:
         if self.last_len is not None:
             print()
+            self.last_len = None
     
     def prompt(self, password: bool = False) -> Optional[str]:
         try:
