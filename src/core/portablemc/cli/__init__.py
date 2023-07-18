@@ -26,7 +26,7 @@ from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
     LibrariesOptions, Libraries, LibrariesResolvingEvent, LibrariesResolvedEvent, \
     LoggerFoundEvent, \
     Jvm, JvmResolveEvent, JvmNotFoundError, \
-    ArgsOptions, ArgsFixesEvent
+    ArgsOptions, ArgsFixesEvent, RunTask
 
 from ..lwjgl import add_lwjgl_tasks, LwjglVersion, LwjglVersionEvent
 from ..fabric import add_fabric_tasks, FabricRoot, FabricResolveEvent
@@ -136,7 +136,7 @@ def cmd(handler: CommandHandler, ns: RootNs):
     
     except KeyboardInterrupt:
         ns.out.finish()
-        ns.out.task("HALT", "error.keyboard_interrupt")
+        ns.out.task("HALT", "keyboard_interrupt")
         ns.out.finish()
     
     except OSError as error:
@@ -257,7 +257,11 @@ def cmd_start(ns: StartNs):
     
     # Create sequence with supported mod loaders.
     seq = Sequence()
-    add_vanilla_tasks(seq, run=not ns.dry)
+    add_vanilla_tasks(seq, run=False)
+
+    # Use a custom run task.
+    if not ns.dry:
+        seq.append_task(ClassicRunTask(ns))
     
     # Add mandatory states.
     seq.state.insert(ns.context)
@@ -789,3 +793,48 @@ class DownloadWatcher(Watcher):
         elif isinstance(event, DownloadCompleteEvent):
             self.ns.out.task("OK", None)
             self.ns.out.finish()
+
+
+class ClassicRunTask(RunTask):
+    """A custom run task for the CLI that just ensure forwarding of messages from stdout
+    and stderr to the launcher's stdout while supporting keyboard interrupt stop of the
+    game.
+    """
+
+    def __init__(self, ns: RootNs) -> None:
+        super().__init__()
+        self.ns = ns
+
+    def run(self, args: List[str], work_dir: Path) -> None:
+
+        from subprocess import Popen, PIPE, STDOUT
+        from threading import Thread
+
+        # if self.ns.verbose >= 1:
+        #     out.task("INFO", "echo", echo=" ".join(args))
+        #     out.finish()
+
+        out = self.ns.out
+        out.print("\n")
+
+        if self.ns.verbose >= 1:
+            out.print(" ".join(args) + "\n")
+        
+        process = Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True)
+        stdout = process.stdout
+        assert stdout is not None, "piped so should not be none"
+
+        def process_thread():
+            for line in iter(stdout.readline, ""):
+                out.print(line)
+
+        thread = Thread(target=process_thread, name="Minecraft Process Thread")
+        thread.start()
+
+        try:
+            while thread.is_alive():
+                thread.join(timeout=1)
+        except KeyboardInterrupt:
+            out.print(_("keyboard_interrupt"))
+            process.kill()
+            thread.join(timeout=5)

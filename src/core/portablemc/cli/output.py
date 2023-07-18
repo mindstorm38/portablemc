@@ -69,6 +69,13 @@ class Output:
         """
         raise NotImplementedError
 
+    def print(self, text: str) -> None:
+        """Raw print of the given text, this is commonly used to forward game's standard
+        output/error streams. The implementor may apply some style before printing text.
+        This function doesn't add any new line
+        """
+        raise NotImplementedError
+
     def prompt(self, password: bool = False) -> Optional[str]:
         """Prompt for a line to come on standard input.
         """
@@ -84,12 +91,21 @@ class HumanOutput(Output):
         "INFO": "\033[34m"
     }
 
+    print_exception_color = "\033[31m"
+    print_colors = [
+        ("ERROR", "\033[31m"),
+        ("WARN", "\033[33m"),
+        ("SEVERE", "\033[31m"),
+        ("FATAL", "\033[31m"),
+    ]
+
     def __init__(self, color: bool) -> None:
         super().__init__()
         self.term_width = 0
         self.term_width_update_time = 0
         self.last_len = None
         self.color = color
+        self.print_exception = False
 
     def get_term_width(self) -> int:
         """Internal method used to get terminal width with a cache interval of 1 second.
@@ -147,6 +163,27 @@ class HumanOutput(Output):
         if self.last_len is not None:
             print()
             self.last_len = None
+    
+    def print(self, text: str) -> None:
+        
+        if self.color:
+
+            chosen_color = None
+
+            if "Exception" in text or (self.print_exception and text.startswith("\t")):
+                chosen_color = self.print_exception_color
+                self.print_exception = True
+
+            for token, code in self.print_colors:
+                if token in text:
+                    chosen_color = code
+                    break
+            
+            if chosen_color is not None:
+                print(chosen_color, text, "\033[0m", sep="", end="")
+                return
+        
+        print(text, end="")
     
     def prompt(self, password: bool = False) -> Optional[str]:
         try:
@@ -223,9 +260,9 @@ class MachineOutput(Output):
     def print_function(self, name: str, *args: str, **kwargs) -> None:
         """Print a machine-readable line for a function with some parameters.
         """
-        print(name, ":", ",".join((arg.replace(",", "\\,") for arg in [
+        print(name, ":", ",".join((arg.replace(",", "\\,").replace("\n", "\\n") for arg in [
             *args,
-            *(f"{k}={v}" for k, v in kwargs.items())
+            *("{}={}".format(k, str(v).replace("\n", "\\n")) for k, v in kwargs.items())  # Note, k should not contain "="
         ])), sep="")
 
     def table(self) -> OutputTable:
@@ -236,6 +273,9 @@ class MachineOutput(Output):
     
     def finish(self) -> None:
         pass
+
+    def print(self, text: str) -> None:
+        self.print_function("print", text)
     
     def prompt(self, password: bool = False) -> str | None:
         self.print_function("prompt", password=str(int(password)))
