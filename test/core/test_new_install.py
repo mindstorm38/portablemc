@@ -23,7 +23,7 @@ class LogWatcher(Watcher):
     def on_end(self, task: Task) -> None:
         print(f"end: {type(task).__name__}", flush=True)
     
-    def on_event(self, name: str, **data) -> None:
+    def handle(self, name: str, **data) -> None:
         # print(f"event: {name}", data)
         pass
     

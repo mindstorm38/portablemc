@@ -42,11 +42,11 @@ class DownloadTask(Task):
         threads_count = min(entries_count, (os.cpu_count() or 1) * 4)
         errors = []
 
-        watcher.on_event(DownloadStartEvent(threads_count, entries_count, dl.size))
+        watcher.handle(DownloadStartEvent(threads_count, entries_count, dl.size))
 
         for result_count, result in dl.download(threads_count):
             if isinstance(result, DownloadResultProgress):
-                watcher.on_event(DownloadProgressEvent(
+                watcher.handle(DownloadProgressEvent(
                     result.thread_id,
                     result_count,
                     result.entry,
@@ -64,7 +64,7 @@ class DownloadTask(Task):
         # needed, without re-downloading the same files.
         dl.entries.clear()
         
-        watcher.on_event(DownloadCompleteEvent())
+        watcher.handle(DownloadCompleteEvent())
 
 
 class DownloadEntry:

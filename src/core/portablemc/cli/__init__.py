@@ -322,17 +322,17 @@ def cmd_start(ns: StartNs):
         seq.state.insert(Jvm(Path(ns.jvm), None))
 
     # Add watchers of the installation.
-    seq.add_watcher(StartWatcher(ns.out, ns.verbose))
-    seq.add_watcher(DownloadWatcher(ns.out, ns.verbose))
+    seq.add_watcher(StartWatcher(ns))
+    seq.add_watcher(DownloadWatcher(ns))
 
-    if ns.verbose:
+    if ns.verbose >= 2:
         ns.out.task("INFO", "start.tasks", tasks=", ".join((type(task).__name__ for task in seq.tasks)))
         ns.out.finish()
     
     try:
         seq.execute()
         sys.exit(EXIT_OK)
-
+    
     except VersionNotFoundError as error:
         ns.out.task("FAILED", "start.version.not_found", version=error.version)
         ns.out.finish()
@@ -655,120 +655,119 @@ def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftA
     
 class StartWatcher(Watcher):
 
-    def __init__(self, out: Output, verbose: bool) -> None:
-        self.out = out
-        self.verbose = verbose
+    def __init__(self, ns: RootNs) -> None:
+        self.ns = ns
     
-    def on_event(self, event: Any) -> None:
+    def handle(self, event: Any) -> None:
+
+        out = self.ns.out
 
         if isinstance(event, TaskEvent):
-            if not event.done:
-                self.out.task("INFO", "start.task.start", task=type(event.task).__name__)
-                self.out.finish()
+            # We let the message being overwritten
+            if self.ns.verbose >= 2 and not event.done:
+                out.task("INFO", "start.task.execute", task=type(event.task).__name__)
+                out.finish()
             
         if isinstance(event, VersionLoadingEvent):
-            self.out.task("..", "start.version.loading", version=event.version)
+            out.task("..", "start.version.loading", version=event.version)
         
         elif isinstance(event, VersionFetchingEvent):
-            self.out.task("..", "start.version.fetching", version=event.version)
+            out.task("..", "start.version.fetching", version=event.version)
 
         elif isinstance(event, VersionLoadedEvent):
-            self.out.task("OK", "start.version.loaded", version=event.version)
-            self.out.finish()
+            out.task("OK", "start.version.loaded", version=event.version)
+            out.finish()
         
         elif isinstance(event, LwjglVersionEvent):
-            self.out.task("OK", "start.lwjgl.version", version=event.version)
-            self.out.finish()
+            out.task("OK", "start.lwjgl.version", version=event.version)
+            out.finish()
 
         elif isinstance(event, JarFoundEvent):
-            self.out.task("OK", "start.jar.found")
-            self.out.finish()
+            out.task("OK", "start.jar.found")
+            out.finish()
         
         elif isinstance(event, AssetsResolveEvent):
             if event.count is None:
-                self.out.task("..", "start.assets.resolving", index_version=event.index_version)
+                out.task("..", "start.assets.resolving", index_version=event.index_version)
             else:
-                self.out.task("OK", "start.assets.resolved", index_version=event.index_version, count=event.count)
-                self.out.finish()
+                out.task("OK", "start.assets.resolved", index_version=event.index_version, count=event.count)
+                out.finish()
         
         elif isinstance(event, LibrariesResolvingEvent):
-            self.out.task("..", "start.libraries.resolving")
+            out.task("..", "start.libraries.resolving")
         
         elif isinstance(event, LibrariesResolvedEvent):
-            self.out.task("OK", "start.libraries.resolved", class_libs_count=event.class_libs_count, native_libs_count=event.native_libs_count)
-            self.out.finish()
+            out.task("OK", "start.libraries.resolved", class_libs_count=event.class_libs_count, native_libs_count=event.native_libs_count)
+            out.finish()
             for spec in event.excluded_libs:
-                self.out.task(None, "start.libraries.excluded", spec=str(spec))
-                self.out.finish()
+                out.task(None, "start.libraries.excluded", spec=str(spec))
+                out.finish()
 
         elif isinstance(event, LoggerFoundEvent):
-            self.out.task("OK", "start.logger.found", version=event.version)
-            self.out.finish()
+            out.task("OK", "start.logger.found", version=event.version)
+            out.finish()
         
         elif isinstance(event, JvmResolveEvent):
             if event.count is None:
-                self.out.task("..", "start.jvm.resolving", version=event.version or _("start.jvm.unknown_version"))
+                out.task("..", "start.jvm.resolving", version=event.version or _("start.jvm.unknown_version"))
             else:
-                self.out.task("OK", "start.jvm.resolved", version=event.version or _("start.jvm.unknown_version"), count=event.count)
-                self.out.finish()
+                out.task("OK", "start.jvm.resolved", version=event.version or _("start.jvm.unknown_version"), count=event.count)
+                out.finish()
         
         elif isinstance(event, ArgsFixesEvent):
-            if self.verbose and len(event.fixes):
-                self.out.task("INFO", "start.args.fixes")
-                self.out.finish()
+            if self.ns.verbose and len(event.fixes):
+                out.task("INFO", "start.args.fixes")
+                out.finish()
                 for fix in event.fixes:
-                    self.out.task(None, f"start.args.fix.{fix}")
-                    self.out.finish()
+                    out.task(None, f"start.args.fix.{fix}")
+                    out.finish()
         
         elif isinstance(event, FabricResolveEvent):
             if event.loader_version is None:
-                self.out.task("..", "start.fabric.resolving", api=event.api.name, vanilla_version=event.vanilla_version)
+                out.task("..", "start.fabric.resolving", api=event.api.name, vanilla_version=event.vanilla_version)
             else:
-                self.out.task("OK", "start.fabric.resolved", api=event.api.name, loader_version=event.loader_version, vanilla_version=event.vanilla_version)
-                self.out.finish()
+                out.task("OK", "start.fabric.resolved", api=event.api.name, loader_version=event.loader_version, vanilla_version=event.vanilla_version)
+                out.finish()
         
         elif isinstance(event, ForgeResolveEvent):
             if event.alias:
-                self.out.task("..", "start.forge.resolving", version=event.forge_version)
+                out.task("..", "start.forge.resolving", version=event.forge_version)
             else:
-                self.out.task("OK", "start.forge.resolved", version=event.forge_version)
-                self.out.finish()
+                out.task("OK", "start.forge.resolved", version=event.forge_version)
+                out.finish()
         
         elif isinstance(event, ForgePostProcessingEvent):
-            self.out.task("..", "start.forge.post_processing", task=event.task)
+            out.task("..", "start.forge.post_processing", task=event.task)
 
         elif isinstance(event, ForgePostProcessedEvent):
-            self.out.task("OK", "start.forge.post_processed")
-            self.out.finish()
+            out.task("OK", "start.forge.post_processed")
+            out.finish()
 
 
 class DownloadWatcher(Watcher):
     """A watcher for pretty printing download task.
     """
 
-    def __init__(self, out: Output, verbose: bool) -> None:
-
-        self.out = out
-        self.verbose = verbose
-
+    def __init__(self, ns: RootNs) -> None:
+        self.ns = ns
         self.entries_count: int
         self.total_size: int
         self.size: int
         self.speeds: List[float]
     
-    def on_event(self, event: Any) -> None:
+    def handle(self, event: Any) -> None:
 
         if isinstance(event, DownloadStartEvent):
 
-            if self.verbose:
-                self.out.task("INFO", "download.threads_count", count=event.threads_count)
-                self.out.finish()
+            if self.ns.verbose:
+                self.ns.out.task("INFO", "download.threads_count", count=event.threads_count)
+                self.ns.out.finish()
 
             self.entries_count = event.entries_count
             self.total_size = event.size
             self.size = 0
             self.speeds = [0.0] * event.threads_count
-            self.out.task("..", "download.start")
+            self.ns.out.task("..", "download.start")
 
         elif isinstance(event, DownloadProgressEvent):
             self.speeds[event.thread_id] = event.speed
@@ -776,12 +775,12 @@ class DownloadWatcher(Watcher):
             self.size += event.size
             total_count = str(self.entries_count)
             count = f"{event.count:{len(total_count)}}"
-            self.out.task("..", "download.progress", 
+            self.ns.out.task("..", "download.progress", 
                 count=count,
                 total_count=total_count,
                 size=f"{format_number(self.size)}o",
                 speed=f"{format_number(speed)}o/s")
             
         elif isinstance(event, DownloadCompleteEvent):
-            self.out.task("OK", None)
-            self.out.finish()
+            self.ns.out.task("OK", None)
+            self.ns.out.finish()
