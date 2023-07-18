@@ -30,7 +30,8 @@ from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
 
 from ..lwjgl import add_lwjgl_tasks, LwjglVersion, LwjglVersionEvent
 from ..fabric import add_fabric_tasks, FabricRoot, FabricResolveEvent
-from ..forge import add_forge_tasks, ForgeRoot, ForgeResolveEvent, ForgePostProcessingEvent, ForgePostProcessedEvent
+from ..forge import add_forge_tasks, ForgeRoot, ForgeResolveEvent, ForgePostProcessingEvent, \
+    ForgePostProcessedEvent, ForgeInstallError
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
 
@@ -348,7 +349,11 @@ def cmd_start(ns: StartNs):
         ns.out.finish()
 
     except JvmNotFoundError as error:
-        ns.out.task("FAILED", f"start.jvm.not_found.{error.code}")
+        ns.out.task("FAILED", f"start.jvm.not_found_error.{error.code}")
+        ns.out.finish()
+    
+    except ForgeInstallError as error:
+        ns.out.task("FAILED", f"start.forge.install_error.{error.code}")
         ns.out.finish()
     
     sys.exit(EXIT_FAILURE)

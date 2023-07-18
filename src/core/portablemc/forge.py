@@ -17,7 +17,7 @@ from .download import DownloadList, DownloadTask
 from .task import Task, State, Watcher, Sequence
 from .http import http_request, HttpError
 
-from typing import Dict, Optional, Set, List
+from typing import Dict, Optional, List
 
 
 class ForgeRoot:

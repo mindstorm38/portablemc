@@ -2,6 +2,7 @@
 """
 
 from ..vanilla import JvmNotFoundError, ArgsFixesEvent
+from ..forge import ForgeInstallError
 from ..download import DownloadError
 from ..util import jvm_bin_filename
 
@@ -160,11 +161,11 @@ lang = {
     "start.jvm.resolving": "Checking java {version}...",
     "start.jvm.resolved": "Checked {count} files for java {version}",
     "start.jvm.unknown_version": "unknown",
-    f"start.jvm.not_found.{JvmNotFoundError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
+    f"start.jvm.not_found_error.{JvmNotFoundError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
         "use --jvm argument to manually set the path to your JVM executable.",
-    f"start.jvm.not_found.{JvmNotFoundError.UNSUPPORTED_VERSION}": "No JVM download was found, "
+    f"start.jvm.not_found_error.{JvmNotFoundError.UNSUPPORTED_VERSION}": "No JVM download was found, "
         "use --jvm argument to manually set the path to your JVM executable.",
-    f"start.jvm.not_found.{JvmNotFoundError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
+    f"start.jvm.not_found_error.{JvmNotFoundError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
         "use --jvm argument to manually set the path to your JVM executable.",
     "start.args.fixes": "Applied the following fixes to arguments:",
     f"start.args.fix.{ArgsFixesEvent.LEGACY_RESOLUTION}": "Included resolution into game arguments",
@@ -173,14 +174,16 @@ lang = {
     f"start.args.fix.{ArgsFixesEvent.LEGACY_MERGE_SORT}": "Using legacy merge sort",
     "start.additional_binary_not_found": "The additional binary '{path}' doesn't exists.",
     "start.lwjgl.version": "Forced LWJGL version to {version}",
+    # Command start (fabric)
     "start.fabric.resolving": "Resolving {api} loader for {vanilla_version}...",
     "start.fabric.resolved": "Resolved {api} loader {loader_version} for {vanilla_version}",
+    # Command start (forge)
     "start.forge.resolving": "Resolving forge alias {version}...",
     "start.forge.resolved": "Resolved forge {version}",
     "start.forge.post_processing": "Forge post processing: {task}...",
     "start.forge.post_processed": "Forge post processing done",
-    # "start.starting": "Starting the game...",
-    # "start.starting_info": "Username: {username} ({uuid})",
+    f"start.forge.install_error.{ForgeInstallError.INSTALL_PROFILE_NOT_FOUND}": "Install profile not found in the forge installer.",
+    f"start.forge.install_error.{ForgeInstallError.VERSION_METADATA_NOT_FOUND}": "Version metadata not found in the forge installer.",
     # Pretty download
     "download.threads_count": "Download threads count: {count}",
     "download.start": "Download starting...",
