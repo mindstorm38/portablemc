@@ -113,7 +113,10 @@ lang = {
     "args.addon": "Addons management subcommands.",
     "args.addon.list": "List addons.",
     "args.addon.show": "Show an addon details.",
-    # Misc errors
+    # Common
+    "echo": "{echo}",
+    "cancelled": "Cancelled.",
+    # Common errors
     "error.os": "An unexpected OS error happened:",
     "error.socket": "This operation requires an operational network, but a socket error happened:",
     "error.cert": "Certificate verification failed, you can try installing 'certifi' package:",
@@ -215,8 +218,4 @@ lang = {
     # f"auth.error.{AuthError.MICROSOFT_DOES_NOT_OWN_MINECRAFT}": "This account does not own Minecraft.",
     # f"auth.error.{AuthError.MICROSOFT_OUTDATED_TOKEN}": "The token is no longer valid.",
     # f"auth.error.{AuthError.MICROSOFT}": "Misc error: {details}."
-
-    # Common
-    "echo": "{echo}",
-    "cancelled": "Cancelled.",
 }
