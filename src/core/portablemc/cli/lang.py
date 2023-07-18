@@ -116,11 +116,11 @@ lang = {
     # Common
     "echo": "{echo}",
     "cancelled": "Cancelled.",
+    "keyboard_interrupt": "Keyboard interrupted.",
     # Common errors
     "error.os": "An unexpected OS error happened:",
     "error.socket": "This operation requires an operational network, but a socket error happened:",
     "error.cert": "Certificate verification failed, you can try installing 'certifi' package:",
-    "error.keyboard_interrupt": "Keyboard interrupted.",
     # Command search
     "search.type": "Type",
     "search.name": "Identifier",
@@ -176,6 +176,7 @@ lang = {
     f"start.args.fix.{ArgsFixesEvent.LEGACY_PROXY}": "Using legacy proxy for online resources",
     f"start.args.fix.{ArgsFixesEvent.LEGACY_MERGE_SORT}": "Using legacy merge sort",
     "start.additional_binary_not_found": "The additional binary '{path}' doesn't exists.",
+    # Command start (LWJGL fix)
     "start.lwjgl.version": "Forced LWJGL version to {version}",
     # Command start (fabric)
     "start.fabric.resolving": "Resolving {api} loader for {vanilla_version}...",

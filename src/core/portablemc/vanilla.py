@@ -960,22 +960,30 @@ class ArgsTask(Task):
         if len(opts.fixes):
 
             # Get the last version in the parent's tree, we use it to apply legacy fixes.
-            ancestor_split = list(version.recurse())[-1].id.split(".", 2)
-            alpha_beta = ancestor_split[0] in ("a1", "b1")
+            ancestor_id = list(version.recurse())[-1].id
 
             # Legacy proxy aims to fix things like skins on old versions.
             # This is applicable to all alpha/beta and 1.0:1.5
             if ArgsOptions.FIX_LEGACY_PROXY in opts.fixes:
-                if alpha_beta or ( \
-                    len(ancestor_split) >= 2 and ancestor_split[0] == "1" and \
-                    len(ancestor_split[1]) == 1 and \
-                    ord("0") <= ord(ancestor_split[1][0]) <= ord("5")):
 
+                proxy_port = None
+                if ancestor_id.startswith("a1.0."):
+                    proxy_port = 80
+                elif ancestor_id.startswith("a1.1."):
+                    proxy_port = 11702
+                elif ancestor_id.startswith(("a1.", "b1.")):
+                    proxy_port = 11705
+                elif ancestor_id in ("1.0", "1.1", "1.3", "1.4", "1.5") or \
+                    ancestor_id.startswith(("1.2.", "1.3.", "1.4.", "1.5.")):
+                    proxy_port = 11707
+                
+                if proxy_port is not None:
                     fixes.append(ArgsFixesEvent.LEGACY_PROXY)
-                    jvm_args.append("-Dhttp.proxyHost=betacraft.pl")
+                    jvm_args.append("-Dhttp.proxyHost=betacraft.uk")
+                    jvm_args.append(f"-Dhttp.proxyPort={proxy_port}")
             
             # Legacy merge sort is applicable to alpha and beta versions.
-            if ArgsOptions.FIX_LEGACY_MERGE_SORT in opts.fixes and alpha_beta:
+            if ArgsOptions.FIX_LEGACY_MERGE_SORT in opts.fixes and ancestor_id.startswith(("a1.", "b1.")):
                 fixes.append(ArgsFixesEvent.LEGACY_MERGE_SORT)
                 jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
 
@@ -1103,8 +1111,6 @@ class RunTask(Task):
         be freely redefined when subclassing.
         """
 
-        # print(f"{args=}")
-        
         import subprocess
         subprocess.run(args, cwd=work_dir)
 
