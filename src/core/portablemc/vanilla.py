@@ -1051,12 +1051,10 @@ class RunTask(Task):
         replacements["natives_directory"] = str(bin_dir)
         
         from zipfile import ZipFile
-        import atexit
 
         def cleanup():
+            print("cleanup...")
             shutil.rmtree(bin_dir, ignore_errors=True)
-
-        atexit.register(cleanup)
 
         bin_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1097,22 +1095,177 @@ class RunTask(Task):
                     except OSError:
                         shutil.copyfile(src_file, dst_file)
 
-        self.run([
+        process = Process([
             *replace_list_vars(args.jvm_args, replacements),
             args.main_class,
             *replace_list_vars(args.game_args, replacements)
-        ], context.work_dir)
+        ], context.work_dir, cleanup)
 
-        cleanup()
+        print(f"running {process}...")
+        process.join()
+        print("finished.")
 
-    def run(self, args: List[str], work_dir: Path) -> None:
-        """Called to start the game with final arguments and work directory.
-        This function should usually block until the game returns, and this function can
-        be freely redefined when subclassing.
+
+    # def run(self, args: List[str], work_dir: Path) -> None:
+    #     """Called to start the game with final arguments and work directory.
+
+    #     This function should usually block until the game returns, and this function can
+    #     be freely redefined when subclassing. The default implementation 
+    #     """
+        
+    #     process = Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True)
+    #     stdout = process.stdout
+    #     assert stdout is not None, "piped so should not be none"
+
+    #     def process_thread():
+    #         init = False
+    #         xml = False
+    #         for line in iter(stdout.readline, ""):
+    #             if not init:
+    #                 if line.lstrip().startswith("<log4j:Event"):
+    #                     xml = True
+    #             self.process_line(line)
+
+    #     thread = Thread(target=process_thread, name="Minecraft Process Thread")
+    #     thread.start()
+        
+    #     try:
+    #         while thread.is_alive():
+    #             thread.join(timeout=1)
+    #     except KeyboardInterrupt:
+    #         process.kill()
+    #         thread.join(timeout=5)
+
+    # def process_line(self, line: str) -> None:
+    #     """This function gets called when a new logging line is decoded 
+    #     """
+    #     print(line)
+
+
+class Process:
+    """This class implements a simpler process interface specifically for running 
+    Minecraft. This allows reading de game's output log event by event.
+    """
+
+    def __init__(self, args: List[str], work_dir: Path, cleanup: Callable[[], None]) -> None:
+        
+        from subprocess import Popen, PIPE, STDOUT
+        from threading import Thread
+        from queue import Queue
+        # import atexit
+
+        self.process = Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True)
+        assert self.process.stdout is not None, "piped so should not be none"
+
+        self.stdout = self.process.stdout
+        self.thread = Thread(target=self._thread, name="Minecraft Process Thread")
+        self.events = Queue()
+        self.cleanup = cleanup
+
+        self.thread.start()
+
+        # If the whole python process exits, cleanup.
+        # atexit.register(cleanup)
+
+    def _thread(self) -> None:
+        """Internal threaded function that repeatedly read stdout of the process and
+        parses the console's logs.
         """
 
-        import subprocess
-        subprocess.run(args, cwd=work_dir)
+        init = False
+        xml = None
+        next_event = None
+
+        try:
+            for line in iter(self.stdout.readline, ""):
+                
+                if not init:
+                    if line.lstrip().startswith("<log4j:"):
+                        import xml.etree.ElementTree as ET
+                        xml = ET.XMLPullParser(["start", "end"])
+                        xml.feed("<?xml version=\"1.0\"?><root xmlns:log4j=\"log4j\">")
+                    init = True
+                
+                if xml is not None:
+                    xml.feed(line)
+                    for event, elem in xml.read_events():
+                        if elem.tag == "{log4j}Event":
+                            if event == "start":
+                                next_event = ProcessEvent(str(elem.attrib["timestamp"]),
+                                    elem.attrib["logger"],
+                                    elem.attrib["level"],
+                                    elem.attrib["thread"])
+                            elif next_event is not None:
+                                self.events.put(next_event)
+                                next_event = None
+                        elif event == "end" and elem.tag == "{log4j}Message" and next_event is not None and elem.text is not None:
+                            next_event.message += elem.text
+                    
+                else:
+                    
+                    # print(repr(line))
+
+                    try:
+                        
+                        logger_start = line.index("[")
+                        logger_end = line.index("]", logger_start + 1)
+                        logger = line[logger_start + 1:logger_end]
+
+                        level_start = line.index("[", logger_end + 1)
+                        level_end = line.index("]", level_start + 1)
+                        level = line[level_start + 1: level_end]
+
+                        date = line[:logger_start - 1]
+                        message = line[level_end + 2:].rstrip()
+
+                        next_event = ProcessEvent(date, logger, level, None)
+                        next_event.message = message
+                        self.events.put(next_event)
+                        print(repr(next_event))
+
+                    except ValueError:
+                        next_event = ProcessEvent(None, None, None, None)
+                        next_event.message = line.rstrip()
+                        self.events.put(next_event)
+                        print(repr(next_event))
+            
+        finally:
+            self.cleanup()
+    
+    def kill(self) -> None:
+        self.process.kill()
+
+    # def events(self) -> Iterator[RunEvent]:
+    #     pass
+    
+    def join(self) -> None:
+        try:
+            thread = self.thread
+            while thread.is_alive():
+                thread.join(timeout=1)
+        except KeyboardInterrupt:
+            self.process.kill()
+            self.thread.join(timeout=5)
+        finally:
+            # Ensure process cleanup.
+            self.cleanup()
+
+
+class ProcessEvent:
+    """Class representing an event happening in the game's logs.
+    """
+
+    __slots__ = "date", "logger", "level", "thread", "message"
+
+    def __init__(self, date: Optional[str], logger: Optional[str], level: Optional[str], thread: Optional[str]) -> None:
+        self.date = date
+        self.logger = logger
+        self.level = level
+        self.thread = thread
+        self.message = ""
+    
+    def __repr__(self) -> str:
+        return f"<ProcessEvent date: {self.date}, logger: {self.logger}, level: {self.level}, thread: {repr(self.thread)}, message: {repr(self.message)}>"
 
 
 class VersionNotFoundError(Exception):

@@ -810,23 +810,27 @@ class ClassicRunTask(RunTask):
         from subprocess import Popen, PIPE, STDOUT
         from threading import Thread
 
-        # if self.ns.verbose >= 1:
-        #     out.task("INFO", "echo", echo=" ".join(args))
-        #     out.finish()
-
-        out = self.ns.out
-        out.print("\n")
+        self.ns.out.print("\n")
 
         if self.ns.verbose >= 1:
-            out.print(" ".join(args) + "\n")
+            self.ns.out.print(" ".join(args) + "\n")
         
         process = Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True)
         stdout = process.stdout
         assert stdout is not None, "piped so should not be none"
 
         def process_thread():
+
+            init = False
+            xml = False
+
             for line in iter(stdout.readline, ""):
-                out.print(line)
+                if not init:
+                    if line.lstrip().startswith("<log4j:Event"):
+                        xml = True
+                    
+
+                self.run_line(line)
 
         thread = Thread(target=process_thread, name="Minecraft Process Thread")
         thread.start()
@@ -835,6 +839,9 @@ class ClassicRunTask(RunTask):
             while thread.is_alive():
                 thread.join(timeout=1)
         except KeyboardInterrupt:
-            out.print(_("keyboard_interrupt"))
+            self.ns.out.print(_("keyboard_interrupt"))
             process.kill()
             thread.join(timeout=5)
+
+    def run_line(self, line: str) -> None:
+        self.ns.out.print(line)
