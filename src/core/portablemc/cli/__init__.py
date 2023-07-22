@@ -220,7 +220,7 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
 
         from ..forge import request_promo_versions
         
-        table.add(_("search.name"), "Forge")
+        table.add(_("search.name"), _("search.loader_version"))
         table.separator()
 
         if search is not None:
@@ -229,6 +229,18 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
         for alias, version in request_promo_versions().items():
             if search is None or search in alias:
                 table.add(alias, version)
+
+    elif kind in ("fabric", "quilt"):
+
+        from ..fabric import FABRIC_API, QUILT_API
+
+        table.add(_("search.loader_version"))
+        table.separator()
+
+        api = FABRIC_API if kind == "fabric" else QUILT_API
+        for version in api.request_fabric_loader_versions():
+            if search is None or search in version:
+                table.add(version)
 
     else:
         raise ValueError()
