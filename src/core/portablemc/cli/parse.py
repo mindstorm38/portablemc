@@ -162,7 +162,7 @@ def get_outputs() -> List[str]:
 
 
 def get_search_kinds() -> List[str]:
-    return ["manifest", "local", "forge", "forge-all"]
+    return ["manifest", "local", "forge"]
 
 
 def get_auth_services() -> List[str]:
