@@ -88,7 +88,8 @@ class HumanOutput(Output):
         "OK": "\033[92m",
         "FAILED": "\033[31m",
         "WARN": "\033[33m",
-        "INFO": "\033[34m"
+        "INFO": "\033[34m",
+        "HALT": "\033[33m",
     }
 
     print_exception_color = "\033[31m"

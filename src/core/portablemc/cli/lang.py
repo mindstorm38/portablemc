@@ -176,6 +176,7 @@ lang = {
     f"start.args.fix.{ArgsFixesEvent.LEGACY_PROXY}": "Using legacy proxy for online resources",
     f"start.args.fix.{ArgsFixesEvent.LEGACY_MERGE_SORT}": "Using legacy merge sort",
     "start.additional_binary_not_found": "The additional binary '{path}' doesn't exists.",
+    "start.bin_install": "Installed binary {src_file} as {dst_name}",
     # Command start (LWJGL fix)
     "start.lwjgl.version": "Forced LWJGL version to {version}",
     # Command start (fabric)
