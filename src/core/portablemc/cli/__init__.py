@@ -1,6 +1,7 @@
 """Main 
 """
 
+from subprocess import Popen
 from urllib.error import URLError
 from pathlib import Path
 import socket
@@ -26,7 +27,7 @@ from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
     LibrariesOptions, Libraries, LibrariesResolvingEvent, LibrariesResolvedEvent, \
     LoggerFoundEvent, \
     Jvm, JvmResolveEvent, JvmNotFoundError, \
-    ArgsOptions, ArgsFixesEvent, RunTask
+    ArgsOptions, ArgsFixesEvent, StreamRunTask, BinaryInstallEvent, XmlStreamEvent
 
 from ..lwjgl import add_lwjgl_tasks, LwjglVersion, LwjglVersionEvent
 from ..fabric import add_fabric_tasks, FabricRoot, FabricResolveEvent
@@ -261,7 +262,7 @@ def cmd_start(ns: StartNs):
 
     # Use a custom run task.
     if not ns.dry:
-        seq.append_task(ClassicRunTask(ns))
+        seq.append_task(OutputRunTask(ns))
     
     # Add mandatory states.
     seq.state.insert(ns.context)
@@ -724,12 +725,23 @@ class StartWatcher(Watcher):
                 out.finish()
         
         elif isinstance(event, ArgsFixesEvent):
-            if self.ns.verbose and len(event.fixes):
+            if self.ns.verbose >= 1 and len(event.fixes):
                 out.task("INFO", "start.args.fixes")
                 out.finish()
                 for fix in event.fixes:
                     out.task(None, f"start.args.fix.{fix}")
                     out.finish()
+        
+        elif isinstance(event, BinaryInstallEvent):
+            if self.ns.verbose >= 2:
+                try:
+                    event.src_file.relative_to(self.ns.context.libraries_dir)
+                    src_file = Path(*event.src_file.parts[-2:])
+                except ValueError:
+                    src_file = str(event.src_file)
+                
+                out.task("INFO", "start.bin_install", src_file=src_file, dst_name=event.dst_name)
+                out.finish()
         
         elif isinstance(event, FabricResolveEvent):
             if event.loader_version is None:
@@ -795,53 +807,24 @@ class DownloadWatcher(Watcher):
             self.ns.out.finish()
 
 
-class ClassicRunTask(RunTask):
-    """A custom run task for the CLI that just ensure forwarding of messages from stdout
-    and stderr to the launcher's stdout while supporting keyboard interrupt stop of the
-    game.
-    """
+class OutputRunTask(StreamRunTask):
 
     def __init__(self, ns: RootNs) -> None:
         super().__init__()
         self.ns = ns
 
-    def run(self, args: List[str], work_dir: Path) -> None:
-
-        from subprocess import Popen, PIPE, STDOUT
-        from threading import Thread
-
+    def process_stream_thread(self, process: Popen) -> None:
         self.ns.out.print("\n")
+        return super().process_stream_thread(process)
 
-        if self.ns.verbose >= 1:
-            self.ns.out.print(" ".join(args) + "\n")
-        
-        process = Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True)
-        stdout = process.stdout
-        assert stdout is not None, "piped so should not be none"
+    def process_stream_event(self, event: Any) -> None:
 
-        def process_thread():
+        out = self.ns.out
 
-            init = False
-            xml = False
-
-            for line in iter(stdout.readline, ""):
-                if not init:
-                    if line.lstrip().startswith("<log4j:Event"):
-                        xml = True
-                    
-
-                self.run_line(line)
-
-        thread = Thread(target=process_thread, name="Minecraft Process Thread")
-        thread.start()
-
-        try:
-            while thread.is_alive():
-                thread.join(timeout=1)
-        except KeyboardInterrupt:
-            self.ns.out.print(_("keyboard_interrupt"))
-            process.kill()
-            thread.join(timeout=5)
-
-    def run_line(self, line: str) -> None:
-        self.ns.out.print(line)
+        if isinstance(event, XmlStreamEvent):
+            date = format_locale_date(event.time)
+            out.print(f"{date} [{event.thread}] [{event.level}] {event.logger}: {event.message}\n")
+            if event.throwable is not None:
+                out.print(f"{event.throwable.rstrip()}\n")
+        else:
+            out.print(str(event))

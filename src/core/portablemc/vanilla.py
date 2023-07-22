@@ -3,6 +3,7 @@ are provided by Mojang through their version manifest (see associated
 module).
 """
 
+from subprocess import Popen, PIPE, STDOUT
 from json import JSONDecodeError
 from pathlib import Path
 from uuid import uuid4
@@ -1052,220 +1053,175 @@ class RunTask(Task):
         
         from zipfile import ZipFile
 
-        def cleanup():
-            print("cleanup...")
-            shutil.rmtree(bin_dir, ignore_errors=True)
-
         bin_dir.mkdir(parents=True, exist_ok=True)
 
-        if len(libraries.native_libs):
-            for src_file in libraries.native_libs:
+        try:
 
-                if not src_file.is_file():
-                    raise ValueError(f"source native file not found: {src_file}")
+            # Here we copy libraries into the bin directory, in case of archives (jar, zip)
+            # we extract all so/dll/dylib files into the directory, if this is a directly
+            # pointing to an archive, we symlink or copy it in-place.
+            if len(libraries.native_libs):
+                for src_file in libraries.native_libs:
 
-                native_name = src_file.name
-                if native_name.endswith((".zip", ".jar")):
+                    if not src_file.is_file():
+                        raise ValueError(f"source native file not found: {src_file}")
 
-                    with ZipFile(src_file, "r") as native_zip:
-                        for native_zip_info in native_zip.infolist():
-                            native_name = native_zip_info.filename
-                            if native_name.endswith((".so", ".dll", ".dylib")):
+                    native_name = src_file.name
+                    if native_name.endswith((".zip", ".jar")):
 
-                                try:
-                                    native_name = native_name[native_name.rindex("/") + 1:]
-                                except ValueError:
-                                    native_name = native_name
-                                
-                                dst_file = bin_dir / native_name
+                        with ZipFile(src_file, "r") as native_zip:
+                            for native_zip_info in native_zip.infolist():
+                                native_name = native_zip_info.filename
+                                if native_name.endswith((".so", ".dll", ".dylib")):
 
-                                with native_zip.open(native_zip_info, "r") as src_fp:
-                                    with dst_file.open("wb") as dst_fp:
-                                        shutil.copyfileobj(src_fp, dst_fp)
+                                    try:
+                                        native_name = native_name[native_name.rindex("/") + 1:]
+                                    except ValueError:
+                                        native_name = native_name
+                                    
+                                    dst_file = bin_dir / native_name
 
-                else:
-                    # Here we try to remove the version numbers of .so files.
-                    so_idx = native_name.rfind(".so")
-                    if so_idx >= 0:
-                        native_name = native_name[:so_idx + len(".so")]
-                    # Try to symlink the file in the bin dir, and fallback to simple copy.
-                    dst_file = bin_dir / native_name
-                    try:
-                        dst_file.symlink_to(src_file)
-                    except OSError:
-                        shutil.copyfile(src_file, dst_file)
+                                    with native_zip.open(native_zip_info, "r") as src_fp:
+                                        with dst_file.open("wb") as dst_fp:
+                                            shutil.copyfileobj(src_fp, dst_fp)
+                                    
+                                    watcher.handle(BinaryInstallEvent(src_file / native_name, native_name))
 
-        process = Process([
-            *replace_list_vars(args.jvm_args, replacements),
-            args.main_class,
-            *replace_list_vars(args.game_args, replacements)
-        ], context.work_dir, cleanup)
+                    else:
 
-        print(f"running {process}...")
-        process.join()
-        print("finished.")
+                        # Here we try to remove the version numbers of .so files.
+                        so_idx = native_name.rfind(".so")
+                        if so_idx >= 0:
+                            native_name = native_name[:so_idx + len(".so")]
+                        # Try to symlink the file in the bin dir, and fallback to simple copy.
+                        dst_file = bin_dir / native_name
 
+                        try:
+                            dst_file.symlink_to(src_file)
+                        except OSError:
+                            shutil.copyfile(src_file, dst_file)
+                        
+                        watcher.handle(BinaryInstallEvent(src_file, native_name))
 
-    # def run(self, args: List[str], work_dir: Path) -> None:
-    #     """Called to start the game with final arguments and work directory.
-
-    #     This function should usually block until the game returns, and this function can
-    #     be freely redefined when subclassing. The default implementation 
-    #     """
-        
-    #     process = Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True)
-    #     stdout = process.stdout
-    #     assert stdout is not None, "piped so should not be none"
-
-    #     def process_thread():
-    #         init = False
-    #         xml = False
-    #         for line in iter(stdout.readline, ""):
-    #             if not init:
-    #                 if line.lstrip().startswith("<log4j:Event"):
-    #                     xml = True
-    #             self.process_line(line)
-
-    #     thread = Thread(target=process_thread, name="Minecraft Process Thread")
-    #     thread.start()
-        
-    #     try:
-    #         while thread.is_alive():
-    #             thread.join(timeout=1)
-    #     except KeyboardInterrupt:
-    #         process.kill()
-    #         thread.join(timeout=5)
-
-    # def process_line(self, line: str) -> None:
-    #     """This function gets called when a new logging line is decoded 
-    #     """
-    #     print(line)
+            # We create the wrapper process with required arguments.
+            process = self.process_create([
+                *replace_list_vars(args.jvm_args, replacements),
+                args.main_class,
+                *replace_list_vars(args.game_args, replacements)
+            ], context.work_dir)
 
 
-class Process:
-    """This class implements a simpler process interface specifically for running 
-    Minecraft. This allows reading de game's output log event by event.
+            self.process_wait(process)
+
+        finally:
+            # Any error while setting up the binary directory cause it to be deleted.
+            shutil.rmtree(bin_dir, ignore_errors=True)
+
+    def process_create(self, args: List[str], work_dir: Path) -> Popen:
+        """This function is called when process needs to be created with the given 
+        arguments in the given working directory. The default implementation does nothing
+        special but this can be used to create the process with enabled output piping,
+        to later use in `process_wait`.
+        """
+        return Popen(args, cwd=work_dir)
+
+    def process_wait(self, process: Popen) -> None:
+        """This function is called with the running Minecraft process for waiting the end
+        of the process. Implementors may want to read incoming logging.
+        """
+        process.wait()
+
+
+class StreamRunTask(RunTask):
+    """A specialized implementation of `RunTask` which allows streaming the game's output
+    logs. This implementation also provides parsing of log4j XML layouts for logs.
     """
+    
+    def process_create(self, args: List[str], work_dir: Path) -> Popen:
+        return Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True)
 
-    def __init__(self, args: List[str], work_dir: Path, cleanup: Callable[[], None]) -> None:
-        
-        from subprocess import Popen, PIPE, STDOUT
+    def process_wait(self, process: Popen) -> None:
+
         from threading import Thread
-        from queue import Queue
-        # import atexit
 
-        self.process = Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True)
-        assert self.process.stdout is not None, "piped so should not be none"
+        thread = Thread(target=self.process_stream_thread, name="Minecraft Stream Thread", args=(process,))
+        thread.start()
 
-        self.stdout = self.process.stdout
-        self.thread = Thread(target=self._thread, name="Minecraft Process Thread")
-        self.events = Queue()
-        self.cleanup = cleanup
+        process.wait()
 
-        self.thread.start()
+    def process_stream_thread(self, process: Popen) -> None:
 
-        # If the whole python process exits, cleanup.
-        # atexit.register(cleanup)
+        stdout = process.stdout
+        assert stdout is not None, "should not be none because it should be piped"
 
-    def _thread(self) -> None:
-        """Internal threaded function that repeatedly read stdout of the process and
-        parses the console's logs.
+        parser = None
+        for line in iter(stdout.readline, ""):
+
+            if parser is None:
+                if line.lstrip().startswith("<log4j:"):
+                    parser = XmlStreamParser()
+                else:
+                    parser = StreamParser()
+
+            parser.feed(line, self.process_stream_event)
+    
+    def process_stream_event(self, event: Any) -> None:
+        """This function gets called when an event is received from the game's log.
         """
 
-        init = False
-        xml = None
-        next_event = None
+class StreamParser:
+    """Base implementation of game's output stream parsing, this default implementation
+    just forward incoming lines to the callback.
+    """
 
-        try:
-            for line in iter(self.stdout.readline, ""):
-                
-                if not init:
-                    if line.lstrip().startswith("<log4j:"):
-                        import xml.etree.ElementTree as ET
-                        xml = ET.XMLPullParser(["start", "end"])
-                        xml.feed("<?xml version=\"1.0\"?><root xmlns:log4j=\"log4j\">")
-                    init = True
-                
-                if xml is not None:
-                    xml.feed(line)
-                    for event, elem in xml.read_events():
-                        if elem.tag == "{log4j}Event":
-                            if event == "start":
-                                next_event = ProcessEvent(str(elem.attrib["timestamp"]),
-                                    elem.attrib["logger"],
-                                    elem.attrib["level"],
-                                    elem.attrib["thread"])
-                            elif next_event is not None:
-                                self.events.put(next_event)
-                                next_event = None
-                        elif event == "end" and elem.tag == "{log4j}Message" and next_event is not None and elem.text is not None:
-                            next_event.message += elem.text
-                    
-                else:
-                    
-                    # print(repr(line))
+    def feed(self, line: str, callback: Callable[[Any], None]) -> None:
+        callback(line)
 
-                    try:
-                        
-                        logger_start = line.index("[")
-                        logger_end = line.index("]", logger_start + 1)
-                        logger = line[logger_start + 1:logger_end]
+class XmlStreamParser(StreamParser):
+    """This parser produces `XmlStreamEvent` kind of events by parsing the game's stream
+    as a log4j log stream.
+    """
 
-                        level_start = line.index("[", logger_end + 1)
-                        level_end = line.index("]", level_start + 1)
-                        level = line[level_start + 1: level_end]
+    def __init__(self) -> None:
+        import xml.etree.ElementTree as ET
+        self.xml = ET.XMLPullParser(["start", "end"])
+        self.xml.feed("<?xml version=\"1.0\"?><root xmlns:log4j=\"log4j\">")
+        self.next_event = None
 
-                        date = line[:logger_start - 1]
-                        message = line[level_end + 2:].rstrip()
+    def feed(self, line: str, callback: Callable[[Any], None]) -> None:
+        self.xml.feed(line)
+        for event, elem in self.xml.read_events():
+            if elem.tag == "{log4j}Event":
+                if event == "start":
+                    self.next_event = XmlStreamEvent(int(elem.attrib["timestamp"]) / 1000.0,
+                        elem.attrib["logger"],
+                        elem.attrib["level"],
+                        elem.attrib["thread"])
+                elif event == "end" and self.next_event is not None:
+                    callback(self.next_event)
+                    self.next_event = None
+            elif event == "end" and self.next_event is not None:
+                if elem.tag == "{log4j}Message":
+                    self.next_event.message = elem.text
+                elif elem.tag == "{log4j}Throwable":
+                    self.next_event.throwable = elem.text
 
-                        next_event = ProcessEvent(date, logger, level, None)
-                        next_event.message = message
-                        self.events.put(next_event)
-                        print(repr(next_event))
-
-                    except ValueError:
-                        next_event = ProcessEvent(None, None, None, None)
-                        next_event.message = line.rstrip()
-                        self.events.put(next_event)
-                        print(repr(next_event))
-            
-        finally:
-            self.cleanup()
-    
-    def kill(self) -> None:
-        self.process.kill()
-
-    # def events(self) -> Iterator[RunEvent]:
-    #     pass
-    
-    def join(self) -> None:
-        try:
-            thread = self.thread
-            while thread.is_alive():
-                thread.join(timeout=1)
-        except KeyboardInterrupt:
-            self.process.kill()
-            self.thread.join(timeout=5)
-        finally:
-            # Ensure process cleanup.
-            self.cleanup()
-
-
-class ProcessEvent:
+class XmlStreamEvent:
     """Class representing an event happening in the game's logs.
     """
 
-    __slots__ = "date", "logger", "level", "thread", "message"
+    __slots__ = "time", "logger", "level", "thread", "message", "throwable"
 
-    def __init__(self, date: Optional[str], logger: Optional[str], level: Optional[str], thread: Optional[str]) -> None:
-        self.date = date
+    def __init__(self, time: float, logger: str, level: str, thread: str) -> None:
+        self.time = time
         self.logger = logger
         self.level = level
         self.thread = thread
-        self.message = ""
+        self.message = None
+        self.throwable = None
     
     def __repr__(self) -> str:
-        return f"<ProcessEvent date: {self.date}, logger: {self.logger}, level: {self.level}, thread: {repr(self.thread)}, message: {repr(self.message)}>"
+        return f"<ProcessEvent date: {self.time}, logger: {self.logger}, level: {self.level}, thread: {self.thread}, message: {repr(self.message)}>"
 
 
 class VersionNotFoundError(Exception):
@@ -1359,10 +1315,14 @@ class ArgsFixesEvent:
     def __init__(self, fixes: List[str]) -> None:
         self.fixes = fixes
 
-class RunBinEvent:
-    __slots__ = "bin_dir",
-    def __init__(self, bin_dir: Path) -> None:
-        self.bin_dir = bin_dir
+class BinaryInstallEvent:
+    """Event triggered when a game's binary has been extracted to the temporary bin
+    directory, this include source path and the destination name within bin directory.
+    """
+    __slots__ = "src_file", "dst_name",
+    def __init__(self, src_file: Path, dst_name: str) -> None:
+        self.src_file = src_file
+        self.dst_name = dst_name
 
 
 class VersionManifest(VersionRepository):
