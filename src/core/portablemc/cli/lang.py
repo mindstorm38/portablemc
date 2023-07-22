@@ -128,7 +128,7 @@ lang = {
     "search.last_modified": "Last modified",
     "search.flags": "Flags",
     "search.flags.local": "local",
-    "search.not_found": "No version match the input.",
+    "search.loader_version": "Loader version",
     # Command logout
     "logout.yggdrasil.pending": "Logging out {email} from Mojang...",
     "logout.microsoft.pending": "Logging out {email} from Microsoft...",

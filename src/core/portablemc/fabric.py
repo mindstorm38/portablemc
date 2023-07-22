@@ -6,7 +6,7 @@ from .vanilla import MetadataRoot, MetadataTask, VersionRepository, Version, \
 from .task import Task, State, Watcher, Sequence
 from .http import http_request, HttpError
 
-from typing import Optional, Any
+from typing import Optional, Any, Iterator
 
 
 class FabricApi:
@@ -30,6 +30,10 @@ class FabricApi:
 
     def request_version_loader_profile(self, vanilla_version: str, loader_version: str) -> dict:
         return self.request_fabric_meta(f"versions/loader/{vanilla_version}/{loader_version}/profile/json")
+
+    def request_fabric_loader_versions(self) -> Iterator[str]:
+        loaders = self.request_fabric_meta("versions/loader")
+        return map(lambda obj: obj["version"], loaders)
 
 
 FABRIC_API = FabricApi("fabric", "https://meta.fabricmc.net/v2/")
