@@ -120,6 +120,16 @@ class Sequence:
         """
         self.tasks.insert(index, task)
         task.setup(self.state)
+    
+    def remove_task(self, task: Type[Task]) -> None:
+        """Remove a task of the given type. If the task is not found, nothing is done.
+
+        :param task: Type of task to remove, only the first occurrence is removed.
+        """
+        for i, i_task in enumerate(self.tasks):
+            if type(i_task) is task:
+                self.tasks.pop(i)
+                return
 
     def append_task(self, task: Task, *, 
         after: Optional[Type[Task]] = None

@@ -152,7 +152,7 @@ def add_fabric_tasks(seq: Sequence) -> None:
 def _make_base_sequence(*,
     run: bool = False,
     context: Optional[Context] = None,
-    version_manifest: Optional[VersionManifest] = None,
+    default_repository: Optional[VersionRepository] = None
 ) -> Sequence:
     """Internal function for `make_<fabric|quilt>_sequence` functions.
     """
@@ -164,7 +164,7 @@ def _make_base_sequence(*,
     add_fabric_tasks(seq)
 
     seq.state.insert(context or Context())
-    seq.state.insert(version_manifest or VersionManifest())
+    seq.state.insert(VersionRepositories(default_repository or VersionManifest()))
 
     return seq
 
@@ -172,7 +172,7 @@ def _make_base_sequence(*,
 def make_fabric_sequence(vanilla_version: str, loader_version: Optional[str] = None, *,
     run: bool = False,
     context: Optional[Context] = None,
-    version_manifest: Optional[VersionManifest] = None,
+    default_repository: Optional[VersionRepository] = None,
     prefix: str = "fabric"
 ) -> Sequence:
     """Shortcut version of `add_vanilla_tasks` followed by `add_fabric_tasks` that 
@@ -180,7 +180,7 @@ def make_fabric_sequence(vanilla_version: str, loader_version: Optional[str] = N
     and running.
     """
 
-    seq = _make_base_sequence(run=run, context=context, version_manifest=version_manifest)
+    seq = _make_base_sequence(run=run, context=context, default_repository=default_repository)
     seq.state.insert(FabricRoot.with_fabric(vanilla_version, loader_version, prefix))
     return seq
 
@@ -188,7 +188,7 @@ def make_fabric_sequence(vanilla_version: str, loader_version: Optional[str] = N
 def make_quilt_sequence(vanilla_version: str, loader_version: Optional[str] = None, *,
     run: bool = False,
     context: Optional[Context] = None,
-    version_manifest: Optional[VersionManifest] = None,
+    default_repository: Optional[VersionRepository] = None,
     prefix: str = "quilt"
 ) -> Sequence:
     """Shortcut version of `add_vanilla_tasks` followed by `add_fabric_tasks` that 
@@ -196,6 +196,6 @@ def make_quilt_sequence(vanilla_version: str, loader_version: Optional[str] = No
     and running.
     """
 
-    seq = _make_base_sequence(run=run, context=context, version_manifest=version_manifest)
+    seq = _make_base_sequence(run=run, context=context, default_repository=default_repository)
     seq.state.insert(FabricRoot.with_quilt(vanilla_version, loader_version, prefix))
     return seq

@@ -476,7 +476,7 @@ def add_forge_tasks(seq: Sequence) -> None:
 def make_forge_sequence(forge_version: str, *,
     run: bool = False,
     context: Optional[Context] = None,
-    version_manifest: Optional[VersionManifest] = None,
+    default_repository: Optional[VersionRepository] = None,
     prefix: str = "forge"
 ) -> Sequence:
     """Shortcut version of `add_vanilla_tasks` followed by `add_forge_tasks` that 
@@ -491,7 +491,7 @@ def make_forge_sequence(forge_version: str, *,
     add_forge_tasks(seq)
 
     seq.state.insert(context or Context())
-    seq.state.insert(version_manifest or VersionManifest())
+    seq.state.insert(VersionRepositories(default_repository or VersionManifest()))
     seq.state.insert(ForgeRoot(forge_version, prefix))
 
     return seq

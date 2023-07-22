@@ -18,7 +18,7 @@ from ..task import Watcher, Sequence, TaskEvent
 from ..util import LibrarySpecifier
 
 from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
-    MetadataRoot, VersionNotFoundError, TooMuchParentsError, \
+    MetadataRoot, VersionRepositories, VersionNotFoundError, TooMuchParentsError, \
     VersionLoadingEvent, VersionFetchingEvent, VersionLoadedEvent, \
     JarFoundEvent, JarNotFoundError, \
     AssetsResolveEvent, \
@@ -264,7 +264,7 @@ def cmd_start(ns: StartNs):
     
     # Add mandatory states.
     seq.state.insert(ns.context)
-    seq.state.insert(ns.version_manifest)
+    seq.state.insert(VersionRepositories(ns.version_manifest))
     
     # No handler means that the format is invalid.
     if not cmd_start_handler(ns, version_parts[0], version_parts[1:], seq):
