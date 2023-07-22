@@ -22,5 +22,8 @@ classifiers = [
 [tool.poetry.dependencies]
 python = ">=3.7"
 
+[tool.poetry.group.test.dependencies]
+pytest = "*"
+
 [tool.poetry.scripts]
 portablemc = "portablemc.cli:main"
