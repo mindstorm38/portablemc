@@ -15,6 +15,12 @@ def format_locale_date(raw: Union[str, float]) -> str:
         return from_iso_date(str(raw)).strftime("%c")
 
 
+def format_time(timestamp: float) -> str:
+    """Format the given timestamp (in seconds) into hh:mm:ss format.
+    """
+    return datetime.fromtimestamp(timestamp).strftime("%H:%M:%S")
+
+
 def format_number(n: float) -> str:
     """Return a number with suffix k, M, G or nothing. 
     The string is at most 7 chars unless the size exceed 1 T.
