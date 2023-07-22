@@ -1,4 +1,4 @@
-"""Module providing tasks for directly launcher forge mod loader versions.
+"""Module providing tasks for launching forge mod loader versions.
 """
 
 from zipfile import ZipFile
