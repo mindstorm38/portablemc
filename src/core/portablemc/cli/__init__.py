@@ -2,14 +2,12 @@
 """
 
 from subprocess import Popen
-from urllib.error import URLError
 from pathlib import Path
 import socket
-import ssl
 import sys
 
 from .parse import register_arguments, RootNs, SearchNs, StartNs, LoginNs, LogoutNs
-from .util import format_locale_date, format_number, anonymize_email
+from .util import format_locale_date, format_time, format_number, anonymize_email
 from .output import Output, HumanOutput, MachineOutput, OutputTable
 from .lang import get as _, lang
 
@@ -142,9 +140,11 @@ def cmd(handler: CommandHandler, ns: RootNs):
     
     except OSError as error:
 
-        key = "error.os"
+        from urllib.error import URLError
+        from ssl import SSLCertVerificationError
 
-        if isinstance(error, URLError) and isinstance(error.reason, ssl.SSLCertVerificationError):
+        key = "error.os"
+        if isinstance(error, URLError) and isinstance(error.reason, SSLCertVerificationError):
             key = "error.cert"
         elif isinstance(error, (URLError, socket.gaierror, socket.timeout)):
             key = "error.socket"
@@ -820,8 +820,8 @@ class OutputRunTask(StreamRunTask):
         out = self.ns.out
 
         if isinstance(event, XmlStreamEvent):
-            date = format_locale_date(event.time)
-            out.print(f"{date} [{event.thread}] [{event.level}] {event.logger}: {event.message}\n")
+            time = format_time(event.time)
+            out.print(f"[{time}] [{event.thread}] [{event.level}] {event.message}\n")
             if event.throwable is not None:
                 out.print(f"{event.throwable.rstrip()}\n")
         else:
