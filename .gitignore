@@ -2,7 +2,7 @@
 
 # Ignore compiled python
 __pycache__
-/src/*/dist
+/dist
 
 # Do not keep tests and coverage results
 .pytest_cache
