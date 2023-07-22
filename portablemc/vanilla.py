@@ -1,6 +1,6 @@
-"""Definition of the standard tasks for vanilla Minecraft, versions
-are provided by Mojang through their version manifest (see associated
-module).
+"""Definition of tasks supporting the standard metadata format used by Mojang. This 
+repository also provide Mojang's version manifest which can be used as default version
+repository, allowing resolution of what we call "vanilla" versions.
 """
 
 from subprocess import Popen, PIPE, STDOUT
@@ -188,17 +188,17 @@ class VersionRepository:
 
 class VersionRepositories:
     """Mapping of version identifiers to the repository to use for them. This state is
-    set up by `MetadataTask` and can be altered in order to add a repository.
-
-    If no mapping is present, the default repository is the `VersionManifest` repository
-    that provides Mojang's official versions.
+    set up by `MetadataTask` and can be altered in order to add a repository. A default
+    repository is also given (usually the Mojang's version manifest) for cases where no
+    mapping exists.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, default: VersionRepository) -> None:
+        self.default = default
         self.mapping: Dict[str, VersionRepository] = {}
     
-    def get(self, version_id: str, default: VersionRepository) -> VersionRepository:
-        return self.mapping.get(version_id, default)
+    def get(self, version_id: str) -> VersionRepository:
+        return self.mapping.get(version_id, self.default)
     
     def insert(self, version_id: str, repository: VersionRepository) -> None:
         self.mapping[version_id] = repository
@@ -355,9 +355,8 @@ class MetadataTask(Task):
 
     :in Context: The installation context.
     :in MetadataRoot: Describe which root version to start resolving.
-    :in VersionManifest: Version manifest to use for fetching online official versions.
-    :in(setup) VersionRepositories: Mapping of version identifiers to their repository,
-    this state is added by the task at setup.
+    :in VersionRepositories: Mapping of version identifiers to their repository, also
+    providing the default repository, like Mojang's version manifest.
     :out Version: The root version.
     :out VersionMetadata: The resolved version metadata.
     """
@@ -365,13 +364,9 @@ class MetadataTask(Task):
     def __init__(self, *, max_parents: int = 10) -> None:
         self.max_parents = max_parents
 
-    def setup(self, state: State) -> None:
-        state.insert(VersionRepositories())
-
     def execute(self, state: State, watcher: Watcher) -> None:
 
         context = state[Context]
-        manifest = state[VersionManifest]
         repositories = state[VersionRepositories]
 
         version_id: Optional[str] = state[MetadataRoot].version
@@ -386,7 +381,7 @@ class MetadataTask(Task):
 
             # Get version instance and load/fetch is needed.
             version = context.get_version(version_id)
-            repo = repositories.get(version_id, manifest)
+            repo = repositories.get(version_id)
 
             if not repo.load_version(version, state):
                 watcher.handle(VersionLoadingEvent(version_id))
@@ -1326,8 +1321,9 @@ class BinaryInstallEvent:
 
 
 class VersionManifest(VersionRepository):
-    """The Mojang's official version manifest. Providing officially
-    available versions with optional cache file.
+    """The Mojang's official version manifest. Providing officially available versions 
+    with optional cache file. It's an implementation of `VersionRepository` and so can
+    be used for the default repository to resolve versions.
     """
 
     def __init__(self, cache_file: Optional[Path] = None) -> None:
@@ -1616,8 +1612,8 @@ def add_vanilla_tasks(seq: Sequence, *, run: bool = False) -> None:
     metadata format.
 
     This sequence take as input a `MetadataRoot` instance for the root version to load,
-    a `Context` for knowing game's directories and a `VersionManifest` for downloading
-    missing vanilla versions.
+    a `Context` for knowing game's directories and a `VersionRepositories` with a proper
+    default repository.
     
     The output of this sequence is `Args`, and the `run` argument can specify if
     you want or not to add the `RunTask` that will take these arguments to run the game.
@@ -1647,7 +1643,7 @@ def add_vanilla_tasks(seq: Sequence, *, run: bool = False) -> None:
 def make_vanilla_sequence(version: str, *, 
     run: bool = False, 
     context: Optional[Context] = None,
-    version_manifest: Optional[VersionManifest] = None
+    default_repository: Optional[VersionRepository] = None
 ) -> Sequence:
     """Shortcut version of `add_vanilla_tasks` that construct the sequence for you and
     add required states.
@@ -1657,7 +1653,7 @@ def make_vanilla_sequence(version: str, *,
     add_vanilla_tasks(seq, run=run)
 
     seq.state.insert(context or Context())
-    seq.state.insert(version_manifest or VersionManifest())
+    seq.state.insert(VersionRepositories(default_repository or VersionManifest()))
     seq.state.insert(MetadataRoot(version))
 
     return seq
