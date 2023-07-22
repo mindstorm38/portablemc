@@ -230,20 +230,6 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
             if search is None or search in alias:
                 table.add(alias, version)
 
-    elif kind == "forge-all":
-
-        from ..forge import request_maven_versions
-
-        table.add(_("search.name"))
-        table.separator()
-
-        if search is not None:
-            search = ns.version_manifest.filter_latest(search)[0]
-
-        for version in request_maven_versions():
-            if search is None or search in version:
-                table.add(version)
-
     else:
         raise ValueError()
 
