@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "portablemc"
-version = "3.3.1"
+version = "4.0.0rc1"
 description = "PortableMC is a module that provides both an API for development of your custom launcher and an executable script to run PortableMC CLI."
 authors = ["Théo Rozier <contact@theorozier.fr>"]
 license = "GPL-3.0-only"
@@ -21,12 +21,6 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = ">=3.7"
-
-[tool.poetry.group.console]
-optional = true
-
-[tool.poetry.group.console.dependencies]
-prompt-toolkit = "~3.0.16"
 
 [tool.poetry.scripts]
 portablemc = "portablemc.cli:main"
