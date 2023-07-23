@@ -768,7 +768,7 @@ class JvmTask(Task):
         metadata = state[FullMetadata].data
         dl = state[DownloadList]
 
-        watcher.handle(JvmResolvingEvent())
+        watcher.handle(JvmLoadingEvent())
         
         jvm_version_info = metadata.get("javaVersion", {})
         if not isinstance(jvm_version_info, dict):
@@ -842,7 +842,7 @@ class JvmTask(Task):
                 dl.add(jvm_download_entry, verify=True)
         
         state.insert(Jvm(jvm_exec, jvm_version))
-        watcher.handle(JvmResolveEvent(jvm_version, len(jvm_files)))
+        watcher.handle(JvmLoadedEvent(jvm_version, len(jvm_files)))
 
     def find_builtin(self, state: State, watcher: Watcher, reason: str, major_version: Optional[int]) -> None:
         """Internal function to find the builtin Java executable, the reason why this is
@@ -879,7 +879,7 @@ class JvmTask(Task):
             raise JvmNotFoundError(JvmNotFoundError.BUILTIN_INVALID_VERSION)
 
         state.insert(Jvm(Path(builtin_path), version))
-        watcher.handle(JvmResolveEvent(version, None))
+        watcher.handle(JvmLoadedEvent(version, None))
 
 
 class ArgsTask(Task):
@@ -1338,11 +1338,11 @@ class LoggerFoundEvent:
     def __init__(self, version: str) -> None:
         self.version = version
 
-class JvmResolvingEvent:
+class JvmLoadingEvent:
     """Event triggered when JVM start being resolved.
     """
 
-class JvmResolveEvent:
+class JvmLoadedEvent:
     """Event triggered when JVM has been resolved. If count is none then the resolved 
     version is a builtin JVM.
     """
