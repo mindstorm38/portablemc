@@ -287,6 +287,7 @@ def cmd_start(ns: StartNs):
 
     if ns.no_legacy_fix:
         args_opts.fixes.clear()
+        seq.state[LibrariesOptions].version_fixes.clear()
 
     if ns.login is not None:
         args_opts.auth_session = prompt_authenticate(ns, ns.login, not ns.temp_login, ns.auth_service, ns.auth_anonymize)
@@ -814,9 +815,13 @@ class OutputRunTask(StreamRunTask):
         super().__init__()
         self.ns = ns
 
-    def process_stream_thread(self, process: Popen) -> None:
+    def process_create(self, args: List[str], work_dir: Path) -> Popen:
+        
         self.ns.out.print("\n")
-        return super().process_stream_thread(process)
+        if self.ns.verbose >= 1:
+            self.ns.out.print(" ".join(args) + "\n")
+
+        return super().process_create(args, work_dir)
 
     def process_stream_event(self, event: Any) -> None:
 
