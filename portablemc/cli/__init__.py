@@ -24,7 +24,7 @@ from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
     AssetsResolveEvent, \
     LibrariesOptions, Libraries, LibrariesResolvingEvent, LibrariesResolvedEvent, \
     LoggerFoundEvent, \
-    Jvm, JvmResolveEvent, JvmNotFoundError, \
+    Jvm, JvmResolvingEvent, JvmResolveEvent, JvmNotFoundError, \
     ArgsOptions, ArgsFixesEvent, StreamRunTask, BinaryInstallEvent, XmlStreamEvent
 
 from ..lwjgl import add_lwjgl_tasks, LwjglVersion, LwjglVersionEvent
@@ -715,12 +715,15 @@ class StartWatcher(Watcher):
             out.task("OK", "start.logger.found", version=event.version)
             out.finish()
         
+        elif isinstance(event, JvmResolvingEvent):
+            out.task("..", "start.jvm.resolving")
+        
         elif isinstance(event, JvmResolveEvent):
-            if event.count is None:
-                out.task("..", "start.jvm.resolving", version=event.version or _("start.jvm.unknown_version"))
+            if event.files_count is None:
+                out.task("OK", "start.jvm.resolved_builtin", version=event.version or _("start.jvm.unknown_version"))
             else:
-                out.task("OK", "start.jvm.resolved", version=event.version or _("start.jvm.unknown_version"), count=event.count)
-                out.finish()
+                out.task("OK", "start.jvm.resolved", version=event.version or _("start.jvm.unknown_version"), files_count=event.files_count)
+            out.finish()
         
         elif isinstance(event, ArgsFixesEvent):
             if self.ns.verbose >= 1 and len(event.fixes):

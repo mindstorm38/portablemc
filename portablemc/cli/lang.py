@@ -161,8 +161,9 @@ lang = {
     "start.libraries.resolved": "Checked {class_libs_count} class and {native_libs_count} native libraries",
     "start.libraries.excluded": "Excluded library {spec}",
     "start.logger.found": "Using logger {version}",
-    "start.jvm.resolving": "Checking java {version}...",
-    "start.jvm.resolved": "Checked {count} files for java {version}",
+    "start.jvm.resolving": "Resolving java...",
+    "start.jvm.resolved": "Resolved java {version} with {files_count} files",
+    "start.jvm.resolved_builtin": "Resolved builtin java {version}",
     "start.jvm.unknown_version": "unknown",
     f"start.jvm.not_found_error.{JvmNotFoundError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
         "use --jvm argument to manually set the path to your JVM executable.",
