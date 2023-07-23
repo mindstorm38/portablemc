@@ -1343,12 +1343,13 @@ class JvmResolvingEvent:
     """
 
 class JvmResolveEvent:
-    """Event triggered when JVM has been resolved.
+    """Event triggered when JVM has been resolved. If count is none then the resolved 
+    version is a builtin JVM.
     """
-    __slots__ = "version", "count"
-    def __init__(self, version: Optional[str], count: Optional[int]) -> None:
+    __slots__ = "version", "files_count"
+    def __init__(self, version: Optional[str], files_count: Optional[int]) -> None:
         self.version = version
-        self.count = count
+        self.files_count = files_count
 
 class ArgsFixesEvent:
     """Event triggered when arguments where computed, and sum up applied fixes.
