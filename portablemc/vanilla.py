@@ -233,14 +233,22 @@ class Assets:
         self.resources_dir = resources_dir
 
 class LibrariesOptions:
-    """Options for resolving libraries, for now this only provides predicates to 
-    filtering out some libraries.
+    """Options for resolving libraries, it provides predicates to filtering out some 
+    libraries and also version fixes to change version of some libraries. **Predicates are
+    applied before fixing.**
+
+    By default, this include a version fix for com.mojang:authlib:2.1.28 which is broken
+    and only used for versions 1.16.4 and 1.16.5. To fix disabled multiplayer buttons 
+    with offline sessions, this version is modified to 2.2.30.
 
     This state is set up by `LibrariesTask`.
     """
-    __slots__ = "predicates",
+    __slots__ = "predicates", "version_fixes"
     def __init__(self) -> None:
         self.predicates: List[Callable[[LibrarySpecifier], bool]] = []
+        self.version_fixes: Dict[LibrarySpecifier, str] = {
+            LibrarySpecifier("com.mojang", "authlib", "2.1.28"): "2.2.30"
+        }
 
 class Libraries:
     """Represent the loaded libraries for the current version. This contains both 
@@ -645,12 +653,19 @@ class LibrariesTask(Task):
                     excluded_libs.append(spec)
                     continue
 
+                # Check version fixes.
+                version_fix = options.version_fixes.get(spec)
+                if version_fix is not None:
+                    spec.version = version_fix
+
                 dl_entry: Optional[DownloadEntry] = None
                 jar_path_rel = spec.file_path()
                 jar_path = context.libraries_dir / jar_path_rel
                 
+                # Avoids ready downloading if a fix is being used, in such case we'll use
+                # the Mojang's libraries. TODO: Improve this fix system, it's limiting.
                 downloads = library.get("downloads")
-                if downloads is not None:
+                if downloads is not None and version_fix is None:
 
                     if not isinstance(downloads, dict):
                         raise ValueError(f"metadata: /libraries/{library_idx}/downloads must be an object")
