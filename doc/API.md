@@ -71,7 +71,7 @@ optionally decide to run the game or not.
 **However**, this function doesn't add base states required to run 
 the game:
 - `Context`, the context of the game are its directories;
-- `VersionManifest`, the version manifest to use to resolve missing 
+- `VersionRepositories`, the version repositories to use to resolve missing 
   versions;
 - `MetadataRoot`, the root version to start resolving metadata for 
   when executing the sequence.
