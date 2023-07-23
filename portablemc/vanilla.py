@@ -3,7 +3,7 @@ repository also provide Mojang's version manifest which can be used as default v
 repository, allowing resolution of what we call "vanilla" versions.
 """
 
-from subprocess import Popen, PIPE, STDOUT
+from subprocess import Popen, PIPE, STDOUT, TimeoutExpired
 from json import JSONDecodeError
 from pathlib import Path
 from uuid import uuid4
@@ -768,10 +768,20 @@ class JvmTask(Task):
         metadata = state[FullMetadata].data
         dl = state[DownloadList]
 
-        if platform.system() == "Linux" and platform.libc_ver()[0] != "glibc":
-            raise JvmNotFoundError(JvmNotFoundError.UNSUPPORTED_LIBC)
+        watcher.handle(JvmResolvingEvent())
         
-        jvm_version_type = metadata.get("javaVersion", {}).get("component", "jre-legacy")
+        jvm_version_info = metadata.get("javaVersion", {})
+        if not isinstance(jvm_version_info, dict):
+            raise ValueError("metadata: /javaVersion must be a string")
+
+        jvm_major_version = jvm_version_info.get("majorVersion")
+        if jvm_major_version is not None and not isinstance(jvm_major_version, int):
+            raise ValueError("metadata: /javaVersion/majorVersion must be an integer")
+
+        if platform.system() == "Linux" and platform.libc_ver()[0] != "glibc":
+            return self.find_builtin(state, watcher, JvmNotFoundError.UNSUPPORTED_LIBC, jvm_major_version)
+
+        jvm_version_type = jvm_version_info.get("component", "jre-legacy")
         if not isinstance(jvm_version_type, str):
             raise ValueError("metadata: /javaVersion/component must be a string")
 
@@ -789,11 +799,11 @@ class JvmTask(Task):
             
             jvm_arch_meta = all_jvm_meta.get(minecraft_jvm_os)
             if not isinstance(jvm_arch_meta, dict):
-                raise JvmNotFoundError(JvmNotFoundError.UNSUPPORTED_ARCH)
+                return self.find_builtin(state, watcher, JvmNotFoundError.UNSUPPORTED_ARCH, jvm_major_version)
 
             jvm_meta = jvm_arch_meta.get(jvm_version_type)
             if not isinstance(jvm_meta, list) or not len(jvm_meta):
-                raise JvmNotFoundError(JvmNotFoundError.UNSUPPORTED_VERSION)
+                return self.find_builtin(state, watcher, JvmNotFoundError.UNSUPPORTED_VERSION, jvm_major_version)
 
             jvm_meta_manifest = jvm_meta[0].get("manifest")
             if not isinstance(jvm_meta_manifest, dict):
@@ -817,8 +827,6 @@ class JvmTask(Task):
         jvm_exec = jvm_dir.joinpath("bin", jvm_bin_filename)
         jvm_version = jvm_manifest.get("version")
 
-        watcher.handle(JvmResolveEvent(jvm_version, None))
-
         jvm_files = jvm_manifest.get("files")
         if not isinstance(jvm_files, dict):
             raise ValueError("jvm manifest: /files must be an object")
@@ -835,6 +843,43 @@ class JvmTask(Task):
         
         state.insert(Jvm(jvm_exec, jvm_version))
         watcher.handle(JvmResolveEvent(jvm_version, len(jvm_files)))
+
+    def find_builtin(self, state: State, watcher: Watcher, reason: str, major_version: Optional[int]) -> None:
+        """Internal function to find the builtin Java executable, the reason why this is
+        needed is given in parameter. The expected major version is also given, it should
+        not be none because we cannot check builtin version.
+        """
+
+        if major_version is None:
+            raise JvmNotFoundError(reason)
+
+        builtin_path = shutil.which(jvm_bin_filename)
+        if builtin_path is None:
+            raise JvmNotFoundError(reason)
+        
+        try:
+            
+            # Get version of the JVM.
+            process = Popen([builtin_path, "-version"], bufsize=1, stdout=PIPE, stderr=STDOUT, universal_newlines=True)
+            stdout, _stderr = process.communicate(timeout=1)
+
+            version_start = stdout.index(f"1.{major_version}" if major_version <= 8 else str(major_version))
+            version = None
+            
+            # Parse version by getting all character that are numeric or '.'.
+            for i, ch in enumerate(stdout[version_start:]):
+                if not ch.isnumeric() and ch not in (".", "_"):
+                    version = stdout[version_start:i]
+                    break
+            
+            if version is None:
+                raise ValueError()
+
+        except (TimeoutExpired, ValueError):
+            raise JvmNotFoundError(JvmNotFoundError.BUILTIN_INVALID_VERSION)
+
+        state.insert(Jvm(Path(builtin_path), version))
+        watcher.handle(JvmResolveEvent(version, None))
 
 
 class ArgsTask(Task):
@@ -1237,12 +1282,14 @@ class JarNotFoundError(Exception):
     """
 
 class JvmNotFoundError(Exception):
-    """Raised if no JVM can be found, the particular reason is given as code.
+    """Raised if no JVM can be found, the particular reason is given as code. This error
+    is raised only if no builtin Java can be resolved.
     """
 
     UNSUPPORTED_LIBC = "unsupported_libc"
     UNSUPPORTED_ARCH = "unsupported_arch"
     UNSUPPORTED_VERSION = "unsupported_version"
+    BUILTIN_INVALID_VERSION = "builtin_invalid_version"
 
     def __init__(self, code: str) -> None:
         self.code = code
@@ -1291,7 +1338,13 @@ class LoggerFoundEvent:
     def __init__(self, version: str) -> None:
         self.version = version
 
+class JvmResolvingEvent:
+    """Event triggered when JVM start being resolved.
+    """
+
 class JvmResolveEvent:
+    """Event triggered when JVM has been resolved.
+    """
     __slots__ = "version", "count"
     def __init__(self, version: Optional[str], count: Optional[int]) -> None:
         self.version = version
