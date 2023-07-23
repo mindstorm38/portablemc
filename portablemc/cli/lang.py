@@ -170,6 +170,8 @@ lang = {
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.not_found_error.{JvmNotFoundError.UNSUPPORTED_LIBC}": "No JVM download was found for your libc (only glibc is supported), "
         "use --jvm argument to manually set the path to your JVM executable.",
+    f"start.jvm.not_found_error.{JvmNotFoundError.BUILTIN_INVALID_VERSION}": f"The builtin JVM found ({jvm_bin_filename}) has not a valid "
+        "version for the selected version.",
     "start.args.fixes": "Applied the following fixes to arguments:",
     f"start.args.fix.{ArgsFixesEvent.LEGACY_RESOLUTION}": "Included resolution into game arguments",
     f"start.args.fix.{ArgsFixesEvent.MAIN_CLASS_FIRST}": "Main class placed first in class path",
