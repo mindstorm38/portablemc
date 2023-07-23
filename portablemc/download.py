@@ -98,7 +98,9 @@ class DownloadEntry:
         return hash((self.url, self.dst, self.size, self.sha1))
 
     def __eq__(self, other):
-        return (self.url, self.dst, self.size, self.sha1) == (other.url, other.dst, other.size, other.sha1)
+        return isinstance(other, DownloadEntry) and \
+            (self.url, self.dst, self.size, self.sha1) == \
+            (other.url, other.dst, other.size, other.sha1)
 
 
 class _DownloadEntry:

@@ -76,7 +76,7 @@ class LibrarySpecifier:
 
     __slots__ = "group", "artifact", "version", "classifier", "extension"
 
-    def __init__(self, group: str, artifact: str, version: str, classifier: Optional[str], extension: str = "jar"):
+    def __init__(self, group: str, artifact: str, version: str, classifier: Optional[str] = None, extension: str = "jar"):
         self.group = group
         self.artifact = artifact
         self.version = version
@@ -106,8 +106,16 @@ class LibrarySpecifier:
             ("" if self.classifier is None else f":{self.classifier}") + \
             ("" if self.extension == "jar" else f"@{self.extension}")
 
+    def __eq__(self, other) -> bool:
+        return isinstance(other, LibrarySpecifier) and \
+            (self.group, self.artifact, self.version, self.classifier, self.extension) == \
+            (other.group, other.artifact, other.version, other.classifier, other.extension)
+
     def __repr__(self) -> str:
         return f"<LibrarySpecifier {self}>"
+    
+    def __hash__(self) -> int:
+        return hash((self.group, self.artifact, self.version, self.classifier, self.extension))
 
     def file_path(self) -> str:
         """Return the standard path to store the file of this specifier.
