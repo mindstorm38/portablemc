@@ -6,11 +6,11 @@ environments.
 Documented version: `4.0.0`.
 
 ## Table of contents
-- [Versioning](#versioning)
+- [Versioning and compatibility](#versioning-and-compatibility)
 - [File structure](#file-structure)
 - [Tasks](#tasks)
 
-## Versioning
+## Versioning and compatibility
 This launcher uses [semantic versioning](https://semver.org/lang/fr/),
 therefore you should expect no breaking changes in the public API when
 bumping the minor or patch version numbers. **Please note** however
