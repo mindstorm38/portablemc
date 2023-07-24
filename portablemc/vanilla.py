@@ -290,12 +290,13 @@ class Jvm:
         self.version = version
 
 class ArgsOptions:
-    """Options used for the preparation of arguments by `ArgsTask`. These options are
-    optional for this task but can be used to specify various options such as 
-    authentication session to use or server address to start Minecraft with.
+    """Global options applied to vanilla version preparation. This state options is
+    optional and may not be present, in such case the default options are used.
+    This includes a set of predefined fixes that are enabled by default in order to
+    address some known common problems of Minecraft versions.
 
-    This class also provides generic fixes that can be usually applied to the arguments
-    line. These fixes only touch the arguments before launcher, it's all temporary.
+    These options does not alter the content of installed files, but rather which files
+    are installed and which ones are used to run the game.
     """
 
     FIX_LEGACY_PROXY = object()
@@ -303,6 +304,9 @@ class ArgsOptions:
     FIX_LEGACY_RESOLUTION = object()
 
     def __init__(self):
+        
+        self.features: Dict[str, bool] = {}
+        
         self.auth_session: Optional[AuthSession] = None
         self.demo: bool = False
         self.resolution: Optional[Tuple[int, int]] = None
@@ -310,12 +314,13 @@ class ArgsOptions:
         self.disable_chat: bool = False
         self.server_address: Optional[str] = None
         self.server_port: Optional[int] = None
-        self.features: Dict[str, bool] = {}  # Additional features for metadata args.
+        
         self.fixes = { 
             self.FIX_LEGACY_PROXY, 
-            self.FIX_LEGACY_MERGE_SORT
+            self.FIX_LEGACY_MERGE_SORT,
+            self.FIX_LEGACY_RESOLUTION,
         }
-
+    
     def set_offline(self, username: Optional[str], uuid: Optional[str]) -> None:
         """Shortcut for setting an offline session with the given username/uuid pair.
         """
@@ -622,7 +627,8 @@ class LibrariesTask(Task):
                     if not isinstance(rules, list):
                         raise ValueError(f"metadata: /libraries/{library_idx}/rules must be a list")
                     
-                    if not interpret_rule(rules):
+                    # TODO: Support features in this?
+                    if not interpret_rule(rules, {}, f"metadata: /libraries/{library_idx}/rules"):
                         continue
 
                 # Old metadata files provides a 'natives' mapping from OS to the classifier
@@ -936,6 +942,7 @@ class ArgsTask(Task):
         features = {
             "is_demo_user": opts.demo,
             "has_custom_resolution": opts.resolution is not None,
+            "is_quick_play_multiplayer": opts.server_address is not None,
             **opts.features
         }
 
@@ -1079,6 +1086,9 @@ class ArgsTask(Task):
             "classpath_separator": os.pathsep,
             "classpath": os.pathsep.join(class_path)
         }
+
+        if opts.server_address is not None:
+            args_replacements["quickPlayMultiplayer"] = f"{opts.server_address}:{opts.server_port or 25565}"
 
         if opts.resolution is not None:
             args_replacements["resolution_width"] = str(opts.resolution[0])
@@ -1544,40 +1554,56 @@ def parse_download_entry(value: Any, dst: Path, path: str) -> DownloadEntry:
     return DownloadEntry(url, dst, size=size, sha1=sha1, name=dst.name)
 
 
-def get_minecraft_dir() -> Path:
-    """Internal function to get the default directory for installing
-    and running Minecraft.
+def interpret_rule(rules: Any, features: Dict[str, bool], path: str) -> bool:
+    """Common function to interpret rules and determine if the condition is met or not.
     """
-    home = Path.home()
-    return {
-        "Windows": home.joinpath("AppData", "Roaming", ".minecraft"),
-        "Darwin": home.joinpath("Library", "Application Support", "minecraft"),
-    }.get(platform.system(), home / ".minecraft")
 
+    if not isinstance(rules, list):
+        raise ValueError(f"{path} must be a list")
 
-def interpret_rule(rules: list, features: dict = {}) -> bool:
-    """
-    """
-    # NOTE: Do not modify 'features' because of the default singleton.
     allowed = False
-    for rule in rules:
+    for i, rule in enumerate(rules):
+
+        if not isinstance(rule, dict):
+            raise ValueError(f"{path}/{i} must be an object")
+
         rule_os = rule.get("os")
-        if rule_os is not None and not interpret_rule_os(rule_os):
+        if rule_os is not None and not interpret_rule_os(rule_os, f"{path}/{i}/os"):
             continue
-        rule_features: Optional[dict] = rule.get("features")
+
+        rule_features = rule.get("features")
         if rule_features is not None:
+            
+            if not isinstance(rule_features, dict):
+                raise ValueError(f"{path}/{i}/features must be an object")
+
             feat_valid = True
             for feat_name, feat_expected in rule_features.items():
                 if features.get(feat_name) != feat_expected:
                     feat_valid = False
                     break
+            
             if not feat_valid:
                 continue
-        allowed = (rule["action"] == "allow")
+        
+        action = rule.get("action")
+        if action not in ("allow", "disallow"):
+            raise ValueError(f"{path}/{i}/action must be 'allow' and 'disallow'")
+        
+        if action == "disallow":
+            return False  # Early return because of disallow.
+        allowed = True    # Only other possible value is "allow".
+
     return allowed
 
 
-def interpret_rule_os(rule_os: dict) -> bool:
+def interpret_rule_os(rule_os: Any, path: str) -> bool:
+    """Common function to interpret a rule constraint on the running OS.
+    """
+
+    if not isinstance(rule_os, dict):
+        raise ValueError(f"{path} must be an object")
+    
     os_name = rule_os.get("name")
     if os_name is None or os_name == minecraft_os:
         os_arch = rule_os.get("arch")
@@ -1595,7 +1621,7 @@ def interpret_args(args: List[Union[str, dict]], features: Dict[str, bool], dst:
         else:
             rules = arg.get("rules")
             if rules is not None:
-                if not interpret_rule(rules, features):
+                if not interpret_rule(rules, features, "<TODO>"):
                     continue
             arg_value = arg["value"]
             if isinstance(arg_value, list):
@@ -1618,6 +1644,17 @@ def replace_list_vars(text_list: List[str], replacements: Dict[str, str]) -> Ite
     """Call `replace_vars` on multiple texts in a list with the same replacements.
     """
     return (replace_vars(elt, replacements) for elt in text_list)
+
+
+def get_minecraft_dir() -> Path:
+    """Internal function to get the default directory for installing
+    and running Minecraft.
+    """
+    home = Path.home()
+    return {
+        "Windows": home.joinpath("AppData", "Roaming", ".minecraft"),
+        "Darwin": home.joinpath("Library", "Application Support", "minecraft"),
+    }.get(platform.system(), home / ".minecraft")
 
 
 # Name of the OS has used by Minecraft.
