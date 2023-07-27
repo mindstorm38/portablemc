@@ -268,11 +268,11 @@ class Version:
 
         self._resolve_metadata(watcher)
         self._resolve_features(watcher)
+        self._resolve_jvm(watcher)  # JVM added here on purpose to ease implementation of ForgeVersion
         self._resolve_jar(watcher)
         self._resolve_assets(watcher)
         self._resolve_libraries(watcher)
         self._resolve_logger(watcher)
-        self._resolve_jvm(watcher)
         self._download(watcher)
         self._finalize_assets(watcher)
 

@@ -38,30 +38,6 @@ FABRIC_API = FabricApi("fabric", "https://meta.fabricmc.net/v2/")
 QUILT_API = FabricApi("quilt", "https://meta.quiltmc.org/v3/")
 
 
-class FabricRoot:
-    """Represent the root fabric version to load. The task `FabricInitTask` will only
-    trigger if such state is present.
-    """
-
-    def __init__(self, api: FabricApi, vanilla_version: str, loader_version: Optional[str], prefix: str) -> None:
-        self.api = api
-        self.vanilla_version = vanilla_version
-        self.loader_version = loader_version
-        self.prefix = prefix
-
-    @classmethod
-    def with_fabric(cls, vanilla_version: str, loader_version: Optional[str], prefix: str = "fabric") -> "FabricRoot":
-        """Construct a root for resolving a Fabric version.
-        """
-        return cls(FABRIC_API, vanilla_version, loader_version, prefix)
-
-    @classmethod
-    def with_quilt(cls, vanilla_version: str, loader_version: Optional[str], prefix: str = "quilt") -> "FabricRoot":
-        """Construct a root for resolving a Quilt version.
-        """
-        return cls(QUILT_API, vanilla_version, loader_version, prefix)
-
-
 class FabricVersion(Version):
 
     def __init__(self, context: Context, api: FabricApi, vanilla_version: str, loader_version: Optional[str], prefix: str) -> None:
