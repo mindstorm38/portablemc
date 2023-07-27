@@ -17,7 +17,6 @@ from .download import DownloadList, DownloadEntry, DownloadResultProgress, Downl
 from .util import jvm_bin_filename, merge_dict, LibrarySpecifier
 from .auth import AuthSession, OfflineAuthSession
 from .http import http_request
-from .task import Watcher
 from . import LAUNCHER_NAME, LAUNCHER_VERSION
 
 from typing import Optional, Iterator, Dict, List, Tuple, Any, Callable, Set
@@ -32,6 +31,7 @@ FIX_LEGACY_PROXY = object()
 FIX_LEGACY_MERGE_SORT = object()
 FIX_LEGACY_RESOLUTION = object()
 FIX_LEGACY_QUICK_PLAY = object()
+FIX_1_16_AUTH_LIB = object()
 
 
 class Context:
@@ -84,6 +84,15 @@ class Context:
         directory isn't created by this method, only its path is returned.
         """
         return self.bin_dir / str(uuid4())
+
+
+class Watcher:
+    """Base class for a watcher of the install process.
+    """
+    
+    def handle(self, event: Any) -> None:
+        """Called when the watcher can handle the given event.
+        """
 
 
 class VersionHandle:
@@ -160,12 +169,12 @@ class Version:
     Mojang by default.
     """
     
-    def __init__(self, context: Context, root_version: str) -> None:
+    def __init__(self, context: Context, version: str) -> None:
         """Construct a standard version installer and runner.
 
         :param context: The installation context of the game, used to know where to find
         its metadata and where to install resources.
-        :param root_version: The root version to resolve at first, all of its parents will
+        :param version: The root version to resolve at first, all of its parents will
         be loaded and then all the metadata will be merged together. This merged metadata
         will be used by this class to install its resources such as libraries and assets.
         :param version_max_parents: Optional parameter that specifies the hard limit of
@@ -173,8 +182,8 @@ class Version:
         """
 
         # Entry attributes
-        self.context = context
-        self.root_version = root_version
+        self.context: Context = context
+        self._version = version
         
         # General options
         self.demo: bool = False
@@ -188,11 +197,11 @@ class Version:
             FIX_LEGACY_MERGE_SORT,
             FIX_LEGACY_RESOLUTION,
             FIX_LEGACY_QUICK_PLAY,
+            FIX_1_16_AUTH_LIB,
         }
 
         # Resolved version metadata, root version and its hierarchy, and merged metadata
-        self._version: Optional[VersionHandle] = None
-        self._versions: List[VersionHandle] = []
+        self._hierarchy: List[VersionHandle] = []
         self._metadata: dict = {}
 
         # Features used for rule resolution across the metadata
@@ -207,17 +216,17 @@ class Version:
         self._assets_virtual_dir: Optional[Path] = None
         self._assets_resources_dir: Optional[Path] = None
 
-        # Native and class libraries
-        self._native_libs: List[Path] = []
-        self._class_libs: List[Path] = []
+        # Native and class libraries (using dict so we keep order)
+        self._libs: Dict[LibrarySpecifier, _ParsedLibrary] = {}
+        self._libs_native: List[Path] = []
+        self._libs_class: List[Path] = []
         self._libs_predicates: List[Callable[[LibrarySpecifier], bool]] = []
-        self._libs_version_fixes: Dict[LibrarySpecifier, str] = {
-            LibrarySpecifier("com.mojang", "authlib", "2.1.28"): "2.2.30"
-        }
 
+        # Logger config parsed from metadata
         self._logger_path: Optional[Path] = None
         self._logger_arg: Optional[str] = None
         
+        # JVM to use for launching the game
         self._jvm_path: Optional[Path] = None
         self._jvm_version: Optional[str] = None
 
@@ -249,14 +258,10 @@ class Version:
         self.quick_play = QuickPlayRealms(realm)
 
     def install(self, *, watcher: Optional[Watcher] = None) -> None:
-        """This function ensures that this version is properly installed. You may give
-        a watcher for listening at all the steps being executed to produce the binary.
-        This function also ensures that 
-
-        This function may produce a wide range of errors when resolving, and will also
-        provides events to the given watcher. When an error happens the internal state
-        is not guaranteed, but should be possible to fix after fixing the reported 
-        problem and running this function again.
+        """This function ensures that this version is properly installed given 
+        configuration of this class' attributes. This function can be called multiple
+        time and will not recompute what have already been done, if errors happen, the
+        install can be resumed and the failed steps will be retried.
         """
 
         watcher = watcher or Watcher()
@@ -275,37 +280,37 @@ class Version:
         """This step resolves metadata of the root version and all of its parents.
         """
 
-        versions = self._versions
-        version: Optional[str] = self.root_version
-        versions.clear()
+        hierarchy = self._hierarchy
+        version: Optional[str] = self._version
+        hierarchy.clear()
 
         while version is not None:
 
-            if len(versions) > 10:
-                raise TooMuchParentsError(versions)
+            if len(hierarchy) > 10:
+                raise TooMuchParentsError(hierarchy)
             
             watcher.handle(VersionLoadingEvent(version))
 
             # Get version instance and load/fetch is needed.
             handle = self.context.get_version(version)
             if not self._load_version(handle, watcher):
-                watcher.handle(VersionLoadingEvent(version))
+                watcher.handle(VersionFetchingEvent(version))
                 self._fetch_version(handle, watcher)
             
             watcher.handle(VersionLoadedEvent(version))
 
             # Set the parent of the last version to the version being resolved.
-            if len(versions):
-                versions[-1].parent = handle
+            if len(hierarchy):
+                hierarchy[-1].parent = handle
             
-            versions.append(handle)
+            hierarchy.append(handle)
             version_id = handle.metadata.pop("inheritsFrom", None)
             
             if version_id is not None and not isinstance(version_id, str):
                 raise ValueError("metadata: /inheritsFrom must be a string")
 
-        self._version = versions[0]
-        self._metadata = self._version.merge()
+        # self.handle = hierarchy[0]
+        self._metadata = hierarchy[0].merge()
 
     def _load_version(self, version: VersionHandle, watcher: Watcher) -> bool:
         """This function is responsible for loading a version's metadata. Note that 
@@ -345,14 +350,14 @@ class Version:
         self._features["has_custom_resolution"] = self.resolution is not None
         if self.quick_play is not None:
             self._features[self.quick_play.feature] = True
+        
+        watcher.handle(VersionFeaturesEvent([feature for feature, enabled in self._features.items() if enabled]))
 
     def _resolve_jar(self, watcher: Watcher) -> None:
         """This step resolves the JAR file to use for launcher the game.
         """
 
-        assert self._version is not None
-
-        self._jar_path = self._version.jar_file()
+        self._jar_path = self._hierarchy[0].jar_file()
 
         # First try to find a /downloads/client download entry.
         version_dls = self._metadata.get("downloads")
@@ -433,7 +438,6 @@ class Version:
         if not isinstance(assets_objects, dict):
             raise ValueError("assets index: /objects must be an object")
 
-        self._assets.clear()
         for asset_id, asset_obj in assets_objects.items():
 
             if not isinstance(asset_obj, dict):
@@ -449,10 +453,10 @@ class Version:
 
             asset_hash_prefix = asset_hash[:2]
             asset_file = assets_objects_dir.joinpath(asset_hash_prefix, asset_hash)
+
+            asset_url = f"{RESOURCES_URL}{asset_hash_prefix}/{asset_hash}"
             self._assets[asset_id] = asset_file
-            if not asset_file.is_file() or asset_file.stat().st_size != asset_size:
-                asset_url = f"{RESOURCES_URL}{asset_hash_prefix}/{asset_hash}"
-                self._dl.add(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id))
+            self._dl.add(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id), verify=True)
         
         self._assets_index_version = assets_index_version
         self._assets_virtual_dir = context.assets_dir.joinpath("virtual", assets_index_version) if assets_virtual else None
@@ -477,17 +481,23 @@ class Version:
                 shutil.copyfile(str(asset_file), str(dst_file))
 
     def _resolve_libraries(self, watcher: Watcher) -> None:
-        """Step resolving 
+        """Step resolving libraries from version's metadata. 
+        
+        **Note that this is the most critical step and libraries resolving is really 
+        important for running the game.**
+        
+        *This step has to support both older format where native libraries were given
+        appart from regular class path libraries, all of this should also support 
+        automatic downloading both from an explicit artifact URL, or with a maven repo
+        URL.*
         """
-
-        assert self._version is not None
 
         excluded_libs = []
         watcher.handle(LibrariesResolvingEvent())
 
         # Recursion order is important for libraries resolving, root libraries should
         # be placed first.
-        for version in self._version.recurse():
+        for version in self._hierarchy[0].recurse():
 
             metadata_libraries = version.metadata.get("libraries")
             if metadata_libraries is None:
@@ -517,9 +527,9 @@ class Version:
                         continue
 
                 # Old metadata files provides a 'natives' mapping from OS to the classifier
-                # specific for this OS.
+                # specific for this OS, this kind of libs are "native libs", we need to
+                # extract their dynamic libs into the "bin" directory before running.
                 natives = library.get("natives")
-
                 if natives is not None:
 
                     if not isinstance(natives, dict):
@@ -533,30 +543,18 @@ class Version:
 
                     if minecraft_arch_bits is not None:
                         spec.classifier = spec.classifier.replace("${arch}", str(minecraft_arch_bits))
-                    
-                    libs = self._native_libs
-
-                else:
-                    libs = self._class_libs
                 
                 # Apply predicates after the final classifier has been set, if relevant.
                 if not all((pred(spec) for pred in self._libs_predicates)):
                     excluded_libs.append(spec)
                     continue
 
-                # Check version fixes.
-                version_fix = self._libs_version_fixes.get(spec)
-                if version_fix is not None:
-                    spec.version = version_fix
-
-                dl_entry: Optional[DownloadEntry] = None
-                jar_path_rel = spec.file_path()
-                jar_path = self.context.libraries_dir / jar_path_rel
+                lib_entry: Optional[DownloadEntry] = None
                 
                 # Avoids ready downloading if a fix is being used, in such case we'll use
-                # the Mojang's libraries. TODO: Improve this fix system, it's limiting.
+                # the Mojang's libraries.
                 downloads = library.get("downloads")
-                if downloads is not None and version_fix is None:
+                if downloads is not None:
 
                     if not isinstance(downloads, dict):
                         raise ValueError(f"metadata: /libraries/{library_idx}/downloads must be an object")
@@ -570,33 +568,80 @@ class Version:
                         dl_meta = downloads.get("artifact")
 
                     if dl_meta is not None:
-                        dl_entry = parse_download_entry(dl_meta, jar_path, f"metadata: /libraries/{library_idx}/downloads/artifact")
+                        lib_path = self.context.libraries_dir / spec.file_path()
+                        lib_entry = parse_download_entry(dl_meta, lib_path, f"metadata: /libraries/{library_idx}/downloads/artifact")
 
-                # If no download entry can be found, add a default one that points to 
-                # official library repository, this may not work.
-                # TODO: Maybe avoid trying this if the jar file already exists.
-                if dl_entry is None:
+                # If no download entry can be found, try to find the maven repository url.
+                if lib_entry is None:
+                    repo_url = library.get("url")
+                    if repo_url is not None:
 
-                    # The official launcher seems to default to their repository, it will also
-                    # allows us to prevent launch if such lib cannot be found.
-                    repo_url = library.get("url", LIBRARIES_URL)
-                    if not isinstance(repo_url, str):
-                        raise ValueError(f"metadata: /libraries/{library_idx}/url must be a string")
-                    
-                    # Let's be sure to have a '/' as last character.
-                    if repo_url[-1] != "/":
-                        repo_url += "/"
-                    
-                    dl_entry = DownloadEntry(f"{repo_url}{jar_path_rel}", jar_path)
+                        if not isinstance(repo_url, str):
+                            raise ValueError(f"metadata: /libraries/{library_idx}/url must be a string")
+                        
+                        # Let's be sure to have a '/' as last character.
+                        if repo_url[-1] != "/":
+                            repo_url += "/"
+                        
+                        lib_path_rel = spec.file_path()
+                        lib_path = self.context.libraries_dir / lib_path_rel
+                        lib_entry = DownloadEntry(f"{repo_url}{lib_path_rel}", lib_path)
 
-                libs.append(jar_path)
+                # Adding parsed library.
+                # Insertion ordering is guaranteed on dictionaries since python 3.6
+                self._libs[spec] = _ParsedLibrary(natives is not None, lib_entry)
 
-                # If URL is empty, just ignore the entry.
-                if dl_entry is not None and len(dl_entry.url):
-                    dl_entry.name = str(spec)
-                    self._dl.add(dl_entry, verify=True)
+        # Finalize libraries resolving.
+        self._resolve_libraries_final(watcher)
 
-        watcher.handle(LibrariesResolvedEvent(len(self._class_libs), len(self._native_libs), excluded_libs))
+        watcher.handle(LibrariesResolvedEvent(len(self._libs_class), len(self._libs_native), excluded_libs))
+
+    def _resolve_libraries_final(self, watcher: Watcher) -> None:
+        """Sub-step of resolving libraries that takes the parsed libraries and finally
+        check if download conditions are met, and if so add the library the correct list.
+
+        *Note that this function is made to be overwritten in order to apply eventual 
+        customization to parsed libraries.*
+        """
+
+        # Versions 1.16.4 and 1.16.5 uses authlib:2.1.28 which cause multiplayer button
+        # (and probably in-game chat) to be disabled, this can be fixed by switching to
+        # version 2.2.30
+        if FIX_1_16_AUTH_LIB in self.fixes:
+            spec = LibrarySpecifier("com.mojang", "authlib", "2.1.28")
+            lib = self._libs.pop(spec, None)
+            if lib is not None:
+                spec.version = "2.2.30"
+                if lib.entry is not None:
+                    lib.entry.url = f"{LIBRARIES_URL}com/mojang/authlib/2.2.30/authlib-2.2.30.jar"
+                    lib.entry.sha1 = "d6e677199aa6b19c4a9a2e725034149eb3e746f8"
+                    lib.entry.size = 87497
+
+        # Finally take the final version of libs and add them to download list.
+        self._libs_native.clear()
+        self._libs_class.clear()
+        for spec, parsed_lib in self._libs.items():
+
+            lib_path = self.context.libraries_dir / spec.file_path()
+            lib_entry = parsed_lib.entry
+
+            # If no repository URL is given, no more download method is available,
+            # so if the JAR file isn't installed, the game cannot be launched.
+            # 
+            # Note: In the past, we used to default the url to Mojang's maven 
+            # repository, but this was a bad habit because most libraries could
+            # not be downloaded from their repository, and this was confusing to
+            # get a download error for such libraries.
+            if lib_entry is None or not len(lib_entry.url):
+                if not lib_path.is_file():
+                    raise LibraryNotFoundError(spec)
+            else:
+                lib_entry.name = str(spec)
+                self._dl.add(lib_entry, verify=True)
+            
+            # Finally, add it to the correct libs list.
+            libs = self._libs_native if parsed_lib.native else self._libs_class
+            libs.append(lib_path)
 
     def _resolve_logger(self, watcher: Watcher) -> None:
         """This step resolve the logger to use for launcher the game.
@@ -796,7 +841,6 @@ class Version:
         into account.
         """
 
-        assert self._version is not None
         assert self._assets_index_version is not None
 
         # Main class
@@ -811,7 +855,7 @@ class Version:
         auth_session = self.auth_session or OfflineAuthSession(None, None)
 
         # Class path, without main class (added later depending on arguments present).
-        class_path = list(map(str, self._class_libs))
+        class_path = list(map(str, self._libs_class))
         
         # Arguments
         self._main_class = main_class
@@ -867,7 +911,7 @@ class Version:
         if len(self.fixes):
 
             # Get the last version in the parent's tree, we use it to apply legacy fixes.
-            ancestor_id = list(self._version.recurse())[-1].id
+            ancestor_id = list(self._hierarchy[0].recurse())[-1].id
 
             # Legacy proxy aims to fix things like skins on old versions.
             # This is applicable to all alpha/beta and 1.0:1.5
@@ -920,7 +964,7 @@ class Version:
         self._args_replacements: Dict[str, str] = {
             # Game
             "auth_player_name": auth_session.username,
-            "version_name": self._version.id,
+            "version_name": self._hierarchy[0].id,
             "library_directory": str(self.context.libraries_dir),
             "game_directory": str(self.context.work_dir),
             "assets_root": str(self.context.assets_dir),
@@ -999,39 +1043,37 @@ class QuickPlayRealms(QuickPlay):
         args_replacements["quickPlayRealms"] = self.realm
 
 
-class Args:
-    """Indicates java arguments, game arguments and main class required to run the game.
-    This can later be used to run the game and is usually prepared by the `ArgsTask`.
+class WatcherGroup(Watcher):
+    """A group of watcher that is itself a watcher, its functions dispatches events to
+    all tasks.
     """
 
-    __slots__ = "jvm_args", "game_args", "main_class", "args_replacements"
-
-    def __init__(self, jvm_args: List[str], game_args: List[str], main_class: str, args_replacements: Dict[str, str]) -> None:
-        self.jvm_args = jvm_args
-        self.game_args = game_args
-        self.main_class = main_class
-        self.args_replacements = args_replacements
+    def __init__(self) -> None:
+        self.children: Set[Watcher] = set()
     
-    def username(self) -> Optional[str]:
-        """Retrieve the authenticated username from `args_replacements` (if provided).
+    def add(self, watcher: Watcher) -> None:
+        """Add a watcher to the installer to this group.
         """
-        return self.args_replacements.get("auth_player_name")
+        self.children.add(watcher)
+    
+    def remove(self, watcher: Watcher) -> None:
+        """Remove a watcher from the group.
+        """
+        self.children.remove(watcher)
+    
+    def handle(self, event: Any) -> None:
+        for watcher in self.children:
+            watcher.handle(event)
 
-    def uuid(self) -> Optional[str]:
-        """Retrieve the authenticated UUID from `args_replacements` (if provided).
-        """
-        return self.args_replacements.get("auth_uuid")
 
-    def full_args(self) -> List[str]:
-        """Compute the full arguments list, starting with the JVM executable, followed by
-        JVM arguments, the main class name and then the game arguments. All arguments are
-        formatted using `args_replacements` mapping.
-        """
-        return [
-            *replace_list_vars(self.jvm_args, self.args_replacements),
-            self.main_class,
-            *replace_list_vars(self.game_args, self.args_replacements)
-        ]
+class _ParsedLibrary:
+    """Intermediate class representing a parsed game's library. This is subclassed to
+    denote.
+    """
+    __slots__ = "native", "entry"
+    def __init__(self, native: bool, entry: Optional[DownloadEntry]) -> None:
+        self.native = native
+        self.entry = entry
 
 
 class VersionNotFoundError(Exception):
@@ -1046,6 +1088,13 @@ class TooMuchParentsError(Exception):
     """
     def __init__(self, versions: List[VersionHandle]) -> None:
         self.versions = versions
+
+class LibraryNotFoundError(Exception):
+    """Critical error raised when a library has no download indication and is not 
+    currently installed in game's libraries.
+    """
+    def __init__(self, lib: LibrarySpecifier) -> None:
+        self.lib = lib
 
 class JarNotFoundError(Exception):
     """Raised when no version's JAR file could be found from the metadata.
@@ -1080,16 +1129,28 @@ class VersionEvent:
         self.version = version
 
 class VersionLoadingEvent(VersionEvent):
-    pass
+    """Event triggered when a version is being loaded.
+    """
 
 class VersionFetchingEvent(VersionEvent):
-    pass
+    """Event triggered when a version is being fetched.
+    """
 
 class VersionLoadedEvent(VersionEvent):
-    pass
+    """Event triggered when a version has been successfully loaded.
+    """
+
+class VersionFeaturesEvent:
+    """Event triggered when features for the version has been computed. Only enabled 
+    features are given as list of features.
+    """
+    __slots__ = "features",
+    def __init__(self, features: List[str]) -> None:
+        self.features = features
 
 class JarFoundEvent:
-    pass
+    """Event triggered when the game's JAR file has been found.
+    """
 
 class AssetsResolveEvent:
     __slots__ = "index_version", "count"
@@ -1258,6 +1319,10 @@ def interpret_rule_os(rule_os: Any, path: str) -> bool:
 def interpret_args(args: Any, features: Dict[str, bool], dst: List[str], path: str, *, 
     all_features: Optional[Set[str]] = None
 ) -> None:
+    """Common function for interpreting a list of arguments, whose may be conditional
+    under some rules. An optional set of features can be given and will be filled with
+    all features found (even if not used).
+    """
 
     if not isinstance(args, list):
         raise ValueError(f"{path} must be a list")
