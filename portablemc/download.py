@@ -8,63 +8,8 @@ from queue import Queue
 import urllib.parse
 import hashlib
 import time
-import os
-
-from .task import Task, State, Watcher
 
 from typing import Optional, Dict, List, Tuple, Union, Iterator
-
-
-class DownloadTask(Task):
-    """A download task.
-
-    This task performs a mass download of files, this is basically
-    used to download assets and libraries.
-
-    :in(setup) DownloadList: This task adds and uses a `DownloadList` state.
-    """
-
-    def setup(self, state: State) -> None:
-        # Do not overwrite potentially existing list, this allows multiple 
-        # download tasks to be chained if needed.
-        if DownloadList not in state:
-            state.insert(DownloadList())
-
-    def execute(self, state: State, watcher: Watcher) -> None:
-
-        dl = state[DownloadList]
-        entries_count = len(dl.entries)
-
-        if not entries_count:
-            return
-        
-        # Note: do not create more thread than available entries.
-        threads_count = min(entries_count, (os.cpu_count() or 1) * 4)
-        errors = []
-
-        watcher.handle(DownloadStartEvent(threads_count, entries_count, dl.size))
-
-        for result_count, result in dl.download(threads_count):
-            if isinstance(result, DownloadResultProgress):
-                watcher.handle(DownloadProgressEvent(
-                    result.thread_id,
-                    result_count,
-                    result.entry,
-                    result.size,
-                    result.speed
-                ))
-            elif isinstance(result, DownloadResultError):
-                errors.append((result.entry, result.code))
-
-        # If errors are present, raise an error.
-        if len(errors):
-            raise DownloadError(errors)
-        
-        # Clear entries if successful, therefore multiple DownloadTask can be chained if
-        # needed, without re-downloading the same files.
-        dl.entries.clear()
-        
-        watcher.handle(DownloadCompleteEvent())
 
 
 class DownloadEntry:
@@ -150,7 +95,14 @@ class DownloadResultProgress(DownloadResult):
 class DownloadResultError(DownloadResult):
     """Subclass of result when a file's download has failed.
     """
+
+    CONNECTION = "connection"
+    NOT_FOUND = "not_found"
+    INVALID_SIZE = "invalid_size"
+    INVALID_SHA1 = "invalid_sha1"
+
     __slots__ = "code",
+
     def __init__(self, thread_id: int, entry: DownloadEntry, code: str) -> None:
         super().__init__(thread_id, entry)
         self.code = code
@@ -303,7 +255,7 @@ def _download_thread(
                 conn.request("GET", entry.url)
                 res = conn.getresponse()
             except (ConnectionError, OSError, HTTPException):
-                last_error = DownloadError.CONNECTION
+                last_error = DownloadResultError.CONNECTION
                 continue
 
             if res.status == 301 or res.status == 302:
@@ -326,7 +278,7 @@ def _download_thread(
                 while res.readinto(buffer):
                     pass
 
-                last_error = DownloadError.NOT_FOUND
+                last_error = DownloadResultError.NOT_FOUND
                 continue
 
             sha1 = None if entry.sha1 is None else hashlib.sha1()
@@ -364,9 +316,9 @@ def _download_thread(
                 speed = speed_smoothing * current_speed + (1 - speed_smoothing) * speed
 
             if entry.size is not None and size != entry.size:
-                last_error = DownloadError.INVALID_SIZE
+                last_error = DownloadResultError.INVALID_SIZE
             elif sha1 is not None and sha1.hexdigest() != entry.sha1:
-                last_error = DownloadError.INVALID_SHA1
+                last_error = DownloadResultError.INVALID_SHA1
             else:
                 
                 result_queue.put(DownloadResultProgress(
@@ -382,37 +334,3 @@ def _download_thread(
             # We are here only when the file download has started but checks have failed,
             # then we should remove the file.
             entry.dst.unlink(missing_ok=True)
-
-
-class DownloadStartEvent:
-    __slots__ = "threads_count", "entries_count", "size"
-    def __init__(self, threads_count: int, entries_count: int, size: int) -> None:
-        self.threads_count = threads_count
-        self.entries_count = entries_count
-        self.size = size
-
-class DownloadProgressEvent:
-    __slots__ = "thread_id", "count", "entry", "size", "speed"
-    def __init__(self, thread_id: int, count: int, entry: DownloadEntry, size: int, speed: float) -> None:
-        self.thread_id = thread_id
-        self.count = count
-        self.entry = entry
-        self.size = size
-        self.speed = speed
-
-class DownloadCompleteEvent:
-    __slots__ = tuple()
-
-
-class DownloadError(Exception):
-    """Raised when the downloader failed to download some entries.
-    """
-
-    CONNECTION = "connection"
-    NOT_FOUND = "not_found"
-    INVALID_SIZE = "invalid_size"
-    INVALID_SHA1 = "invalid_sha1"
-
-    def __init__(self, errors: List[Tuple[DownloadEntry, str]]) -> None:
-        super().__init__()
-        self.errors = errors
