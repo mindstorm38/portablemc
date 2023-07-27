@@ -9,73 +9,37 @@ import shutil
 import json
 import os
 
-from .vanilla import parse_download_entry, Context, MetadataRoot, MetadataTask, \
-    VersionRepository, VersionRepositories, Version, VersionNotFoundError, JarTask, \
-    Jvm, VersionManifest
+from .standard import parse_download_entry, \
+    Context, VersionHandle, Version, Watcher, VersionNotFoundError
+
 from .util import calc_input_sha1, LibrarySpecifier
-from .download import DownloadList, DownloadTask
-from .task import Task, State, Watcher, Sequence
 from .http import http_request, HttpError
 
 from typing import Dict, Optional, List
 
 
-class ForgeRoot:
-    """Represent the root forge version to load.
-    """
-    __slots__ = "forge_version", "prefix"
-    def __init__(self, forge_version: str, prefix: str = "forge") -> None:
-        self.forge_version = forge_version
-        self.prefix = prefix
+class ForgeVersion(Version):
+    
+    def __init__(self, context: Context, forge_version: str, prefix: str = "forge") -> None:
 
+        super().__init__(context, "")  # Do not give a root version for now.
 
-class ForgePostProcessor:
-    """Describe the execution model of a post process.
-    """
-    __slots__ = "jar_name", "class_path", "args", "sha1"
-    def __init__(self, jar_name: str, class_path: List[str], args: List[str], sha1: Dict[str, str]) -> None:
-        self.jar_name = jar_name
-        self.class_path = class_path
-        self.args = args
-        self.sha1 = sha1
+        self._forge_version = forge_version
+        self._prefix = prefix
+        self._forge_post_info: Optional[ForgePostInfo] = None
+    
+    def _resolve_metadata(self, watcher: Watcher) -> None:
+        self._resolve_forge_loader(watcher)
+        super()._resolve_metadata(watcher)
 
-
-class ForgePostInfo:
-    """Internal state, used only when forge installer is "modern" (>= 1.12.2-14.23.5.2851)
-    describing data and post processors.
-    """
-
-    def __init__(self, tmp_dir: Path) -> None:
-        self.tmp_dir = tmp_dir
-        self.variables: Dict[str, str] = {}   # Data for variable replacements.
-        self.libraries: Dict[str, Path] = {}  # Install-time libraries.  FIXME: Get rid of this?
-        self.processors: List[ForgePostProcessor] = []
-
-
-class ForgeInitTask(Task):
-    """Task for initializing forge version resolving, if the `ForgeRoot` state is present,
-    the forge version resolving starts and a custom repository will be used for that 
-    version.
-
-    :in ForgeRoot: Optional, the forge version to load if present.
-    :in VersionRepositories: Used to register the fabric's version repository.
-    :out MetadataRoot: The root version to load, for metadata task.
-    """
-
-    def execute(self, state: State, watcher: Watcher) -> None:
-        
-        root = state.get(ForgeRoot)
-        if root is None:
-            return
-        
-        forge_version = root.forge_version
+    def _resolve_forge_loader(self, watcher: Watcher) -> None:
 
         # No dash or alias version, resolve against promo version.
-        alias = forge_version.endswith(("-latest", "-recommended"))
-        if "-" not in forge_version or alias:
+        alias = self._forge_version.endswith(("-latest", "-recommended"))
+        if "-" not in self._forge_version or alias:
 
             # If it's not an alias, create the alias from the game version.
-            alias_version = forge_version if alias else f"{forge_version}-recommended"
+            alias_version = self._forge_version if alias else f"{self._forge_version}-recommended"
             watcher.handle(ForgeResolveEvent(alias_version, True))
 
             # Try to get loader from promo versions.
@@ -84,7 +48,7 @@ class ForgeInitTask(Task):
 
             # Try with "-latest", some version do not have recommended.
             if loader_version is None and not alias:
-                alias_version = f"{forge_version}-latest"
+                alias_version = f"{self._forge_version}-latest"
                 watcher.handle(ForgeResolveEvent(alias_version, True))
                 loader_version = promo_versions.get(alias_version)
             
@@ -93,37 +57,23 @@ class ForgeInitTask(Task):
             alias_version = alias_version[:last_dash]
 
             if loader_version is None:
-                raise VersionNotFoundError(f"{root.prefix}-{alias_version}-???")
+                raise VersionNotFoundError(f"{self._prefix}-{alias_version}-???")
 
-            forge_version = f"{alias_version}-{loader_version}"
+            self._forge_version = f"{alias_version}-{loader_version}"
 
-            watcher.handle(ForgeResolveEvent(forge_version, False))
+            watcher.handle(ForgeResolveEvent(self._forge_version, False))
         
-        # Compute version id and forward to metadata task with specific repository.
-        version_id = f"{root.prefix}-{forge_version}"
-        state.insert(MetadataRoot(version_id))
-        state[VersionRepositories].insert(version_id, FabricRepository(forge_version))
+        # Finally define the full version id.
+        self._version = f"{self._prefix}-{self._forge_version}"
+
+    def _fetch_version(self, version: VersionHandle, watcher: Watcher) -> None:
+
+        if version.id != self._version:
+            return super()._fetch_version(version, watcher)
         
-
-class FabricRepository(VersionRepository):
-    """Internal class used as instance mapped to the forge version.
-    """
-
-    def __init__(self, forge_version: str) -> None:
-        self.forge_version = forge_version
-
-    def load_version(self, version: Version, state: State) -> bool:
-        # TODO: Various checks for presence of libs.
-        return super().load_version(version, state)
-    
-    def fetch_version(self, version: Version, state: State) -> None:
-
-        context = state[Context]
-        dl = state[DownloadList]
-
         # Extract the game version from the forge version, we'll use
         # it to add suffix to find the right forge version if needed.
-        game_version = self.forge_version.split("-", 1)[0]
+        game_version = self._forge_version.split("-", 1)[0]
 
         # For some older game versions, some odd suffixes were used 
         # for the version scheme.
@@ -144,7 +94,7 @@ class FabricRepository(VersionRepository):
         install_jar = None
         for suffix in suffixes:
             try:
-                install_jar = request_install_jar(f"{self.forge_version}{suffix}")
+                install_jar = request_install_jar(f"{self._forge_version}{suffix}")
                 break
             except HttpError as error:
                 if error.res.status != 404:
@@ -175,7 +125,7 @@ class FabricRepository(VersionRepository):
                 with install_jar.open(info) as fp:
                     install_profile = json.load(fp)
             except KeyError:
-                raise ForgeInstallError(self.forge_version, ForgeInstallError.INSTALL_PROFILE_NOT_FOUND)
+                raise ForgeInstallError(self._forge_version, ForgeInstallError.INSTALL_PROFILE_NOT_FOUND)
 
             # print(f"{install_profile=}")
 
@@ -187,7 +137,7 @@ class FabricRepository(VersionRepository):
                     version.metadata = json.load(fp)
 
                 # We use the bin directory if there is a need to extract temporary files.
-                post_init = ForgePostInfo(context.gen_bin_dir())
+                post_info = ForgePostInfo(self.context.gen_bin_dir())
 
                 # Parse processors
                 for i, processor in enumerate(install_profile["processors"]):
@@ -203,7 +153,7 @@ class FabricRepository(VersionRepository):
                     if not isinstance(processor_jar_name, str):
                         raise ValueError(f"forge profile: /json/processors/{i}/jar must be a string")
 
-                    post_init.processors.append(ForgePostProcessor(
+                    post_info.processors.append(ForgePostProcessor(
                         processor_jar_name,
                         processor.get("classpath", []),
                         processor.get("args", []),
@@ -215,7 +165,7 @@ class FabricRepository(VersionRepository):
                 forge_spec_raw = install_profile.get("path")
                 if forge_spec_raw is not None:
                     lib_spec = LibrarySpecifier.from_str(forge_spec_raw)
-                    lib_path = context.libraries_dir / lib_spec.file_path()
+                    lib_path = self.context.libraries_dir / lib_spec.file_path()
                     zip_extract_file(install_jar, f"maven/{lib_spec.file_path()}", lib_path)
 
                 # We fetch all libraries used to build artifacts, and we store each path 
@@ -226,12 +176,12 @@ class FabricRepository(VersionRepository):
                     lib_name = install_lib["name"]
                     lib_spec = LibrarySpecifier.from_str(lib_name)
                     lib_artifact = install_lib["downloads"]["artifact"]
-                    lib_path = context.libraries_dir / lib_spec.file_path()
+                    lib_path = self.context.libraries_dir / lib_spec.file_path()
 
-                    post_init.libraries[lib_name] = lib_path
+                    post_info.libraries[lib_name] = lib_path
                     
                     if len(lib_artifact["url"]):
-                        dl.add(parse_download_entry(lib_artifact, lib_path, "forge profile: /json/libraries/"), verify=True)
+                        self._dl.add(parse_download_entry(lib_artifact, lib_path, "forge profile: /json/libraries/"), verify=True)
                     else:
                         # The lib should be stored inside the JAR file, under maven/ directory.
                         zip_extract_file(install_jar, f"maven/{lib_spec.file_path()}", lib_path)
@@ -243,20 +193,20 @@ class FabricRepository(VersionRepository):
 
                     # Refer to a file inside the JAR file.
                     if data_val.startswith("/"):
-                        dst_path = post_init.tmp_dir / data_val[1:]
+                        dst_path = post_info.tmp_dir / data_val[1:]
                         zip_extract_file(install_jar, data_val[1:], dst_path)
                         data_val = str(dst_path)  # Replace by the path of extracted file.
 
-                    post_init.variables[data_key] = data_val
+                    post_info.variables[data_key] = data_val
                 
-                state.insert(post_init)
+                self._forge_post_info = post_info
 
             else: 
 
                 # Forge versions before 1.12.2-14.23.5.2847
                 version.metadata = install_profile.get("versionInfo")
                 if not isinstance(version.metadata, dict):
-                    raise ForgeInstallError(self.forge_version, ForgeInstallError.VERSION_METADATA_NOT_FOUND)
+                    raise ForgeInstallError(self._forge_version, ForgeInstallError.VERSION_METADATA_NOT_FOUND)
                 
                 # Older versions have non standard keys for libraries.
                 for version_lib in version.metadata["libraries"]:
@@ -277,42 +227,43 @@ class FabricRepository(VersionRepository):
                 jar_spec = LibrarySpecifier.from_str(install_profile["install"]["path"])
                 
                 # Here we copy the forge jar stored to libraries.
-                jar_path = context.libraries_dir / jar_spec.file_path()
+                jar_path = self.context.libraries_dir / jar_spec.file_path()
                 zip_extract_file(install_jar, jar_entry_path, jar_path)
 
         version.metadata["id"] = version.id
         version.write_metadata_file()
+    
+    def _resolve_jar(self, watcher: Watcher) -> None:
+        super()._resolve_jar(watcher)
+        self._finalize_forge(watcher)
+    
+    def _finalize_forge(self, watcher: Watcher) -> None:
+        """This step finalize the forge installation, after both JVM and version's JAR
+        files has been resolved. This is not always used, it depends on installer's
+        version.
+        """
 
-
-class ForgeFinalizeTask(Task):
-    """Finalize task that run the post install processors for modern installer, after the
-    first forge download.
-
-    :in ForgePostInfo: Optional, if present the corresponding post install is executed.
-    :in Jvm: The JVM, used for running the processors.
-    """
-
-    def execute(self, state: State, watcher: Watcher) -> None:
-        
-        info = state.get(ForgePostInfo)
+        info = self._forge_post_info
         if info is None:
-            return  # No post processing to do
+            return
         
-        context = state[Context]
-        jvm = state[Jvm]
-        version = state[Version]
+        assert self._jvm_path is not None, "_resolve_jvm(...) missing"
+        assert self._jar_path is not None, "_resolve_jar(...) missing"
         
+        # Download JVM files and version's JAR. This is used for finalization.
+        self._download(watcher)
+
         # Additional missing variables, the version's jar file is the same as the vanilla
         # one, so we use its path.
         info.variables["SIDE"] = "client"
-        info.variables["MINECRAFT_JAR"] = str(version.jar_file())
+        info.variables["MINECRAFT_JAR"] = str(self._jar_path)
 
         def replace_install_args(txt: str) -> str:
             txt = txt.format_map(info.variables)
             # Replace the pattern [lib name] with lib path.
             if txt[0] == "[" and txt[-1] == "]":
                 spec = LibrarySpecifier.from_str(txt[1:-1])
-                txt = str(context.libraries_dir / spec.file_path())
+                txt = str(self.context.libraries_dir / spec.file_path())
             elif txt[0] == "'" and txt[-1] == "'":
                 txt = txt[1:-1]
             return txt
@@ -349,7 +300,7 @@ class ForgeFinalizeTask(Task):
 
             # Compute the full arguments list.
             args = [
-                str(jvm.executable_file),
+                str(self._jvm_path),
                 "-cp", os.pathsep.join([str(jar_path), *(str(info.libraries[lib_name]) for lib_name in processor.class_path)]),
                 main_class,
                 *(replace_install_args(arg) for arg in processor.args)
@@ -357,7 +308,7 @@ class ForgeFinalizeTask(Task):
 
             watcher.handle(ForgePostProcessingEvent(task))
 
-            completed = subprocess.run(args, cwd=context.work_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            completed = subprocess.run(args, cwd=self.context.work_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             if completed.returncode != 0:
                 raise ValueError("ERROR")
             
@@ -374,6 +325,29 @@ class ForgeFinalizeTask(Task):
         shutil.rmtree(info.tmp_dir, ignore_errors=True)
 
         watcher.handle(ForgePostProcessedEvent())
+
+
+class ForgePostProcessor:
+    """Describe the execution model of a post process.
+    """
+    __slots__ = "jar_name", "class_path", "args", "sha1"
+    def __init__(self, jar_name: str, class_path: List[str], args: List[str], sha1: Dict[str, str]) -> None:
+        self.jar_name = jar_name
+        self.class_path = class_path
+        self.args = args
+        self.sha1 = sha1
+
+
+class ForgePostInfo:
+    """Internal state, used only when forge installer is "modern" (>= 1.12.2-14.23.5.2851)
+    describing data and post processors.
+    """
+
+    def __init__(self, tmp_dir: Path) -> None:
+        self.tmp_dir = tmp_dir
+        self.variables: Dict[str, str] = {}   # Data for variable replacements.
+        self.libraries: Dict[str, Path] = {}  # Install-time libraries.  FIXME: Get rid of this?
+        self.processors: List[ForgePostProcessor] = []
 
 
 class ForgeInstallError(Exception):
@@ -458,40 +432,3 @@ def zip_extract_file(zf: ZipFile, entry_path: str, dst_path: Path):
     dst_path.parent.mkdir(parents=True, exist_ok=True)
     with zf.open(entry_path) as src, dst_path.open("wb") as dst:
         shutil.copyfileobj(src, dst)
-
-
-def add_forge_tasks(seq: Sequence) -> None:
-    """Add tasks to a sequence for installing and running a Fabric mod loader version.
-
-    The fabric tasks will run if the `FabricRoot` state is present, in such case a 
-    `MetadataRoot` will be created if version resolution succeed.
-
-    :param seq: The sequence to alter and add tasks to.
-    """
-    seq.prepend_task(ForgeInitTask(), before=MetadataTask)
-    seq.append_task(ForgeFinalizeTask(), after=JarTask)  # Run after JVM/Jar because need it.
-    seq.prepend_task(DownloadTask(), before=ForgeFinalizeTask)  # Between forge tasks.
-
-
-def make_forge_sequence(forge_version: str, *,
-    run: bool = False,
-    context: Optional[Context] = None,
-    default_repository: Optional[VersionRepository] = None,
-    prefix: str = "forge"
-) -> Sequence:
-    """Shortcut version of `add_vanilla_tasks` followed by `add_forge_tasks` that 
-    construct the sequence for you and add all the required state to get forge installing
-    and running.
-    """
-    
-    from .vanilla import add_vanilla_tasks
-
-    seq = Sequence()
-    add_vanilla_tasks(seq, run=run)
-    add_forge_tasks(seq)
-
-    seq.state.insert(context or Context())
-    seq.state.insert(VersionRepositories(default_repository or VersionManifest()))
-    seq.state.insert(ForgeRoot(forge_version, prefix))
-
-    return seq
