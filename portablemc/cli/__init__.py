@@ -244,10 +244,6 @@ def cmd_start(ns: StartNs):
     if len(version_parts) == 1:
         version_parts = ["standard", version_parts[0]]
     
-    # # Use a custom run task.  TODO:
-    # if not ns.dry:
-    #     seq.append_task(OutputRunTask(ns))
-    
     # No handler means that the format is invalid.
     version = cmd_start_handler(ns, version_parts[0], version_parts[1:])
     if version is None:
