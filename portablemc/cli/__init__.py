@@ -11,25 +11,22 @@ from .util import format_locale_date, format_time, format_number, anonymize_emai
 from .output import Output, HumanOutput, MachineOutput, OutputTable
 from .lang import get as _, lang
 
-from ..download import DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, DownloadError
-from ..auth import AuthDatabase, AuthSession, MicrosoftAuthSession, YggdrasilAuthSession, \
-    AuthError
-from ..task import Watcher, Sequence, TaskEvent
-from ..util import LibrarySpecifier
+from portablemc.util import LibrarySpecifier
+from portablemc.auth import AuthDatabase, AuthSession, MicrosoftAuthSession, \
+    YggdrasilAuthSession, AuthError
 
-from ..vanilla import add_vanilla_tasks, Context, VersionManifest, \
-    MetadataRoot, VersionRepositories, VersionNotFoundError, TooMuchParentsError, \
+from portablemc.standard import Context, Version, VersionManifest, SimpleWatcher, \
+    DownloadError, DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, \
+    VersionNotFoundError, TooMuchParentsError, JarNotFoundError, \
+    JvmNotFoundError, LibraryNotFoundError, \
     VersionLoadingEvent, VersionFetchingEvent, VersionLoadedEvent, \
-    JarFoundEvent, JarNotFoundError, \
-    AssetsResolveEvent, \
-    LibrariesOptions, Libraries, LibrariesResolvingEvent, LibrariesResolvedEvent, \
+    JvmLoadingEvent, JvmLoadedEvent, JarFoundEvent, \
+    AssetsResolveEvent, LibrariesResolvingEvent, LibrariesResolvedEvent, \
     LoggerFoundEvent, \
-    Jvm, JvmLoadingEvent, JvmLoadedEvent, JvmNotFoundError, \
-    ArgsOptions, ArgsFixesEvent, StreamRunTask, BinaryInstallEvent, XmlStreamEvent
+    StreamRunner, XmlStreamEvent
 
-from ..lwjgl import add_lwjgl_tasks, LwjglVersion, LwjglVersionEvent
-from ..fabric import add_fabric_tasks, FabricRoot, FabricResolveEvent
-from ..forge import add_forge_tasks, ForgeRoot, ForgeResolveEvent, ForgePostProcessingEvent, \
+from portablemc.fabric import FabricVersion, FabricResolveEvent
+from portablemc.forge import ForgeVersion, ForgeResolveEvent, ForgePostProcessingEvent, \
     ForgePostProcessedEvent, ForgeInstallError
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
@@ -156,13 +153,6 @@ def cmd(handler: CommandHandler, ns: RootNs):
 
         import traceback
         traceback.print_exc()
-
-    except DownloadError as error:
-        ns.out.task("FAILED", None)
-        ns.out.finish()
-        for entry, code in error.errors:
-            ns.out.task(None, "download.error", name=entry.name, message=_(f"download.error.{code}"))
-            ns.out.finish()
     
     sys.exit(EXIT_FAILURE)
 
@@ -250,24 +240,17 @@ def cmd_start(ns: StartNs):
 
     version_parts = ns.version.split(":")
 
-    # If no split, the kind of version is "vanilla": parts have at least 2 elements.
+    # If no split, the kind of version is "standard": parts have at least 2 elements.
     if len(version_parts) == 1:
-        version_parts = ["vanilla", version_parts[0]]
+        version_parts = ["standard", version_parts[0]]
     
-    # Create sequence with supported mod loaders.
-    seq = Sequence()
-    add_vanilla_tasks(seq, run=False)
-
-    # Use a custom run task.
-    if not ns.dry:
-        seq.append_task(OutputRunTask(ns))
-    
-    # Add mandatory states.
-    seq.state.insert(ns.context)
-    seq.state.insert(VersionRepositories(ns.version_manifest))
+    # # Use a custom run task.  TODO:
+    # if not ns.dry:
+    #     seq.append_task(OutputRunTask(ns))
     
     # No handler means that the format is invalid.
-    if not cmd_start_handler(ns, version_parts[0], version_parts[1:], seq):
+    version = cmd_start_handler(ns, version_parts[0], version_parts[1:])
+    if version is None:
         format_key = f"args.start.version.{version_parts[0]}"
         if format_key not in lang:
             ns.out.task("FAILED", "start.version.invalid_id_unknown_kind", kind=version_parts[0])
@@ -275,67 +258,59 @@ def cmd_start(ns: StartNs):
             ns.out.task("FAILED", "start.version.invalid_id", expected=_(format_key))
         ns.out.finish()
         sys.exit(EXIT_FAILURE)
-    
-    # Various options for ArgsTask in order to setup the arguments to start the game.
-    args_opts = seq.state[ArgsOptions]
-    args_opts.disable_multiplayer = ns.disable_mp
-    args_opts.disable_chat = ns.disable_chat
-    args_opts.demo = ns.demo
-    args_opts.server_address = ns.server
-    args_opts.server_port = ns.server_port
-    args_opts.resolution = ns.resolution
+
+    version.disable_multiplayer = ns.disable_mp
+    version.disable_chat = ns.disable_chat
+    version.demo = ns.demo
+    version.resolution = ns.resolution
+
+    if ns.server is not None:
+        version.set_quick_play_multiplayer(ns.server, ns.server_port or 25565)
 
     if ns.no_legacy_fix:
-        args_opts.fixes.clear()
-        seq.state[LibrariesOptions].version_fixes.clear()
+        version.fixes.clear()
 
     if ns.login is not None:
-        args_opts.auth_session = prompt_authenticate(ns, ns.login, not ns.temp_login, ns.auth_service, ns.auth_anonymize)
-        if args_opts.auth_session is None:
+        version.auth_session = prompt_authenticate(ns, ns.login, not ns.temp_login, ns.auth_service, ns.auth_anonymize)
+        if version.auth_session is None:
             sys.exit(EXIT_FAILURE)
     else:
-        args_opts.set_offline(ns.username, ns.uuid)
+        version.set_auth_offline(ns.username, ns.uuid)
     
-    # Included binaries
-    if ns.include_bin is not None:
-        native_libs = seq.state[Libraries].native_libs
-        for bin_path in ns.include_bin:
-            bin_path = Path(bin_path)
-            if not bin_path.is_file():
-                ns.out.task("FAILED", "start.additional_binary_not_found", path=bin_path)
-                ns.out.finish()
-                sys.exit(EXIT_FAILURE)
-            native_libs.append(bin_path)
+    # TODO: Included binaries
+    # if ns.include_bin is not None:
+    #     native_libs = seq.state[Libraries].native_libs
+    #     for bin_path in ns.include_bin:
+    #         bin_path = Path(bin_path)
+    #         if not bin_path.is_file():
+    #             ns.out.task("FAILED", "start.additional_binary_not_found", path=bin_path)
+    #             ns.out.finish()
+    #             sys.exit(EXIT_FAILURE)
+    #         native_libs.append(bin_path)
 
-    # Excluded libraries
-    if ns.exclude_lib is not None:
-        exclude_filters = ns.exclude_lib
-        def libraries_predicate(spec: LibrarySpecifier) -> bool:
-            for spec_filter in exclude_filters:
-                if spec_filter.matches(spec):
-                    return False
-            return True
-        seq.state[LibrariesOptions].predicates.append(libraries_predicate)
+    # TODO: Excluded libraries
+    # if ns.exclude_lib is not None:
+    #     exclude_filters = ns.exclude_lib
+    #     def libraries_predicate(spec: LibrarySpecifier) -> bool:
+    #         for spec_filter in exclude_filters:
+    #             if spec_filter.matches(spec):
+    #                 return False
+    #         return True
+    #     seq.state[LibrariesOptions].predicates.append(libraries_predicate)
 
-    # If LWJGL fix is required.
-    if ns.lwjgl is not None:
-        add_lwjgl_tasks(seq)
-        seq.state.insert(LwjglVersion(ns.lwjgl))
+    # TODO: If LWJGL fix is required.
+    # if ns.lwjgl is not None:
+    #     add_lwjgl_tasks(seq)
+    #     seq.state.insert(LwjglVersion(ns.lwjgl))
 
-    # If a manual JVM is specified, we set the JVM state so that JvmTask won't run.
-    if ns.jvm is not None:
-        seq.state.insert(Jvm(Path(ns.jvm), None))
+    # TODO: If a manual JVM is specified, we set the JVM state so that JvmTask won't run.
+    # if ns.jvm is not None:
+    #     seq.state.insert(Jvm(Path(ns.jvm), None))
 
-    # Add watchers of the installation.
-    seq.add_watcher(StartWatcher(ns))
-    seq.add_watcher(DownloadWatcher(ns))
-
-    if ns.verbose >= 2:
-        ns.out.task("INFO", "start.tasks", tasks=", ".join((type(task).__name__ for task in seq.tasks)))
-        ns.out.finish()
-    
     try:
-        seq.execute()
+        env = version.install(watcher=StartWatcher(ns))
+        if not ns.dry:
+            env.run(CliRunner(ns))
         sys.exit(EXIT_OK)
     
     except VersionNotFoundError as error:
@@ -356,16 +331,26 @@ def cmd_start(ns: StartNs):
         ns.out.task("FAILED", f"start.jvm.not_found_error.{error.code}")
         ns.out.finish()
     
+    except LibraryNotFoundError as error:
+        raise ValueError("TODO:")
+    
     except ForgeInstallError as error:
         ns.out.task("FAILED", f"start.forge.install_error.{error.code}")
         ns.out.finish()
+
+    except DownloadError as error:
+        ns.out.task("FAILED", None)
+        ns.out.finish()
+        for entry, code in error.errors:
+            ns.out.task(None, "download.error", name=entry.name, message=_(f"download.error.{code}"))
+            ns.out.finish()
     
     sys.exit(EXIT_FAILURE)
 
-def cmd_start_handler(ns: StartNs, kind: str, parts: List[str], seq: Sequence) -> bool:
+def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Version]:
     """This function handles particular kind of versions. If this function successfully
-    decodes, the corresponding tasks and states should be configured in the given 
-    sequence. The global version's format being parsed is <kind>[:<part>..].
+    decodes, the corresponding version should be returned. The global version's format 
+    being parsed is <kind>[:<part>..].
 
     The parts list contains at least one element, parts may be empty.
 
@@ -373,39 +358,25 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str], seq: Sequence) -
     printed out to the user on output (lang's key: "args.start.version.<kind>").
     """
 
-    if kind == "vanilla":
+    if kind == "standard":
         if len(parts) != 1:
-            return False
-        
-        vanilla_version = ns.version_manifest.filter_latest(parts[0] or "release")[0]
-        seq.state.insert(MetadataRoot(vanilla_version))
-
+            return None
+        return Version(ns.context, parts[0] or "release")
+    
     elif kind in ("fabric", "quilt"):
         if len(parts) > 2:
-            return False
-        
-        vanilla_version = ns.version_manifest.filter_latest(parts[0] or "release")[0]
-        loader_version = parts[1] if len(parts) == 2 else None
-        
-        constructor = FabricRoot.with_fabric if kind == "fabric" else FabricRoot.with_quilt
+            return None
+        constructor = FabricVersion.with_fabric if kind == "fabric" else FabricVersion.with_quilt
         prefix = ns.fabric_prefix if kind == "fabric" else ns.quilt_prefix
-        
-        add_fabric_tasks(seq)
-        seq.state.insert(constructor(vanilla_version, loader_version, prefix))
+        return constructor(ns.context, parts[0] or "release", parts[1] if len(parts) == 2 else None, prefix)
     
     elif kind == "forge":
         if len(parts) != 1:
-            return False
-        
-        vanilla_version = ns.version_manifest.filter_latest(parts[0] or "release")[0]
-
-        add_forge_tasks(seq)
-        seq.state.insert(ForgeRoot(vanilla_version, ns.forge_prefix))
+            return None
+        return ForgeVersion(ns.context, parts[0] or "release", ns.forge_prefix)
     
     else:
-        return False
-
-    return True
+        return None
 
 
 def cmd_login(ns: LoginNs):
@@ -662,154 +633,134 @@ def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftA
             return None
 
     
-class StartWatcher(Watcher):
+class StartWatcher(SimpleWatcher):
 
     def __init__(self, ns: RootNs) -> None:
-        self.ns = ns
-    
-    def handle(self, event: Any) -> None:
 
-        out = self.ns.out
+        def progress_task(key: str, **kwargs) -> None:
+            ns.out.task("..", key, **kwargs)
 
-        if isinstance(event, TaskEvent):
-            # We let the message being overwritten
-            if self.ns.verbose >= 2 and not event.done:
-                out.task("INFO", "start.task.execute", task=type(event.task).__name__)
-                out.finish()
+        def finish_task(key: str, **kwargs) -> None:
+            ns.out.task("OK", key, **kwargs)
+            ns.out.finish()
+        
+        def jvm_loaded(e: JvmLoadedEvent) -> None:
+            if e.files_count is None:
+                ns.out.task("OK", "start.jvm.loaded_builtin", version=e.version or _("start.jvm.unknown_version"))
+            else:
+                ns.out.task("OK", "start.jvm.loaded", version=e.version or _("start.jvm.unknown_version"), files_count=e.files_count)
+            ns.out.finish()
+
+        def assets_resolve(e: AssetsResolveEvent) -> None:
+            if e.count is None:
+                ns.out.task("..", "start.assets.resolving", index_version=e.index_version)
+            else:
+                ns.out.task("OK", "start.assets.resolved", index_version=e.index_version, count=e.count)
+                ns.out.finish()
+
+        def libraries_resolved(e: LibrariesResolvedEvent) -> None:
+            ns.out.task("OK", "start.libraries.resolved", class_libs_count=e.class_libs_count, native_libs_count=e.native_libs_count)
+            ns.out.finish()
+            for spec in e.excluded_libs:
+                ns.out.task(None, "start.libraries.excluded", spec=str(spec))
+                ns.out.finish()
+
+        def fabric_resolve(e: FabricResolveEvent) -> None:
+            if e.loader_version is None:
+                ns.out.task("..", "start.fabric.resolving", api=e.api.name, vanilla_version=e.vanilla_version)
+            else:
+                ns.out.task("OK", "start.fabric.resolved", api=e.api.name, loader_version=e.loader_version, vanilla_version=e.vanilla_version)
+                ns.out.finish()
+        
+        def forge_resolve(e: ForgeResolveEvent) -> None:
+            if e.alias:
+                ns.out.task("..", "start.forge.resolving", version=e.forge_version)
+            else:
+                ns.out.task("OK", "start.forge.resolved", version=e.forge_version)
+                ns.out.finish()
+
+        super().__init__({
+            VersionLoadingEvent: lambda e: progress_task("start.version.loading", version=e.version),
+            VersionFetchingEvent: lambda e: progress_task("start.version.fetching", version=e.version),
+            VersionLoadedEvent: lambda e: finish_task("start.version.loaded", version=e.version),
+            JvmLoadingEvent: lambda e: progress_task("start.jvm.loading"),
+            JvmLoadedEvent: jvm_loaded,
+            JarFoundEvent: lambda e: finish_task("start.jar.found"),
+            AssetsResolveEvent: assets_resolve,
+            LibrariesResolvingEvent: lambda e: progress_task("start.libraries.resolving"),
+            LibrariesResolvedEvent: libraries_resolved,
+            LoggerFoundEvent: lambda e: finish_task("start.logger.found", version=e.version),
+            FabricResolveEvent: fabric_resolve,
+            ForgeResolveEvent: forge_resolve,
+            ForgePostProcessingEvent: lambda e: progress_task("start.forge.post_processing", task=e.task),
+            ForgePostProcessedEvent: lambda e: finish_task("start.forge.post_processed"),
+            DownloadStartEvent: self.download_start,
+            DownloadProgressEvent: self.download_progress,
+            DownloadCompleteEvent: self.download_complete,
+        })
             
-        if isinstance(event, VersionLoadingEvent):
-            out.task("..", "start.version.loading", version=event.version)
-        
-        elif isinstance(event, VersionFetchingEvent):
-            out.task("..", "start.version.fetching", version=event.version)
-
-        elif isinstance(event, VersionLoadedEvent):
-            out.task("OK", "start.version.loaded", version=event.version)
-            out.finish()
-        
-        elif isinstance(event, LwjglVersionEvent):
-            out.task("OK", "start.lwjgl.version", version=event.version)
-            out.finish()
-
-        elif isinstance(event, JarFoundEvent):
-            out.task("OK", "start.jar.found")
-            out.finish()
-        
-        elif isinstance(event, AssetsResolveEvent):
-            if event.count is None:
-                out.task("..", "start.assets.resolving", index_version=event.index_version)
-            else:
-                out.task("OK", "start.assets.resolved", index_version=event.index_version, count=event.count)
-                out.finish()
-        
-        elif isinstance(event, LibrariesResolvingEvent):
-            out.task("..", "start.libraries.resolving")
-        
-        elif isinstance(event, LibrariesResolvedEvent):
-            out.task("OK", "start.libraries.resolved", class_libs_count=event.class_libs_count, native_libs_count=event.native_libs_count)
-            out.finish()
-            for spec in event.excluded_libs:
-                out.task(None, "start.libraries.excluded", spec=str(spec))
-                out.finish()
-
-        elif isinstance(event, LoggerFoundEvent):
-            out.task("OK", "start.logger.found", version=event.version)
-            out.finish()
-        
-        elif isinstance(event, JvmLoadingEvent):
-            out.task("..", "start.jvm.loading")
-        
-        elif isinstance(event, JvmLoadedEvent):
-            if event.files_count is None:
-                out.task("OK", "start.jvm.loaded_builtin", version=event.version or _("start.jvm.unknown_version"))
-            else:
-                out.task("OK", "start.jvm.loaded", version=event.version or _("start.jvm.unknown_version"), files_count=event.files_count)
-            out.finish()
-        
-        elif isinstance(event, ArgsFixesEvent):
-            if self.ns.verbose >= 1 and len(event.fixes):
-                out.task("INFO", "start.args.fixes")
-                out.finish()
-                for fix in event.fixes:
-                    out.task(None, f"start.args.fix.{fix}")
-                    out.finish()
-        
-        elif isinstance(event, BinaryInstallEvent):
-            if self.ns.verbose >= 2:
-                try:
-                    event.src_file.relative_to(self.ns.context.libraries_dir)
-                    src_file = Path(*event.src_file.parts[-2:])
-                except ValueError:
-                    src_file = str(event.src_file)
-                
-                out.task("INFO", "start.bin_install", src_file=src_file, dst_name=event.dst_name)
-                out.finish()
-        
-        elif isinstance(event, FabricResolveEvent):
-            if event.loader_version is None:
-                out.task("..", "start.fabric.resolving", api=event.api.name, vanilla_version=event.vanilla_version)
-            else:
-                out.task("OK", "start.fabric.resolved", api=event.api.name, loader_version=event.loader_version, vanilla_version=event.vanilla_version)
-                out.finish()
-        
-        elif isinstance(event, ForgeResolveEvent):
-            if event.alias:
-                out.task("..", "start.forge.resolving", version=event.forge_version)
-            else:
-                out.task("OK", "start.forge.resolved", version=event.forge_version)
-                out.finish()
-        
-        elif isinstance(event, ForgePostProcessingEvent):
-            out.task("..", "start.forge.post_processing", task=event.task)
-
-        elif isinstance(event, ForgePostProcessedEvent):
-            out.task("OK", "start.forge.post_processed")
-            out.finish()
-
-
-class DownloadWatcher(Watcher):
-    """A watcher for pretty printing download task.
-    """
-
-    def __init__(self, ns: RootNs) -> None:
         self.ns = ns
         self.entries_count: int
         self.total_size: int
         self.size: int
         self.speeds: List[float]
-    
-    def handle(self, event: Any) -> None:
 
-        if isinstance(event, DownloadStartEvent):
+    def download_start(self, e: DownloadStartEvent):
 
-            if self.ns.verbose:
-                self.ns.out.task("INFO", "download.threads_count", count=event.threads_count)
-                self.ns.out.finish()
-
-            self.entries_count = event.entries_count
-            self.total_size = event.size
-            self.size = 0
-            self.speeds = [0.0] * event.threads_count
-            self.ns.out.task("..", "download.start")
-
-        elif isinstance(event, DownloadProgressEvent):
-            self.speeds[event.thread_id] = event.speed
-            speed = sum(self.speeds)
-            self.size += event.size
-            total_count = str(self.entries_count)
-            count = f"{event.count:{len(total_count)}}"
-            self.ns.out.task("..", "download.progress", 
-                count=count,
-                total_count=total_count,
-                size=f"{format_number(self.size)}o",
-                speed=f"{format_number(speed)}o/s")
-            
-        elif isinstance(event, DownloadCompleteEvent):
-            self.ns.out.task("OK", None)
+        if self.ns.verbose:
+            self.ns.out.task("INFO", "download.threads_count", count=e.threads_count)
             self.ns.out.finish()
 
+        self.entries_count = e.entries_count
+        self.total_size = e.size
+        self.size = 0
+        self.speeds = [0.0] * e.threads_count
+        self.ns.out.task("..", "download.start")
 
-class OutputRunTask(StreamRunTask):
+    def download_progress(self, e: DownloadProgressEvent) -> None:
+
+        self.speeds[e.thread_id] = e.speed
+        speed = sum(self.speeds)
+        self.size += e.size
+        total_count = str(self.entries_count)
+        count = f"{e.count:{len(total_count)}}"
+        self.ns.out.task("..", "download.progress", 
+            count=count,
+            total_count=total_count,
+            size=f"{format_number(self.size)}o",
+            speed=f"{format_number(speed)}o/s")
+
+    def download_complete(self, e: DownloadCompleteEvent) -> None:
+        self.ns.out.task("OK", None)
+        self.ns.out.finish()
+
+    # def handle(self, event: Any) -> None:
+
+    #     if isinstance(event, LwjglVersionEvent):
+    #         out.task("OK", "start.lwjgl.version", version=event.version)
+    #         out.finish()
+        
+    #     elif isinstance(event, ArgsFixesEvent):
+    #         if self.ns.verbose >= 1 and len(event.fixes):
+    #             out.task("INFO", "start.args.fixes")
+    #             out.finish()
+    #             for fix in event.fixes:
+    #                 out.task(None, f"start.args.fix.{fix}")
+    #                 out.finish()
+        
+    #     elif isinstance(event, BinaryInstallEvent):
+    #         if self.ns.verbose >= 2:
+    #             try:
+    #                 event.src_file.relative_to(self.ns.context.libraries_dir)
+    #                 src_file = Path(*event.src_file.parts[-2:])
+    #             except ValueError:
+    #                 src_file = str(event.src_file)
+                
+    #             out.task("INFO", "start.bin_install", src_file=src_file, dst_name=event.dst_name)
+    #             out.finish()
+
+
+class CliRunner(StreamRunner):
 
     def __init__(self, ns: RootNs) -> None:
         super().__init__()

@@ -1,6 +1,7 @@
 """Definition of tasks for installing and running Fabric/Quilt mod loader.
 """
 
+from portablemc.standard import VersionHandle, Watcher
 from .standard import Context, VersionHandle, Version, Watcher, VersionNotFoundError
 from .http import http_request, HttpError
 
@@ -61,14 +62,12 @@ class FabricVersion(Version):
         """
         return cls(context, QUILT_API, vanilla_version, loader_version, prefix)
 
-    def _resolve_metadata(self, watcher: Watcher) -> None:
-        self._resolve_fabric_loader(watcher)
-        super()._resolve_metadata(watcher)
-    
-    def _resolve_fabric_loader(self, watcher: Watcher) -> None:
-        """This step resolves the fabric loader if it's not specified.
-        """
+    def _resolve_version(self, watcher: Watcher) -> None:
 
+        # Vanilla version may be "release" or "snapshot"
+        self._vanilla_version = self._manifest.filter_latest(self._vanilla_version)[0]
+        
+        # Resolve loader version if not specified.
         if self._loader_version is None:
 
             watcher.handle(FabricResolveEvent(self._api, self._vanilla_version, None))
@@ -88,6 +87,12 @@ class FabricVersion(Version):
         
         # Finally define the full version id.
         self._version = f"{self._prefix}-{self._vanilla_version}-{self._loader_version}"
+
+    def _load_version(self, version: VersionHandle, watcher: Watcher) -> bool:
+        if version.id == self._version:
+            return version.read_metadata_file()
+        else:
+            return super()._load_version(version, watcher)
 
     def _fetch_version(self, version: VersionHandle, watcher: Watcher) -> None:
 

@@ -28,11 +28,10 @@ class ForgeVersion(Version):
         self._prefix = prefix
         self._forge_post_info: Optional[ForgePostInfo] = None
     
-    def _resolve_metadata(self, watcher: Watcher) -> None:
-        self._resolve_forge_loader(watcher)
-        super()._resolve_metadata(watcher)
-
-    def _resolve_forge_loader(self, watcher: Watcher) -> None:
+    def _resolve_version(self, watcher: Watcher) -> None:
+        
+        # Maybe "release" or "snapshot", we process this first.
+        self._forge_version = self._manifest.filter_latest(self._forge_version)[0]
 
         # No dash or alias version, resolve against promo version.
         alias = self._forge_version.endswith(("-latest", "-recommended"))
@@ -65,6 +64,12 @@ class ForgeVersion(Version):
         
         # Finally define the full version id.
         self._version = f"{self._prefix}-{self._forge_version}"
+
+    def _load_version(self, version: VersionHandle, watcher: Watcher) -> bool:
+        if version.id == self._version:
+            return version.read_metadata_file()
+        else:
+            return super()._load_version(version, watcher)
 
     def _fetch_version(self, version: VersionHandle, watcher: Watcher) -> None:
 

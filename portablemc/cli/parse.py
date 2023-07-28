@@ -1,7 +1,7 @@
 from argparse import ArgumentParser, HelpFormatter, ArgumentTypeError
 from pathlib import Path
 
-from ..vanilla import Context, VersionManifest
+from ..standard import Context, VersionManifest
 from ..auth import AuthDatabase
 
 from .util import LibrarySpecifierFilter
