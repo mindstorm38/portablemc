@@ -14,9 +14,9 @@ import re
 import os
 
 from .download import DownloadList, DownloadEntry, DownloadResultProgress, DownloadResultError
-from .util import jvm_bin_filename, merge_dict, LibrarySpecifier
+from .util import jvm_bin_filename, merge_dict, calc_input_sha1, LibrarySpecifier
 from .auth import AuthSession, OfflineAuthSession
-from .http import http_request
+from .http import http_request, HttpError
 from . import LAUNCHER_NAME, LAUNCHER_VERSION
 
 from typing import Optional, Iterator, Dict, List, Tuple, Any, Callable, Set
@@ -91,7 +91,8 @@ class Watcher:
     """
     
     def handle(self, event: Any) -> None:
-        """Called when the watcher can handle the given event.
+        """Called when the watcher can handle the given event. Default implementation
+        does nothing.
         """
 
 
@@ -163,10 +164,37 @@ class VersionHandle:
         return result
 
 
+class Environment:
+    """Describe the game's environment needed to run it. Such instance is produced by
+    installing a version and may be used to run the game.
+    """
+
+    def __init__(self, context: Context, main_class: str) -> None:
+        self.context = context
+        self.jvm_args: List[str] = []
+        self.game_args: List[str] = []
+        self.main_class = main_class
+        self.args_replacements: Dict[str, str] = {}
+        self.native_libs: List[Path] = []
+    
+    def run(self, runner: "Optional[Runner]" = None) -> None:
+        """Run this game's environment, with an optional custom runner.
+        """
+        (runner or StandardRunner()).run(self)
+
+class Runner:
+    """Base class handling game running, this default implementation just create a
+    process and forwards to its outputs to the outputs of the current process.
+    """
+
+    def run(self, env: Environment) -> None:
+        raise NotImplementedError
+
+
 class Version:
     """Base class for basic version resolving, it handles metadata parsing and resources
-    resolution. Note that this base class doesn't support vanilla version provided by
-    Mojang by default.
+    resolution. This class provides support for standard versions as provided by the
+    Mojang's version manifest.
     """
     
     def __init__(self, context: Context, version: str) -> None:
@@ -184,6 +212,7 @@ class Version:
         # Entry attributes
         self.context: Context = context
         self._version = version
+        self._manifest = VersionManifest()
         
         # General options
         self.demo: bool = False
@@ -217,10 +246,10 @@ class Version:
         self._assets_resources_dir: Optional[Path] = None
 
         # Native and class libraries (using dict so we keep order)
-        self._libs: Dict[LibrarySpecifier, _ParsedLibrary] = {}
-        self._libs_native: List[Path] = []
-        self._libs_class: List[Path] = []
-        self._libs_predicates: List[Callable[[LibrarySpecifier], bool]] = []
+        self._libs: Dict[LibrarySpecifier, _Library] = {}
+        self._native_libs: List[Path] = []
+        self._class_libs: List[Path] = []
+        # self._libs_predicates: List[Callable[[LibrarySpecifier], bool]] = []
 
         # Logger config parsed from metadata
         self._logger_path: Optional[Path] = None
@@ -231,11 +260,6 @@ class Version:
         self._jvm_version: Optional[str] = None
 
         self._dl = DownloadList()
-
-        self._jvm_args: List[str] = []
-        self._game_args: List[str] = []
-        self._main_class: Optional[str] = None
-        self._args_replacements: Dict[str, str] = {}
 
     def set_auth_offline(self, username: Optional[str], uuid: Optional[str]) -> None:
         """Shortcut for setting an offline session with the given username/uuid pair.
@@ -257,7 +281,7 @@ class Version:
         """
         self.quick_play = QuickPlayRealms(realm)
 
-    def install(self, *, watcher: Optional[Watcher] = None) -> None:
+    def install(self, *, watcher: Optional[Watcher] = None) -> Environment:
         """This function ensures that this version is properly installed given 
         configuration of this class' attributes. This function can be called multiple
         time and will not recompute what have already been done, if errors happen, the
@@ -266,6 +290,7 @@ class Version:
 
         watcher = watcher or Watcher()
 
+        self._resolve_version(watcher)
         self._resolve_metadata(watcher)
         self._resolve_features(watcher)
         self._resolve_jvm(watcher)  # JVM added here on purpose to ease implementation of ForgeVersion
@@ -275,6 +300,17 @@ class Version:
         self._resolve_logger(watcher)
         self._download(watcher)
         self._finalize_assets(watcher)
+
+        return self._resolve_env(watcher)
+    
+    def _resolve_version(self, watcher: Watcher) -> None:
+        """This step is executed just before resolving version metadata and its parents,
+        it should process the version and ensure that the version is relevant for the
+        metadata resolving.
+
+        The default implementation resolve aliases (release, snapshot) if needed.
+        """
+        self._version = self._manifest.filter_latest(self._version)[0]
 
     def _resolve_metadata(self, watcher: Watcher) -> None:
         """This step resolves metadata of the root version and all of its parents.
@@ -304,12 +340,11 @@ class Version:
                 hierarchy[-1].parent = handle
             
             hierarchy.append(handle)
-            version_id = handle.metadata.pop("inheritsFrom", None)
+            version = handle.metadata.pop("inheritsFrom", None)
             
-            if version_id is not None and not isinstance(version_id, str):
+            if version is not None and not isinstance(version, str):
                 raise ValueError("metadata: /inheritsFrom must be a string")
 
-        # self.handle = hierarchy[0]
         self._metadata = hierarchy[0].merge()
 
     def _load_version(self, version: VersionHandle, watcher: Watcher) -> bool:
@@ -327,18 +362,52 @@ class Version:
         :param state: Sequence state when the MetadataTask execute.
         :return: True if the given version is valid and its metadata was properly loaded.
         """
-        return version.read_metadata_file()
+
+        if version.read_metadata_file():
+            return True
+
+        try:
+            version_super_meta = self._manifest.get_version(version.id)
+        except HttpError:
+            # Silently ignoring HTTP errors, we want to be able to launch offline.
+            return True
+        
+        if version_super_meta is None:
+            return True
+        else:
+            expected_sha1 = version_super_meta.get("sha1")
+            if expected_sha1 is not None:
+                try:
+                    with version.metadata_file().open("rb") as version_meta_fp:
+                        current_sha1 = calc_input_sha1(version_meta_fp)
+                        return expected_sha1 == current_sha1
+                except OSError:
+                    return False
+            return True
 
     def _fetch_version(self, version: VersionHandle, watcher: Watcher) -> None:
         """Fetch the data of the given version.
 
-        The default implementation just raise not found with the version's id.
+        The default implementation try to fetch version from Mojang's version manifest.
 
         :param version: The version meta to fetch data into.
         :param state: Sequence state when the MetadataTask execute.
         :raises VersionNotFoundError: In case of error finding the version.
         """
-        raise VersionNotFoundError(version.id)
+
+        version_super_meta = self._manifest.get_version(version.id)
+        if version_super_meta is None:
+            raise VersionNotFoundError(version.id)
+
+        res = http_request("GET", version_super_meta["url"], accept="application/json")
+        
+        # First decode the data and set it to the version meta. Raising if invalid.
+        version.metadata = res.json()
+        
+        # If successful, write the raw data directly to the file.
+        version.dir.mkdir(parents=True, exist_ok=True)
+        with version.metadata_file().open("wb") as fp:
+            fp.write(res.data)
 
     def _resolve_features(self, watcher: Watcher) -> None:
         """Step resolving the version's features, whose are a mapping of string to 
@@ -411,7 +480,7 @@ class Version:
         assets_index_file = assets_indexes_dir / f"{assets_index_version}.json"
 
         try:
-            with open(assets_index_file, "rb") as assets_index_fp:
+            with assets_index_file.open("rb") as assets_index_fp:
                 assets_index = json.load(assets_index_fp)
         except (OSError, JSONDecodeError):
 
@@ -544,10 +613,10 @@ class Version:
                     if minecraft_arch_bits is not None:
                         spec.classifier = spec.classifier.replace("${arch}", str(minecraft_arch_bits))
                 
-                # Apply predicates after the final classifier has been set, if relevant.
-                if not all((pred(spec) for pred in self._libs_predicates)):
-                    excluded_libs.append(spec)
-                    continue
+                # # Apply predicates after the final classifier has been set, if relevant.
+                # if not all((pred(spec) for pred in self._libs_predicates)):
+                #     excluded_libs.append(spec)
+                #     continue
 
                 lib_entry: Optional[DownloadEntry] = None
                 
@@ -568,8 +637,8 @@ class Version:
                         dl_meta = downloads.get("artifact")
 
                     if dl_meta is not None:
-                        lib_path = self.context.libraries_dir / spec.file_path()
-                        lib_entry = parse_download_entry(dl_meta, lib_path, f"metadata: /libraries/{library_idx}/downloads/artifact")
+                        # lib_path = self.context.libraries_dir / spec.file_path()
+                        lib_entry = parse_download_entry(dl_meta, Path(), f"metadata: /libraries/{library_idx}/downloads/artifact")
 
                 # If no download entry can be found, try to find the maven repository url.
                 if lib_entry is None:
@@ -584,17 +653,17 @@ class Version:
                             repo_url += "/"
                         
                         lib_path_rel = spec.file_path()
-                        lib_path = self.context.libraries_dir / lib_path_rel
-                        lib_entry = DownloadEntry(f"{repo_url}{lib_path_rel}", lib_path)
+                        # lib_path = self.context.libraries_dir / lib_path_rel
+                        lib_entry = DownloadEntry(f"{repo_url}{lib_path_rel}", Path())
 
                 # Adding parsed library.
                 # Insertion ordering is guaranteed on dictionaries since python 3.6
-                self._libs[spec] = _ParsedLibrary(natives is not None, lib_entry)
+                self._libs[spec] = _Library(natives is not None, lib_entry)
 
         # Finalize libraries resolving.
         self._resolve_libraries_final(watcher)
 
-        watcher.handle(LibrariesResolvedEvent(len(self._libs_class), len(self._libs_native), excluded_libs))
+        watcher.handle(LibrariesResolvedEvent(len(self._class_libs), len(self._native_libs), excluded_libs))
 
     def _resolve_libraries_final(self, watcher: Watcher) -> None:
         """Sub-step of resolving libraries that takes the parsed libraries and finally
@@ -618,8 +687,8 @@ class Version:
                     lib.entry.size = 87497
 
         # Finally take the final version of libs and add them to download list.
-        self._libs_native.clear()
-        self._libs_class.clear()
+        self._native_libs.clear()
+        self._class_libs.clear()
         for spec, parsed_lib in self._libs.items():
 
             lib_path = self.context.libraries_dir / spec.file_path()
@@ -636,11 +705,12 @@ class Version:
                 if not lib_path.is_file():
                     raise LibraryNotFoundError(spec)
             else:
+                lib_entry.dst = lib_path
                 lib_entry.name = str(spec)
                 self._dl.add(lib_entry, verify=True)
             
             # Finally, add it to the correct libs list.
-            libs = self._libs_native if parsed_lib.native else self._libs_class
+            libs = self._native_libs if parsed_lib.native else self._class_libs
             libs.append(lib_path)
 
     def _resolve_logger(self, watcher: Watcher) -> None:
@@ -835,32 +905,29 @@ class Version:
         
         watcher.handle(DownloadCompleteEvent())
 
-    def _resolve_args(self, watcher: Watcher) -> None:
-        """Step for computing correct arguments to run the game as configured in this 
-        class. This should be called after every other step in order to take everything
-        into account.
+    def _resolve_env(self, watcher: Watcher) -> Environment:
+        """Step for computing correct environment to run the game as configured in this 
+        version's instance.²
         """
 
-        assert self._assets_index_version is not None
+        assert self._assets_index_version is not None, "_resolve_assets() missing"
 
         # Main class
         main_class = self._metadata.get("mainClass")
         if not isinstance(main_class, str):
             raise ValueError("metadata: /mainClass must be a string")
 
-        # List of fixes for summary...
-        fixes = []
-
         # Get authentication of create a random offline.
         auth_session = self.auth_session or OfflineAuthSession(None, None)
 
         # Class path, without main class (added later depending on arguments present).
-        class_path = list(map(str, self._libs_class))
-        
-        # Arguments
-        self._main_class = main_class
-        self._jvm_args = jvm_args = [str(self._jvm_path)]
-        self._game_args = game_args = []
+        class_path = list(map(str, self._class_libs))
+
+        # Environment definition.
+        env = Environment(self.context, main_class)
+        env.jvm_args = jvm_args = [str(self._jvm_path)]
+        env.game_args = game_args = []
+        env.native_libs = self._native_libs.copy()
         all_features = set()
 
         # Check if modern arguments are present (> 1.12.2).
@@ -902,7 +969,7 @@ class Version:
             # Old versions seems to prefer having the main class first in class path.
             # This fix cannot be disabled for now (fixme?).
             class_path.insert(0, str(self._jar_path))
-            fixes.append(ArgsFixesEvent.MAIN_CLASS_FIRST)
+            # fixes.append(ArgsFixesEvent.MAIN_CLASS_FIRST)
         else:
             # Modern versions seems to prefer having the main class last in class path.
             class_path.append(str(self._jar_path))
@@ -929,19 +996,19 @@ class Version:
                     proxy_port = 11707
                 
                 if proxy_port is not None:
-                    fixes.append(ArgsFixesEvent.LEGACY_PROXY)
+                    # fixes.append(ArgsFixesEvent.LEGACY_PROXY)
                     jvm_args.append("-Dhttp.proxyHost=betacraft.uk")
                     jvm_args.append(f"-Dhttp.proxyPort={proxy_port}")
             
             # Legacy merge sort is applicable to alpha and beta versions.
             if FIX_LEGACY_MERGE_SORT in self.fixes and ancestor_id.startswith(("a1.", "b1.")):
-                fixes.append(ArgsFixesEvent.LEGACY_MERGE_SORT)
+                # fixes.append(ArgsFixesEvent.LEGACY_MERGE_SORT)
                 jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
 
             # The arguments do not support custom resolution, try to fix.
             if self.resolution is not None and "has_custom_resolution" not in all_features:
                 if FIX_LEGACY_RESOLUTION in self.fixes:
-                    fixes.append(ArgsFixesEvent.LEGACY_RESOLUTION)
+                    # fixes.append(ArgsFixesEvent.LEGACY_RESOLUTION)
                     game_args.extend((
                         "--width", str(self.resolution[0]),
                         "--height", str(self.resolution[1]),
@@ -961,7 +1028,7 @@ class Version:
             game_args.append("--disableChat")
 
         # Arguments replacements
-        self._args_replacements: Dict[str, str] = {
+        env.args_replacements = {
             # Game
             "auth_player_name": auth_session.username,
             "version_name": self._hierarchy[0].id,
@@ -988,11 +1055,13 @@ class Version:
         }
 
         if self.quick_play is not None and self.quick_play.feature in all_features:
-            self.quick_play.add_args_replacements(self._args_replacements)
+            self.quick_play.add_args_replacements(env.args_replacements)
 
         if self.resolution is not None:
-            self._args_replacements["resolution_width"] = str(self.resolution[0])
-            self._args_replacements["resolution_height"] = str(self.resolution[1])
+            env.args_replacements["resolution_width"] = str(self.resolution[0])
+            env.args_replacements["resolution_height"] = str(self.resolution[1])
+        
+        return env
 
 
 class QuickPlay:
@@ -1065,10 +1134,20 @@ class WatcherGroup(Watcher):
         for watcher in self.children:
             watcher.handle(event)
 
+class SimpleWatcher(Watcher):
 
-class _ParsedLibrary:
+    def __init__(self, handlers: Dict[type, Callable[[Any], None]]) -> None:
+        self.handlers = handlers
+
+    def handle(self, event: Any) -> None:
+        handler = self.handlers.get(type(event))
+        if handler is not None:
+            handler(event)
+
+
+class _Library:
     """Intermediate class representing a parsed game's library. This is subclassed to
-    denote.
+    denote. This class is not yet part of the public API.
     """
     __slots__ = "native", "entry"
     def __init__(self, native: bool, entry: Optional[DownloadEntry]) -> None:
@@ -1202,15 +1281,6 @@ class ArgsFixesEvent:
     def __init__(self, fixes: List[str]) -> None:
         self.fixes = fixes
 
-class BinaryInstallEvent:
-    """Event triggered when a game's binary has been extracted to the temporary bin
-    directory, this include source path and the destination name within bin directory.
-    """
-    __slots__ = "src_file", "dst_name",
-    def __init__(self, src_file: Path, dst_name: str) -> None:
-        self.src_file = src_file
-        self.dst_name = dst_name
-
 class DownloadStartEvent:
     __slots__ = "threads_count", "entries_count", "size"
     def __init__(self, threads_count: int, entries_count: int, size: int) -> None:
@@ -1229,6 +1299,275 @@ class DownloadProgressEvent:
 
 class DownloadCompleteEvent:
     __slots__ = tuple()
+
+
+class VersionManifest:
+    """The Mojang's official version manifest. Providing officially available versions 
+    with optional cache file.
+    """
+
+    def __init__(self, cache_file: Optional[Path] = None) -> None:
+        self.data: Optional[dict] = None
+        self.cache_file = cache_file
+
+    def _ensure_data(self) -> dict:
+        """Internal method that ensure that the manifest data is up-to-date.
+
+        :return: The full data of the manifest.
+        :raises HttpError: Underlying HTTP error if manifest could not be requested.
+        """
+
+        if self.data is None:
+
+            headers = {}
+            cache_data = None
+
+            # If a cache file should be used, try opening it and read the last modified
+            # time that will be used for requesting the manifest, only if needed.
+            if self.cache_file is not None:
+                try:
+                    with self.cache_file.open("rt") as cache_fp:
+                        cache_data = json.load(cache_fp)
+                    if "last_modified" in cache_data:
+                        headers["If-Modified-Since"] = cache_data["last_modified"]
+                except (OSError, json.JSONDecodeError):
+                    pass
+            
+            try:
+
+                res = http_request("GET", VERSION_MANIFEST_URL, 
+                    headers=headers, 
+                    accept="application/json")
+                
+                self.data = res.json()
+
+                if "Last-Modified" in res.headers:
+                    self.data["last_modified"] = res.headers["Last-Modified"]
+
+                if self.cache_file is not None:
+                    self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+                    with self.cache_file.open("wt") as cache_fp:
+                        json.dump(self.data, cache_fp, indent=2)
+
+            except HttpError as error:
+                res = error.res
+                if res.status == 304 and cache_data is not None:
+                    self.data = cache_data
+                else:
+                    raise
+
+        return self.data
+
+    def filter_latest(self, version: str) -> Tuple[str, bool]:
+        """Filter a version identifier if 'release' or 'snapshot' alias is used, then it's
+        replaced by the full version identifier, like `1.19.3`.
+
+        :param version: The version id or alias.
+        :return: A tuple containing the full version id and a boolean indicating if the
+        given version identifier is an alias.
+        :raises HttpError: Underlying HTTP error if manifest could not be requested.
+        """
+
+        if version in ("release", "snapshot"):
+            latest = self._ensure_data()["latest"].get(version)
+            if latest is not None:
+                return latest, True
+        return version, False
+
+    def get_version(self, version: str) -> Optional[dict]:
+        """Get a manifest's version metadata. Containing the metadata's URL, its SHA1 and
+        its type.
+
+        :param version: The version identifier.
+        :return: If found, the version is returned.
+        :raises HttpError: Underlying HTTP error if manifest could not be requested.
+        """
+        version, _alias = self.filter_latest(version)
+        for version_data in self._ensure_data()["versions"]:
+            if version_data["id"] == version:
+                return version_data
+        return None
+
+    def all_versions(self) -> list:
+        return self._ensure_data()["versions"]
+
+
+class StandardRunner(Runner):
+    """Base class handling game running, this default implementation just create a
+    process and forwards to its outputs to the outputs of the current process.
+    """
+
+    def run(self, env: Environment) -> None:
+
+        from zipfile import ZipFile
+
+        bin_dir = env.context.gen_bin_dir()
+        replacements = env.args_replacements.copy()
+        replacements["natives_directory"] = str(bin_dir)
+        
+        bin_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+
+            # Here we copy libraries into the bin directory, in case of archives (jar, zip)
+            # we extract all so/dll/dylib files into the directory, if this is a directly
+            # pointing to an archive, we symlink or copy it in-place.
+            if len(env.native_libs):
+                for src_file in env.native_libs:
+
+                    if not src_file.is_file():
+                        raise ValueError(f"source native file not found: {src_file}")
+
+                    native_name = src_file.name
+                    if native_name.endswith((".zip", ".jar")):
+
+                        with ZipFile(src_file, "r") as native_zip:
+                            for native_zip_info in native_zip.infolist():
+                                native_name = native_zip_info.filename
+                                if native_name.endswith((".so", ".dll", ".dylib")):
+
+                                    try:
+                                        native_name = native_name[native_name.rindex("/") + 1:]
+                                    except ValueError:
+                                        native_name = native_name
+                                    
+                                    dst_file = bin_dir / native_name
+
+                                    with native_zip.open(native_zip_info, "r") as src_fp:
+                                        with dst_file.open("wb") as dst_fp:
+                                            shutil.copyfileobj(src_fp, dst_fp)
+                                    
+                    else:
+
+                        # Here we try to remove the version numbers of .so files.
+                        so_idx = native_name.rfind(".so")
+                        if so_idx >= 0:
+                            native_name = native_name[:so_idx + len(".so")]
+                        # Try to symlink the file in the bin dir, and fallback to simple copy.
+                        dst_file = bin_dir / native_name
+
+                        try:
+                            dst_file.symlink_to(src_file)
+                        except OSError:
+                            shutil.copyfile(src_file, dst_file)
+                        
+            # We create the wrapper process with required arguments.
+            process = self.process_create([
+                *replace_list_vars(env.jvm_args, replacements),
+                env.main_class,
+                *replace_list_vars(env.game_args, replacements)
+            ], env.context.work_dir)
+
+            self.process_wait(process)
+
+        finally:
+            # Any error while setting up the binary directory cause it to be deleted.
+            shutil.rmtree(bin_dir, ignore_errors=True)
+
+    def process_create(self, args: List[str], work_dir: Path) -> Popen:
+        """This function is called when process needs to be created with the given 
+        arguments in the given working directory. The default implementation does nothing
+        special but this can be used to create the process with enabled output piping,
+        to later use in `process_wait`.
+        """
+        return Popen(args, cwd=work_dir)
+
+    def process_wait(self, process: Popen) -> None:
+        """This function is called with the running Minecraft process for waiting the end
+        of the process. Implementors may want to read incoming logging.
+        """
+        process.wait()
+
+class StreamRunner(StandardRunner):
+    """A specialized implementation of `RunTask` which allows streaming the game's output
+    logs. This implementation also provides parsing of log4j XML layouts for logs.
+    """
+    
+    def process_create(self, args: List[str], work_dir: Path) -> Popen:
+        return Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True)
+
+    def process_wait(self, process: Popen) -> None:
+
+        from threading import Thread
+
+        thread = Thread(target=self.process_stream_thread, name="Minecraft Stream Thread", args=(process,))
+        thread.start()
+
+        process.wait()
+
+    def process_stream_thread(self, process: Popen) -> None:
+
+        stdout = process.stdout
+        assert stdout is not None, "should not be none because it should be piped"
+
+        parser = None
+        for line in iter(stdout.readline, ""):
+
+            if parser is None:
+                if line.lstrip().startswith("<log4j:"):
+                    parser = XmlStreamParser()
+                else:
+                    parser = StreamParser()
+
+            parser.feed(line, self.process_stream_event)
+    
+    def process_stream_event(self, event: Any) -> None:
+        """This function gets called when an event is received from the game's log.
+        """
+
+class StreamParser:
+    """Base implementation of game's output stream parsing, this default implementation
+    just forward incoming lines to the callback.
+    """
+
+    def feed(self, line: str, callback: Callable[[Any], None]) -> None:
+        callback(line)
+
+class XmlStreamParser(StreamParser):
+    """This parser produces `XmlStreamEvent` kind of events by parsing the game's stream
+    as a log4j log stream.
+    """
+
+    def __init__(self) -> None:
+        import xml.etree.ElementTree as ET
+        self.xml = ET.XMLPullParser(["start", "end"])
+        self.xml.feed("<?xml version=\"1.0\"?><root xmlns:log4j=\"log4j\">")
+        self.next_event = None
+
+    def feed(self, line: str, callback: Callable[[Any], None]) -> None:
+        self.xml.feed(line)
+        for event, elem in self.xml.read_events():
+            if elem.tag == "{log4j}Event":
+                if event == "start":
+                    self.next_event = XmlStreamEvent(int(elem.attrib["timestamp"]) / 1000.0,
+                        elem.attrib["logger"],
+                        elem.attrib["level"],
+                        elem.attrib["thread"])
+                elif event == "end" and self.next_event is not None:
+                    callback(self.next_event)
+                    self.next_event = None
+            elif event == "end" and self.next_event is not None:
+                if elem.tag == "{log4j}Message":
+                    self.next_event.message = elem.text
+                elif elem.tag == "{log4j}Throwable":
+                    self.next_event.throwable = elem.text
+
+class XmlStreamEvent:
+    """Class representing an event happening in the game's logs.
+    """
+
+    __slots__ = "time", "logger", "level", "thread", "message", "throwable"
+
+    def __init__(self, time: float, logger: str, level: str, thread: str) -> None:
+        self.time = time
+        self.logger = logger
+        self.level = level
+        self.thread = thread
+        self.message = None
+        self.throwable = None
+    
+    def __repr__(self) -> str:
+        return f"<ProcessEvent date: {self.time}, logger: {self.logger}, level: {self.level}, thread: {self.thread}, message: {repr(self.message)}>"
 
 
 def parse_download_entry(value: Any, dst: Path, path: str) -> DownloadEntry:

@@ -1,10 +1,10 @@
 """CLI languages management.
 """
 
-from ..vanilla import JvmNotFoundError, ArgsFixesEvent
-from ..forge import ForgeInstallError
-from ..download import DownloadError
-from ..util import jvm_bin_filename
+from portablemc.standard import JvmNotFoundError, DownloadError
+from portablemc.forge import ForgeInstallError
+from portablemc.util import jvm_bin_filename
+from portablemc.download import DownloadResultError
 
 from typing import Optional
 
@@ -59,7 +59,7 @@ lang = {
     # Args start
     "args.start": "Start a Minecraft version.",
     "args.start.version": "Version identifier (default to release): {formats}.",
-    "args.start.version.vanilla": "release|snapshot|<vanilla-version>",
+    "args.start.version.standard": "release|snapshot|<vanilla-version>",
     "args.start.version.fabric": "fabric:[<vanilla-version>[:<loader-version>]]",
     "args.start.version.quilt": "quilt:[<vanilla-version>[:<loader-version>]]",
     "args.start.version.forge": "forge:[<forge-version>] (forge-version >= 1.5.2)",
@@ -144,8 +144,6 @@ lang = {
     "addon.show.authors": "Authors: {authors}",
     "addon.show.description": "Description: {description}",
     # Command start
-    "start.tasks": "Tasks order: {tasks}",
-    "start.task.execute": "Execute {task}",
     "start.version.invalid_id": "Invalid version id, expected: {expected}",
     "start.version.invalid_id_unknown_kind": "Invalid version id, unknown kind: {kind}.",
     "start.version.loading": "Loading version {version}... ",
@@ -173,11 +171,11 @@ lang = {
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.not_found_error.{JvmNotFoundError.BUILTIN_INVALID_VERSION}": f"The builtin JVM ({jvm_bin_filename}) is not compatible "
         "with selected game version.",
-    "start.args.fixes": "Applied the following fixes to arguments:",
-    f"start.args.fix.{ArgsFixesEvent.LEGACY_RESOLUTION}": "Included resolution into game arguments",
-    f"start.args.fix.{ArgsFixesEvent.MAIN_CLASS_FIRST}": "Main class placed first in class path",
-    f"start.args.fix.{ArgsFixesEvent.LEGACY_PROXY}": "Using legacy proxy for online resources",
-    f"start.args.fix.{ArgsFixesEvent.LEGACY_MERGE_SORT}": "Using legacy merge sort",
+    # "start.args.fixes": "Applied the following fixes to arguments:",
+    # f"start.args.fix.{ArgsFixesEvent.LEGACY_RESOLUTION}": "Included resolution into game arguments",
+    # f"start.args.fix.{ArgsFixesEvent.MAIN_CLASS_FIRST}": "Main class placed first in class path",
+    # f"start.args.fix.{ArgsFixesEvent.LEGACY_PROXY}": "Using legacy proxy for online resources",
+    # f"start.args.fix.{ArgsFixesEvent.LEGACY_MERGE_SORT}": "Using legacy merge sort",
     "start.additional_binary_not_found": "The additional binary '{path}' doesn't exists.",
     "start.bin_install": "Installed binary {src_file} as {dst_name}",
     # Command start (LWJGL fix)
@@ -197,10 +195,10 @@ lang = {
     "download.start": "Download starting...",
     "download.progress": "Download: {count}/{total_count} {size:>8} @ {speed}",
     "download.error": "{name}: {message}",
-    f"download.error.{DownloadError.CONNECTION}": "Connection error",
-    f"download.error.{DownloadError.NOT_FOUND}": "Not found",
-    f"download.error.{DownloadError.INVALID_SIZE}": "Invalid size",
-    f"download.error.{DownloadError.INVALID_SHA1}": "Invalid SHA1",
+    f"download.error.{DownloadResultError.CONNECTION}": "Connection error",
+    f"download.error.{DownloadResultError.NOT_FOUND}": "Not found",
+    f"download.error.{DownloadResultError.INVALID_SIZE}": "Invalid size",
+    f"download.error.{DownloadResultError.INVALID_SHA1}": "Invalid SHA1",
     # Auth common
     "auth.refreshing": "Invalid session, refreshing...",
     "auth.refreshed": "Session refreshed for {email}",

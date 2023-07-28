@@ -3,7 +3,7 @@
 
 from datetime import datetime
 
-from ..util import LibrarySpecifier, from_iso_date
+from portablemc.util import LibrarySpecifier, from_iso_date
 
 from typing import Optional, Union
 
