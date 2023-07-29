@@ -41,9 +41,12 @@ QUILT_API = FabricApi("quilt", "https://meta.quiltmc.org/v3/")
 
 class FabricVersion(Version):
 
-    def __init__(self, context: Context, api: FabricApi, vanilla_version: str, loader_version: Optional[str], prefix: str) -> None:
+    def __init__(self, api: FabricApi, vanilla_version: str, loader_version: Optional[str], 
+        prefix: str, *,
+        context: Optional[Context] = None,
+    ) -> None:
         
-        super().__init__(context, "")  # Do not give a root version for now.
+        super().__init__("", context=context)  # Do not give a root version for now.
 
         self._api = api
         self._vanilla_version = vanilla_version
@@ -51,21 +54,27 @@ class FabricVersion(Version):
         self._prefix = prefix
 
     @classmethod
-    def with_fabric(cls, context: Context, vanilla_version: str, loader_version: Optional[str], prefix: str = "fabric") -> "FabricVersion":
+    def with_fabric(cls, vanilla_version: str, loader_version: Optional[str], *,
+        context: Optional[Context] = None, 
+        prefix: str = "fabric"
+    ) -> "FabricVersion":
         """Construct a root for resolving a Fabric version.
         """
-        return cls(context, FABRIC_API, vanilla_version, loader_version, prefix)
+        return cls(FABRIC_API, vanilla_version, loader_version, prefix, context=context)
 
     @classmethod
-    def with_quilt(cls, context: Context, vanilla_version: str, loader_version: Optional[str], prefix: str = "quilt") -> "FabricVersion":
+    def with_quilt(cls, vanilla_version: str, loader_version: Optional[str], *,
+        context: Optional[Context] = None,
+        prefix: str = "quilt"
+    ) -> "FabricVersion":
         """Construct a root for resolving a Quilt version.
         """
-        return cls(context, QUILT_API, vanilla_version, loader_version, prefix)
+        return cls(QUILT_API, vanilla_version, loader_version, prefix, context=context)
 
     def _resolve_version(self, watcher: Watcher) -> None:
 
         # Vanilla version may be "release" or "snapshot"
-        self._vanilla_version = self._manifest.filter_latest(self._vanilla_version)[0]
+        self._vanilla_version = self.manifest.filter_latest(self._vanilla_version)[0]
         
         # Resolve loader version if not specified.
         if self._loader_version is None:

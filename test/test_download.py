@@ -2,8 +2,8 @@ from pathlib import Path
 from os import path
 import pytest
 
-from portablemc.download import DownloadEntry, DownloadList, DownloadError, \
-    DownloadResult, DownloadResultError, DownloadResultProgress
+from portablemc.download import DownloadEntry, DownloadList, \
+    DownloadResult, DownloadResultError
 
 
 def test_download(tmp_path):
@@ -71,10 +71,10 @@ def test_download(tmp_path):
     def is_error(result: DownloadResult, code: str) -> bool:
         return isinstance(result, DownloadResultError) and result.code == code
 
-    assert is_error(results[wrong_sha1], DownloadError.INVALID_SHA1)
-    assert is_error(results[wrong_size], DownloadError.INVALID_SIZE)
-    assert is_error(results[not_found], DownloadError.NOT_FOUND)
-    assert is_error(results[conn_err], DownloadError.CONNECTION)
+    assert is_error(results[wrong_sha1], DownloadResultError.INVALID_SHA1)
+    assert is_error(results[wrong_size], DownloadResultError.INVALID_SIZE)
+    assert is_error(results[not_found], DownloadResultError.NOT_FOUND)
+    assert is_error(results[conn_err], DownloadResultError.CONNECTION)
 
     assert path.isfile(default.dst)
     assert path.isfile(check_sha1.dst)

@@ -2,16 +2,16 @@ from pathlib import Path
 import shutil
 import pytest
 
-from portablemc.task import Sequence
-from portablemc.vanilla import Context, VersionRepository, make_vanilla_sequence, \
-    DownloadTask, AssetsFinalizeTask, \
-    VersionManifest
+from portablemc.standard import Context, Version, Watcher, VersionManifest
 
 
-def _test_prepare_execute(seq: Sequence):
-    seq.remove_task(DownloadTask)
-    seq.remove_task(AssetsFinalizeTask)  # Remove it because it needs downloading before.
-    seq.execute()
+class NoDownloadVersion(Version):
+
+    def _download(self, watcher: Watcher) -> None:
+        pass
+
+    def _finalize_assets(self, watcher: Watcher) -> None:
+        pass  # Remove it because it needs downloading before.
 
 
 @pytest.mark.parametrize("version", ["b1.8.1", "1.5.2", "1.7.10", "1.16.5", "1.17.1", "1.18.1.nopath", "1.19"])
@@ -22,8 +22,7 @@ def test_prepare_specific(tmp_context: Context, version: str):
     version_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy(current_path, version_dir)
 
-    seq = make_vanilla_sequence(version, context=tmp_context, default_repository=VersionRepository())
-    _test_prepare_execute(seq)
+    NoDownloadVersion(version, context=tmp_context).install()
 
 
 @pytest.mark.slow
@@ -32,8 +31,6 @@ def test_prepare_vanilla(tmp_context: Context, vanilla_version: str):
     major versions (including old beta/alpha) can be successfully parsed and prepared.
     """
 
-    # Cache version manifest between tests.
-    manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
-
-    seq = make_vanilla_sequence(vanilla_version, context=tmp_context, default_repository=manifest)
-    _test_prepare_execute(seq)
+    version = NoDownloadVersion(vanilla_version, context=tmp_context)
+    version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
+    version.install()

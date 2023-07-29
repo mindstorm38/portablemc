@@ -197,22 +197,23 @@ class Version:
     Mojang's version manifest.
     """
     
-    def __init__(self, context: Context, version: str) -> None:
+    def __init__(self, version: str = "release", *, 
+        context: Optional[Context] = None,
+    ) -> None:
         """Construct a standard version installer and runner.
 
         :param context: The installation context of the game, used to know where to find
-        its metadata and where to install resources.
+        its metadata and where to install resources. If the context is not given, the 
+        default one is constructed (see Context documentation).
         :param version: The root version to resolve at first, all of its parents will
         be loaded and then all the metadata will be merged together. This merged metadata
         will be used by this class to install its resources such as libraries and assets.
-        :param version_max_parents: Optional parameter that specifies the hard limit of
-        parents count when resolving the parents of the root version.
         """
 
         # Entry attributes
-        self.context: Context = context
-        self._version = version
-        self._manifest = VersionManifest()
+        self.version = version
+        self.context = context or Context()
+        self.manifest = VersionManifest()
         
         # General options
         self.demo: bool = False
@@ -310,14 +311,14 @@ class Version:
 
         The default implementation resolve aliases (release, snapshot) if needed.
         """
-        self._version = self._manifest.filter_latest(self._version)[0]
+        self.version = self.manifest.filter_latest(self.version)[0]
 
     def _resolve_metadata(self, watcher: Watcher) -> None:
         """This step resolves metadata of the root version and all of its parents.
         """
 
         hierarchy = self._hierarchy
-        version: Optional[str] = self._version
+        version: Optional[str] = self.version
         hierarchy.clear()
 
         while version is not None:
@@ -363,11 +364,11 @@ class Version:
         :return: True if the given version is valid and its metadata was properly loaded.
         """
 
-        if version.read_metadata_file():
-            return True
+        if not version.read_metadata_file():
+            return False
 
         try:
-            version_super_meta = self._manifest.get_version(version.id)
+            version_super_meta = self.manifest.get_version(version.id)
         except HttpError:
             # Silently ignoring HTTP errors, we want to be able to launch offline.
             return True
@@ -395,7 +396,7 @@ class Version:
         :raises VersionNotFoundError: In case of error finding the version.
         """
 
-        version_super_meta = self._manifest.get_version(version.id)
+        version_super_meta = self.manifest.get_version(version.id)
         if version_super_meta is None:
             raise VersionNotFoundError(version.id)
 
