@@ -728,31 +728,6 @@ class StartWatcher(SimpleWatcher):
         self.ns.out.task("OK", None)
         self.ns.out.finish()
 
-    # def handle(self, event: Any) -> None:
-
-    #     if isinstance(event, LwjglVersionEvent):
-    #         out.task("OK", "start.lwjgl.version", version=event.version)
-    #         out.finish()
-        
-    #     elif isinstance(event, ArgsFixesEvent):
-    #         if self.ns.verbose >= 1 and len(event.fixes):
-    #             out.task("INFO", "start.args.fixes")
-    #             out.finish()
-    #             for fix in event.fixes:
-    #                 out.task(None, f"start.args.fix.{fix}")
-    #                 out.finish()
-        
-    #     elif isinstance(event, BinaryInstallEvent):
-    #         if self.ns.verbose >= 2:
-    #             try:
-    #                 event.src_file.relative_to(self.ns.context.libraries_dir)
-    #                 src_file = Path(*event.src_file.parts[-2:])
-    #             except ValueError:
-    #                 src_file = str(event.src_file)
-                
-    #             out.task("INFO", "start.bin_install", src_file=src_file, dst_name=event.dst_name)
-    #             out.finish()
-
 
 class CliRunner(StreamRunner):
 
