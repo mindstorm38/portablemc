@@ -4,6 +4,7 @@ repository, allowing resolution of what we call "vanilla" versions.
 """
 
 from subprocess import Popen, TimeoutExpired, PIPE, STDOUT
+import xml.etree.ElementTree as ET
 from json import JSONDecodeError
 from pathlib import Path
 from uuid import uuid4
@@ -1572,19 +1573,27 @@ class StreamRunner(StandardRunner):
                 else:
                     parser = StreamParser()
 
-            parser.feed(line, self.process_stream_event)
+            if not parser.feed(line, self.process_stream_event):
+                parser = StreamParser()
+                parser.feed(line, self.process_stream_event)  # Should not fail
     
     def process_stream_event(self, event: Any) -> None:
         """This function gets called when an event is received from the game's log.
         """
 
 class StreamParser:
-    """Base implementation of game's output stream parsing, this default implementation
-    just forward incoming lines to the callback.
+    """Base implementation of game's output stream parsing.
     """
 
-    def feed(self, line: str, callback: Callable[[Any], None]) -> None:
+    def feed(self, line: str, callback: Callable[[Any], None]) -> bool:
+        """Feed the parser, if successful the callback can be used to give back the object
+        containing the parsed log, and true should be returned. Returning false mean that
+        parsing has failed, the caller can then switch to a simpler parser.
+
+        This default implementation just forward incoming lines to the callback.
+        """
         callback(line)
+        return True
 
 class XmlStreamParser(StreamParser):
     """This parser produces `XmlStreamEvent` kind of events by parsing the game's stream
@@ -1592,28 +1601,31 @@ class XmlStreamParser(StreamParser):
     """
 
     def __init__(self) -> None:
-        import xml.etree.ElementTree as ET
         self.xml = ET.XMLPullParser(["start", "end"])
         self.xml.feed("<?xml version=\"1.0\"?><root xmlns:log4j=\"log4j\">")
         self.next_event = None
 
-    def feed(self, line: str, callback: Callable[[Any], None]) -> None:
+    def feed(self, line: str, callback: Callable[[Any], None]) -> bool:
         self.xml.feed(line)
-        for event, elem in self.xml.read_events():
-            if elem.tag == "{log4j}Event":
-                if event == "start":
-                    self.next_event = XmlStreamEvent(int(elem.attrib["timestamp"]) / 1000.0,
-                        elem.attrib["logger"],
-                        elem.attrib["level"],
-                        elem.attrib["thread"])
+        try:
+            for event, elem in self.xml.read_events():
+                if elem.tag == "{log4j}Event":
+                    if event == "start":
+                        self.next_event = XmlStreamEvent(int(elem.attrib["timestamp"]) / 1000.0,
+                            elem.attrib["logger"],
+                            elem.attrib["level"],
+                            elem.attrib["thread"])
+                    elif event == "end" and self.next_event is not None:
+                        callback(self.next_event)
+                        self.next_event = None
                 elif event == "end" and self.next_event is not None:
-                    callback(self.next_event)
-                    self.next_event = None
-            elif event == "end" and self.next_event is not None:
-                if elem.tag == "{log4j}Message":
-                    self.next_event.message = elem.text
-                elif elem.tag == "{log4j}Throwable":
-                    self.next_event.throwable = elem.text
+                    if elem.tag == "{log4j}Message":
+                        self.next_event.message = elem.text
+                    elif elem.tag == "{log4j}Throwable":
+                        self.next_event.throwable = elem.text
+            return True
+        except ET.ParseError:
+            return False
 
 class XmlStreamEvent:
     """Class representing an event happening in the game's logs.

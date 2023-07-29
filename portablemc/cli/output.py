@@ -93,7 +93,6 @@ class HumanOutput(Output):
         "HALT": "\033[33m",
     }
 
-    print_exception_color = "\033[31m"
     print_colors = [
         ("ERROR", "\033[31m"),
         ("WARN", "\033[33m"),
@@ -107,7 +106,6 @@ class HumanOutput(Output):
         self.term_width_update_time = 0
         self.last_len = None
         self.color = color
-        self.print_exception = False
 
     def get_term_width(self) -> int:
         """Internal method used to get terminal width with a cache interval of 1 second.
@@ -171,11 +169,6 @@ class HumanOutput(Output):
         if self.color:
 
             chosen_color = None
-
-            if "Exception" in text or (self.print_exception and text.startswith("\t")):
-                chosen_color = self.print_exception_color
-                self.print_exception = True
-
             for token, code in self.print_colors:
                 if token in text:
                     chosen_color = code
