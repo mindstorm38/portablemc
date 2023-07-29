@@ -6,6 +6,7 @@ from .lang import get_raw as _raw
 import shutil
 import time
 import sys
+import re
 
 from typing import List, Tuple, Union, Optional
 
@@ -258,12 +259,18 @@ class HumanTable(OutputTable):
 
 class MachineOutput(Output):
 
+    escape_re = re.compile("[\\n\\r,]")
+
+    @classmethod
+    def print_escape(cls, s: str) -> str:
+        return re.sub(cls.escape_re, lambda match: f"\\{match.group()}", s)
+
     def print_function(self, name: str, *args: str, **kwargs) -> None:
         """Print a machine-readable line for a function with some parameters.
         """
-        print(name, ":", ",".join((arg.replace(",", "\\,").replace("\n", "\\n") for arg in [
+        print(name, ":", ",".join((self.print_escape(arg) for arg in [
             *args,
-            *("{}={}".format(k, str(v).replace("\n", "\\n")) for k, v in kwargs.items())  # Note, k should not contain "="
+            *(f"{k}={v}" for k, v in kwargs.items())  # Note, k should not contain "="
         ])), sep="")
 
     def table(self) -> OutputTable:
