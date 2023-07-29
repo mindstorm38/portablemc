@@ -27,12 +27,6 @@ LIBRARIES_URL = "https://libraries.minecraft.net/"
 JVM_META_URL = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
 VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
 
-FIX_LEGACY_PROXY = object()
-FIX_LEGACY_MERGE_SORT = object()
-FIX_LEGACY_RESOLUTION = object()
-FIX_LEGACY_QUICK_PLAY = object()
-FIX_1_16_AUTH_LIB = object()
-
 
 class Context:
     """Context of the game's installation and runtime. This defines various directories
@@ -176,6 +170,7 @@ class Environment:
         self.main_class = main_class
         self.args_replacements: Dict[str, str] = {}
         self.native_libs: List[Path] = []
+        self.fixes: Dict[str, Any] = {}
     
     def run(self, runner: "Optional[Runner]" = None) -> None:
         """Run this game's environment, with an optional custom runner.
@@ -197,6 +192,13 @@ class Version:
     Mojang's version manifest.
     """
     
+    FIX_LEGACY_PROXY = "legacy_proxy"
+    FIX_LEGACY_MERGE_SORT = "legacy_merge_sort"
+    FIX_LEGACY_RESOLUTION = "legacy_resolution"
+    FIX_LEGACY_QUICK_PLAY = "legacy_quick_play"
+    FIX_1_16_AUTH_LIB = "1_16_auth_lib"
+    FIX_LWJGL = "lwjgl"
+
     def __init__(self, version: str = "release", *, 
         context: Optional[Context] = None,
     ) -> None:
@@ -222,12 +224,14 @@ class Version:
         self.disable_multiplayer: bool = False
         self.disable_chat: bool = False
         self.quick_play: Optional[QuickPlay] = None
-        self.fixes = { 
-            FIX_LEGACY_PROXY, 
-            FIX_LEGACY_MERGE_SORT,
-            FIX_LEGACY_RESOLUTION,
-            FIX_LEGACY_QUICK_PLAY,
-            FIX_1_16_AUTH_LIB,
+        self.jvm_path: Optional[Path] = None
+        self.fixes: Dict[str, Any] = { 
+            self.FIX_LEGACY_PROXY: True, 
+            self.FIX_LEGACY_MERGE_SORT: True,
+            self.FIX_LEGACY_RESOLUTION: True,
+            self.FIX_LEGACY_QUICK_PLAY: True,
+            self.FIX_1_16_AUTH_LIB: True,
+            self.FIX_LWJGL: None
         }
 
         # Resolved version metadata, root version and its hierarchy, and merged metadata
@@ -261,6 +265,7 @@ class Version:
         self._jvm_version: Optional[str] = None
 
         self._dl = DownloadList()
+        self._applied_fixes: Dict[str, Any] = {}
 
     def set_auth_offline(self, username: Optional[str], uuid: Optional[str]) -> None:
         """Shortcut for setting an offline session with the given username/uuid pair.
@@ -290,6 +295,9 @@ class Version:
         """
 
         watcher = watcher or Watcher()
+
+        self._dl.clear()
+        self._applied_fixes.clear()
 
         self._resolve_version(watcher)
         self._resolve_metadata(watcher)
@@ -613,11 +621,6 @@ class Version:
 
                     if minecraft_arch_bits is not None:
                         spec.classifier = spec.classifier.replace("${arch}", str(minecraft_arch_bits))
-                
-                # # Apply predicates after the final classifier has been set, if relevant.
-                # if not all((pred(spec) for pred in self._libs_predicates)):
-                #     excluded_libs.append(spec)
-                #     continue
 
                 lib_entry: Optional[DownloadEntry] = None
                 
@@ -661,31 +664,8 @@ class Version:
                 # Insertion ordering is guaranteed on dictionaries since python 3.6
                 self._libs[spec] = _Library(natives is not None, lib_entry)
 
-        # Finalize libraries resolving.
-        self._resolve_libraries_final(watcher)
-
-        watcher.handle(LibrariesResolvedEvent(len(self._class_libs), len(self._native_libs), excluded_libs))
-
-    def _resolve_libraries_final(self, watcher: Watcher) -> None:
-        """Sub-step of resolving libraries that takes the parsed libraries and finally
-        check if download conditions are met, and if so add the library the correct list.
-
-        *Note that this function is made to be overwritten in order to apply eventual 
-        customization to parsed libraries.*
-        """
-
-        # Versions 1.16.4 and 1.16.5 uses authlib:2.1.28 which cause multiplayer button
-        # (and probably in-game chat) to be disabled, this can be fixed by switching to
-        # version 2.2.30
-        if FIX_1_16_AUTH_LIB in self.fixes:
-            spec = LibrarySpecifier("com.mojang", "authlib", "2.1.28")
-            lib = self._libs.pop(spec, None)
-            if lib is not None:
-                spec.version = "2.2.30"
-                if lib.entry is not None:
-                    lib.entry.url = f"{LIBRARIES_URL}com/mojang/authlib/2.2.30/authlib-2.2.30.jar"
-                    lib.entry.sha1 = "d6e677199aa6b19c4a9a2e725034149eb3e746f8"
-                    lib.entry.size = 87497
+        # Fix libraries before computation
+        self._fix_libraries(watcher)
 
         # Finally take the final version of libs and add them to download list.
         self._native_libs.clear()
@@ -713,6 +693,75 @@ class Version:
             # Finally, add it to the correct libs list.
             libs = self._native_libs if parsed_lib.native else self._class_libs
             libs.append(lib_path)
+
+        watcher.handle(LibrariesResolvedEvent(len(self._class_libs), len(self._native_libs), excluded_libs))
+
+    def _fix_libraries(self, watcher: Watcher) -> None:
+        """This step should fix libraries and customize the `_libs` list before actually
+        registering them for download or check availability. The default implementation is
+        used for fixing authlib on 1.16.4 and 1.16.5 and also LWJGL.
+        """
+
+        # Versions 1.16.4 and 1.16.5 uses authlib:2.1.28 which cause multiplayer button
+        # (and probably in-game chat) to be disabled, this can be fixed by switching to
+        # version 2.2.30
+        if self.fixes.get(self.FIX_1_16_AUTH_LIB):
+            spec = LibrarySpecifier("com.mojang", "authlib", "2.1.28")
+            lib = self._libs.pop(spec, None)
+            if lib is not None:
+                spec.version = "2.2.30"
+                if lib.entry is not None:
+                    lib.entry.url = f"{LIBRARIES_URL}com/mojang/authlib/2.2.30/authlib-2.2.30.jar"
+                    lib.entry.sha1 = "d6e677199aa6b19c4a9a2e725034149eb3e746f8"
+                    lib.entry.size = 87497
+                self._applied_fixes[self.FIX_1_16_AUTH_LIB] = True
+                self._libs[spec] = lib
+        
+        # Fixing LWJGL, this can be useful on ARM devices because Mojang doesn't provide
+        # natives for this architecture.
+        lwjgl_version = self.fixes.get(self.FIX_LWJGL)
+        if lwjgl_version is not None:
+
+            # Check that we support this LWJGL version.
+            if lwjgl_version not in ("3.2.3", "3.3.0", "3.3.1", "3.3.2"):
+                raise ValueError(f"unsupported lwjgl fix version: {lwjgl_version}")
+
+            # Compute natives required for the specific version
+            lwjgl_natives_map: Dict[Optional[str], Dict[Optional[str], str]] = {
+                "windows": {"x86_64": "natives-windows", "x86": "natives-windows-x86"},
+                "linux": {"x86_64": "natives-linux", "x86": "natives-linux", "arm64": "natives-linux-arm64", "arm32": "natives-linux-arm32"},
+                "osx": {"x86_64": "natives-macos"}
+            }
+
+            if lwjgl_version in ("3.3.0", "3.3.1", "3.3.2"):
+                lwjgl_natives_map["windows"]["arm64"] = "natives-windows-arm64"
+                lwjgl_natives_map["osx"]["arm64"] = "natives-macos-arm64"
+
+            # Get natives and error if no natives for current os/arch
+            lwjgl_natives = lwjgl_natives_map.get(minecraft_os, {}).get(minecraft_arch)
+            if lwjgl_natives is None:
+                raise ValueError(f"unsupported lwjgl fix version for your os/arch")
+
+            # Remove all LWJGL libs.
+            for to_remove in list(filter(lambda l: l.group == "org.lwjgl", self._libs.keys())):
+                del self._libs[to_remove]
+            
+            def add_lwjgl_lib(name: str) -> None:
+                for classifier in (None, lwjgl_natives):
+                    spec = LibrarySpecifier("org.lwjgl", name, lwjgl_version, classifier)
+                    entry = DownloadEntry(f"https://repo1.maven.org/maven2/{spec.file_path()}", Path())
+                    lib = _Library(False, entry)
+                    self._libs[spec] = lib
+
+            add_lwjgl_lib("lwjgl")
+            add_lwjgl_lib("lwjgl-jemalloc")
+            add_lwjgl_lib("lwjgl-openal")
+            add_lwjgl_lib("lwjgl-opengl")
+            add_lwjgl_lib("lwjgl-glfw")
+            add_lwjgl_lib("lwjgl-stb")
+            add_lwjgl_lib("lwjgl-tinyfd")
+
+            self._applied_fixes[self.FIX_LWJGL] = lwjgl_version
 
     def _resolve_logger(self, watcher: Watcher) -> None:
         """This step resolve the logger to use for launcher the game.
@@ -755,11 +804,14 @@ class Version:
         """Step resolving a JVM suitable for running the game.
         """
 
-        # Don't do anything if JVM is already provided.
-        if self._jvm_path is not None:
-            return
-        
         watcher.handle(JvmLoadingEvent())
+
+        # Don't do anything if JVM is already provided.
+        if self.jvm_path is not None:
+            self._jvm_path = self.jvm_path
+            self._jvm_version = None
+            watcher.handle(JvmLoadedEvent(self._jvm_version, JvmLoadedEvent.CUSTOM))
+            return
         
         jvm_version_info = self._metadata.get("javaVersion", {})
         if not isinstance(jvm_version_info, dict):
@@ -832,7 +884,7 @@ class Version:
 
                 self._dl.add(jvm_download_entry, verify=True)
         
-        watcher.handle(JvmLoadedEvent(self._jvm_version, len(jvm_files)))
+        watcher.handle(JvmLoadedEvent(self._jvm_version, JvmLoadedEvent.MOJANG))
 
     def _resolve_builtin_jvm(self, watcher: Watcher, reason: str, major_version: Optional[int]) -> None:
         """Internal function to find the builtin Java executable, the reason why this is
@@ -870,7 +922,7 @@ class Version:
 
         self._jvm_path = Path(builtin_path)
         self._jvm_version = version
-        watcher.handle(JvmLoadedEvent(version, None))
+        watcher.handle(JvmLoadedEvent(version, JvmLoadedEvent.BUILTIN))
 
     def _download(self, watcher: Watcher) -> None:
         
@@ -929,6 +981,7 @@ class Version:
         env.jvm_args = jvm_args = [str(self._jvm_path)]
         env.game_args = game_args = []
         env.native_libs = self._native_libs.copy()
+        env.fixes = self._applied_fixes
         all_features = set()
 
         # Check if modern arguments are present (> 1.12.2).
@@ -968,59 +1021,54 @@ class Version:
         # If no modern arguments, fix some arguments.
         if modern_args is None:
             # Old versions seems to prefer having the main class first in class path.
-            # This fix cannot be disabled for now (fixme?).
             class_path.insert(0, str(self._jar_path))
-            # fixes.append(ArgsFixesEvent.MAIN_CLASS_FIRST)
         else:
             # Modern versions seems to prefer having the main class last in class path.
             class_path.append(str(self._jar_path))
    
-        # Apply some fixes for legacy versions.
-        if len(self.fixes):
+        # Get the last version in the parent's tree, we use it to apply legacy fixes.
+        ancestor_id = list(self._hierarchy[0].recurse())[-1].id
 
-            # Get the last version in the parent's tree, we use it to apply legacy fixes.
-            ancestor_id = list(self._hierarchy[0].recurse())[-1].id
+        # Legacy proxy aims to fix things like skins on old versions.
+        # This is applicable to all alpha/beta and 1.0:1.5
+        if self.fixes.get(self.FIX_LEGACY_PROXY):
 
-            # Legacy proxy aims to fix things like skins on old versions.
-            # This is applicable to all alpha/beta and 1.0:1.5
-            if FIX_LEGACY_PROXY in self.fixes:
-
-                proxy_port = None
-                if ancestor_id.startswith("a1.0."):
-                    proxy_port = 80
-                elif ancestor_id.startswith("a1.1."):
-                    proxy_port = 11702
-                elif ancestor_id.startswith(("a1.", "b1.")):
-                    proxy_port = 11705
-                elif ancestor_id in ("1.0", "1.1", "1.3", "1.4", "1.5") or \
-                    ancestor_id.startswith(("1.2.", "1.3.", "1.4.", "1.5.")):
-                    proxy_port = 11707
-                
-                if proxy_port is not None:
-                    # fixes.append(ArgsFixesEvent.LEGACY_PROXY)
-                    jvm_args.append("-Dhttp.proxyHost=betacraft.uk")
-                    jvm_args.append(f"-Dhttp.proxyPort={proxy_port}")
+            proxy_port = None
+            if ancestor_id.startswith("a1.0."):
+                proxy_port = 80
+            elif ancestor_id.startswith("a1.1."):
+                proxy_port = 11702
+            elif ancestor_id.startswith(("a1.", "b1.")):
+                proxy_port = 11705
+            elif ancestor_id in ("1.0", "1.1", "1.3", "1.4", "1.5") or \
+                ancestor_id.startswith(("1.2.", "1.3.", "1.4.", "1.5.")):
+                proxy_port = 11707
             
-            # Legacy merge sort is applicable to alpha and beta versions.
-            if FIX_LEGACY_MERGE_SORT in self.fixes and ancestor_id.startswith(("a1.", "b1.")):
-                # fixes.append(ArgsFixesEvent.LEGACY_MERGE_SORT)
-                jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
+            if proxy_port is not None:
+                self._applied_fixes[self.FIX_LEGACY_PROXY] = f"betacraft.uk:{proxy_port}"
+                jvm_args.append("-Dhttp.proxyHost=betacraft.uk")
+                jvm_args.append(f"-Dhttp.proxyPort={proxy_port}")
+        
+        # Legacy merge sort is applicable to alpha and beta versions.
+        if ancestor_id.startswith(("a1.", "b1.")) and self.fixes.get(self.FIX_LEGACY_MERGE_SORT):
+            self._applied_fixes[self.FIX_LEGACY_MERGE_SORT] = True
+            jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
 
-            # The arguments do not support custom resolution, try to fix.
-            if self.resolution is not None and "has_custom_resolution" not in all_features:
-                if FIX_LEGACY_RESOLUTION in self.fixes:
-                    # fixes.append(ArgsFixesEvent.LEGACY_RESOLUTION)
-                    game_args.extend((
-                        "--width", str(self.resolution[0]),
-                        "--height", str(self.resolution[1]),
-                    ))
-            
-            # The arguments do not support quick play.
-            if isinstance(self.quick_play, QuickPlayMultiplayer) and "is_quick_play_multiplayer" not in all_features:
-                if FIX_LEGACY_QUICK_PLAY in self.fixes:
-                    # TODO: fixes.append(...)
-                    game_args.extend(("--server", self.quick_play.host))
-                    game_args.extend(("--port", str(self.quick_play.port)))
+        # The arguments do not support custom resolution, try to fix.
+        if self.resolution is not None and "has_custom_resolution" not in all_features:
+            if self.fixes.get(self.FIX_LEGACY_RESOLUTION):
+                self._applied_fixes[self.FIX_LEGACY_RESOLUTION] = self.resolution
+                game_args.extend((
+                    "--width", str(self.resolution[0]),
+                    "--height", str(self.resolution[1]),
+                ))
+        
+        # The arguments do not support quick play.
+        if isinstance(self.quick_play, QuickPlayMultiplayer) and "is_quick_play_multiplayer" not in all_features:
+            if self.fixes.get(self.FIX_LEGACY_QUICK_PLAY):
+                self._applied_fixes[self.FIX_LEGACY_QUICK_PLAY] = f"{self.quick_play.host}:{self.quick_play.port}"
+                game_args.extend(("--server", self.quick_play.host))
+                game_args.extend(("--port", str(self.quick_play.port)))
 
         # Global options.        
         if self.disable_multiplayer:
@@ -1264,10 +1312,24 @@ class JvmLoadedEvent:
     """Event triggered when JVM has been resolved. If count is none then the resolved 
     version is a builtin JVM.
     """
-    __slots__ = "version", "files_count"
-    def __init__(self, version: Optional[str], files_count: Optional[int]) -> None:
+
+    MOJANG = "mojang"    # Mojang provided JVM
+    BUILTIN = "builtin"  # Builtin JVM (java command)
+    CUSTOM = "custom"    # Custom JVM given with jvm_path
+
+    __slots__ = "version", "kind"
+    def __init__(self, version: Optional[str], kind: str) -> None:
         self.version = version
-        self.files_count = files_count
+        self.kind = kind
+
+class FixEvent:
+    """Event triggered when a particular fix has been applied.
+    """
+
+    LEGACY_RESOLUTION = "legacy_resolution"
+    MAIN_CLASS_FIRST = "main_class_first"
+    LEGACY_PROXY = "legacy_proxy"
+    LEGACY_MERGE_SORT = "legacy_merge_sort"
 
 class ArgsFixesEvent:
     """Event triggered when arguments where computed, and sum up applied fixes.

@@ -1,7 +1,7 @@
 """CLI languages management.
 """
 
-from portablemc.standard import JvmNotFoundError, DownloadError
+from portablemc.standard import JvmNotFoundError, JvmLoadedEvent, Version
 from portablemc.forge import ForgeInstallError
 from portablemc.util import jvm_bin_filename
 from portablemc.download import DownloadResultError
@@ -74,7 +74,7 @@ lang = {
     "args.start.jvm_args": "Change the default JVM arguments.",
     "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
         "order to improve the log readability in the console.",
-    "args.start.no_legacy_fix": "Flag that disable fixes for old versions (legacy merge sort, betacraft proxy), "
+    "args.start.no_fix": "Flag that globally disable fixes (proxy for old versions), "
         "enabled by default.",
     "args.start.fabric_prefix": "Change the prefix of the version ID when starting with Fabric (<prefix>-<vanilla-version>-<loader-version>).",
     "args.start.quilt_prefix": "Change the prefix of the version ID when starting with Quilt (<prefix>-<vanilla-version>-<loader-version>).",
@@ -160,9 +160,9 @@ lang = {
     "start.libraries.excluded": "Excluded library {spec}",
     "start.logger.found": "Using logger {version}",
     "start.jvm.loading": "Loading java...",
-    "start.jvm.loaded": "Loaded java {version} with {files_count} files",
-    "start.jvm.loaded_builtin": "Loaded builtin java {version}",
-    "start.jvm.unknown_version": "unknown",
+    f"start.jvm.loaded.{JvmLoadedEvent.MOJANG}": "Loaded Mojang java {version}",
+    f"start.jvm.loaded.{JvmLoadedEvent.BUILTIN}": "Loaded builtin java {version}",
+    f"start.jvm.loaded.{JvmLoadedEvent.CUSTOM}": "Loaded custom java {version}",
     f"start.jvm.not_found_error.{JvmNotFoundError.UNSUPPORTED_ARCH}": "No JVM download was found for your platform architecture, "
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.not_found_error.{JvmNotFoundError.UNSUPPORTED_VERSION}": "No JVM download was found, "
@@ -171,11 +171,13 @@ lang = {
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.not_found_error.{JvmNotFoundError.BUILTIN_INVALID_VERSION}": f"The builtin JVM ({jvm_bin_filename}) is not compatible "
         "with selected game version.",
-    # "start.args.fixes": "Applied the following fixes to arguments:",
-    # f"start.args.fix.{ArgsFixesEvent.LEGACY_RESOLUTION}": "Included resolution into game arguments",
-    # f"start.args.fix.{ArgsFixesEvent.MAIN_CLASS_FIRST}": "Main class placed first in class path",
-    # f"start.args.fix.{ArgsFixesEvent.LEGACY_PROXY}": "Using legacy proxy for online resources",
-    # f"start.args.fix.{ArgsFixesEvent.LEGACY_MERGE_SORT}": "Using legacy merge sort",
+    "start.fixes": "Applied the following fixes:",
+    f"start.fix.{Version.FIX_LEGACY_PROXY}": "Using legacy proxy for online resources: {value}",
+    f"start.fix.{Version.FIX_LEGACY_MERGE_SORT}": "Using legacy merge sort: {value}",
+    f"start.fix.{Version.FIX_LEGACY_RESOLUTION}": "Included resolution into game arguments: {value}",
+    f"start.fix.{Version.FIX_LEGACY_QUICK_PLAY}": "Included legacy quick play into game arguments: {value}",
+    f"start.fix.{Version.FIX_1_16_AUTH_LIB}": "Fixed authlib for 1.16.4 or 1.16.5: {value}",
+    f"start.fix.{Version.FIX_LWJGL}": "Fixed LWJGL: {value}",
     "start.additional_binary_not_found": "The additional binary '{path}' doesn't exists.",
     "start.bin_install": "Installed binary {src_file} as {dst_name}",
     # Command start (LWJGL fix)
