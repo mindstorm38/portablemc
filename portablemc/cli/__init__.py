@@ -259,12 +259,16 @@ def cmd_start(ns: StartNs):
     version.disable_chat = ns.disable_chat
     version.demo = ns.demo
     version.resolution = ns.resolution
+    version.jvm_path = None if ns.jvm is None else Path(ns.jvm)
 
     if ns.server is not None:
         version.set_quick_play_multiplayer(ns.server, ns.server_port or 25565)
 
-    if ns.no_legacy_fix:
+    if ns.no_fix:
         version.fixes.clear()
+    
+    if ns.lwjgl is not None:
+        version.fixes[Version.FIX_LWJGL] = ns.lwjgl
 
     if ns.login is not None:
         version.auth_session = prompt_authenticate(ns, ns.login, not ns.temp_login, ns.auth_service, ns.auth_anonymize)
@@ -294,19 +298,20 @@ def cmd_start(ns: StartNs):
     #         return True
     #     seq.state[LibrariesOptions].predicates.append(libraries_predicate)
 
-    # TODO: If LWJGL fix is required.
-    # if ns.lwjgl is not None:
-    #     add_lwjgl_tasks(seq)
-    #     seq.state.insert(LwjglVersion(ns.lwjgl))
-
-    # TODO: If a manual JVM is specified, we set the JVM state so that JvmTask won't run.
-    # if ns.jvm is not None:
-    #     seq.state.insert(Jvm(Path(ns.jvm), None))
-
     try:
+
         env = version.install(watcher=StartWatcher(ns))
+
+        if ns.verbose >= 1 and len(env.fixes):
+            ns.out.task("INFO", "start.fixes")
+            ns.out.finish()
+            for fix, fix_value in env.fixes.items():
+                ns.out.task(None, f"start.fix.{fix}", value=fix_value)
+                ns.out.finish()
+
         if not ns.dry:
             env.run(CliRunner(ns))
+
         sys.exit(EXIT_OK)
     
     except VersionNotFoundError as error:
@@ -640,13 +645,6 @@ class StartWatcher(SimpleWatcher):
             ns.out.task("OK", key, **kwargs)
             ns.out.finish()
         
-        def jvm_loaded(e: JvmLoadedEvent) -> None:
-            if e.files_count is None:
-                ns.out.task("OK", "start.jvm.loaded_builtin", version=e.version or _("start.jvm.unknown_version"))
-            else:
-                ns.out.task("OK", "start.jvm.loaded", version=e.version or _("start.jvm.unknown_version"), files_count=e.files_count)
-            ns.out.finish()
-
         def assets_resolve(e: AssetsResolveEvent) -> None:
             if e.count is None:
                 ns.out.task("..", "start.assets.resolving", index_version=e.index_version)
@@ -680,7 +678,7 @@ class StartWatcher(SimpleWatcher):
             VersionFetchingEvent: lambda e: progress_task("start.version.fetching", version=e.version),
             VersionLoadedEvent: lambda e: finish_task("start.version.loaded", version=e.version),
             JvmLoadingEvent: lambda e: progress_task("start.jvm.loading"),
-            JvmLoadedEvent: jvm_loaded,
+            JvmLoadedEvent: lambda e: finish_task(f"start.jvm.loaded.{e.kind}", version=e.version or ""),
             JarFoundEvent: lambda e: finish_task("start.jar.found"),
             AssetsResolveEvent: assets_resolve,
             LibrariesResolvingEvent: lambda e: progress_task("start.libraries.resolving"),

@@ -39,7 +39,7 @@ class StartNs(RootNs):
     jvm: Optional[str]
     jvm_args: Optional[str]
     no_better_logging: bool
-    no_legacy_fix: bool
+    no_fix: bool
     fabric_prefix: str
     quilt_prefix: str
     forge_prefix: str
@@ -104,11 +104,11 @@ def register_start_arguments(parser: ArgumentParser):
     parser.add_argument("--jvm", help=_("args.start.jvm"))
     parser.add_argument("--jvm-args", help=_("args.start.jvm_args"), metavar="ARGS")
     parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
-    parser.add_argument("--no-legacy-fix", help=_("args.start.no_legacy_fix"), action="store_true")
+    parser.add_argument("--no-fix", help=_("args.start.no_fix"), action="store_true")
     parser.add_argument("--fabric-prefix", help=_("args.start.fabric_prefix"), default="fabric", metavar="PREFIX")
     parser.add_argument("--quilt-prefix", help=_("args.start.quilt_prefix"), default="quilt", metavar="PREFIX")
     parser.add_argument("--forge-prefix", help=_("args.start.forge_prefix"), default="forge", metavar="PREFIX")
-    parser.add_argument("--lwjgl", help=_("args.start.lwjgl"), choices=["3.2.3", "3.3.0", "3.3.1"])
+    parser.add_argument("--lwjgl", help=_("args.start.lwjgl"), choices=["3.2.3", "3.3.0", "3.3.1", "3.3.2"])
     parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), action="append", metavar="SPEC", type=LibrarySpecifierFilter.from_str)
     parser.add_argument("--include-bin", help=_("args.start.include_bin"), action="append", metavar="PATH")
     parser.add_argument("--auth-anonymize", help=_("args.start.auth_anonymize"), action="store_true")
