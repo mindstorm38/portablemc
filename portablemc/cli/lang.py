@@ -159,6 +159,7 @@ lang = {
     "start.libraries.resolving": "Checking libraries...",
     "start.libraries.resolved": "Checked {class_libs_count} class and {native_libs_count} native libraries",
     "start.libraries.excluded": "Excluded library {spec}",
+    "start.libraries.unused_filter": "Unused library filter {filter}",
     "start.libraries.not_found_error": "A required library is not installed but no way to download it: {spec}",
     "start.logger.found": "Using logger {version}",
     "start.jvm.loading": "Loading java...",
