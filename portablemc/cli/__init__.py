@@ -333,7 +333,8 @@ def cmd_start(ns: StartNs):
         ns.out.finish()
     
     except LibraryNotFoundError as error:
-        raise ValueError("TODO:")
+        ns.out.task("FAILED", f"start.libraries.not_found_error", spec=str(error.lib))
+        ns.out.finish()
     
     except ForgeInstallError as error:
         ns.out.task("FAILED", f"start.forge.install_error.{error.code}")
