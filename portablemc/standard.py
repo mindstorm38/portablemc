@@ -944,14 +944,15 @@ class Version:
 
         watcher.handle(DownloadStartEvent(threads_count, entries_count, self._dl.size))
 
-        for result_count, result in self._dl.download(threads_count):
+        for result_count, result in self._dl.download(threads_count, partial_progress=True):
             if isinstance(result, DownloadResultProgress):
                 watcher.handle(DownloadProgressEvent(
                     result.thread_id,
                     result_count,
                     result.entry,
                     result.size,
-                    result.speed
+                    result.speed,
+                    result.done
                 ))
             elif isinstance(result, DownloadResultError):
                 errors.append((result.entry, result.code))
@@ -1337,13 +1338,14 @@ class DownloadStartEvent:
         self.size = size
 
 class DownloadProgressEvent:
-    __slots__ = "thread_id", "count", "entry", "size", "speed"
-    def __init__(self, thread_id: int, count: int, entry: DownloadEntry, size: int, speed: float) -> None:
+    __slots__ = "thread_id", "count", "entry", "size", "speed", "done"
+    def __init__(self, thread_id: int, count: int, entry: DownloadEntry, size: int, speed: float, done: bool) -> None:
         self.thread_id = thread_id
         self.count = count
         self.entry = entry
         self.size = size
         self.speed = speed
+        self.done = done
 
 class DownloadCompleteEvent:
     __slots__ = tuple()

@@ -85,11 +85,12 @@ class DownloadResult:
 class DownloadResultProgress(DownloadResult):
     """Subclass of result when a file's download has been successful.
     """
-    __slots__ = "size", "speed"
-    def __init__(self, thread_id: int, entry: DownloadEntry, size: int, speed: float) -> None:
+    __slots__ = "size", "speed", "done"
+    def __init__(self, thread_id: int, entry: DownloadEntry, size: int, speed: float, done: bool) -> None:
         super().__init__(thread_id, entry)
         self.size = size
         self.speed = speed
+        self.done = done
 
 
 class DownloadResultError(DownloadResult):
@@ -142,10 +143,14 @@ class DownloadList:
         if entry.size is not None:
             self.size += entry.size
     
-    def download(self, threads_count: int) -> Iterator[Tuple[int, DownloadResult]]:
+    def download(self, threads_count: int, *,
+        partial_progress: bool = False
+    ) -> Iterator[Tuple[int, DownloadResult]]:
         """Execute the download.
         
         :param threads_count: The number of threads to run the download on.
+        :param partial_progress: Set to true to be able to receive partial progress update
+        on unfinished files, if this is false, DownloadResultProgress.done should be true.
         :return: This function returns an iterator that yields a tuple that contain the
         total number of results and the new result that came in.
         """
@@ -166,7 +171,7 @@ class DownloadList:
 
         for th_id in range(threads_count):
             th = Thread(target=_download_thread, 
-                        args=(th_id, entries_queue, result_queue), 
+                        args=(th_id, entries_queue, result_queue, partial_progress), 
                         daemon=True, 
                         name=f"Download Thread {th_id}")
             th.start()
@@ -179,7 +184,8 @@ class DownloadList:
         
         while result_count < entries_count:
             result = result_queue.get()
-            result_count += 1
+            if not isinstance(result, DownloadResultProgress) or result.done:
+                result_count += 1
             yield result_count, result
 
         # Send 'threads_count' sentinels.
@@ -188,12 +194,14 @@ class DownloadList:
 
         # We intentionally don't join thread because it takes some time for unknown 
         # reason. And we don't care of these threads because these are daemon ones.
+        pass
 
 
 def _download_thread(
     thread_id: int, 
     entries_queue: Queue,
     result_queue: Queue,
+    partial_progress: bool
 ):
     """This function is internally used for multi-threaded download.
 
@@ -205,16 +213,19 @@ def _download_thread(
     conn_cache: Dict[Tuple[bool, str], Union[HTTPConnection, HTTPSConnection]] = {}
 
     # Each thread has its own buffer.
-    buffer_back = bytearray(65536)
+    buffer_cap = 65536
+    buffer_back = bytearray(buffer_cap)
     buffer = memoryview(buffer_back)
     
     # Maximum tries count or a single entry.
     max_try_count = 3
 
     # For speed calculation.
-    # total_time = 0
-    # total_size = 0
-    speed_smoothing = 0.005
+    speed_update_interval = 0.25
+    speed_smoothing = 0.3
+    speed_last_time = 0
+    speed_last_size = 0
+    speed_current_size = 0
     speed = 0
 
     while True:
@@ -285,7 +296,6 @@ def _download_thread(
             size = 0
 
             entry.dst.parent.mkdir(parents=True, exist_ok=True)
-
             with entry.dst.open("wb") as dst_fp:
 
                 while True:
@@ -294,26 +304,39 @@ def _download_thread(
                     if not read_len:
                         break
 
-                    buffer_view = buffer[:read_len]
                     size += read_len
+                    speed_current_size += read_len
+                    buffer_view = buffer[:read_len]
                     if sha1 is not None:
                         sha1.update(buffer_view)
                     dst_fp.write(buffer_view)
+
+                    # Update speed calculation at given interval.
+                    now = time.monotonic()
+                    speed_elapsed_time = now - speed_last_time
+                    if speed_elapsed_time > speed_update_interval:
+                        speed_elapsed_size = speed_current_size - speed_last_size
+                        current_speed = speed_elapsed_size / speed_elapsed_time
+                        speed = speed_smoothing * current_speed + (1 - speed_smoothing) * speed
+                        speed_last_time = now
+                        speed_last_size = speed_current_size
+
+                    # Filled the whole buffer, send a progress update because we'll 
+                    # likely need another reading.
+                    if partial_progress and read_len == buffer_cap:
+                        result_queue.put(DownloadResultProgress(
+                            thread_id,
+                            entry,
+                            size,
+                            speed,
+                            False
+                        ))
             
             # If the entry should be executable, only those that can read would be
             # able to execute it.
             if entry.executable:
                 prev_mode = entry.dst.stat().st_mode
                 entry.dst.chmod(prev_mode | ((prev_mode & 0o444) >> 2))
-            
-            # total_time += time.monotonic() - start_time
-            # total_size += size
-
-            # Update speed calculation.
-            elapsed_time = time.monotonic() - start_time
-            if elapsed_time > 0:
-                current_speed = size / (time.monotonic() - start_time)
-                speed = speed_smoothing * current_speed + (1 - speed_smoothing) * speed
 
             if entry.size is not None and size != entry.size:
                 last_error = DownloadResultError.INVALID_SIZE
@@ -325,7 +348,8 @@ def _download_thread(
                     thread_id,
                     entry,
                     size,
-                    speed
+                    speed,
+                    True
                 ))
 
                 # Breaking means success.

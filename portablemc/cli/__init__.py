@@ -718,8 +718,9 @@ class StartWatcher(SimpleWatcher):
         self.ns = ns
         self.entries_count: int
         self.total_size: int
-        self.size: int
         self.speeds: List[float]
+        self.sizes: List[int]
+        self.size = 0
 
     def download_start(self, e: DownloadStartEvent):
 
@@ -729,22 +730,28 @@ class StartWatcher(SimpleWatcher):
 
         self.entries_count = e.entries_count
         self.total_size = e.size
-        self.size = 0
         self.speeds = [0.0] * e.threads_count
+        self.sizes = [0] * e.threads_count
+        self.size = 0
         self.ns.out.task("..", "download.start")
 
     def download_progress(self, e: DownloadProgressEvent) -> None:
 
         self.speeds[e.thread_id] = e.speed
+        self.sizes[e.thread_id] = e.size
+
         speed = sum(self.speeds)
-        self.size += e.size
         total_count = str(self.entries_count)
         count = f"{e.count:{len(total_count)}}"
+        
         self.ns.out.task("..", "download.progress", 
             count=count,
             total_count=total_count,
-            size=f"{format_number(self.size)}o",
+            size=f"{format_number(self.size + sum(self.sizes))}o",
             speed=f"{format_number(speed)}o/s")
+
+        if e.done:
+            self.size += e.size
 
     def download_complete(self, e: DownloadCompleteEvent) -> None:
         self.ns.out.task("OK", None)
