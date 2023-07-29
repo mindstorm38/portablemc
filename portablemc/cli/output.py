@@ -278,7 +278,7 @@ class MachineOutput(Output):
     def print(self, text: str) -> None:
         self.print_function("print", text)
     
-    def prompt(self, password: bool = False) -> str | None:
+    def prompt(self, password: bool = False) -> Optional[str]:
         self.print_function("prompt", password=str(int(password)))
         try:
             return input("")
