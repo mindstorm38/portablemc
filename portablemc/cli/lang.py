@@ -72,8 +72,6 @@ lang = {
     "args.start.jvm": f"Set a custom JVM '{jvm_bin_filename}' executable path. If this argument is omitted a public build "
         "of a JVM is downloaded from Mojang services (if Mojang does not support your system, error is returned).",
     "args.start.jvm_args": "Change the default JVM arguments.",
-    "args.start.no_better_logging": "Disable the better logging configuration built by the launcher in "
-        "order to improve the log readability in the console.",
     "args.start.no_fix": "Flag that globally disable fixes (proxy for old versions), "
         "enabled by default.",
     "args.start.fabric_prefix": "Change the prefix of the version ID when starting with Fabric (<prefix>-<vanilla-version>-<loader-version>).",

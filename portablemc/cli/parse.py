@@ -38,7 +38,6 @@ class StartNs(RootNs):
     resolution: Optional[Tuple[int, int]]
     jvm: Optional[str]
     jvm_args: Optional[str]
-    no_better_logging: bool
     no_fix: bool
     fabric_prefix: str
     quilt_prefix: str
@@ -103,7 +102,6 @@ def register_start_arguments(parser: ArgumentParser):
     parser.add_argument("--resolution", help=_("args.start.resolution"), type=resolution_from_str)
     parser.add_argument("--jvm", help=_("args.start.jvm"))
     parser.add_argument("--jvm-args", help=_("args.start.jvm_args"), metavar="ARGS")
-    parser.add_argument("--no-better-logging", help=_("args.start.no_better_logging"), action="store_true")
     parser.add_argument("--no-fix", help=_("args.start.no_fix"), action="store_true")
     parser.add_argument("--fabric-prefix", help=_("args.start.fabric_prefix"), default="fabric", metavar="PREFIX")
     parser.add_argument("--quilt-prefix", help=_("args.start.quilt_prefix"), default="quilt", metavar="PREFIX")
