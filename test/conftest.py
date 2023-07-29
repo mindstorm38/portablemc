@@ -19,7 +19,7 @@ def pytest_collection_modifyitems(config, items):
 
 def pytest_generate_tests(metafunc):
     if "vanilla_version" in metafunc.fixturenames:
-        from portablemc.vanilla import VersionManifest
+        from portablemc.standard import VersionManifest
         manifest = VersionManifest()
         metafunc.parametrize("vanilla_version", map(lambda v: v["id"], filter(lambda v: v["type"] in ("release", "old_beta", "old_alpha"), manifest.all_versions())))
 
@@ -28,5 +28,5 @@ def tmp_context(tmp_path_factory):
     """This fixture is used to create a game's install context global to test session.
     """
 
-    from portablemc.vanilla import Context
+    from portablemc.standard import Context
     return Context(tmp_path_factory.mktemp("context"))

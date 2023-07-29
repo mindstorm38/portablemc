@@ -20,9 +20,13 @@ from typing import Dict, Optional, List
 
 class ForgeVersion(Version):
     
-    def __init__(self, context: Context, forge_version: str, prefix: str = "forge") -> None:
+    def __init__(self, 
+        forge_version: str = "release", *,
+        context: Optional[Context] = None,
+        prefix: str = "forge",
+    ) -> None:
 
-        super().__init__(context, "")  # Do not give a root version for now.
+        super().__init__("", context=context)  # Do not give a root version for now.
 
         self._forge_version = forge_version
         self._prefix = prefix
@@ -31,7 +35,7 @@ class ForgeVersion(Version):
     def _resolve_version(self, watcher: Watcher) -> None:
         
         # Maybe "release" or "snapshot", we process this first.
-        self._forge_version = self._manifest.filter_latest(self._forge_version)[0]
+        self._forge_version = self.manifest.filter_latest(self._forge_version)[0]
 
         # No dash or alias version, resolve against promo version.
         alias = self._forge_version.endswith(("-latest", "-recommended"))

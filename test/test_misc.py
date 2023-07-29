@@ -41,7 +41,7 @@ def test_merge():
 
 def test_replace_vars():
 
-    from portablemc.vanilla import replace_vars, replace_list_vars
+    from portablemc.standard import replace_vars, replace_list_vars
 
     assert replace_vars("this is foo value: ${foo}", {"foo": "89658"}) == "this is foo value: 89658"
 

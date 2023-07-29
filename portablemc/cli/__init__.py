@@ -357,19 +357,19 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
     if kind == "standard":
         if len(parts) != 1:
             return None
-        return Version(ns.context, parts[0] or "release")
+        return Version(parts[0] or "release", context=ns.context)
     
     elif kind in ("fabric", "quilt"):
         if len(parts) > 2:
             return None
         constructor = FabricVersion.with_fabric if kind == "fabric" else FabricVersion.with_quilt
         prefix = ns.fabric_prefix if kind == "fabric" else ns.quilt_prefix
-        return constructor(ns.context, parts[0] or "release", parts[1] if len(parts) == 2 else None, prefix)
+        return constructor(parts[0] or "release", parts[1] if len(parts) == 2 else None, context=ns.context, prefix=prefix)
     
     elif kind == "forge":
         if len(parts) != 1:
             return None
-        return ForgeVersion(ns.context, parts[0] or "release", ns.forge_prefix)
+        return ForgeVersion(parts[0] or "release", context=ns.context, prefix=ns.forge_prefix)
     
     else:
         return None
