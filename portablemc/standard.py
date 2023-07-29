@@ -197,7 +197,7 @@ class Version:
     FIX_LEGACY_MERGE_SORT = "legacy_merge_sort"
     FIX_LEGACY_RESOLUTION = "legacy_resolution"
     FIX_LEGACY_QUICK_PLAY = "legacy_quick_play"
-    FIX_1_16_AUTH_LIB = "1_16_auth_lib"
+    FIX_AUTH_LIB_2_1_28 = "auth_lib_2_1_28"
     FIX_LWJGL = "lwjgl"
 
     def __init__(self, version: str = "release", *, 
@@ -231,7 +231,7 @@ class Version:
             self.FIX_LEGACY_MERGE_SORT: True,
             self.FIX_LEGACY_RESOLUTION: True,
             self.FIX_LEGACY_QUICK_PLAY: True,
-            self.FIX_1_16_AUTH_LIB: True,
+            self.FIX_AUTH_LIB_2_1_28: True,
             self.FIX_LWJGL: None
         }
 
@@ -430,7 +430,7 @@ class Version:
         if self.quick_play is not None:
             self._features[self.quick_play.feature] = True
         
-        watcher.handle(VersionFeaturesEvent([feature for feature, enabled in self._features.items() if enabled]))
+        watcher.handle(FeaturesEvent([feature for feature, enabled in self._features.items() if enabled]))
 
     def _resolve_jar(self, watcher: Watcher) -> None:
         """This step resolves the JAR file to use for launcher the game.
@@ -706,7 +706,7 @@ class Version:
         # Versions 1.16.4 and 1.16.5 uses authlib:2.1.28 which cause multiplayer button
         # (and probably in-game chat) to be disabled, this can be fixed by switching to
         # version 2.2.30
-        if self.fixes.get(self.FIX_1_16_AUTH_LIB):
+        if self.fixes.get(self.FIX_AUTH_LIB_2_1_28):
             spec = LibrarySpecifier("com.mojang", "authlib", "2.1.28")
             lib = self._libs.pop(spec, None)
             if lib is not None:
@@ -715,7 +715,7 @@ class Version:
                     lib.entry.url = f"{LIBRARIES_URL}com/mojang/authlib/2.2.30/authlib-2.2.30.jar"
                     lib.entry.sha1 = "d6e677199aa6b19c4a9a2e725034149eb3e746f8"
                     lib.entry.size = 87497
-                self._applied_fixes[self.FIX_1_16_AUTH_LIB] = True
+                self._applied_fixes[self.FIX_AUTH_LIB_2_1_28] = True
                 self._libs[spec] = lib
         
         # Fixing LWJGL, this can be useful on ARM devices because Mojang doesn't provide
@@ -1269,7 +1269,7 @@ class VersionLoadedEvent(VersionEvent):
     """Event triggered when a version has been successfully loaded.
     """
 
-class VersionFeaturesEvent:
+class FeaturesEvent:
     """Event triggered when features for the version has been computed. Only enabled 
     features are given as list of features.
     """
@@ -1322,28 +1322,6 @@ class JvmLoadedEvent:
     def __init__(self, version: Optional[str], kind: str) -> None:
         self.version = version
         self.kind = kind
-
-class FixEvent:
-    """Event triggered when a particular fix has been applied.
-    """
-
-    LEGACY_RESOLUTION = "legacy_resolution"
-    MAIN_CLASS_FIRST = "main_class_first"
-    LEGACY_PROXY = "legacy_proxy"
-    LEGACY_MERGE_SORT = "legacy_merge_sort"
-
-class ArgsFixesEvent:
-    """Event triggered when arguments where computed, and sum up applied fixes.
-    """
-
-    LEGACY_RESOLUTION = "legacy_resolution"
-    MAIN_CLASS_FIRST = "main_class_first"
-    LEGACY_PROXY = "legacy_proxy"
-    LEGACY_MERGE_SORT = "legacy_merge_sort"
-
-    __slots__ = "fixes",
-    def __init__(self, fixes: List[str]) -> None:
-        self.fixes = fixes
 
 class DownloadStartEvent:
     __slots__ = "threads_count", "entries_count", "size"
