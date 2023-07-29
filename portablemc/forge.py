@@ -20,29 +20,28 @@ from typing import Dict, Optional, List
 
 class ForgeVersion(Version):
     
-    def __init__(self, 
-        forge_version: str = "release", *,
+    def __init__(self, forge_version: str = "release", *,
         context: Optional[Context] = None,
         prefix: str = "forge",
     ) -> None:
 
         super().__init__("", context=context)  # Do not give a root version for now.
 
-        self._forge_version = forge_version
-        self._prefix = prefix
+        self.forge_version = forge_version
+        self.prefix = prefix
         self._forge_post_info: Optional[ForgePostInfo] = None
     
     def _resolve_version(self, watcher: Watcher) -> None:
         
         # Maybe "release" or "snapshot", we process this first.
-        self._forge_version = self.manifest.filter_latest(self._forge_version)[0]
+        self.forge_version = self.manifest.filter_latest(self.forge_version)[0]
 
         # No dash or alias version, resolve against promo version.
-        alias = self._forge_version.endswith(("-latest", "-recommended"))
-        if "-" not in self._forge_version or alias:
+        alias = self.forge_version.endswith(("-latest", "-recommended"))
+        if "-" not in self.forge_version or alias:
 
             # If it's not an alias, create the alias from the game version.
-            alias_version = self._forge_version if alias else f"{self._forge_version}-recommended"
+            alias_version = self.forge_version if alias else f"{self.forge_version}-recommended"
             watcher.handle(ForgeResolveEvent(alias_version, True))
 
             # Try to get loader from promo versions.
@@ -51,7 +50,7 @@ class ForgeVersion(Version):
 
             # Try with "-latest", some version do not have recommended.
             if loader_version is None and not alias:
-                alias_version = f"{self._forge_version}-latest"
+                alias_version = f"{self.forge_version}-latest"
                 watcher.handle(ForgeResolveEvent(alias_version, True))
                 loader_version = promo_versions.get(alias_version)
             
@@ -60,29 +59,29 @@ class ForgeVersion(Version):
             alias_version = alias_version[:last_dash]
 
             if loader_version is None:
-                raise VersionNotFoundError(f"{self._prefix}-{alias_version}-???")
+                raise VersionNotFoundError(f"{self.prefix}-{alias_version}-???")
 
-            self._forge_version = f"{alias_version}-{loader_version}"
+            self.forge_version = f"{alias_version}-{loader_version}"
 
-            watcher.handle(ForgeResolveEvent(self._forge_version, False))
+            watcher.handle(ForgeResolveEvent(self.forge_version, False))
         
         # Finally define the full version id.
-        self._version = f"{self._prefix}-{self._forge_version}"
+        self.version = f"{self.prefix}-{self.forge_version}"
 
     def _load_version(self, version: VersionHandle, watcher: Watcher) -> bool:
-        if version.id == self._version:
+        if version.id == self.version:
             return version.read_metadata_file()
         else:
             return super()._load_version(version, watcher)
 
     def _fetch_version(self, version: VersionHandle, watcher: Watcher) -> None:
 
-        if version.id != self._version:
+        if version.id != self.version:
             return super()._fetch_version(version, watcher)
         
         # Extract the game version from the forge version, we'll use
         # it to add suffix to find the right forge version if needed.
-        game_version = self._forge_version.split("-", 1)[0]
+        game_version = self.forge_version.split("-", 1)[0]
 
         # For some older game versions, some odd suffixes were used 
         # for the version scheme.
@@ -103,7 +102,7 @@ class ForgeVersion(Version):
         install_jar = None
         for suffix in suffixes:
             try:
-                install_jar = request_install_jar(f"{self._forge_version}{suffix}")
+                install_jar = request_install_jar(f"{self.forge_version}{suffix}")
                 break
             except HttpError as error:
                 if error.res.status != 404:
@@ -134,7 +133,7 @@ class ForgeVersion(Version):
                 with install_jar.open(info) as fp:
                     install_profile = json.load(fp)
             except KeyError:
-                raise ForgeInstallError(self._forge_version, ForgeInstallError.INSTALL_PROFILE_NOT_FOUND)
+                raise ForgeInstallError(self.forge_version, ForgeInstallError.INSTALL_PROFILE_NOT_FOUND)
 
             # print(f"{install_profile=}")
 
@@ -215,7 +214,7 @@ class ForgeVersion(Version):
                 # Forge versions before 1.12.2-14.23.5.2847
                 version.metadata = install_profile.get("versionInfo")
                 if not isinstance(version.metadata, dict):
-                    raise ForgeInstallError(self._forge_version, ForgeInstallError.VERSION_METADATA_NOT_FOUND)
+                    raise ForgeInstallError(self.forge_version, ForgeInstallError.VERSION_METADATA_NOT_FOUND)
                 
                 # Older versions have non standard keys for libraries.
                 for version_lib in version.metadata["libraries"]:

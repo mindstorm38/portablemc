@@ -48,13 +48,13 @@ class FabricVersion(Version):
         
         super().__init__("", context=context)  # Do not give a root version for now.
 
-        self._api = api
-        self._vanilla_version = vanilla_version
-        self._loader_version = loader_version
-        self._prefix = prefix
+        self.api = api
+        self.vanilla_version = vanilla_version
+        self.loader_version = loader_version
+        self.prefix = prefix
 
     @classmethod
-    def with_fabric(cls, vanilla_version: str, loader_version: Optional[str], *,
+    def with_fabric(cls, vanilla_version: str = "release", loader_version: Optional[str] = None, *,
         context: Optional[Context] = None, 
         prefix: str = "fabric"
     ) -> "FabricVersion":
@@ -63,7 +63,7 @@ class FabricVersion(Version):
         return cls(FABRIC_API, vanilla_version, loader_version, prefix, context=context)
 
     @classmethod
-    def with_quilt(cls, vanilla_version: str, loader_version: Optional[str], *,
+    def with_quilt(cls, vanilla_version: str = "release", loader_version: Optional[str] = None, *,
         context: Optional[Context] = None,
         prefix: str = "quilt"
     ) -> "FabricVersion":
@@ -74,44 +74,44 @@ class FabricVersion(Version):
     def _resolve_version(self, watcher: Watcher) -> None:
 
         # Vanilla version may be "release" or "snapshot"
-        self._vanilla_version = self.manifest.filter_latest(self._vanilla_version)[0]
+        self.vanilla_version = self.manifest.filter_latest(self.vanilla_version)[0]
         
         # Resolve loader version if not specified.
-        if self._loader_version is None:
+        if self.loader_version is None:
 
-            watcher.handle(FabricResolveEvent(self._api, self._vanilla_version, None))
+            watcher.handle(FabricResolveEvent(self.api, self.vanilla_version, None))
 
             try:
-                self._loader_version = self._api.request_fabric_loader_version(self._vanilla_version)
+                self.loader_version = self.api.request_fabric_loader_version(self.vanilla_version)
             except HttpError as error:
                 if error.res.status not in (404, 400):
                     raise
-                self._loader_version = None
+                self.loader_version = None
             
-            if self._loader_version is None:
+            if self.loader_version is None:
                 # Correct error if the error is just a not found.
-                raise VersionNotFoundError(f"{self._prefix}-{self._vanilla_version}-???")
+                raise VersionNotFoundError(f"{self.prefix}-{self.vanilla_version}-???")
 
-            watcher.handle(FabricResolveEvent(self._api, self._vanilla_version, self._loader_version))
+            watcher.handle(FabricResolveEvent(self.api, self.vanilla_version, self.loader_version))
         
         # Finally define the full version id.
-        self._version = f"{self._prefix}-{self._vanilla_version}-{self._loader_version}"
+        self.version = f"{self.prefix}-{self.vanilla_version}-{self.loader_version}"
 
     def _load_version(self, version: VersionHandle, watcher: Watcher) -> bool:
-        if version.id == self._version:
+        if version.id == self.version:
             return version.read_metadata_file()
         else:
             return super()._load_version(version, watcher)
 
     def _fetch_version(self, version: VersionHandle, watcher: Watcher) -> None:
 
-        if version.id != self._version:
+        if version.id != self.version:
             return super()._fetch_version(version, watcher)
         
-        assert self._loader_version is not None, "_resolve_fabric_loader(...) missing"
+        assert self.loader_version is not None, "_resolve_fabric_loader(...) missing"
         
         try:
-            version.metadata = self._api.request_version_loader_profile(self._vanilla_version, self._loader_version)
+            version.metadata = self.api.request_version_loader_profile(self.vanilla_version, self.loader_version)
         except HttpError as error:
             if error.res.status not in (404, 400):
                 raise

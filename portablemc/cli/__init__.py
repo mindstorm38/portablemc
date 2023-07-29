@@ -17,7 +17,7 @@ from portablemc.auth import AuthDatabase, AuthSession, MicrosoftAuthSession, \
 
 from portablemc.standard import Context, Version, VersionManifest, SimpleWatcher, \
     DownloadError, DownloadStartEvent, DownloadProgressEvent, DownloadCompleteEvent, \
-    VersionNotFoundError, TooMuchParentsError, JarNotFoundError, \
+    VersionNotFoundError, TooMuchParentsError, FeaturesEvent, JarNotFoundError, \
     JvmNotFoundError, LibraryNotFoundError, \
     VersionLoadingEvent, VersionFetchingEvent, VersionLoadedEvent, \
     JvmLoadingEvent, JvmLoadedEvent, JarFoundEvent, \
@@ -645,6 +645,11 @@ class StartWatcher(SimpleWatcher):
             ns.out.task("OK", key, **kwargs)
             ns.out.finish()
         
+        def features(e: FeaturesEvent) -> None:
+            if ns.verbose >= 1 and len(e.features):
+                ns.out.task("INFO", "start.features", features=", ".join(e.features))
+                ns.out.finish()
+        
         def assets_resolve(e: AssetsResolveEvent) -> None:
             if e.count is None:
                 ns.out.task("..", "start.assets.resolving", index_version=e.index_version)
@@ -677,6 +682,7 @@ class StartWatcher(SimpleWatcher):
             VersionLoadingEvent: lambda e: progress_task("start.version.loading", version=e.version),
             VersionFetchingEvent: lambda e: progress_task("start.version.fetching", version=e.version),
             VersionLoadedEvent: lambda e: finish_task("start.version.loaded", version=e.version),
+            FeaturesEvent: features,
             JvmLoadingEvent: lambda e: progress_task("start.jvm.loading"),
             JvmLoadedEvent: lambda e: finish_task(f"start.jvm.loaded.{e.kind}", version=e.version or ""),
             JarFoundEvent: lambda e: finish_task("start.jar.found"),
