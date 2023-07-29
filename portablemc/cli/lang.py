@@ -46,9 +46,7 @@ lang = {
         "saves, screenshots (and resources for legacy versions), it also store "
         "runtime binaries and authentication. "
         "This argument can be used or not by subcommand.",
-    "args.timeout": "Set a global timeout (in decimal seconds) that can be used by various requests done by the launcher or "
-        "addons. A value of 0 is usually interpreted as an 'offline mode', this means that the launcher "
-        "will try to use a cached copy of the requests' response.",
+    "args.timeout": "Set a global timeout (in decimal seconds) for network requests.",
     "args.output": "Set the output format of the launcher, defaults to human-color.",
     "args.verbose": "Enable verbose output. The more -v argument you put, the more verbose the launcher will be, depending on subcommands' support (usually -v, -vv, -vvv).",
     # Args common langs
