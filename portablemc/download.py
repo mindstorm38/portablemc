@@ -260,8 +260,6 @@ def _download_thread(
                 result_queue.put(DownloadResultError(thread_id, entry, last_error))
                 break
             
-            start_time = time.monotonic()
-            
             try:
                 conn.request("GET", entry.url)
                 res = conn.getresponse()
@@ -357,4 +355,7 @@ def _download_thread(
 
             # We are here only when the file download has started but checks have failed,
             # then we should remove the file.
-            entry.dst.unlink(missing_ok=True)
+            try:
+                entry.dst.unlink()
+            except FileNotFoundError:
+                pass  # Not a problem if the file isn't present.
