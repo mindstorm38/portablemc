@@ -162,6 +162,10 @@ class VersionHandle:
 class Environment:
     """Describe the game's environment needed to run it. Such instance is produced by
     installing a version and may be used to run the game.
+
+    Note that native libs can contain both JAR files with dynamic libraries inside them 
+    and paths to dynamic libraries. The latter being symlinked in the bin directory, or
+    copied if not possible (lacking permission on Windows).
     """
 
     def __init__(self, context: Context, main_class: str) -> None:
@@ -226,6 +230,7 @@ class Version:
         self.disable_chat: bool = False
         self.quick_play: Optional[QuickPlay] = None
         self.jvm_path: Optional[Path] = None
+        self.libraries_filters: List[Callable[[Dict[LibrarySpecifier, _Library]], None]] = []
         self.fixes: Dict[str, Any] = { 
             self.FIX_LEGACY_PROXY: True, 
             self.FIX_LEGACY_MERGE_SORT: True,
@@ -255,7 +260,6 @@ class Version:
         self._libs: Dict[LibrarySpecifier, _Library] = {}
         self._native_libs: List[Path] = []
         self._class_libs: List[Path] = []
-        # self._libs_predicates: List[Callable[[LibrarySpecifier], bool]] = []
 
         # Logger config parsed from metadata
         self._logger_path: Optional[Path] = None
@@ -271,7 +275,7 @@ class Version:
     def set_auth_offline(self, username: Optional[str], uuid: Optional[str]) -> None:
         """Shortcut for setting an offline session with the given username/uuid pair.
         """
-        self.auth_session = OfflineAuthSession(uuid, username)
+        self.auth_session = OfflineAuthSession(username, uuid)
 
     def set_quick_play_singleplayer(self, level_name: str) -> None:
         """Configure quick play for entering a singleplayer level after game's launch.
@@ -571,7 +575,6 @@ class Version:
         URL.*
         """
 
-        excluded_libs = []
         watcher.handle(LibrariesResolvingEvent())
 
         # Recursion order is important for libraries resolving, root libraries should
@@ -666,7 +669,11 @@ class Version:
                 self._libs[spec] = _Library(natives is not None, lib_entry)
 
         # Fix libraries before computation
-        self._fix_libraries(watcher)
+        self._filter_libraries(watcher)
+
+        # Apply custom libs filters after builtin filters.
+        for libs_filter in self.libraries_filters:
+            libs_filter(self._libs)
 
         # Finally take the final version of libs and add them to download list.
         self._native_libs.clear()
@@ -695,12 +702,12 @@ class Version:
             libs = self._native_libs if parsed_lib.native else self._class_libs
             libs.append(lib_path)
 
-        watcher.handle(LibrariesResolvedEvent(len(self._class_libs), len(self._native_libs), excluded_libs))
+        watcher.handle(LibrariesResolvedEvent(len(self._class_libs), len(self._native_libs)))
 
-    def _fix_libraries(self, watcher: Watcher) -> None:
+    def _filter_libraries(self, watcher: Watcher) -> None:
         """This step should fix libraries and customize the `_libs` list before actually
         registering them for download or check availability. The default implementation is
-        used for fixing authlib on 1.16.4 and 1.16.5 and also LWJGL.
+        used for fixing authlib on 1.16.4 and 1.16.5 and LWJGL fixing.
         """
 
         # Versions 1.16.4 and 1.16.5 uses authlib:2.1.28 which cause multiplayer button
@@ -979,8 +986,8 @@ class Version:
 
         # Environment definition.
         env = Environment(self.context, main_class)
-        env.jvm_args = jvm_args = [str(self._jvm_path)]
-        env.game_args = game_args = []
+        env.jvm_args.append(str(self._jvm_path))
+
         env.native_libs = self._native_libs.copy()
         env.fixes = self._applied_fixes
         all_features = set()
@@ -994,30 +1001,30 @@ class Version:
         
             # Interpret JVM arguments.
             modern_jvm_args = modern_args.get("jvm", [])
-            interpret_args(modern_jvm_args, self._features, jvm_args, "metadata: /arguments/jvm", all_features=all_features)
+            interpret_args(modern_jvm_args, self._features, env.jvm_args, "metadata: /arguments/jvm", all_features=all_features)
             
             # Interpret Game arguments.
             modern_game_args = modern_args.get("game", [])
-            interpret_args(modern_game_args, self._features, game_args, "metadata: /arguments/game", all_features=all_features)
+            interpret_args(modern_game_args, self._features, env.game_args, "metadata: /arguments/game", all_features=all_features)
         
         else:
 
-            interpret_args(legacy_jvm_args, self._features, jvm_args, f"<legacy_jvm_args>", all_features=all_features)
+            interpret_args(legacy_jvm_args, self._features, env.jvm_args, f"<legacy_jvm_args>", all_features=all_features)
 
             # Append legacy game arguments, if available.
             legacy_game_args = self._metadata.get("minecraftArguments")
             if legacy_game_args is not None:
                 if not isinstance(legacy_game_args, str):
                     raise ValueError("metadata: /minecraftArguments must be a string")
-                game_args.extend(legacy_game_args.split(" "))
+                env.game_args.extend(legacy_game_args.split(" "))
 
         # JVM argument for logging config
         if self._logger_path is not None and self._logger_arg is not None:
-            jvm_args.append(self._logger_arg.replace("${path}", str(self._logger_path)))
+            env.jvm_args.append(self._logger_arg.replace("${path}", str(self._logger_path)))
 
         # JVM argument for launch wrapper JAR path
         if main_class == "net.minecraft.launchwrapper.Launch":
-            jvm_args.append(f"-Dminecraft.client.jar={self._jar_path}")
+            env.jvm_args.append(f"-Dminecraft.client.jar={self._jar_path}")
 
         # If no modern arguments, fix some arguments.
         if modern_args is None:
@@ -1047,19 +1054,19 @@ class Version:
             
             if proxy_port is not None:
                 self._applied_fixes[self.FIX_LEGACY_PROXY] = f"betacraft.uk:{proxy_port}"
-                jvm_args.append("-Dhttp.proxyHost=betacraft.uk")
-                jvm_args.append(f"-Dhttp.proxyPort={proxy_port}")
+                env.jvm_args.append("-Dhttp.proxyHost=betacraft.uk")
+                env.jvm_args.append(f"-Dhttp.proxyPort={proxy_port}")
         
         # Legacy merge sort is applicable to alpha and beta versions.
         if ancestor_id.startswith(("a1.", "b1.")) and self.fixes.get(self.FIX_LEGACY_MERGE_SORT):
             self._applied_fixes[self.FIX_LEGACY_MERGE_SORT] = True
-            jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
+            env.jvm_args.append("-Djava.util.Arrays.useLegacyMergeSort=true")
 
         # The arguments do not support custom resolution, try to fix.
         if self.resolution is not None and "has_custom_resolution" not in all_features:
             if self.fixes.get(self.FIX_LEGACY_RESOLUTION):
                 self._applied_fixes[self.FIX_LEGACY_RESOLUTION] = self.resolution
-                game_args.extend((
+                env.game_args.extend((
                     "--width", str(self.resolution[0]),
                     "--height", str(self.resolution[1]),
                 ))
@@ -1068,14 +1075,14 @@ class Version:
         if isinstance(self.quick_play, QuickPlayMultiplayer) and "is_quick_play_multiplayer" not in all_features:
             if self.fixes.get(self.FIX_LEGACY_QUICK_PLAY):
                 self._applied_fixes[self.FIX_LEGACY_QUICK_PLAY] = f"{self.quick_play.host}:{self.quick_play.port}"
-                game_args.extend(("--server", self.quick_play.host))
-                game_args.extend(("--port", str(self.quick_play.port)))
+                env.game_args.extend(("--server", self.quick_play.host))
+                env.game_args.extend(("--port", str(self.quick_play.port)))
 
         # Global options.        
         if self.disable_multiplayer:
-            game_args.append("--disableMultiplayer")
+            env.game_args.append("--disableMultiplayer")
         if self.disable_chat:
-            game_args.append("--disableChat")
+            env.game_args.append("--disableChat")
 
         # Arguments replacements
         env.args_replacements = {
@@ -1294,11 +1301,10 @@ class LibrariesResolvingEvent:
 class LibrariesResolvedEvent:
     """Event triggered when all libraries has been successfully resolved.
     """
-    __slots__ = "class_libs_count", "native_libs_count", "excluded_libs"
-    def __init__(self, class_libs_count: int, native_libs_count: int, excluded_libs: List[LibrarySpecifier]) -> None:
+    __slots__ = "class_libs_count", "native_libs_count"
+    def __init__(self, class_libs_count: int, native_libs_count: int) -> None:
         self.class_libs_count = class_libs_count
         self.native_libs_count = native_libs_count
-        self.excluded_libs = excluded_libs
 
 class LoggerFoundEvent:
     __slots__ = "version"

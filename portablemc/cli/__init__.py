@@ -276,27 +276,33 @@ def cmd_start(ns: StartNs):
             sys.exit(EXIT_FAILURE)
     else:
         version.set_auth_offline(ns.username, ns.uuid)
-    
-    # TODO: Included binaries
-    # if ns.include_bin is not None:
-    #     native_libs = seq.state[Libraries].native_libs
-    #     for bin_path in ns.include_bin:
-    #         bin_path = Path(bin_path)
-    #         if not bin_path.is_file():
-    #             ns.out.task("FAILED", "start.additional_binary_not_found", path=bin_path)
-    #             ns.out.finish()
-    #             sys.exit(EXIT_FAILURE)
-    #         native_libs.append(bin_path)
 
-    # TODO: Excluded libraries
-    # if ns.exclude_lib is not None:
-    #     exclude_filters = ns.exclude_lib
-    #     def libraries_predicate(spec: LibrarySpecifier) -> bool:
-    #         for spec_filter in exclude_filters:
-    #             if spec_filter.matches(spec):
-    #                 return False
-    #         return True
-    #     seq.state[LibrariesOptions].predicates.append(libraries_predicate)
+    # Excluded libraries
+    if ns.exclude_lib is not None:
+
+        exclude_filters = ns.exclude_lib
+        def filter_libraries(libs: Dict[LibrarySpecifier, Any]) -> None:
+            # Here the complexity is terrible, but I guess it's acceptable?
+            to_del = []
+            unused_filters = set(exclude_filters)
+            for spec in libs.keys():
+                for spec_filter in exclude_filters:
+                    if spec_filter.matches(spec):
+                        unused_filters.remove(spec_filter)
+                        to_del.append(spec)
+                        break
+            # Finally delete selected specifiers
+            for spec in to_del:
+                del libs[spec]
+                if ns.verbose >= 1:
+                    ns.out.task("INFO", "start.libraries.excluded", spec=str(spec))
+                    ns.out.finish()
+            # Inform the user of unused filters
+            for unused_filter in unused_filters:
+                ns.out.task("WARN", "start.libraries.unused_filter", filter=str(unused_filter))
+                ns.out.finish()
+        
+        version.libraries_filters.append(filter_libraries)
 
     try:
 
@@ -309,7 +315,19 @@ def cmd_start(ns: StartNs):
                 ns.out.task(None, f"start.fix.{fix}", value=fix_value)
                 ns.out.finish()
 
+        # If not dry run, run it!
         if not ns.dry:
+
+            # Included binaries
+            if ns.include_bin is not None:
+                for bin_path in ns.include_bin:
+                    bin_path = Path(bin_path)
+                    if not bin_path.is_file():
+                        ns.out.task("FAILED", "start.additional_binary_not_found", path=bin_path)
+                        ns.out.finish()
+                        sys.exit(EXIT_FAILURE)
+                    env.native_libs.append(bin_path)
+
             env.run(CliRunner(ns))
 
         sys.exit(EXIT_OK)
@@ -661,9 +679,6 @@ class StartWatcher(SimpleWatcher):
         def libraries_resolved(e: LibrariesResolvedEvent) -> None:
             ns.out.task("OK", "start.libraries.resolved", class_libs_count=e.class_libs_count, native_libs_count=e.native_libs_count)
             ns.out.finish()
-            for spec in e.excluded_libs:
-                ns.out.task(None, "start.libraries.excluded", spec=str(spec))
-                ns.out.finish()
 
         def fabric_resolve(e: FabricResolveEvent) -> None:
             if e.loader_version is None:
