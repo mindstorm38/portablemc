@@ -154,6 +154,9 @@ To do so you can use `-s <addr>` (`--server`) for the server address
 (e.g. `mc.hypixel.net`) and the `-p` (`--server-port`) to specify the port, 
 defaults to 25565.
 
+*Modern releases use the quick play arguments rather than arguments specified above, the
+behavior remains the same.*
+
 #### LWJGL version and ARM support
 With `--lwjgl {3.2.3,3.3.0,3.3.1}` you can update the LWJGL version used when starting the
 game. This can be used to support ARM architectures, but this may only work with modern
@@ -199,72 +202,77 @@ of the game.
 
 With `--resolution <width>x<height>` you can change the resolution of the game window.
 
-With `--no-better-logging` flag you can disable the better logging configuration used by
-the launcher to avoid raw XML logging in the terminal.
-
 The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` respectively to 
 disable multiplayer button and disable in-game chat *(since 1.16)*.
 
 ### Search for versions
-The `portablemc search [-k] [version]` sub-command is used to search for versions. By default, this command
-will search for official versions available to download, you can instead search for local versions
-using the `-l` (`--local`) flag. The search string is optional, if not given all official or local
-versions are displayed.
+The `portablemc search [-k <kind>] [version]` sub-command is used to search for versions. 
+By default, this command will search for official Mojang versions available to download, 
+you can instead search for many kind of versions using the `-k` (`--kind`) arguments:
+- `local`, show all installed versions.
+- `forge`, show all recommended and latest forge loader versions *(only 1.5.2 and 
+  onward can be started)*.
+- `fabric`, show all available fabric loader versions.
+- `quilt`, show all available quilt loader versions.
+
+The search string is optional, if not specified no filter is applied on the table shown.
 
 ### Authentication sessions
 Two subcommands allow you to store or logout of sessions: `portablemc login|logout <email_or_username>`.
-These subcommands don't prevent you from using the `-l` (`--login`) argument when starting the game,
-these are just here to manage the session storage.
+These subcommands don't prevent you from using the `-l` (`--login`) argument when starting
+the game, these are just here to manage the session storage.
 
-A new argument `-m` (`--microsoft`) is available for both subcommands since `1.1.4` for migrated 
-Microsoft accounts.
-The launcher will open the Microsoft login page (with your email pre-typed in) in your web browser 
-and wait until validated. 
+**By default**, this will authenticate you using the Microsoft authentication services,
+you can change that using `--auth-service` argument, for example with `yggdrasil` if
+you need to log into an old Mojang account (being phased out by Mojang).
 
-**Your password is not saved!** Only a token is saved (the official launcher also does that)
-in the file `portablemc_auth.json` in the working directory. In older version of the launcher
-(`< 1.1.4`), this file was `portablemc_tokens` in the main directory, the migration from the old
-file is automatic and irreversible (the old file is deleted).
+**Your password is not saved!** Only tokens are saved *(the official launcher also does 
+that)* in the file `portablemc_auth.json` in the working directory.
 
 ## Log4j exploit
-The launcher is safe to Log4j exploit since v2.2.0, if you are running an older version, please update or read the
-following issue for a temporary fix: [#52](https://github.com/mindstorm38/portablemc/issues/52).
+The launcher is safe to Log4j exploit since v2.2.0, if you are running an older version, 
+please update or read the following issue for a temporary fix: 
+[#52](https://github.com/mindstorm38/portablemc/issues/52).
 
 ## Certifi support
-The launcher supports [certifi](https://pypi.org/project/certifi/) when installed. This package provides *Mozilla’s carefully curated collection of Root Certificates for validating the trustworthiness of SSL certificates while verifying the identity of TLS hosts.* 
+The launcher supports [certifi](https://pypi.org/project/certifi/) when installed. 
+This package provides *Mozilla’s carefully curated collection of Root Certificates for 
+validating the trustworthiness of SSL certificates while verifying the identity of TLS 
+hosts.* 
 
-This can be useful if you encounter certificates errors while logging into your account or downloading other things. Problems can arise because Python depends by default on your system to provide these root certificates, so if your system is not up to date, it may be necessary to install `certifi`.
+This can be useful if you encounter certificates errors while logging into your account
+or downloading other things. Problems can arise because Python depends by default on your
+system to provide these root certificates, so if your system is not up to date, it may be
+necessary to install `certifi`.
 
 ## Contribute
 
 ### Setup environment
-This project is currently a monorepo based on Poetry, each official module is stored in the [src](src/) directory, the 
-main and mandatory module is [core](src/core). The other modules are official add-ons.
-
-We also suggest Conda (or Miniconda) for easy development together with Poetry. If you want to try you can use the 
-following commands:
+Conda (or Miniconda) is recommended for easy development together with Poetry.
+If you want to try you can use the following commands:
 ```console
-# You can use any version of Python here from 3.6 to test compatibility of the launcher.
-conda create -n pmc python=3.10 pip
-# This line is optional if you don't have any user site-packages in your host installation, if not it allows to isolate pip. This is useful to avoid conflicts with packages installed outside of the environment.
+# You can use any version of Python here from 3.6 to test 
+# compatibility of the launcher.
+conda create -n pmc python=3.11 pip
+# This line is optional if you don't have any user site-packages
+# in your host installation, if not it allows to isolate pip. 
+# This is useful to avoid conflicts with packages installed 
+# outside of the environment.
 conda env config vars set PYTHONNOUSERSITE=1 -n pmc
 ```
 
-On you have a conda environment setup, you can use on each module you want to test.
+Once you have a conda environment, you can install the development version locally in it:
 ```console
 # Assume we are in the project's directory.
 # First, we need to activate the environment.
 conda activate pmc
-# If poetry isn't installed, or outdated.
-# Note that this project requires poetry 1.2.0 or greater to allow dependency groups.
-# If this doesn't work, try to roll back to Poetry 1.2.0b1 which is the currently tested version.
+# If poetry isn't installed, or outdated 
+# (minimum version tested is 1.5.0).
 pip install poetry --upgrade
-# Then, go to the module you want to install in development mode, and then install it.
-cd src
-# Here we use the workspace script that is just a wrapper that launch a poetry command on all modules.
-python workspace.py install
+# Then you can install the portablemc package locally.
+poetry install
 # Now, you can test the development version of the launcher.
-portablemc --help
+portablemc show about
 ```
 
 You can call this development version from everywhere using:

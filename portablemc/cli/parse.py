@@ -85,7 +85,7 @@ def register_subcommands(subparsers):
 
 
 def register_search_arguments(parser: ArgumentParser):
-    parser.add_argument("-k", "--kind", help=_("args.search.kind"), default="manifest", choices=get_search_kinds())
+    parser.add_argument("-k", "--kind", help=_("args.search.kind"), default="mojang", choices=get_search_kinds())
     parser.add_argument("input", nargs="?")
 
 
@@ -94,7 +94,7 @@ def register_common_auth_service(parser: ArgumentParser):
 
 
 def register_start_arguments(parser: ArgumentParser):
-    parser.formatter_class = new_help_formatter_class(32)
+    parser.formatter_class = new_help_formatter_class(40)
     parser.add_argument("--dry", help=_("args.start.dry"), action="store_true")
     parser.add_argument("--disable-mp", help=_("args.start.disable_multiplayer"), action="store_true")
     parser.add_argument("--disable-chat", help=_("args.start.disable_chat"), action="store_true")
@@ -160,7 +160,7 @@ def get_outputs() -> List[str]:
 
 
 def get_search_kinds() -> List[str]:
-    return ["manifest", "local", "forge", "fabric", "quilt"]
+    return ["mojang", "local", "forge", "fabric", "quilt"]
 
 
 def get_auth_services() -> List[str]:
