@@ -71,6 +71,8 @@ def test_download(tmp_path):
     def is_error(result: DownloadResult, code: str) -> bool:
         return isinstance(result, DownloadResultError) and result.code == code
 
+    assert len(results) == 8
+    
     assert is_error(results[wrong_sha1], DownloadResultError.INVALID_SHA1)
     assert is_error(results[wrong_size], DownloadResultError.INVALID_SIZE)
     assert is_error(results[not_found], DownloadResultError.NOT_FOUND)
