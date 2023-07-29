@@ -39,6 +39,16 @@ AUTH_DATABASE_FILE_NAME = "portablemc_auth.json"
 MANIFEST_CACHE_FILE_NAME = "portablemc_version_manifest.json"
 MICROSOFT_AZURE_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
 
+DEFAULT_JVM_ARGS = [
+    "-Xmx2G",
+    "-XX:+UnlockExperimentalVMOptions",
+    "-XX:+UseG1GC",
+    "-XX:G1NewSizePercent=20",
+    "-XX:G1ReservePercent=20",
+    "-XX:MaxGCPauseMillis=50",
+    "-XX:G1HeapRegionSize=32M"
+]
+
 CommandHandler = Callable[[Any], Any]
 CommandTree = Dict[str, Union[CommandHandler, "CommandTree"]]
 
@@ -327,6 +337,12 @@ def cmd_start(ns: StartNs):
                         ns.out.finish()
                         sys.exit(EXIT_FAILURE)
                     env.native_libs.append(bin_path)
+            
+            # Extend JVM arguments with given arguments, or defaults
+            if ns.jvm_args is None:
+                env.jvm_args.extend(DEFAULT_JVM_ARGS)
+            elif len(ns.jvm_args):
+                env.jvm_args.extend(ns.jvm_args.split())
 
             env.run(CliRunner(ns))
 
