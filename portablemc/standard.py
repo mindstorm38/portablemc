@@ -875,7 +875,13 @@ class Version:
             with jvm_manifest_file.open("wt") as jvm_manifest_fp:
                 json.dump(jvm_manifest, jvm_manifest_fp)
         
-        self._jvm_path = jvm_dir.joinpath("bin", jvm_bin_filename)
+        # Special case for macOS because of weird directory structure.
+        if minecraft_os == "osx":
+            self.jvm_path = jvm_dir.joinpath("jre.bundle/Contents/Home/bin/java")
+        else:
+            self._jvm_path = jvm_dir.joinpath("bin", jvm_bin_filename)
+        
+        # This key is custom and set just above in code.
         self._jvm_version = jvm_manifest.get("version")
 
         jvm_files = jvm_manifest.get("files")
