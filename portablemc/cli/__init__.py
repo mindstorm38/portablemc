@@ -170,7 +170,7 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
 
     search = ns.input
 
-    if kind == "manifest":
+    if kind == "mojang":
         
         table.add(
             _("search.type"),
