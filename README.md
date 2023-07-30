@@ -86,7 +86,7 @@ The first thing you may want to do is install and start Minecraft, to do so you 
 the `portablemc start [args] [version]` command. This command will install every component
 needed by the version before launching it. If you provide no version, the latest release
 is started, but you can specify a version to launch, or a version alias: `release`
-or `snapshot` for the latest version of their type.
+or `snapshot` for the latest version of their type:
 
 In addition to Mojang's vanilla versions, the launcher natively supports common mod
 loaders such as **Fabric**, **Forge** and **Quilt**. To start such versions, you can
@@ -94,15 +94,34 @@ prefix the version with either `fabric:`, `forge:` or `quilt:` (or `vanilla:` to
 explicitly choose a vanilla version).
 Depending on the mod loader, the version you put after the colon is different:
 - For Fabric and Quilt, you can directly specify the vanilla version, optionally followed
-  by `:<loader_version>`:  
-  `fabric:1.20.1`  
-  `fabric:1.20.1:0.11.2`
+  by `:<loader_version>`.
 - For Forge, you can put either a vanilla game version, optionally followed by `-latest`
-  or `-recommended`, or `-<loader_version>`:  
-  `forge:1.20-latest`  
-  `forge:1.20-46.0.14`
+  or `-recommended`, or `-<loader_version>`.
 
 *You can search for versions using the [search command](#search-for-versions).*
+
+```sh
+# Start latest release
+portablemc start
+portablemc start release
+# Start latest snapshot
+portablemc start snapshot
+# Start 1.20.1
+portablemc start 1.20.1
+# Start latest Fabric/Quilt/Forge version
+portablemc start fabric:
+portablemc start quilt:
+portablemc start forge:
+# Start Fabric for 1.20.1
+portablemc start fabric:1.20.1
+# Start Fabric for 1.20.1 with loader 0.11.2
+portablemc start fabric:1.20.1:0.11.2
+# Start latest or recommended Forge for 1.20.1
+portablemc start forge:1.20.1-latest
+portablemc start forge:1.20.1-recommended
+# Start Forge for 1.20.1 with loader 46.0.14
+portablemc start forge:1.20-46.0.14
+```
 
 #### Authentication
 Online mode is supported by this launcher, use the `-l <email_or_username>` (`--login`)
