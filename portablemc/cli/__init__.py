@@ -713,7 +713,7 @@ class StartWatcher(SimpleWatcher):
         super().__init__({
             VersionLoadingEvent: lambda e: progress_task("start.version.loading", version=e.version),
             VersionFetchingEvent: lambda e: progress_task("start.version.fetching", version=e.version),
-            VersionLoadedEvent: lambda e: finish_task("start.version.loaded", version=e.version),
+            VersionLoadedEvent: lambda e: finish_task("start.version.loaded.fetched" if e.fetched else "start.version.loaded", version=e.version),
             FeaturesEvent: features,
             JvmLoadingEvent: lambda e: progress_task("start.jvm.loading"),
             JvmLoadedEvent: lambda e: finish_task(f"start.jvm.loaded.{e.kind}", version=e.version or ""),

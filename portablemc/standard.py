@@ -343,11 +343,13 @@ class Version:
 
             # Get version instance and load/fetch is needed.
             handle = self.context.get_version(version)
+            fetched = False
             if not self._load_version(handle, watcher):
                 watcher.handle(VersionFetchingEvent(version))
                 self._fetch_version(handle, watcher)
+                fetched = True
             
-            watcher.handle(VersionLoadedEvent(version))
+            watcher.handle(VersionLoadedEvent(version, fetched))
 
             # Set the parent of the last version to the version being resolved.
             if len(hierarchy):
@@ -1282,6 +1284,10 @@ class VersionFetchingEvent(VersionEvent):
 class VersionLoadedEvent(VersionEvent):
     """Event triggered when a version has been successfully loaded.
     """
+    __slots__ = "fetched",
+    def __init__(self, version: str, fetched: bool) -> None:
+        super().__init__(version)
+        self.fetched = fetched
 
 class FeaturesEvent:
     """Event triggered when features for the version has been computed. Only enabled 

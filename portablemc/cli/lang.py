@@ -145,6 +145,7 @@ lang = {
     "start.version.loading": "Loading version {version}... ",
     "start.version.fetching": "Fetching version {version}... ",
     "start.version.loaded": "Loaded version {version}",
+    "start.version.loaded.fetched": "Loaded version {version} (fetched)",
     "start.version.not_found": "Version {version} not found",
     "start.version.too_much_parents": "Too much parents while resolving versions.",
     "start.features": "Features: {features}",
