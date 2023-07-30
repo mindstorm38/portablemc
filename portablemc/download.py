@@ -2,9 +2,9 @@
 """
 
 from http.client import HTTPConnection, HTTPSConnection, HTTPException
+from queue import Queue, Empty
 from threading import Thread
 from pathlib import Path
-from queue import Queue
 import urllib.parse
 import hashlib
 import time
@@ -170,7 +170,7 @@ class DownloadList:
         result_queue = Queue()
 
         for th_id in range(threads_count):
-            th = Thread(target=_download_thread, 
+            th = Thread(target=_download_thread_wrapper, 
                         args=(th_id, entries_queue, result_queue, partial_progress), 
                         daemon=True, 
                         name=f"Download Thread {th_id}")
@@ -181,20 +181,58 @@ class DownloadList:
 
         for entry in self.entries:
             entries_queue.put(entry)
+
+        crash = None
         
         while result_count < entries_count:
+
             result = result_queue.get()
+            if isinstance(result, _DownloadThreadCrash):
+                crash = result
+                break
+
             if not isinstance(result, DownloadResultProgress) or result.done:
                 result_count += 1
+            
             yield result_count, result
 
         # Send 'threads_count' sentinels.
+        # We intentionally don't join thread because it takes some time for unknown 
+        # reason. And we don't care of these threads because these are daemon ones.
         for th_id in range(threads_count):
             entries_queue.put(None)
 
-        # We intentionally don't join thread because it takes some time for unknown 
-        # reason. And we don't care of these threads because these are daemon ones.
-        pass
+        if crash is not None:
+            raise ValueError(f"unexpected crash from thread {crash.thread_id}", crash.origin)
+
+
+class _DownloadThreadCrash:
+    """Unexpected exception happening in a thread, this is the result of a bad logic
+    from programmer.
+    """
+    __slots__ = "thread_id", "origin",
+    def __init__(self, thread_id: int, origin: Optional[Exception]) -> None:
+        self.thread_id = thread_id
+        self.origin = origin
+
+
+def _download_thread_wrapper(
+    thread_id: int, 
+    entries_queue: Queue,
+    result_queue: Queue,
+    partial_progress: bool
+) -> None:
+    """Wrapper for the download thread that basically ensures that any unexpected error
+    sends a signal (DownloadThreadCrash) to the master to signal the crash.
+    """
+    try:
+        _download_thread(thread_id, entries_queue, result_queue, partial_progress)
+    except Exception as e:
+        result_queue.put(_DownloadThreadCrash(thread_id, e))
+    except:
+        # Really bad error, should not happen, but do we ever know...
+        result_queue.put(_DownloadThreadCrash(thread_id, None))
+        raise
 
 
 def _download_thread(
@@ -202,7 +240,7 @@ def _download_thread(
     entries_queue: Queue,
     result_queue: Queue,
     partial_progress: bool
-):
+) -> None:
     """This function is internally used for multi-threaded download.
 
     :param entries_queue: Where entries to download are received.
