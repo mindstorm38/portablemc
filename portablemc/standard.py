@@ -1412,7 +1412,7 @@ class VersionManifest:
                 if self.cache_file is not None:
                     self.cache_file.parent.mkdir(parents=True, exist_ok=True)
                     with self.cache_file.open("wt") as cache_fp:
-                        json.dump(self.data, cache_fp, indent=2)
+                        json.dump(self.data, cache_fp)
 
             except HttpError as error:
                 res = error.res
