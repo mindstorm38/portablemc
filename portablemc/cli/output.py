@@ -256,7 +256,7 @@ class MachineOutput(Output):
 
     @classmethod
     def print_escape(cls, s: str) -> str:
-        return re.sub(cls.escape_re, lambda match: f"\\{match.group()}", s)
+        return re.sub(cls.escape_re, lambda match: "\\" + {10: "n", 13: "r"}.get(ord(match.group()), match.group()), s)
 
     def print_function(self, name: str, *args: str, **kwargs) -> None:
         """Print a machine-readable line for a function with some parameters.
