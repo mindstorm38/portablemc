@@ -15,6 +15,7 @@ Documented version: `4.0.0`.
   - [Watch events](#watch-events)
   - [Version fixes](#version-fixes)
   - [Other options](#other-options)
+  - [Environment](#environment)
 - [Fabric/Quilt version](#fabricquilt-version)
 - [Forge version](#forge-version)
 
@@ -180,6 +181,22 @@ Various options are available on version's instances before starting the install
   - `set_quick_play_realms(realm)`, shortcut function to setup a realm multiplayer quick
     play to a given realm identifier.
 - `jvm_path`, optional JVM executable path to force this to be used for running the game.
+
+### Environment
+
+The environment returned by `Version.install()` method can be modified before running the
+game, it's an instance of `Environment` and contains the following attributes:
+- `jvm_args`, the list of arguments passed to the JVM, the first argument is the JVM 
+  executable path.
+- `game_args`, the list of arguments passed to Minecraft.
+- `main_class`, the main class started by the JVM, usually something like 
+  `net.minecraft.client.main.Main`.
+- `args_replacements`, a mapping of variables names to values, these will be used to
+  replace variables of the form `${my_var}` in both `jvm_args` and `game_args`.
+- `native_libs`, a list of native libraries or shared objects that are copied (or 
+  symlinked if relevant) in the game's temporary bin directory.
+- `fixes`, this one as no effect for the game's runtime, it's just a summary of fixes 
+  applied during the game's installation, that affected the environment.
 
 ## Fabric/Quilt version
 
