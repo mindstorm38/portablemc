@@ -963,7 +963,7 @@ class Version:
                     result.done
                 ))
             elif isinstance(result, DownloadResultError):
-                errors.append((result.entry, result.code))
+                errors.append((result.entry, result.code, result.origin))
 
         # If errors are present, raise an error.
         if len(errors):
@@ -1261,7 +1261,7 @@ class JvmNotFoundError(Exception):
 class DownloadError(Exception):
     """Raised when the downloader failed to download some entries.
     """
-    def __init__(self, errors: List[Tuple[DownloadEntry, str]]) -> None:
+    def __init__(self, errors: List[Tuple[DownloadEntry, str, Optional[Exception]]]) -> None:
         super().__init__(errors)
         self.errors = errors
     
