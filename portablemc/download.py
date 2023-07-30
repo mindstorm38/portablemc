@@ -276,10 +276,11 @@ def _download_thread(
             break
 
         conn_key = (raw_entry.https, raw_entry.host)
-        conn = conn_cache.get(conn_key)
+        conn_type = HTTPSConnection if raw_entry.https else HTTPConnection
 
+        # Get connection from cache or create it.
+        conn = conn_cache.get(conn_key)
         if conn is None:
-            conn_type = HTTPSConnection if raw_entry.https else HTTPConnection
             conn = conn_cache[conn_key] = conn_type(raw_entry.host)
 
         entry = raw_entry.entry
@@ -304,33 +305,40 @@ def _download_thread(
                 conn.request("GET", entry.url)
                 res = conn.getresponse()
             except (ConnectionError, OSError, HTTPException) as e:
+
+                # On errors, we just throw away the old connection and create a new one.
+                # Raw but efficient way of resetting the potentially broken state...
+                conn.close()
+                conn = conn_cache[conn_key] = conn_type(raw_entry.host)
+
                 last_error = DownloadResultError.CONNECTION
                 last_error_origin = e
                 continue
 
-            if res.status == 301 or res.status == 302:
-
-                redirect_url = res.headers["location"]
-                redirect_entry = DownloadEntry(
-                    redirect_url, 
-                    entry.dst, 
-                    size=entry.size, 
-                    sha1=entry.sha1, 
-                    name=entry.name)
-                
-                entries_queue.put(_DownloadEntry.from_entry(redirect_entry))
-                break  # Abort on redirect
-
-            elif res.status != 200:
+            if res.status != 200:
 
                 # This loop is used to skip all bytes in the stream, 
                 # and allow further request.
                 while res.readinto(buffer):
                     pass
 
+                if res.status == 301 or res.status == 302:
+
+                    redirect_url = res.headers["location"]
+                    redirect_entry = DownloadEntry(
+                        redirect_url, 
+                        entry.dst, 
+                        size=entry.size, 
+                        sha1=entry.sha1, 
+                        name=entry.name)
+                    
+                    entries_queue.put(_DownloadEntry.from_entry(redirect_entry))
+                    break  # Abort on redirect
+
+                # Any other non-200 code is considered not found and we retry...
                 last_error = DownloadResultError.NOT_FOUND
                 continue
-
+            
             sha1 = None if entry.sha1 is None else hashlib.sha1()
             size = 0
 
