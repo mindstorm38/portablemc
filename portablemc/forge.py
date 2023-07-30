@@ -226,10 +226,10 @@ class ForgeVersion(Version):
                         del version_lib["clientreq"]
                     if "checksums" in version_lib:
                         del version_lib["checksums"]
-                    # Older version uses to require launchwrapper, but it is no longer 
-                    # installed by inherited vanilla version, so we specific the Mojang's
-                    # maven repository to download it.
-                    if version_lib["name"].startswith("net.minecraft:launchwrapper:"):
+                    # Older version uses to require libraries that are no longer installed
+                    # by parent versions, therefore it's required to add url if not 
+                    # provided, pointing to maven central repository, for downloading.
+                    if not version_lib.get("url"):
                         version_lib["url"] = LIBRARIES_URL
                 
                 # Old version (<= 1.6.4) of forge are broken, even on official launcher.
