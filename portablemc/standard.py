@@ -1262,7 +1262,7 @@ class DownloadError(Exception):
     """Raised when the downloader failed to download some entries.
     """
     def __init__(self, errors: List[Tuple[DownloadEntry, str]]) -> None:
-        super().__init__()
+        super().__init__(errors)
         self.errors = errors
     
     def __repr__(self) -> str:
