@@ -1549,7 +1549,7 @@ class StreamRunner(StandardRunner):
     """
     
     def process_create(self, args: List[str], work_dir: Path) -> Popen:
-        return Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True)
+        return Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True, encoding="utf-8", errors="replace")
 
     def process_wait(self, process: Popen) -> None:
 
