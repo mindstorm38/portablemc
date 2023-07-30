@@ -9,7 +9,7 @@ import shutil
 import json
 import os
 
-from .standard import parse_download_entry, \
+from .standard import parse_download_entry, LIBRARIES_URL, \
     Context, VersionHandle, Version, Watcher, VersionNotFoundError
 
 from .util import calc_input_sha1, LibrarySpecifier
@@ -195,17 +195,19 @@ class ForgeVersion(Version):
                         zip_extract_file(install_jar, f"maven/{lib_spec.file_path()}", lib_path)
 
                 # Just keep the 'client' values.
-                for data_key, data_val in install_profile["data"].items():
+                install_data = install_profile["data"]
+                if isinstance(install_data, dict):
+                    for data_key, data_val in install_data.items():
 
-                    data_val = str(data_val["client"])
+                        data_val = str(data_val["client"])
 
-                    # Refer to a file inside the JAR file.
-                    if data_val.startswith("/"):
-                        dst_path = post_info.tmp_dir / data_val[1:]
-                        zip_extract_file(install_jar, data_val[1:], dst_path)
-                        data_val = str(dst_path)  # Replace by the path of extracted file.
+                        # Refer to a file inside the JAR file.
+                        if data_val.startswith("/"):
+                            dst_path = post_info.tmp_dir / data_val[1:]
+                            zip_extract_file(install_jar, data_val[1:], dst_path)
+                            data_val = str(dst_path)  # Replace by the path of extracted file.
 
-                    post_info.variables[data_key] = data_val
+                        post_info.variables[data_key] = data_val
                 
                 self._forge_post_info = post_info
 
@@ -224,6 +226,11 @@ class ForgeVersion(Version):
                         del version_lib["clientreq"]
                     if "checksums" in version_lib:
                         del version_lib["checksums"]
+                    # Older version uses to require launchwrapper, but it is no longer 
+                    # installed by inherited vanilla version, so we specific the Mojang's
+                    # maven repository to download it.
+                    if version_lib["name"].startswith("net.minecraft:launchwrapper:"):
+                        version_lib["url"] = LIBRARIES_URL
                 
                 # Old version (<= 1.6.4) of forge are broken, even on official launcher.
                 # So we fix them by manually adding the correct inherited version.
