@@ -102,11 +102,12 @@ class DownloadResultError(DownloadResult):
     INVALID_SIZE = "invalid_size"
     INVALID_SHA1 = "invalid_sha1"
 
-    __slots__ = "code",
+    __slots__ = "code", "origin"
 
-    def __init__(self, thread_id: int, entry: DownloadEntry, code: str) -> None:
+    def __init__(self, thread_id: int, entry: DownloadEntry, code: str, origin: Optional[Exception]) -> None:
         super().__init__(thread_id, entry)
         self.code = code
+        self.origin = origin
 
 
 class DownloadList:
@@ -287,6 +288,7 @@ def _download_thread(
         # size_target = 0 if entry.size is None else entry.size
         
         last_error: Optional[str] = None
+        last_error_origin: Optional[Exception] = None
         try_num = 0
 
         while True:
@@ -295,14 +297,15 @@ def _download_thread(
             if try_num > max_try_count:
                 # Retrying implies that we have set an error.
                 assert last_error is not None
-                result_queue.put(DownloadResultError(thread_id, entry, last_error))
+                result_queue.put(DownloadResultError(thread_id, entry, last_error, last_error_origin))
                 break
             
             try:
                 conn.request("GET", entry.url)
                 res = conn.getresponse()
-            except (ConnectionError, OSError, HTTPException):
+            except (ConnectionError, OSError, HTTPException) as e:
                 last_error = DownloadResultError.CONNECTION
+                last_error_origin = e
                 continue
 
             if res.status == 301 or res.status == 302:

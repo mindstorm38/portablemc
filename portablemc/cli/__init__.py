@@ -377,7 +377,7 @@ def cmd_start(ns: StartNs):
     except DownloadError as error:
         ns.out.task("FAILED", None)
         ns.out.finish()
-        for entry, code in error.errors:
+        for entry, code, _origin in error.errors:
             ns.out.task(None, "download.error", name=entry.url, message=_(f"download.error.{code}"))
             ns.out.finish()
     
