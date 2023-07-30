@@ -1,9 +1,10 @@
 name: Test
 on:
   pull_request:
-    paths:
-      - 'src/**'
-      - 'test/**'
+    paths-ignore:
+      - 'doc/**'
+      - 'README.md'
+      - 'LICENSE'
 jobs:
   test:
     strategy:
