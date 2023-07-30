@@ -1459,7 +1459,8 @@ class VersionManifest:
 
 class StandardRunner(Runner):
     """Base class handling game running, this default implementation just create a
-    process and forwards to its outputs to the outputs of the current process.
+    process and forwards to its outputs to the outputs of the current process. This 
+    runner supports KeyboardInterrupt handling.
     """
 
     def run(self, env: Environment) -> None:
@@ -1541,11 +1542,22 @@ class StandardRunner(Runner):
         """This function is called with the running Minecraft process for waiting the end
         of the process. Implementors may want to read incoming logging.
         """
-        process.wait()
+        import time
+        try:
+            while process.poll() is None:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            process.kill()
+            raise
+        finally:
+            process.wait()
+
 
 class StreamRunner(StandardRunner):
     """A specialized implementation of `RunTask` which allows streaming the game's output
-    logs. This implementation also provides parsing of log4j XML layouts for logs.
+    logs. This implementation also provides parsing of log4j XML layouts for logs. This
+    runner handles KeyboardInterrupt errors and properly kill the game and waits for it
+    completion.
     """
     
     def process_create(self, args: List[str], work_dir: Path) -> Popen:
@@ -1554,11 +1566,19 @@ class StreamRunner(StandardRunner):
     def process_wait(self, process: Popen) -> None:
 
         from threading import Thread
+        import time
 
-        thread = Thread(target=self.process_stream_thread, name="Minecraft Stream Thread", args=(process,))
+        thread = Thread(target=self.process_stream_thread, name="Minecraft Stream Thread", args=(process,), daemon=True)
         thread.start()
 
-        process.wait()
+        try:
+            while thread.is_alive():
+                time.sleep(1)
+        except KeyboardInterrupt:
+            process.kill()
+            raise
+        finally:
+            process.wait()
 
     def process_stream_thread(self, process: Popen) -> None:
 
