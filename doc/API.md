@@ -187,7 +187,7 @@ Various options are available on version's instances before starting the install
 The environment returned by `Version.install()` method can be modified before running the
 game, it's an instance of `Environment` and contains the following attributes:
 - `jvm_args`, the list of arguments passed to the JVM, the first argument is the JVM 
-  executable path.
+  executable path. You can use it to add custom JVM arguments for memory, like `-Xmx`.
 - `game_args`, the list of arguments passed to Minecraft.
 - `main_class`, the main class started by the JVM, usually something like 
   `net.minecraft.client.main.Main`.
