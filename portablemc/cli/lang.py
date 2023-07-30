@@ -34,8 +34,8 @@ def get(key: str, **kwargs) -> str:
 
 lang = {
     # Addons
-    "addon.import_error": "The addon '{addon}' has failed to build because some packages is missing:",
-    "addon.unknown_error": "The addon '{addon}' has failed to build for unknown reason:",
+    # "addon.import_error": "The addon '{addon}' has failed to build because some packages is missing:",
+    # "addon.unknown_error": "The addon '{addon}' has failed to build for unknown reason:",
     # Args root
     "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
         "script! This single-script launcher is still compatible with the official "
@@ -106,9 +106,9 @@ lang = {
     "args.show.auth": "Debug the authentication database and supported services.",
     "args.show.lang": "Debug the language mappings used for messages translation.",
     # Args addon
-    "args.addon": "Addons management subcommands.",
-    "args.addon.list": "List addons.",
-    "args.addon.show": "Show an addon details.",
+    # "args.addon": "Addons management subcommands.",
+    # "args.addon.list": "List addons.",
+    # "args.addon.show": "Show an addon details.",
     # Common
     "echo": "{echo}",
     "cancelled": "Cancelled.",
@@ -131,14 +131,14 @@ lang = {
     "logout.success": "Logged out {email}",
     "logout.unknown_session": "No session for {email}",
     # Command addon list
-    "addon.list.id": "ID ({count})",
-    "addon.list.version": "Version",
-    "addon.list.authors": "Authors",
+    # "addon.list.id": "ID ({count})",
+    # "addon.list.version": "Version",
+    # "addon.list.authors": "Authors",
     # Command addon show
-    "addon.show.not_found": "Addon '{addon}' not found.",
-    "addon.show.version": "Version: {version}",
-    "addon.show.authors": "Authors: {authors}",
-    "addon.show.description": "Description: {description}",
+    # "addon.show.not_found": "Addon '{addon}' not found.",
+    # "addon.show.version": "Version: {version}",
+    # "addon.show.authors": "Authors: {authors}",
+    # "addon.show.description": "Description: {description}",
     # Command start
     "start.version.invalid_id": "Invalid version id, expected: {expected}",
     "start.version.invalid_id_unknown_kind": "Invalid version id, unknown kind: {kind}.",
