@@ -879,7 +879,7 @@ class Version:
         
         # Special case for macOS because of weird directory structure.
         if minecraft_os == "osx":
-            self.jvm_path = jvm_dir.joinpath("jre.bundle/Contents/Home/bin/java")
+            self._jvm_path = jvm_dir.joinpath("jre.bundle/Contents/Home/bin/java")
         else:
             self._jvm_path = jvm_dir.joinpath("bin", jvm_bin_filename)
         
