@@ -3,8 +3,24 @@ import shutil
 import pytest
 
 from portablemc.standard import Context, Version, VersionManifest
+from portablemc.download import DownloadList
 from portablemc.fabric import FabricVersion
 from portablemc.forge import ForgeVersion
+
+
+def _remove_assets(version: Version):
+
+    # We want to avoid download all assets since it can take really long time, and it
+    # test nothing new, so we temporarily replace the download list with a trash one.
+    _old_resolve_assets = version._resolve_assets
+    def _test_resolve_assets(watcher) -> None:
+        saved_dl = version._dl
+        version._dl = DownloadList() 
+        _old_resolve_assets(watcher)
+        version._dl = saved_dl
+
+    version._resolve_assets = _test_resolve_assets
+    version._finalize_assets = lambda watcher: None
 
 
 @pytest.mark.parametrize("test_version", ["b1.8.1", "1.5.2", "1.7.10", "1.16.5", "1.17.1", "1.18.1.nopath", "1.19"])
@@ -19,18 +35,21 @@ def test_install_specific(tmp_context: Context, test_version: str):
 
     version = Version(test_version_id, context=tmp_context)
     version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
+    _remove_assets(version)
     version.install()
 
 
 def test_install_fabric(tmp_context: Context):
     version = FabricVersion.with_fabric("1.20.1", "0.14.21", context=tmp_context)
     version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
+    _remove_assets(version)
     version.install()
 
 
 def test_install_quilt(tmp_context: Context):
     version = FabricVersion.with_quilt("1.20.1", "0.20.0-beta.5", context=tmp_context)
     version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
+    _remove_assets(version)
     version.install()
 
 
@@ -41,6 +60,7 @@ def test_install_forge(tmp_context: Context, test_version: str):
 
     version = ForgeVersion(test_version)
     version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
+    _remove_assets(version)
     version.install()
 
 
@@ -52,4 +72,5 @@ def test_install_vanilla(tmp_context: Context, vanilla_version: str):
 
     version = Version(vanilla_version, context=tmp_context)
     version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
+    _remove_assets(version)
     version.install()
