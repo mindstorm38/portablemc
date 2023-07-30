@@ -1264,6 +1264,9 @@ class DownloadError(Exception):
     def __init__(self, errors: List[Tuple[DownloadEntry, str]]) -> None:
         super().__init__()
         self.errors = errors
+    
+    def __repr__(self) -> str:
+        return f"<DownloadError {repr(self.errors)}>"
 
 
 class VersionEvent:
