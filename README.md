@@ -1,6 +1,6 @@
 # Portable Minecraft Launcher
-A fast, reliable and cross-platform command line Minecraft launcher and API for developers.
-This launcher is compatible with the official Minecraft launcher' version specification.
+A fast, reliable and cross-platform command-line Minecraft launcher and API for developers.
+This launcher is compatible with the official Minecraft launcher's version specification.
 It also includes fast installation of common mod loaders such as Fabric, Forge and Quilt.
 
 ![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square)
@@ -38,7 +38,7 @@ use `pip3` instead of `pip` in order to run it on Python 3. You can also use
 pip install --user portablemc
 ```
 
-It's recommended to keep `--user` because this allows to install the launcher for your
+It's recommended to keep `--user` because this installs the launcher for your
 current user only, it is implicit if you are not an administrator and if you are, it 
 allows not to modify other users' installations.
 
@@ -51,7 +51,7 @@ On UNIX systems it's `~/.local/bin`.
 ## Commands
 Arguments are split between multiple commands. 
 For example `portablemc [global-args] <cmd> [args]`. 
-You can use `-h` argument to display help *(also works for every sub-commands)*.
+You can use `-h` argument to display help *(also works for every sub-command)*.
 
 By default the launcher will run any command from the OS standard `.minecraft` directory 
 ([check wiki for more information](https://minecraft.gamepedia.com/.minecraft)). You can
@@ -63,8 +63,8 @@ read-only main directory (`--main-dir`) and user-specific working directory (for
 in `.minecraft`, by default it's the location of your main directory). The launcher also
 stores cached version manifest and authentication database in the working directory.
 
-The two arguments `--main-dir` and `--work-dir` may or may not be used by sub commands, 
-but they are always valid to use, allowing you to define command alias for running
+The two arguments `--main-dir` and `--work-dir` may or may not be used by sub-commands, 
+but they are always valid to use, allowing you to define command aliases for running
 PortableMC.
 
 Another argument, `--timeout <seconds>` can be used to set a global timeout value that 
@@ -74,7 +74,7 @@ The general output format of the launcher can be changed using the `--output <mo
 one of the following modes:
 - `human`: Human readable output, translated messages, formatted tables and tasks.
 - `human-color`: Default, same as `human` but with some color where relevant, like tasks 
-  states and game's logs.
+  states and game logs.
 - `machine`: Machine
 
 The verbosity of the launcher can be adjusted if you encounter issues, using multiple 
@@ -85,13 +85,13 @@ issues.
 The first thing you may want to do is install and start Minecraft, to do so you can use
 the `portablemc start [args] [version]` command. This command will install every component
 needed by the version before launching it. If you provide no version, the latest release
-is started, but you can specify a specific version launch, or a version alias: `release`
-or `snapshot` for latest version of their type.
+is started, but you can specify a version to launch, or a version alias: `release`
+or `snapshot` for the latest version of their type.
 
-In addition to Mojang's vanilla versions, the launcher natively support common mod
-loaders such as **Fabric**, **Forge** and **Quilt**. To start such version, you can
+In addition to Mojang's vanilla versions, the launcher natively supports common mod
+loaders such as **Fabric**, **Forge** and **Quilt**. To start such versions, you can
 prefix the version with either `fabric:`, `forge:` or `quilt:` (or `vanilla:` to
-explicitly choose vanilla version).
+explicitly choose a vanilla version).
 Depending on the mod loader, the version you put after the colon is different:
 - For Fabric and Quilt, you can directly specify the vanilla version, optionally followed
   by `:<loader_version>`.
@@ -107,10 +107,10 @@ If your session is not cached or no longer valid, the launcher will ask for the
 password or open the Microsoft connection page.
 
 **By default**, this will authenticate you using the Microsoft authentication services,
-you can change that using `--auth-service` argument, for example with `yggdrasil` if
-you need to log into an old Mojang account (being phased out by Mojang).
+although you can change that using the `--auth-service` argument, for example with
+`yggdrasil` if you need to log into an old Mojang account (being phased out by Mojang).
 
-If you want to be asked for password on each authentication, you can use `-t
+If you want to be asked for password on each authentication, you can use `-t`
 (`--temp-login`). This has no effect if the session is already cached before that.
 
 You can also use `--auth-anonymize` in order to hide most of your email when printing 
@@ -172,7 +172,7 @@ In case with the above you still get an `error: GLSL 1.50 is not supported` you 
 try `export MESA_GLSL_VERSION_OVERRIDE=150`.
 
 #### Fix unsupported systems
-Some Mojang provided natives (.so, .dll, .dylib) might not be compatible with your system.
+Some Mojang-provided natives (.so, .dll, .dylib) might not be compatible with your system.
 To mitigate that, the launcher provides two arguments, `--exclude-lib` and `--include-bin`
 that can be provided multiples times each.
 
@@ -191,29 +191,29 @@ these are discarded in the bin directory, for example
 These arguments can be used together to fix various issues (e.g. wrong libc being linked
 by the LWJGL-provided natives).
 
-*Note that these arguments are compatible, and executed after the `--lwjgl` argument.
+*Note that these arguments are compatible with, and executed after the `--lwjgl` argument.
 You must however ensure that excluded lib and included binaries are compatible.*
 
 #### Miscellaneous
-With `--dry`, the start command do not start the game, but install it.
+With `--dry`, the start command does not start the game, but simply installs it.
 
 With `--demo` you can enable the [demo mode](https://minecraft.gamepedia.com/Demo_mode) 
 of the game.  
 
 With `--resolution <width>x<height>` you can change the resolution of the game window.
 
-The two arguments `--disable-mp` (mp: multiplayer), `--disable-chat` respectively to 
-disable multiplayer button and disable in-game chat *(since 1.16)*.
+The two arguments `--disable-mp` (mp: multiplayer) and `--disable-chat` can respectively
+disable the multiplayer button and the in-game chat *(since 1.16)*.
 
 ### Search for versions
 The `portablemc search [-k <kind>] [version]` sub-command is used to search for versions. 
 By default, this command will search for official Mojang versions available to download, 
-you can instead search for many kind of versions using the `-k` (`--kind`) arguments:
+you can instead search for many kinds of versions using the `-k` (`--kind`) arguments:
 - `local`, show all installed versions.
-- `forge`, show all recommended and latest forge loader versions *(only 1.5.2 and 
+- `forge`, show all recommended and latest Forge loader versions *(only 1.5.2 and 
   onward can be started)*.
-- `fabric`, show all available fabric loader versions.
-- `quilt`, show all available quilt loader versions.
+- `fabric`, show all available Fabric loader versions.
+- `quilt`, show all available Quilt loader versions.
 
 The search string is optional, if not specified no filter is applied on the table shown.
 
