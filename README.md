@@ -94,9 +94,13 @@ prefix the version with either `fabric:`, `forge:` or `quilt:` (or `vanilla:` to
 explicitly choose a vanilla version).
 Depending on the mod loader, the version you put after the colon is different:
 - For Fabric and Quilt, you can directly specify the vanilla version, optionally followed
-  by `:<loader_version>`.
+  by `:<loader_version>`:  
+  `fabric:1.20.1`  
+  `fabric:1.20.1:0.11.2`
 - For Forge, you can put either a vanilla game version, optionally followed by `-latest`
-  or `-recommended`, or `-<loader_version>`.
+  or `-recommended`, or `-<loader_version>`:  
+  `forge:1.20-latest`  
+  `forge:1.20-46.0.14`
 
 *You can search for versions using the [search command](#search-for-versions).*
 
