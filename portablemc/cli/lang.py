@@ -37,19 +37,19 @@ lang = {
     # "addon.import_error": "The addon '{addon}' has failed to build because some packages is missing:",
     # "addon.unknown_error": "The addon '{addon}' has failed to build for unknown reason:",
     # Args root
-    "args": "PortableMC is an easy to use portable Minecraft launcher in only one Python "
-        "script! This single-script launcher is still compatible with the official "
-        "(Mojang) Minecraft Launcher stored in .minecraft and use it.",
-    "args.main_dir": "Set the main directory where libraries, assets and versions. "
-        "This argument can be used or not by subcommand.",
+    "args": "A fast, reliable and cross-platform command-line Minecraft launcher and API "
+        "for developers. This launcher is compatible with the official Minecraft "
+        "launcher's version specification. It also includes fast installation of "
+        "common mod loaders such as Fabric, Forge and Quilt.",
+    "args.main_dir": "Set the main directory where libraries, assets and versions.",
     "args.work_dir": "Set the working directory where the game run and place for examples "
         "saves, screenshots (and resources for legacy versions), it also store "
-        "runtime binaries and authentication. "
-        "This argument can be used or not by subcommand.",
+        "runtime binaries and authentication.",
     "args.timeout": "Set a global timeout (in decimal seconds) for network requests.",
     "args.output": "Set the output format of the launcher, defaults to human-color.",
     "args.verbose": "Enable verbose output. The more -v argument you put, the more verbose the launcher will be, depending on subcommands' support (usually -v, -vv, -vvv).",
     # Args common langs
+    "args.common.help": "Show this help message and exit.",
     "args.common.auth_service": "Authentication service type to use for logging in the game.",
     # Args search
     "args.search": "Search for Minecraft versions.",
