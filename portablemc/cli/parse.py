@@ -1,8 +1,8 @@
-from argparse import ArgumentParser, HelpFormatter, ArgumentTypeError
+from argparse import ArgumentParser, HelpFormatter, ArgumentTypeError, SUPPRESS
 from pathlib import Path
 
-from ..standard import Context, VersionManifest
-from ..auth import AuthDatabase
+from portablemc.standard import Context, VersionManifest
+from portablemc.auth import AuthDatabase
 
 from .util import LibrarySpecifierFilter
 from .output import Output
@@ -64,8 +64,18 @@ class LogoutNs(RootNs):
     email_or_username: str
 
 
+def register_common_help(parser: ArgumentParser) -> None:
+    parser.formatter_class = new_help_formatter_class(40)
+    parser.add_argument("-h", "--help", action="help", default=SUPPRESS, help=_("args.common.help"))
+
+
+def register_common_auth_service(parser: ArgumentParser) -> None:
+    parser.add_argument("--auth-service", help=_("args.common.auth_service"), default="microsoft", choices=get_auth_services())
+
+
 def register_arguments() -> ArgumentParser:
-    parser = ArgumentParser(allow_abbrev=False, prog="portablemc", description=_("args"))
+    parser = ArgumentParser(allow_abbrev=False, prog="portablemc", description=_("args"), add_help=False)
+    register_common_help(parser)
     parser.add_argument("--main-dir", help=_("args.main_dir"), type=Path)
     parser.add_argument("--work-dir", help=_("args.work_dir"), type=Path)
     parser.add_argument("--timeout", help=_("args.timeout"), type=float)
@@ -75,26 +85,23 @@ def register_arguments() -> ArgumentParser:
     return parser
 
 
-def register_subcommands(subparsers):
-    register_search_arguments(subparsers.add_parser("search", help=_("args.search")))
-    register_start_arguments(subparsers.add_parser("start", help=_("args.start")))
-    register_login_arguments(subparsers.add_parser("login", help=_("args.login")))
-    register_logout_arguments(subparsers.add_parser("logout", help=_("args.logout")))
-    register_show_arguments(subparsers.add_parser("show", help=_("args.show")))
+def register_subcommands(subparsers) -> None:
+    register_search_arguments(subparsers.add_parser("search", help=_("args.search"), add_help=False))
+    register_start_arguments(subparsers.add_parser("start", help=_("args.start"), add_help=False))
+    register_login_arguments(subparsers.add_parser("login", help=_("args.login"), add_help=False))
+    register_logout_arguments(subparsers.add_parser("logout", help=_("args.logout"), add_help=False))
+    register_show_arguments(subparsers.add_parser("show", help=_("args.show"), add_help=False))
     # register_addon_arguments(subparsers.add_parser("addon", help=_("args.addon")))
 
 
-def register_search_arguments(parser: ArgumentParser):
+def register_search_arguments(parser: ArgumentParser) -> None:
+    register_common_help(parser)
     parser.add_argument("-k", "--kind", help=_("args.search.kind"), default="mojang", choices=get_search_kinds())
     parser.add_argument("input", nargs="?")
 
 
-def register_common_auth_service(parser: ArgumentParser):
-    parser.add_argument("--auth-service", help=_("args.common.auth_service"), default="microsoft", choices=get_auth_services())
-
-
-def register_start_arguments(parser: ArgumentParser):
-    parser.formatter_class = new_help_formatter_class(40)
+def register_start_arguments(parser: ArgumentParser) -> None:
+    register_common_help(parser)
     parser.add_argument("--dry", help=_("args.start.dry"), action="store_true")
     parser.add_argument("--disable-mp", help=_("args.start.disable_multiplayer"), action="store_true")
     parser.add_argument("--disable-chat", help=_("args.start.disable_chat"), action="store_true")
@@ -120,22 +127,25 @@ def register_start_arguments(parser: ArgumentParser):
     parser.add_argument("version", nargs="?", default="release", help=_("args.start.version", formats=", ".join(map(lambda s: _(f"args.start.version.{s}"), ("standard", "fabric", "quilt", "forge")))))
 
 
-def register_login_arguments(parser: ArgumentParser):
+def register_login_arguments(parser: ArgumentParser) -> None:
+    register_common_help(parser)
     register_common_auth_service(parser)
     parser.add_argument("email_or_username")
 
 
-def register_logout_arguments(parser: ArgumentParser):
+def register_logout_arguments(parser: ArgumentParser) -> None:
+    register_common_help(parser)
     register_common_auth_service(parser)
     parser.add_argument("email_or_username")
 
 
-def register_show_arguments(parser: ArgumentParser):
+def register_show_arguments(parser: ArgumentParser) -> None:
+    register_common_help(parser)
     subparsers = parser.add_subparsers(title="subcommands", dest="show_subcommand")
     subparsers.required = True
-    subparsers.add_parser("about", help=_("args.show.about"))
-    subparsers.add_parser("auth", help=_("args.show.auth"))
-    subparsers.add_parser("lang", help=_("args.show.lang"))
+    subparsers.add_parser("about", help=_("args.show.about"), add_help=False)
+    subparsers.add_parser("auth", help=_("args.show.auth"), add_help=False)
+    subparsers.add_parser("lang", help=_("args.show.lang"), add_help=False)
 
 
 # def register_addon_arguments(parser: ArgumentParser):
