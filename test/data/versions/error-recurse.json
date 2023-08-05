@@ -1,0 +1,4 @@
+{
+    "id": "error-recurse",
+    "inheritsFrom": "error-recurse"
+}

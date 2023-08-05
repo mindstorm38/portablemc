@@ -2,10 +2,13 @@ from pathlib import Path
 import shutil
 import pytest
 
-from portablemc.standard import Context, Version, VersionManifest
+from portablemc.standard import Context, Version, VersionManifest, TooMuchParentsError, \
+    JarNotFoundError
 from portablemc.download import DownloadList
 from portablemc.fabric import FabricVersion
 from portablemc.forge import ForgeVersion
+
+from typing import Type
 
 
 def _remove_assets(version: Version):
@@ -37,6 +40,24 @@ def test_install_specific(tmp_context: Context, test_version: str):
     version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
     _remove_assets(version)
     version.install()
+
+
+@pytest.mark.parametrize("test_version,test_error", [
+    ("error-recurse", TooMuchParentsError),
+    ("error-jar-not-found", JarNotFoundError)
+])
+def test_install_error(tmp_context: Context, test_version: str, test_error: Type[Exception]):
+
+    current_path = Path(__file__).parent.joinpath("data", "versions", f"{test_version}.json")
+    handle = tmp_context.get_version(test_version)
+    handle.dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy(current_path, handle.metadata_file())
+
+    version = Version(test_version, context=tmp_context)
+    _remove_assets(version)
+
+    with pytest.raises(test_error):
+        version.install()
 
 
 def test_install_fabric(tmp_context: Context):
