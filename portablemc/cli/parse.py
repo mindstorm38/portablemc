@@ -1,5 +1,6 @@
 from argparse import ArgumentParser, HelpFormatter, ArgumentTypeError, SUPPRESS
 from pathlib import Path
+import sys
 
 from portablemc.standard import Context, VersionManifest
 from portablemc.auth import AuthDatabase
@@ -79,7 +80,7 @@ def register_arguments() -> ArgumentParser:
     parser.add_argument("--main-dir", help=_("args.main_dir"), type=Path)
     parser.add_argument("--work-dir", help=_("args.work_dir"), type=Path)
     parser.add_argument("--timeout", help=_("args.timeout"), type=float)
-    parser.add_argument("--output", help=_("args.output"), dest="out_kind", choices=get_outputs(), default="human-color")
+    parser.add_argument("--output", help=_("args.output"), dest="out_kind", choices=get_outputs(), default="human-color" if sys.stdout.isatty() else "human")
     parser.add_argument("-v", dest="verbose", help=_("args.verbose"), action="count", default=0)
     register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
     return parser
