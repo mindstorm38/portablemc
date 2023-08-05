@@ -230,7 +230,7 @@ class Version:
         self.disable_chat: bool = False
         self.quick_play: Optional[QuickPlay] = None
         self.jvm_path: Optional[Path] = None
-        self.libraries_filters: List[Callable[[Dict[LibrarySpecifier, _Library]], None]] = []
+        self.libraries_filters: List[Callable[[Dict[LibrarySpecifier, Library]], None]] = []
         self.fixes: Dict[str, Any] = { 
             self.FIX_LEGACY_PROXY: True, 
             self.FIX_LEGACY_MERGE_SORT: True,
@@ -257,7 +257,7 @@ class Version:
         self._assets_resources_dir: Optional[Path] = None
 
         # Native and class libraries (using dict so we keep order)
-        self._libs: Dict[LibrarySpecifier, _Library] = {}
+        self._libs: Dict[LibrarySpecifier, Library] = {}
         self._native_libs: List[Path] = []
         self._class_libs: List[Path] = []
 
@@ -668,7 +668,7 @@ class Version:
 
                 # Adding parsed library.
                 # Insertion ordering is guaranteed on dictionaries since python 3.6
-                self._libs[spec] = _Library(natives is not None, lib_entry)
+                self._libs[spec] = Library(natives is not None, lib_entry)
 
         # Fix libraries before computation
         self._filter_libraries(watcher)
@@ -760,7 +760,7 @@ class Version:
                 for classifier in (None, lwjgl_natives):
                     spec = LibrarySpecifier("org.lwjgl", name, lwjgl_version, classifier)
                     entry = DownloadEntry(f"https://repo1.maven.org/maven2/{spec.file_path()}", Path())
-                    lib = _Library(False, entry)
+                    lib = Library(False, entry)
                     self._libs[spec] = lib
 
             add_lwjgl_lib("lwjgl")
@@ -1211,9 +1211,8 @@ class SimpleWatcher(Watcher):
             handler(event)
 
 
-class _Library:
-    """Intermediate class representing a parsed game's library. This is subclassed to
-    denote. This class is not yet part of the public API.
+class Library:
+    """Intermediate class representing a parsed game's library.
     """
     __slots__ = "native", "entry"
     def __init__(self, native: bool, entry: Optional[DownloadEntry]) -> None:
