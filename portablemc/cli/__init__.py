@@ -763,8 +763,8 @@ class StartWatcher(SimpleWatcher):
         self.ns.out.task("..", "download.progress", 
             count=count,
             total_count=total_count,
-            size=f"{format_number(self.size + sum(self.sizes))}o",
-            speed=f"{format_number(speed)}o/s")
+            size=f"{format_number(self.size + sum(self.sizes))}B",
+            speed=f"{format_number(speed)}B/s")
 
         if e.done:
             self.size += e.size
