@@ -157,6 +157,12 @@ class VersionHandle:
         for version_meta in self.recurse():
             merge_dict(result, version_meta.metadata)
         return result
+    
+    def __str__(self) -> str:
+        return self.id
+    
+    def __repr__(self) -> str:
+        return f"<VersionHandle {self.id}>"
 
 
 class Environment:
@@ -337,7 +343,7 @@ class Version:
         while version is not None:
 
             if len(hierarchy) > 10:
-                raise TooMuchParentsError(hierarchy)
+                raise TooMuchParentsError(list(v.id for v in hierarchy))
             
             watcher.handle(VersionLoadingEvent(version))
 
@@ -1225,13 +1231,19 @@ class VersionNotFoundError(Exception):
     """
     def __init__(self, version: str) -> None:
         self.version = version
+    
+    def __str__(self) -> str:
+        return repr(self.version)
 
 class TooMuchParentsError(Exception):
     """Raised when a version hierarchy is too deep. The hierarchy of versions is given
     in property `versions`.
     """
-    def __init__(self, versions: List[VersionHandle]) -> None:
+    def __init__(self, versions: List[str]) -> None:
         self.versions = versions
+
+    def __str__(self) -> str:
+        return repr(self.versions)
 
 class LibraryNotFoundError(Exception):
     """Critical error raised when a library has no download indication and is not 
@@ -1239,6 +1251,9 @@ class LibraryNotFoundError(Exception):
     """
     def __init__(self, lib: LibrarySpecifier) -> None:
         self.lib = lib
+    
+    def __str__(self) -> str:
+        return repr(self.lib)
 
 class JarNotFoundError(Exception):
     """Raised when no version's JAR file could be found from the metadata.
@@ -1256,16 +1271,18 @@ class JvmNotFoundError(Exception):
 
     def __init__(self, code: str) -> None:
         self.code = code
+    
+    def __str__(self) -> str:
+        return repr(self.code)
 
 class DownloadError(Exception):
     """Raised when the downloader failed to download some entries.
     """
     def __init__(self, errors: List[Tuple[DownloadEntry, str, Optional[Exception]]]) -> None:
-        super().__init__(errors)
         self.errors = errors
     
-    def __repr__(self) -> str:
-        return f"<DownloadError {repr(self.errors)}>"
+    def __str__(self) -> str:
+        return repr(self.errors)
 
 
 class VersionEvent:

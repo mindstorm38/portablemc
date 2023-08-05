@@ -355,7 +355,7 @@ def cmd_start(ns: StartNs):
     except TooMuchParentsError as error:
         ns.out.task("FAILED", "start.version.too_much_parents")
         ns.out.finish()
-        ns.out.task(None, "echo", echo=", ".join(map(lambda v: v.id, error.versions)))
+        ns.out.task(None, "echo", echo=", ".join(error.versions))
         ns.out.finish()
 
     except JarNotFoundError as error:
