@@ -72,9 +72,10 @@ will be used for all network connections.
 
 The general output format of the launcher can be changed using the `--output <mode>` with
 one of the following modes:
-- `human`: Human readable output, translated messages, formatted tables and tasks.
-- `human-color`: Default, same as `human` but with some color where relevant, like tasks 
-  states and game logs.
+- `human`: Human readable output, translated messages, formatted tables and tasks, 
+  default if stdout if not a TTY.
+- `human-color`: Same as `human` but with some color where relevant, like tasks states
+  and game logs, default if stdout is a TTY.
 - `machine`: Machine
 
 The verbosity of the launcher can be adjusted if you encounter issues, using multiple 

@@ -46,7 +46,7 @@ lang = {
         "saves, screenshots (and resources for legacy versions), it also store "
         "runtime binaries and authentication.",
     "args.timeout": "Set a global timeout (in decimal seconds) for network requests.",
-    "args.output": "Set the output format of the launcher, defaults to human-color.",
+    "args.output": "Set the output format of the launcher, defaults to human-color, human if not a TTY.",
     "args.verbose": "Enable verbose output. The more -v argument you put, the more verbose the launcher will be, depending on subcommands' support (usually -v, -vv, -vvv).",
     # Args common langs
     "args.common.help": "Show this help message and exit.",
