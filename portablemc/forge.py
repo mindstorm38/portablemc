@@ -375,6 +375,9 @@ class ForgeInstallError(Exception):
     def __init__(self, version: str, code: str):
         self.version = version
         self.code = code
+    
+    def __str__(self) -> str:
+        return repr((self.version, self.code))
 
 
 class ForgeResolveEvent:
