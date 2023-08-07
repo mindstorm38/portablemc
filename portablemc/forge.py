@@ -393,12 +393,14 @@ class ForgeResolveEvent:
 class ForgePostProcessingEvent:
     """Event triggered when a post processing task is starting.
     """
+    __slots__ = "task",
     def __init__(self, task: str) -> None:
         self.task = task
 
 class ForgePostProcessedEvent:
     """Event triggered when forge post processing has finished, the game is ready to run.
     """
+    __slots__ = tuple()
 
 
 def request_promo_versions() -> Dict[str, str]:
