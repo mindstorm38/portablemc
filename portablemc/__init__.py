@@ -1,4 +1,9 @@
-"""Main PortableMC module.
+"""Main module for PortableMC API.
+
+Please read the API documentation for more general information about the architecture of
+the API and examples codes. You should also read the API documentation about 
+*Versioning and stability* to understand which classes you should consider part of the
+public API, and therefore stable across minor and patch version bumps.
 """
 
 LAUNCHER_NAME = "portablemc"

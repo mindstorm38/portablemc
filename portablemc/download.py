@@ -2,9 +2,9 @@
 """
 
 from http.client import HTTPConnection, HTTPSConnection, HTTPException
-from queue import Queue, Empty
 from threading import Thread
 from pathlib import Path
+from queue import Queue
 import urllib.parse
 import hashlib
 import time
