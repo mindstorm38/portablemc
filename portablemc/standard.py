@@ -1295,10 +1295,12 @@ class VersionEvent:
 class VersionLoadingEvent(VersionEvent):
     """Event triggered when a version is being loaded.
     """
+    __slots__ = tuple()
 
 class VersionFetchingEvent(VersionEvent):
     """Event triggered when a version is being fetched.
     """
+    __slots__ = tuple()
 
 class VersionLoadedEvent(VersionEvent):
     """Event triggered when a version has been successfully loaded.
@@ -1319,6 +1321,7 @@ class FeaturesEvent:
 class JarFoundEvent:
     """Event triggered when the game's JAR file has been found.
     """
+    __slots__ = tuple()
 
 class AssetsResolveEvent:
     __slots__ = "index_version", "count"
@@ -1329,6 +1332,7 @@ class AssetsResolveEvent:
 class LibrariesResolvingEvent:
     """Event triggered when libraries start being resolved.
     """
+    __slots__ = tuple()
 
 class LibrariesResolvedEvent:
     """Event triggered when all libraries has been successfully resolved.
@@ -1346,6 +1350,7 @@ class LoggerFoundEvent:
 class JvmLoadingEvent:
     """Event triggered when JVM start being resolved.
     """
+    __slots__ = tuple()
 
 class JvmLoadedEvent:
     """Event triggered when JVM has been resolved. If count is none then the resolved 

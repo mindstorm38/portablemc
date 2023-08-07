@@ -1,4 +1,10 @@
-"""Main 
+"""Entry module for PortableMC Command Line Interface. 
+
+This module implements all (sub)commands of the CLI, the arguments parser, language and 
+other utilities are defined in child modules.
+
+**Note that this module, even when no *underscore* "_" is used, should not be considered
+as part of the public API.**
 """
 
 from subprocess import Popen

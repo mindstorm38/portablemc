@@ -20,19 +20,28 @@ Documented version: `4.0.0`.
 - [Forge version](#forge-version)
 
 ## Versioning and stability
-This launcher uses [semantic versioning](https://semver.org/lang/fr/),
-therefore you should expect no breaking changes in the public API when
-bumping the minor or patch version numbers. **Please note** however
-that the `cli` module should not be considered part of the public API,
-even if functions appear public, **the CLI is an implementation 
-detail**, only its command line interface follows semantic versioning
-guarantees.
+This launcher uses [semantic versioning](https://semver.org/), therefore you 
+should expect no breaking changes in the public API when bumping the minor or patch 
+version numbers. **Please note** however that the `cli` module should not be considered 
+part of the public API, even if functions appear public, **the CLI is an implementation 
+detail**, only its command line interface follows semantic versioning guarantees.
 
-The API also prefix all of its private members with an underscore (`_`), you can access
-these members **but** their stability is not guaranteed so you may need to update your
-code for each update. Lot of members are private, this allows greater flexibility for
-developing the launcher, but if you think that some members should be made public, you 
-can open an issue.
+The public API is defined by all symbols (classes, variables, functions, etc.) that are
+**not** prefixed by one *or more* underscores "_". Also, because of the dynamic nature
+of python, you should not consider injecting symbols to the portablemc's modules and 
+classes stable. 
+
+To sum up, accessing `DownloadEntry` is stable, but `_DownloadEntry` isn't. 
+Accessing attribute `Version.quick_play` is stable, but `Version._class_libs` isn't. 
+And lastly, assigning `portablemc.my_custom_variable = ...` is unstable because you are 
+injecting symbols into the API. It is also unstable to subclass and then add attributes, 
+like `self.my_attr = ...`. Yes, this is a big constraint but you can use long name with 
+your own prefix (like `my_addon_my_attr`), so that is really unlikely to be part of the 
+API in the future, or you can use 
+[name mangling](https://docs.python.org/3/tutorial/classes.html#private-variables).
+
+Lot of symbols are private, this allows greater flexibility for developing the launcher, 
+but if you think that some members should be made public, you can open an issue.
 
 ## File structure
 Sources of the launcher's API are stored in the `src/portablemc` 
