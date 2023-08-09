@@ -33,11 +33,11 @@ classes stable.
 
 To sum up, accessing `DownloadEntry` is stable, but `_DownloadEntry` isn't. 
 Accessing attribute `Version.quick_play` is stable, but `Version._class_libs` isn't. 
-And lastly, assigning `portablemc.my_custom_variable = ...` is unstable because you are 
-injecting symbols into the API. It is also unstable to subclass and then add attributes, 
-like `self.my_attr = ...`. Yes, this is a big constraint but you can use long name with 
-your own prefix (like `my_addon_my_attr`), so that is really unlikely to be part of the 
-API in the future, or you can use 
+And lastly, assigning `portablemc.my_custom_variable = ...` or `version.my_attr = ...` 
+is unstable because you are injecting symbols into the API. It is also unstable to 
+subclass and then add attributes, like `self.my_attr = ...`. This is a big constraint 
+but you can use long name with your own prefix (like `my_addon_my_attr`), so that is 
+really unlikely to be part of the API in the future, or you can use 
 [name mangling](https://docs.python.org/3/tutorial/classes.html#private-variables).
 
 Lot of symbols are private, this allows greater flexibility for developing the launcher, 
