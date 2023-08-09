@@ -51,7 +51,7 @@ On UNIX systems it's `~/.local/bin`.
 ## Commands
 Arguments are split between multiple commands. 
 For example `portablemc [global-args] <cmd> [args]`. 
-You can use `-h` argument to display help *(also works for every sub-command)*.
+You can use `-h` argument to display help *(also works for every command)*.
 
 By default the launcher will run any command from the OS standard `.minecraft` directory 
 ([check wiki for more information](https://minecraft.gamepedia.com/.minecraft)). You can
