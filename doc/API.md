@@ -6,7 +6,6 @@ environments.
 Documented version: `4.0.0`.
 
 ## Table of contents
-- [Versioning and stability](#versioning-and-stability)
 - [File structure](#file-structure)
 - [Standard version](#standard-version)
   - [Hello world!](#hello-world)
@@ -18,30 +17,7 @@ Documented version: `4.0.0`.
   - [Environment](#environment)
 - [Fabric/Quilt version](#fabricquilt-version)
 - [Forge version](#forge-version)
-
-## Versioning and stability
-This launcher uses [semantic versioning](https://semver.org/), therefore you 
-should expect no breaking changes in the public API when bumping the minor or patch 
-version numbers. **Please note** however that the `cli` module should not be considered 
-part of the public API, even if functions appear public, **the CLI is an implementation 
-detail**, only its command line interface follows semantic versioning guarantees.
-
-The public API is defined by all symbols (classes, variables, functions, etc.) that are
-**not** prefixed by one *or more* underscores "_". Also, because of the dynamic nature
-of python, you should not consider injecting symbols to the portablemc's modules and 
-classes stable. 
-
-To sum up, accessing `DownloadEntry` is stable, but `_DownloadEntry` isn't. 
-Accessing attribute `Version.quick_play` is stable, but `Version._class_libs` isn't. 
-And lastly, assigning `portablemc.my_custom_variable = ...` or `version.my_attr = ...` 
-is unstable because you are injecting symbols into the API. It is also unstable to 
-subclass and then add attributes, like `self.my_attr = ...`. This is a big constraint 
-but you can use long name with your own prefix (like `my_addon_my_attr`), so that is 
-really unlikely to be part of the API in the future, or you can use 
-[name mangling](https://docs.python.org/3/tutorial/classes.html#private-variables).
-
-Lot of symbols are private, this allows greater flexibility for developing the launcher, 
-but if you think that some members should be made public, you can open an issue.
+- [Versioning and stability](#versioning-and-stability)
 
 ## File structure
 Sources of the launcher's API are stored in the `src/portablemc` 
@@ -268,4 +244,83 @@ argument of the constructors:
 ```python
 # Using format: my-forge-<forge_version>
 version = ForgeVersion(prefix="my-forge")
+```
+
+## Versioning and stability
+This launcher uses [semantic versioning](https://semver.org/), the version is defined by 
+three numbers: major, minor and patch with the format `<major>.<minor>.<patch>`. Release
+candidates are suffixed with `rc<num>`. Semantic versioning defines three cases when
+incrementing the version's numbers:
+
+1. Major number is incremented when incompatible *API* changes are made;
+2. Minor number is incremented when new features are added to the *API* in a backward 
+   compatible manner;
+3. Patch number is incremented when backward compatible changes are made but no feature
+   is added.
+
+The *API* is defined by all symbols publicly available to users of the PortableMC library,
+it is composed of all symbols (classes, variables, functions), modules and arguments that
+are not prefixed by one or more underscore "_", *this is a common convention in Python*.
+Note that only keyword arguments can be prefixed with an underscore, which means that the
+arguments is made for internal use or is experimental.
+
+Because of the dynamic design of Python, it's unstable *(may break at any time)* to
+externally inject symbols to the portablemc's modules and classes, because the API might 
+define such symbol in the future. For example, a subclass of an API's class may break at 
+any time if defining methods or attributes, because those might be defined on superclasses 
+in any future version. It is also unstable to override a method, because arguments may be 
+added in any future versions and break your override *(you can use `*args` and `**kwargs` 
+to make it stable)*.
+
+Many symbols are private, this allows greater flexibility for developing the launcher, 
+but if you think that some members should be made public, you can open an issue.
+
+Here are examples of stable and unstable usage of the library:
+```python
+# Import API symbol: stable
+from portablemc.standard import Version, Watcher
+# Import a private symbol: unstable
+from portablemc.download import _DownloadEntry
+
+version = Version()
+# Access API attribute: stable
+version.demo = True
+# Access private attribute: unstable
+version._assets_index_version = "..."
+# Inject a new attribute: unstable
+version.foo = 42
+
+# Subclass of an API's class is stable, following important details...
+class MyVersion(Version):
+
+    # It's *stable* to override using variadic arguments, because 
+    # this adapts to future function signatures.
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # It's *unstable* to define your own argument, because the
+        # same attribute may be defined in the future on Version class
+        self.bar = "..."
+        # You can reduce the risk by using uncommon prefixes.
+        self._my_version_bar = "..."
+        # Or by using name mangling built in Python (at your own stability risk!).
+        self.__bar = "..."
+    
+    # It's *unstable* to override with parent signature, because
+    # this doesn't adapt for future function signatures.
+    def set_auth_offline(self, username: Optional[str], uuid: Optional[str]) -> None:
+        super().set_auth_offline(username, uuid)
+    
+    # Same as above, but *stable* because future signatures are handled.
+    def set_auth_offline(self, username: Optional[str], uuid: Optional[str], *args, **kwargs) -> None:
+        super().set_auth_offline(username, uuid, *args, **kwargs)
+    
+    # It's *unstable* to define your own methods because the same
+    # name might get defined in the future class' signature.
+    def baz(self):
+        pass
+
+# Example of stable subclass of the standard Watcher class
+class MyWatcher(Watcher):
+    def handle(self, event: Any, *args, **kwargs) -> None:
+        print(f"here's an event: {event}")
 ```
