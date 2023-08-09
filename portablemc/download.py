@@ -301,6 +301,8 @@ def _download_thread(
                 result_queue.put(DownloadResultError(thread_id, entry, last_error, last_error_origin))
                 break
             
+            # FIXME: Put this try block around the whole download block, because 
+            # ConnectionError can arise at any time using .readinto
             try:
                 conn.request("GET", entry.url)
                 res = conn.getresponse()
