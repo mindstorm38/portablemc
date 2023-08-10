@@ -8,7 +8,7 @@ from portablemc.download import DownloadList
 from portablemc.fabric import FabricVersion
 from portablemc.forge import ForgeVersion
 
-from typing import Type
+from typing import Type, Optional
 
 
 def _remove_assets(version: Version):
@@ -35,29 +35,12 @@ def test_install_specific(tmp_context: Context, test_version: str):
     handle = tmp_context.get_version(test_version_id)
     handle.dir.mkdir(parents=True, exist_ok=True)
     shutil.copy(current_path, handle.metadata_file())
+    assert handle.metadata_exists()
 
     version = Version(test_version_id, context=tmp_context)
     version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
     _remove_assets(version)
     version.install()
-
-
-@pytest.mark.parametrize("test_version,test_error", [
-    ("error-recurse", TooMuchParentsError),
-    ("error-jar-not-found", JarNotFoundError)
-])
-def test_install_error(tmp_context: Context, test_version: str, test_error: Type[Exception]):
-
-    current_path = Path(__file__).parent.joinpath("data", "versions", f"{test_version}.json")
-    handle = tmp_context.get_version(test_version)
-    handle.dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy(current_path, handle.metadata_file())
-
-    version = Version(test_version, context=tmp_context)
-    _remove_assets(version)
-
-    with pytest.raises(test_error):
-        version.install()
 
 
 def test_install_fabric(tmp_context: Context):
@@ -95,3 +78,26 @@ def test_install_vanilla(tmp_context: Context, vanilla_version: str):
     version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
     _remove_assets(version)
     version.install()
+
+
+@pytest.mark.parametrize("test_version,test_error,test_match", [
+    ("err.recurse", TooMuchParentsError, None),
+    ("err.jar_not_found", JarNotFoundError, None),
+])
+def test_install_error(tmp_context: Context, 
+    test_version: str,
+    test_error: Type[Exception],
+    test_match: Optional[str]):
+    
+    current_path = Path(__file__).parent.joinpath("data", "versions", f"{test_version}.json")
+    handle = tmp_context.get_version(test_version)
+    handle.dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy(current_path, handle.metadata_file())
+    assert handle.metadata_exists()
+
+    version = Version(test_version, context=tmp_context)
+    # Avoid downloading in cases where errors has not been raised.
+    version._download = lambda watcher: None
+
+    with pytest.raises(test_error, match=test_match):
+        version.install()
