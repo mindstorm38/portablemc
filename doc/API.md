@@ -252,11 +252,9 @@ three numbers: major, minor and patch with the format `<major>.<minor>.<patch>`.
 candidates are suffixed with `rc<num>`. Semantic versioning defines three cases when
 incrementing the version's numbers:
 
-1. Major number is incremented when incompatible *API* changes are made;
-2. Minor number is incremented when new features are added to the *API* in a backward 
-   compatible manner;
-3. Patch number is incremented when backward compatible changes are made but no feature
-   is added.
+1. Major number is incremented when API change, breaking older one;
+2. Minor number is incremented when API change without breaking older one;
+3. Patch number is incremented when API doesn't change.
 
 The *API* is defined by all symbols publicly available to users of the PortableMC library,
 it is composed of all symbols (classes, variables, functions), modules and arguments that
