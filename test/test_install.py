@@ -62,7 +62,7 @@ def test_install_quilt(tmp_context: Context, test_version: Optional[str]):
     version.install()
 
 
-@pytest.mark.parametrize("test_version", ["1.5.2-7.8.1.738", "1.12.2-14.23.5.2847", "1.12.2-14.23.5.2851", "1.20.1-47.1.0"])
+@pytest.mark.parametrize("test_version", ["1.5.2-7.8.1.738", "1.12.2-14.23.5.2847", "1.12.2-14.23.5.2851", "1.20.1-47.1.0", "1.20.1-latest"])
 def test_install_forge(tmp_context: Context, test_version: str):
     """Testing forge install for both old an new formats.
     """
