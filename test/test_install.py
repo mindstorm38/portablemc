@@ -1,3 +1,6 @@
+"""Functional tests of the game's installation.
+"""
+
 from pathlib import Path
 import shutil
 import pytest
@@ -43,15 +46,17 @@ def test_install_specific(tmp_context: Context, test_version: str):
     version.install()
 
 
-def test_install_fabric(tmp_context: Context):
-    version = FabricVersion.with_fabric("1.20.1", "0.14.21", context=tmp_context)
+@pytest.mark.parametrize("test_version", ["0.14.22", None])
+def test_install_fabric(tmp_context: Context, test_version: Optional[str]):
+    version = FabricVersion.with_fabric("1.20.1", test_version, context=tmp_context)
     version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
     _remove_assets(version)
     version.install()
 
 
-def test_install_quilt(tmp_context: Context):
-    version = FabricVersion.with_quilt("1.20.1", "0.20.0-beta.5", context=tmp_context)
+@pytest.mark.parametrize("test_version", ["0.20.0-beta.11", None])
+def test_install_quilt(tmp_context: Context, test_version: Optional[str]):
+    version = FabricVersion.with_quilt("1.20.1", test_version, context=tmp_context)
     version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
     _remove_assets(version)
     version.install()
