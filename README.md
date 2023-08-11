@@ -63,7 +63,7 @@ read-only main directory (`--main-dir`) and user-specific working directory (for
 in `.minecraft`, by default it's the location of your main directory). The launcher also
 stores cached version manifest and authentication database in the working directory.
 
-The two arguments `--main-dir` and `--work-dir` may or may not be used by sub-commands, 
+The two arguments `--main-dir` and `--work-dir` may or may not be used by commands, 
 but they are always valid to use, allowing you to define command aliases for running
 PortableMC.
 
@@ -76,7 +76,7 @@ one of the following modes:
   default if stdout if not a TTY.
 - `human-color`: Same as `human` but with some color where relevant, like tasks states
   and game logs, default if stdout is a TTY.
-- `machine`: Machine
+- `machine`: Machine readable output, with one light per state change.
 
 The verbosity of the launcher can be adjusted if you encounter issues, using multiple 
 `-v` arguments (usually `-v` through `-vvv`). It's very useful to maintainers when fixing 
@@ -230,7 +230,7 @@ The two arguments `--disable-mp` (mp: multiplayer) and `--disable-chat` can resp
 disable the multiplayer button and the in-game chat *(since 1.16)*.
 
 ### Search for versions
-The `portablemc search [-k <kind>] [version]` sub-command is used to search for versions. 
+The `portablemc search [-k <kind>] [version]` command is used to search for versions. 
 By default, this command will search for official Mojang versions available to download, 
 you can instead search for many kinds of versions using the `-k` (`--kind`) arguments:
 - `local`, show all installed versions.
