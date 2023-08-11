@@ -8,6 +8,7 @@ from queue import Queue
 import urllib.parse
 import hashlib
 import time
+import ssl
 
 from typing import Optional, Dict, List, Tuple, Union, Iterator
 
@@ -53,11 +54,12 @@ class _DownloadEntry:
     unsupported URL schemes.
     """
 
-    __slots__ = "https", "host", "entry"
+    __slots__ = "https", "host", "port", "entry"
 
-    def __init__(self, https: bool, host: str, entry: DownloadEntry) -> None:
+    def __init__(self, https: bool, host: str, port: Optional[int], entry: DownloadEntry) -> None:
         self.https = https
         self.host = host
+        self.port = port
         self.entry = entry
     
     @classmethod
@@ -71,6 +73,7 @@ class _DownloadEntry:
         return cls(
             url_parsed.scheme == "https",
             url_parsed.netloc,
+            url_parsed.port,
             entry)
 
 
@@ -258,6 +261,13 @@ def _download_thread(
     buffer_cap = 65536
     buffer_back = bytearray(buffer_cap)
     buffer = memoryview(buffer_back)
+
+    # Try to use certifi if installed, we use this context for the connections.
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = None
     
     # Maximum tries count or a single entry.
     max_try_count = 3
@@ -279,14 +289,10 @@ def _download_thread(
             break
 
         conn_key = (raw_entry.https, raw_entry.host)
-        conn_type = HTTPSConnection if raw_entry.https else HTTPConnection
+        entry = raw_entry.entry
 
         # Get connection from cache or create it.
         conn = conn_cache.get(conn_key)
-        if conn is None:
-            conn = conn_cache[conn_key] = conn_type(raw_entry.host)
-
-        entry = raw_entry.entry
         
         last_error: Optional[str] = None
         last_error_origin: Optional[Exception] = None
@@ -300,6 +306,15 @@ def _download_thread(
                 assert last_error is not None
                 result_queue.put(DownloadResultError(thread_id, entry, last_error, last_error_origin))
                 break
+
+            # If there is no cached connection or the connection has been reset.
+            if conn is None:
+                if raw_entry.https:
+                    conn = HTTPSConnection(raw_entry.host, raw_entry.port, context=ctx)
+                else:
+                    conn = HTTPConnection(raw_entry.host, raw_entry.port)
+                # Cache the connection for later use.
+                conn_cache[conn_key] = conn
             
             # This try-except block is around all potential 
             try:
@@ -401,7 +416,7 @@ def _download_thread(
                 # On errors, we just throw away the old connection and create a new one.
                 # Raw but efficient way of resetting the potentially broken state...
                 conn.close()
-                conn = conn_cache[conn_key] = conn_type(raw_entry.host)
+                conn = None
 
                 last_error = DownloadResultError.CONNECTION
                 last_error_origin = e
