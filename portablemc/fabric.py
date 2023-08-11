@@ -1,7 +1,6 @@
 """Definition of tasks for installing and running Fabric/Quilt mod loader.
 """
 
-from portablemc.standard import VersionHandle, Watcher
 from .standard import Context, VersionHandle, Version, Watcher, VersionNotFoundError
 from .http import http_request, HttpError
 
