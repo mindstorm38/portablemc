@@ -49,7 +49,8 @@ class DownloadEntry:
 
 
 class _DownloadEntry:
-    """Internal class with already parsed URL.
+    """Internal class with already parsed URL to speed up processing and prevent 
+    unsupported URL schemes.
     """
 
     __slots__ = "https", "host", "entry"
@@ -94,7 +95,8 @@ class DownloadResultProgress(DownloadResult):
 
 
 class DownloadResultError(DownloadResult):
-    """Subclass of result when a file's download has failed.
+    """Subclass of result when a file's download has failed, the error code is indicated
+    and the optional original error is given (for connection errors).
     """
 
     CONNECTION = "connection"
@@ -111,7 +113,8 @@ class DownloadResultError(DownloadResult):
 
 
 class DownloadList:
-    """ A download list.
+    """A download list, composed of entries that can be downloaded all at once in batch
+    with multithreading.
     """
 
     __slots__ = "entries", "count", "size"
@@ -285,9 +288,6 @@ def _download_thread(
 
         entry = raw_entry.entry
         
-        # Allow modifying this URL when redirections happen.
-        # size_target = 0 if entry.size is None else entry.size
-        
         last_error: Optional[str] = None
         last_error_origin: Optional[Exception] = None
         try_num = 0
@@ -301,11 +301,101 @@ def _download_thread(
                 result_queue.put(DownloadResultError(thread_id, entry, last_error, last_error_origin))
                 break
             
-            # FIXME: Put this try block around the whole download block, because 
-            # ConnectionError can arise at any time using .readinto
+            # This try-except block is around all potential 
             try:
+                
                 conn.request("GET", entry.url)
                 res = conn.getresponse()
+
+                if res.status != 200:
+
+                    # This loop is used to skip all bytes in the stream, 
+                    # and allow further request.
+                    while res.readinto(buffer):
+                        pass
+
+                    if res.status == 301 or res.status == 302:
+
+                        redirect_url = res.headers["location"]
+                        redirect_entry = DownloadEntry(
+                            redirect_url, 
+                            entry.dst, 
+                            size=entry.size, 
+                            sha1=entry.sha1, 
+                            name=entry.name)
+                        
+                        entries_queue.put(_DownloadEntry.from_entry(redirect_entry))
+                        break  # Abort on redirect
+
+                    # Any other non-200 code is considered not found and we retry...
+                    last_error = DownloadResultError.NOT_FOUND
+                    continue
+                
+                sha1 = None if entry.sha1 is None else hashlib.sha1()
+                size = 0
+
+                entry.dst.parent.mkdir(parents=True, exist_ok=True)
+                with entry.dst.open("wb") as dst_fp:
+
+                    while True:
+
+                        read_len = res.readinto(buffer)
+                        if not read_len:
+                            break
+
+                        size += read_len
+                        speed_current_size += read_len
+                        buffer_view = buffer[:read_len]
+                        if sha1 is not None:
+                            sha1.update(buffer_view)
+                        dst_fp.write(buffer_view)
+
+                        # Update speed calculation at given interval.
+                        now = time.monotonic()
+                        speed_elapsed_time = now - speed_last_time
+                        if speed_elapsed_time > speed_update_interval:
+                            speed_elapsed_size = speed_current_size - speed_last_size
+                            current_speed = speed_elapsed_size / speed_elapsed_time
+                            speed = speed_smoothing * current_speed + (1 - speed_smoothing) * speed
+                            speed_last_time = now
+                            speed_last_size = speed_current_size
+
+                        # Filled the whole buffer, send a progress update because we'll 
+                        # likely need another reading.
+                        if partial_progress and read_len == buffer_cap:
+                            result_queue.put(DownloadResultProgress(
+                                thread_id,
+                                entry,
+                                size,
+                                speed,
+                                False
+                            ))
+            
+                # If the entry should be executable, only those that can read would be
+                # able to execute it.
+                if entry.executable:
+                    prev_mode = entry.dst.stat().st_mode
+                    entry.dst.chmod(prev_mode | ((prev_mode & 0o444) >> 2))
+
+                # Checking size and sha1 if relevant, if no error we send the full 
+                # progress.
+                if entry.size is not None and size != entry.size:
+                    last_error = DownloadResultError.INVALID_SIZE
+                elif sha1 is not None and sha1.hexdigest() != entry.sha1:
+                    last_error = DownloadResultError.INVALID_SHA1
+                else:
+                    
+                    result_queue.put(DownloadResultProgress(
+                        thread_id,
+                        entry,
+                        size,
+                        speed,
+                        True
+                    ))
+
+                    # Breaking means success, to avoid unlinking the file!
+                    break
+
             except (ConnectionError, OSError, HTTPException) as e:
 
                 # On errors, we just throw away the old connection and create a new one.
@@ -315,94 +405,6 @@ def _download_thread(
 
                 last_error = DownloadResultError.CONNECTION
                 last_error_origin = e
-                continue
-
-            if res.status != 200:
-
-                # This loop is used to skip all bytes in the stream, 
-                # and allow further request.
-                while res.readinto(buffer):
-                    pass
-
-                if res.status == 301 or res.status == 302:
-
-                    redirect_url = res.headers["location"]
-                    redirect_entry = DownloadEntry(
-                        redirect_url, 
-                        entry.dst, 
-                        size=entry.size, 
-                        sha1=entry.sha1, 
-                        name=entry.name)
-                    
-                    entries_queue.put(_DownloadEntry.from_entry(redirect_entry))
-                    break  # Abort on redirect
-
-                # Any other non-200 code is considered not found and we retry...
-                last_error = DownloadResultError.NOT_FOUND
-                continue
-            
-            sha1 = None if entry.sha1 is None else hashlib.sha1()
-            size = 0
-
-            entry.dst.parent.mkdir(parents=True, exist_ok=True)
-            with entry.dst.open("wb") as dst_fp:
-
-                while True:
-
-                    read_len = res.readinto(buffer)
-                    if not read_len:
-                        break
-
-                    size += read_len
-                    speed_current_size += read_len
-                    buffer_view = buffer[:read_len]
-                    if sha1 is not None:
-                        sha1.update(buffer_view)
-                    dst_fp.write(buffer_view)
-
-                    # Update speed calculation at given interval.
-                    now = time.monotonic()
-                    speed_elapsed_time = now - speed_last_time
-                    if speed_elapsed_time > speed_update_interval:
-                        speed_elapsed_size = speed_current_size - speed_last_size
-                        current_speed = speed_elapsed_size / speed_elapsed_time
-                        speed = speed_smoothing * current_speed + (1 - speed_smoothing) * speed
-                        speed_last_time = now
-                        speed_last_size = speed_current_size
-
-                    # Filled the whole buffer, send a progress update because we'll 
-                    # likely need another reading.
-                    if partial_progress and read_len == buffer_cap:
-                        result_queue.put(DownloadResultProgress(
-                            thread_id,
-                            entry,
-                            size,
-                            speed,
-                            False
-                        ))
-            
-            # If the entry should be executable, only those that can read would be
-            # able to execute it.
-            if entry.executable:
-                prev_mode = entry.dst.stat().st_mode
-                entry.dst.chmod(prev_mode | ((prev_mode & 0o444) >> 2))
-
-            if entry.size is not None and size != entry.size:
-                last_error = DownloadResultError.INVALID_SIZE
-            elif sha1 is not None and sha1.hexdigest() != entry.sha1:
-                last_error = DownloadResultError.INVALID_SHA1
-            else:
-                
-                result_queue.put(DownloadResultProgress(
-                    thread_id,
-                    entry,
-                    size,
-                    speed,
-                    True
-                ))
-
-                # Breaking means success.
-                break
 
             # We are here only when the file download has started but checks have failed,
             # then we should remove the file.
