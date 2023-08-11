@@ -1024,7 +1024,7 @@ class Version:
         
         else:
 
-            interpret_args(legacy_jvm_args, self._features, env.jvm_args, f"<legacy_jvm_args>", all_features=all_features)
+            interpret_args(legacy_jvm_args, self._features, env.jvm_args, "<legacy_jvm_args>", all_features=all_features)
 
             # Append legacy game arguments, if available.
             legacy_game_args = self._metadata.get("minecraftArguments")

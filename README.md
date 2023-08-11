@@ -275,7 +275,7 @@ necessary to install `certifi`.
 Conda (or Miniconda) is recommended for easy development together with Poetry.
 If you want to try you can use the following commands:
 ```console
-# You can use any version of Python here from 3.6 to test 
+# You can use any version of Python here from 3.7 to test 
 # compatibility of the launcher.
 conda create -n pmc python=3.11 pip
 # This line is optional if you don't have any user site-packages
