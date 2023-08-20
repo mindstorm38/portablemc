@@ -517,7 +517,7 @@ def prompt_authenticate(ns: RootNs, email: str, caching: bool, service: str, ano
         try:
             
             if not session.validate():
-                ns.out.task(None, "auth.refreshing")
+                ns.out.task("..", "auth.refreshing")
                 session.refresh()
                 ns.auth_database.save()
                 ns.out.task("OK", "auth.refreshed", email=email_text)
