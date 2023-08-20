@@ -42,6 +42,11 @@ class Context:
         """Construct a Minecraft installation context. This context is used by most of the
         installer's tasks to know where to install files and from where to launch the game.
 
+        Note that these paths can perfectly be relative paths, they are computed to 
+        absolute paths when needed, so you don't have to care. By default they will be 
+        resolved relatively to the current working directory (of the executing Python 
+        program).
+
         :param main_dir: The main directory where versions, assets, libraries and 
         optionally JVM are installed. If not specified this path will be set the usual 
         `.minecraft` (see https://minecraft.fandom.com/fr/wiki/.minecraft).
@@ -987,6 +992,8 @@ class Version:
         """
 
         assert self._assets_index_version is not None, "_resolve_assets() missing"
+        assert self._jvm_path is not None, "_resolve_jvm() missing"
+        assert self._jar_path is not None, "_resolve_jar() missing"
 
         # Main class
         main_class = self._metadata.get("mainClass")
@@ -997,11 +1004,11 @@ class Version:
         auth_session = self.auth_session or OfflineAuthSession(None, None)
 
         # Class path, without main class (added later depending on arguments present).
-        class_path = list(map(str, self._class_libs))
+        class_path = list(map(lambda path: str(path.absolute()), self._class_libs))
 
         # Environment definition.
         env = Environment(self.context, main_class)
-        env.jvm_args.append(str(self._jvm_path))
+        env.jvm_args.append(str(self._jvm_path.absolute()))
 
         env.native_libs = self._native_libs.copy()
         env.fixes = self._applied_fixes
@@ -1035,19 +1042,19 @@ class Version:
 
         # JVM argument for logging config
         if self._logger_path is not None and self._logger_arg is not None:
-            env.jvm_args.append(self._logger_arg.replace("${path}", str(self._logger_path)))
+            env.jvm_args.append(self._logger_arg.replace("${path}", str(self._logger_path.absolute())))
 
         # JVM argument for launch wrapper JAR path
         if main_class == "net.minecraft.launchwrapper.Launch":
-            env.jvm_args.append(f"-Dminecraft.client.jar={self._jar_path}")
+            env.jvm_args.append(f"-Dminecraft.client.jar={self._jar_path.absolute()}")
 
         # If no modern arguments, fix some arguments.
         if modern_args is None:
             # Old versions seems to prefer having the main class first in class path.
-            class_path.insert(0, str(self._jar_path))
+            class_path.insert(0, str(self._jar_path.absolute()))
         else:
             # Modern versions seems to prefer having the main class last in class path.
-            class_path.append(str(self._jar_path))
+            class_path.append(str(self._jar_path.absolute()))
    
         # Get the last version in the parent's tree, we use it to apply legacy fixes.
         ancestor_id = list(self._hierarchy[0].recurse())[-1].id
@@ -1104,9 +1111,9 @@ class Version:
             # Game
             "auth_player_name": auth_session.username,
             "version_name": self._hierarchy[0].id,
-            "library_directory": str(self.context.libraries_dir),
-            "game_directory": str(self.context.work_dir),
-            "assets_root": str(self.context.assets_dir),
+            "library_directory": str(self.context.libraries_dir.absolute()),
+            "game_directory": str(self.context.work_dir.absolute()),
+            "assets_root": str(self.context.assets_dir.absolute()),
             "assets_index_name": self._assets_index_version,
             "auth_uuid": auth_session.uuid,
             "auth_access_token": auth_session.format_token_argument(False),
@@ -1116,7 +1123,7 @@ class Version:
             "version_type": self._metadata.get("type", ""),
             # Game (legacy)
             "auth_session": auth_session.format_token_argument(True),
-            "game_assets": str(self._assets_virtual_dir or ""),
+            "game_assets": "" if self._assets_virtual_dir is None else str(self._assets_virtual_dir.absolute()),
             "user_properties": "{}",
             # JVM
             "natives_directory": "",
@@ -1488,7 +1495,7 @@ class StandardRunner(Runner):
 
         from zipfile import ZipFile
 
-        bin_dir = env.context.gen_bin_dir()
+        bin_dir = env.context.gen_bin_dir().absolute()
         replacements = env.args_replacements.copy()
         replacements["natives_directory"] = str(bin_dir)
         
