@@ -205,7 +205,7 @@ class ForgeVersion(Version):
                         if data_val.startswith("/"):
                             dst_path = post_info.tmp_dir / data_val[1:]
                             zip_extract_file(install_jar, data_val[1:], dst_path)
-                            data_val = str(dst_path)  # Replace by the path of extracted file.
+                            data_val = str(dst_path.absolute())  # Replace by the path of extracted file.
 
                         post_info.variables[data_key] = data_val
                 
@@ -253,6 +253,18 @@ class ForgeVersion(Version):
         self._finalize_forge(watcher)
     
     def _finalize_forge(self, watcher: Watcher) -> None:
+        try:
+            self._finalize_forge_internal(watcher)
+        except:
+            # We just intercept errors and remove the version metadata in case of errors,
+            # this allows us to re-run the whole install on next attempt.
+            try:
+                self._hierarchy[0].metadata_file().unlink()
+            except FileNotFoundError:
+                pass  # Not a problem if the file isn't present.
+            raise
+
+    def _finalize_forge_internal(self, watcher: Watcher) -> None:
         """This step finalize the forge installation, after both JVM and version's JAR
         files has been resolved. This is not always used, it depends on installer's
         version.
@@ -271,14 +283,14 @@ class ForgeVersion(Version):
         # Additional missing variables, the version's jar file is the same as the vanilla
         # one, so we use its path.
         info.variables["SIDE"] = "client"
-        info.variables["MINECRAFT_JAR"] = str(self._jar_path)
+        info.variables["MINECRAFT_JAR"] = str(self._jar_path.absolute())
 
         def replace_install_args(txt: str) -> str:
             txt = txt.format_map(info.variables)
             # Replace the pattern [lib name] with lib path.
             if txt[0] == "[" and txt[-1] == "]":
                 spec = LibrarySpecifier.from_str(txt[1:-1])
-                txt = str(self.context.libraries_dir / spec.file_path())
+                txt = str((self.context.libraries_dir / spec.file_path()).absolute())
             elif txt[0] == "'" and txt[-1] == "'":
                 txt = txt[1:-1]
             return txt
@@ -287,7 +299,7 @@ class ForgeVersion(Version):
 
             # Extract the main-class from manifest. Required because we cannot use 
             # both -cp and -jar.
-            jar_path = info.libraries[processor.jar_name]
+            jar_path = info.libraries[processor.jar_name].absolute()
             main_class = None
             with ZipFile(jar_path) as jar_fp:
                 with jar_fp.open("META-INF/MANIFEST.MF") as manifest_fp:
@@ -315,8 +327,8 @@ class ForgeVersion(Version):
 
             # Compute the full arguments list.
             args = [
-                str(self._jvm_path),
-                "-cp", os.pathsep.join([str(jar_path), *(str(info.libraries[lib_name]) for lib_name in processor.class_path)]),
+                str(self._jvm_path.absolute()),
+                "-cp", os.pathsep.join([str(jar_path), *(str(info.libraries[lib_name].absolute()) for lib_name in processor.class_path)]),
                 main_class,
                 *(replace_install_args(arg) for arg in processor.args)
             ]
@@ -325,7 +337,7 @@ class ForgeVersion(Version):
 
             completed = subprocess.run(args, cwd=self.context.work_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             if completed.returncode != 0:
-                raise ValueError("ERROR")
+                raise ValueError("ERROR", completed.stdout)
             
             # If there are sha1, check them.
             for lib_name, expected_sha1 in processor.sha1.items():
