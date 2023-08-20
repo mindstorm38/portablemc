@@ -18,6 +18,9 @@ Documented version: `4.0.0`.
   - [Runner](#runner)
 - [Fabric/Quilt version](#fabricquilt-version)
 - [Forge version](#forge-version)
+- [Authentication](#authentication)
+  - [Yggdrasil authentication](#yggdrasil-authentication)
+  - [Microsoft authentication](#microsoft-authentication)
 - [Versioning and stability](#versioning-and-stability)
 
 ## File structure
@@ -275,6 +278,60 @@ argument of the constructors:
 # Using format: my-forge-<forge_version>
 version = ForgeVersion(prefix="my-forge")
 ```
+
+## Authentication
+
+The authentication API is all provided in the `portablemc.auth` module, it supports both
+Mojang *(named Yggdrasil)* and Microsoft *(actually Microsoft/XBox Live/Minecraft)* 
+authentication. It also provide an offline authentication session, this may seem a bit
+contradictory but it's used by default to generate username and UUIDs when needed.
+
+These authentication services are implemented by sub classing the `AuthSession` class,
+in `YggdrasilAuthSession`, `MicrosoftAuthSession` and `OfflineAuthSession`.
+
+### Yggdrasil authentication
+
+The Yggdrasil authentication is simple *(but phased out by Mojang!)*, to connect to such
+account you can use `YggdrasilAuthSession.authenticate` class method:
+```python
+from portablemc.auth import YggdrasilAuthSession
+
+version = ...
+
+# Used for uniquely naming the client, in the CLI it's a random UUID 
+client_id = "foobar"
+email = "foo.bar@example.com"
+password = ...
+version.auth_session = YggdrasilAuthSession.authenticate(client_id, email, password)
+```
+
+### Microsoft authentication
+
+The Microsoft authentication is complicated because it requires an interactive login
+through Microsoft's login web page, it also requires you to have registered an Azure App
+*(I know that people are likely to do that in the end, so here is the Azuze App ID of the
+CLI: `708e91b5-99f8-4a1d-80ec-e746cbb24771`, **note that it's a bad idea for automation 
+because it might use the wrong redirect URIs not suited for your case**)*.
+
+So the first step it to register an Azure App, as far as I know it's free of charge. Go
+on https://portal.azure.com/, then click on "Azure Active Directory" and then *(in left 
+pane)* "App Registrations". Then you should click on "New registration", you can choose
+the app name, select supported account type, and to finish the redirect URI. This URI is
+where the login page will redirect, with query parameters containing tokens.
+
+Once you have the app id, use `MicrosoftAuthSession.get_authentication_url` to get the
+URL of the login page:
+```python
+from portablemc.auth import MicrosoftAuthSession
+
+app_id = ...
+redirect_uri = ...
+email = "foo.bar@example.com"
+nonce = ...  # random string
+
+print(MicrosoftAuthSession.get_authentication_url(app_id, redirect_uri, email, nonce))
+```
+
 
 ## Versioning and stability
 This launcher uses [semantic versioning](https://semver.org/), the version is defined by 
