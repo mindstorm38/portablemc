@@ -15,6 +15,7 @@ Documented version: `4.0.0`.
   - [Version fixes](#version-fixes)
   - [Other options](#other-options)
   - [Environment](#environment)
+  - [Runner](#runner)
 - [Fabric/Quilt version](#fabricquilt-version)
 - [Forge version](#forge-version)
 - [Versioning and stability](#versioning-and-stability)
@@ -182,6 +183,35 @@ game, it's an instance of `Environment` and contains the following attributes:
   symlinked if relevant) in the game's temporary bin directory.
 - `fixes`, this one as no effect for the game's runtime, it's just a summary of fixes 
   applied during the game's installation, that affected the environment.
+
+### Runner
+
+The `Environment.run` method we've previously seen to run the game accepts an argument
+named `runner`. This argument provides a `Runner` instance, which provides an abstract
+method that should run the given environment. 
+
+If not provided, this argument defaults to an instance of `StandardRunner`, this class
+provides default logic for starting the game's java process and how to wait for its
+termination *(it also provides universal Ctrl-C support to kill the game)*.
+
+Another subclass is provided, named `StreamRunner`, it extends `StandardRunner` by 
+embedding a game's output parser, which support both raw logs and Log4j's XML logs.
+You're free to subclass it and implement the `process_stream_event` method to listen
+for incoming log lines, here's an example on how to do it:
+
+```python
+from portablemc.standard import StreamRunner, XmlStreamEvent
+
+class MyRunner(StreamRunner):
+    def process_stream_event(self, event: Any) -> None:
+        if isinstance(event, XmlStreamEvent):
+            print(f"xml log: {repr(event)}")
+        else:
+            print(f"raw log: {event}")
+
+env = ...
+env.run(MyRunner())
+```
 
 ## Fabric/Quilt version
 
