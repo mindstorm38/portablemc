@@ -113,8 +113,10 @@ lang = {
     "echo": "{echo}",
     "cancelled": "Cancelled.",
     "keyboard_interrupt": "Keyboard interrupted.",
+    "suggest_verbose": "Use verbose flag -v to get informations that may be useful for developers.",
     # Common errors
     "error.os": "An unexpected OS error happened:",
+    "error.http": "Unhandled HTTP error happened:",
     "error.socket": "This operation requires an operational network, but a socket error happened:",
     "error.cert": "Certificate verification failed, you can try installing 'certifi' package:",
     # Command search

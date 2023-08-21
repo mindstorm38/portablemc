@@ -18,6 +18,7 @@ from .output import Output, HumanOutput, MachineOutput, OutputTable
 from .lang import get as _, lang
 
 from portablemc.util import LibrarySpecifier
+from portablemc.http import HttpError
 from portablemc.auth import AuthDatabase, AuthSession, MicrosoftAuthSession, \
     YggdrasilAuthSession, AuthError
 
@@ -151,24 +152,43 @@ def cmd(handler: CommandHandler, ns: RootNs):
         ns.out.task("HALT", "keyboard_interrupt")
         ns.out.finish()
     
-    except OSError as error:
+    except (OSError, HttpError) as error:
 
         from urllib.error import URLError
         from ssl import SSLCertVerificationError
 
         key = "error.os"
-        if isinstance(error, URLError) and isinstance(error.reason, SSLCertVerificationError):
+
+        if isinstance(error, HttpError):
+            if error.res.status == 0:
+                # Status 0 means that network error happened, just forward this error.
+                error = error.reason
+            else:
+                # Unhandled HTTP error code.
+                # Here we don't redefine "error" so this will skip following conditions.
+                key = "error.http"
+
+        # We are only interested in the reason, URLError is just a wrapper.
+        if isinstance(error, URLError):
+            error = error.reason
+
+        # More precise errors.
+        if isinstance(error, SSLCertVerificationError):
             key = "error.cert"
-        elif isinstance(error, (URLError, socket.gaierror, socket.timeout)):
+        elif isinstance(error, (socket.gaierror, socket.timeout)):
             key = "error.socket"
         
-        ns.out.task("FAILED", None)
-        ns.out.finish()
-        ns.out.task(None, key)
+        ns.out.task("FAILED", key)
         ns.out.finish()
 
-        import traceback
-        traceback.print_exc()
+        if ns.verbose >= 1:
+            import traceback
+            traceback.print_exc()
+        else:
+            ns.out.task(None, "echo", echo=repr(error))
+            ns.out.finish()
+            ns.out.task("INFO", "suggest_verbose")
+            ns.out.finish()
     
     sys.exit(EXIT_FAILURE)
 
