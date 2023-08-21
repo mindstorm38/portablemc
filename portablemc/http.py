@@ -1,8 +1,8 @@
 """HTTP primitive functions.
 """
 
+from urllib.error import HTTPError, URLError
 from http.client import HTTPResponse
-from urllib.error import HTTPError
 import urllib.request
 import urllib.parse
 import json
@@ -18,14 +18,15 @@ class HttpResponse:
     """An HTTP response containing the status, data and received headers.
     """
     
-    def __init__(self, res: HTTPResponse) -> None:
+    def __init__(self, res: Optional[HTTPResponse]) -> None:
 
-        self.status = res.status
-        self.data = res.read()
+        self.status = 0 if res is None else res.status
+        self.data = b"null" if res is None else res.read()
         self.headers = {}
 
-        for header_name, header_value in res.getheaders():
-            self.headers[header_name] = header_value
+        if res is not None:
+            for header_name, header_value in res.getheaders():
+                self.headers[header_name] = header_value
 
     def json(self) -> Any:
         """Parse the data as JSON. This may raise a JSONDecodeError.
@@ -43,15 +44,21 @@ class HttpResponse:
 
 class HttpError(Exception):
     """An HTTP error, raised when the status code of the response is not 200.
+
+    If any network error happens and it's impossible to receive a response from the 
+    server, an instance of `HttpResponse` with status equal to 0 is used (also has no 
+    headers and `None` data). The original reason for this error is given in the `reason`
+    attribute in any case.
     """
 
-    def __init__(self, res: HttpResponse, method: str, url: str) -> None:
+    def __init__(self, res: HttpResponse, method: str, url: str, reason: URLError) -> None:
         self.res = res
         self.method = method
         self.url = url
+        self.reason = reason
 
     def __repr__(self) -> str:
-        return f"<HttpError {self.res}, origin: {self.method} {self.url}>"
+        return f"<HttpError {self.res}, origin: {self.method} {self.url}, reason: {self.reason}>"
 
 
 def http_request(method: str, url: str, *,
@@ -84,4 +91,6 @@ def http_request(method: str, url: str, *,
         res: HTTPResponse = urllib.request.urlopen(req, context=ctx)
         return HttpResponse(res)
     except HTTPError as error:
-        raise HttpError(HttpResponse(cast(HTTPResponse, error)), method, url)
+        raise HttpError(HttpResponse(cast(HTTPResponse, error)), method, url, error)
+    except URLError as error:
+        raise HttpError(HttpResponse(None), method, url, error)

@@ -1443,8 +1443,9 @@ class VersionManifest:
                         json.dump(self.data, cache_fp)
 
             except HttpError as error:
-                res = error.res
-                if res.status == 304 and cache_data is not None:
+                # Checking for 0, which means network error, in such case we want to 
+                # ignore the network error and just use the cached data.
+                if error.res.status in (0, 304) and cache_data is not None:
                     self.data = cache_data
                 else:
                     raise
