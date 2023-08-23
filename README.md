@@ -5,7 +5,7 @@ It also includes fast installation of common mod loaders such as Fabric, Forge a
 
 ![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square)
 
-![illustration](doc/assets/illustration.png)
+![illustration](doc/illustration.png)
 
 *This launcher is tested for Python 3.7, 3.8, 3.9, 3.10, 3.11.*
 
