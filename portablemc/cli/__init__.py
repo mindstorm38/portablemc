@@ -553,7 +553,6 @@ def prompt_authenticate(ns: RootNs, email: str, caching: bool, service: str, ano
             ns.out.finish()
 
     ns.out.task("..", task_text, email=email_text)
-    ns.out.finish()
 
     try:
 
@@ -575,13 +574,14 @@ def prompt_authenticate(ns: RootNs, email: str, caching: bool, service: str, ano
         ns.auth_database.put(email, session)
         ns.auth_database.save()
     
-    ns.out.task("OK", "auth.logged_in")
+    ns.out.task("OK", "auth.logged_in", email=email_text)
     ns.out.finish()
 
     return session
 
 
 def prompt_yggdrasil_authenticate(ns: RootNs, email_or_username: str) -> Optional[YggdrasilAuthSession]:
+    ns.out.finish()
     ns.out.task(None, "auth.yggdrasil.enter_password")
     password = ns.out.prompt(password=True)
     if password is None:
@@ -610,6 +610,7 @@ def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftA
 
     auth_url = MicrosoftAuthSession.get_authentication_url(app_id, code_redirect_uri, email, nonce)
     if not webbrowser.open(auth_url):
+        ns.out.finish()
         ns.out.task("FAILED", "auth.microsoft.no_browser")
         ns.out.finish()
         return None
@@ -672,7 +673,7 @@ def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftA
                 self.send_response(404)
                 self.send_auth_response("Unexpected page.")
 
-    ns.out.task("", "auth.microsoft.opening_browser_and_listening")
+    ns.out.task("..", "auth.microsoft.opening_browser_and_listening")
 
     with AuthServer() as server:
         try:
@@ -682,14 +683,16 @@ def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftA
             pass
 
     if server.ms_auth_code is None or server.ms_auth_id_token is None:
+        ns.out.finish()
         ns.out.task("FAILED", "auth.microsoft.failed_to_authenticate")
         ns.out.finish()
         return None
     else:
-        ns.out.task("", "auth.microsoft.processing")
+        ns.out.task("..", "auth.microsoft.processing")
         if MicrosoftAuthSession.check_token_id(server.ms_auth_id_token, email, nonce):
             return MicrosoftAuthSession.authenticate(ns.auth_database.get_client_id(), app_id, server.ms_auth_code, code_redirect_uri)
         else:
+            ns.out.finish()
             ns.out.task("FAILED", "auth.microsoft.incoherent_data")
             ns.out.finish()
             return None

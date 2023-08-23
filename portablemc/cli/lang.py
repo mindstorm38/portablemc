@@ -208,7 +208,7 @@ lang = {
     "auth.refreshed": "Session refreshed for {email}",
     "auth.validated": "Session validated for {email}",
     "auth.caching": "Caching your session...",
-    "auth.logged_in": "Logged in",
+    "auth.logged_in": "Session logged for {email}",
     "auth.error": "Error authenticating: {message}",
     # Auth Yggdrasil
     "auth.yggdrasil": "Authenticating {email} with Mojang...",
