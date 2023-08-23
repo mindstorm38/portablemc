@@ -289,14 +289,15 @@ contradictory but it's used by default to generate username and UUIDs when neede
 These authentication services are implemented by sub classing the `AuthSession` class,
 in `YggdrasilAuthSession`, `MicrosoftAuthSession` and `OfflineAuthSession`.
 
+These various services may raise errors of type `AuthError` *(and its subclass)* in case
+of wrong credentials or unexpected states.
+
 ### Yggdrasil authentication
 
 The Yggdrasil authentication is simple *(but phased out by Mojang!)*, to connect to such
 account you can use `YggdrasilAuthSession.authenticate` class method:
 ```python
 from portablemc.auth import YggdrasilAuthSession
-
-version = ...
 
 # Used for uniquely naming the client, in the CLI it's a random UUID 
 client_id = "foobar"
@@ -320,18 +321,44 @@ the app name, select supported account type, and to finish the redirect URI. Thi
 where the login page will redirect, with query parameters containing tokens.
 
 Once you have the app id, use `MicrosoftAuthSession.get_authentication_url` to get the
-URL of the login page:
+URL of the login page and follow this procedure:
 ```python
 from portablemc.auth import MicrosoftAuthSession
+import urllib.parse
 
+client_id = "foobar"
 app_id = ...
-redirect_uri = ...
+code_redirect_uri = "http://localhost:7969/code"  # URI of your choice
 email = "foo.bar@example.com"
 nonce = ...  # random string
 
-print(MicrosoftAuthSession.get_authentication_url(app_id, redirect_uri, email, nonce))
-```
+# Go to the displayed page...
+print(MicrosoftAuthSession.get_authentication_url(app_id, code_redirect_uri, email, nonce))
 
+# After successful login, you are redirected to your 'code_redirect_uri' with arguments 
+# given as 'application/x-www-form-urlencoded' format in the request's body:
+# - Successful login: code=foo&id_token=bar
+# - Failed login: error=foo&error_description=bar
+# To parse such response, you can use the following line:
+qs = urllib.parse.parse_qs(request_body)
+# If successful
+print(qs["id_token"][0], qs["code"][0])  
+# If failed
+print(qs["error"][0], qs["error_description"][0]) 
+
+# If successful, you can send the user to the logout URL. This URL will not invalide your
+# token but will reset the login page so it can be used again for another account:
+exit_redirect_uri = "http://localhost:7969/exit"  # URI of your choice
+print(MicrosoftAuthSession.get_logout_url(app_id, exit_redirect_uri))
+
+# To continue, you should keep both 'id_token' and 'code'.
+# At this point, you may want to check response data, using 'get_authentication_url':
+if not MicrosoftAuthSession.check_token_id(id_token, email, nonce):
+    print("incoherent data")
+
+# And the final step is actually logging in Mojang's account:
+version.auth_session = MicrosoftAuthSession.authenticate(client_id, app_id, code, code_redirect_uri)
+```
 
 ## Versioning and stability
 This launcher uses [semantic versioning](https://semver.org/), the version is defined by 
