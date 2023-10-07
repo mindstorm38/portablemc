@@ -123,11 +123,8 @@ def get_command_handlers() -> CommandTree:
             "about": cmd_show_about,
             "auth": cmd_show_auth,
             "lang": cmd_show_lang,
+            "dir": cmd_show_dir,
         },
-        # "addon": {
-        #     "list": cmd_addon_list,
-        #     "show": cmd_addon_show
-        # }
     }
 
 
@@ -499,8 +496,6 @@ def cmd_show_auth(ns: RootNs):
 
 def cmd_show_lang(ns: RootNs):
 
-    from .lang import lang
-
     table = ns.out.table()
 
      # Intentionally not i18n for now because used for debug purpose.
@@ -511,6 +506,15 @@ def cmd_show_lang(ns: RootNs):
         table.add(key, msg)
 
     table.print()
+
+
+def cmd_show_dir(ns: RootNs):
+    
+    ns.out.line("show.dir.work_dir", dir=str(ns.context.work_dir))
+    ns.out.line("show.dir.versions_dir", dir=str(ns.context.versions_dir))
+    ns.out.line("show.dir.assets_dir", dir=str(ns.context.assets_dir))
+    ns.out.line("show.dir.libraries_dir", dir=str(ns.context.libraries_dir))
+    ns.out.line("show.dir.jvm_dir", dir=str(ns.context.jvm_dir))
 
 
 def prompt_authenticate(ns: RootNs, email: str, caching: bool, service: str, anonymise: bool = False) -> Optional[AuthSession]:

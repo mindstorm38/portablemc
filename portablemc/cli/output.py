@@ -69,16 +69,21 @@ class Output:
         """Finish any active task.
         """
         raise NotImplementedError
-
-    def print(self, text: str) -> None:
-        """Raw print of the given text, this is commonly used to forward game's standard
-        output/error streams. The implementor may apply some style before printing text.
-        This function doesn't add any new line
+    
+    def line(self, key: str, **kwargs) -> None:
+        """Format a language key with the given keyword arguments and print on a line.
         """
         raise NotImplementedError
 
     def prompt(self, password: bool = False) -> Optional[str]:
         """Prompt for a line to come on standard input.
+        """
+        raise NotImplementedError
+
+    def print(self, text: str) -> None:
+        """Raw print of the given text, this is commonly used to forward game's standard
+        output/error streams. The implementor may apply some style before printing text.
+        This function doesn't add any new line
         """
         raise NotImplementedError
 
@@ -164,6 +169,19 @@ class HumanOutput(Output):
             print()
             self.last_len = None
     
+    def line(self, key: str, **kwargs) -> None:
+        print(_raw(key, kwargs))
+
+    def prompt(self, password: bool = False) -> Optional[str]:
+        try:
+            if password:
+                import getpass
+                return getpass.getpass("")
+            else:
+                return input("")
+        except KeyboardInterrupt:
+            return None
+    
     def print(self, text: str) -> None:
         
         if self.color:
@@ -179,16 +197,6 @@ class HumanOutput(Output):
                 return
         
         print(text, end="")
-    
-    def prompt(self, password: bool = False) -> Optional[str]:
-        try:
-            if password:
-                import getpass
-                return getpass.getpass("")
-            else:
-                return input("")
-        except KeyboardInterrupt:
-            return None
 
 class HumanTable(OutputTable):
     
@@ -275,8 +283,8 @@ class MachineOutput(Output):
     def finish(self) -> None:
         pass
 
-    def print(self, text: str) -> None:
-        self.print_function("print", text)
+    def line(self, key: str, **kwargs) -> None:
+        self.print_function("line", **kwargs)
     
     def prompt(self, password: bool = False) -> Optional[str]:
         self.print_function("prompt", password=str(int(password)))
@@ -284,6 +292,9 @@ class MachineOutput(Output):
             return input("")
         except KeyboardInterrupt:
             return None
+
+    def print(self, text: str) -> None:
+        self.print_function("print", text)
 
 class MachineTable(OutputTable):
 

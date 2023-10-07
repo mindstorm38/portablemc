@@ -105,10 +105,7 @@ lang = {
     "args.show.about": "Display authors, version and license of PortableMC.",
     "args.show.auth": "Debug the authentication database and supported services.",
     "args.show.lang": "Debug the language mappings used for messages translation.",
-    # Args addon
-    # "args.addon": "Addons management subcommands.",
-    # "args.addon.list": "List addons.",
-    # "args.addon.show": "Show an addon details.",
+    "args.show.dir": "Display information about the game directories.",
     # Common
     "echo": "{echo}",
     "cancelled": "Cancelled.",
@@ -132,15 +129,12 @@ lang = {
     "logout.microsoft.pending": "Logging out {email} from Microsoft...",
     "logout.success": "Logged out {email}",
     "logout.unknown_session": "No session for {email}",
-    # Command addon list
-    # "addon.list.id": "ID ({count})",
-    # "addon.list.version": "Version",
-    # "addon.list.authors": "Authors",
-    # Command addon show
-    # "addon.show.not_found": "Addon '{addon}' not found.",
-    # "addon.show.version": "Version: {version}",
-    # "addon.show.authors": "Authors: {authors}",
-    # "addon.show.description": "Description: {description}",
+    # Command show dir
+    "show.dir.work_dir":      "Work:      {dir}",
+    "show.dir.versions_dir":  "Versions:  {dir}",
+    "show.dir.assets_dir":    "Assets:    {dir}",
+    "show.dir.libraries_dir": "Libraries: {dir}",
+    "show.dir.jvm_dir":       "JVM:       {dir}",
     # Command start
     "start.version.invalid_id": "Invalid version id, expected: {expected}",
     "start.version.invalid_id_unknown_kind": "Invalid version id, unknown kind: {kind}.",

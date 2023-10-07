@@ -92,7 +92,6 @@ def register_subcommands(subparsers) -> None:
     register_login_arguments(subparsers.add_parser("login", help=_("args.login"), add_help=False))
     register_logout_arguments(subparsers.add_parser("logout", help=_("args.logout"), add_help=False))
     register_show_arguments(subparsers.add_parser("show", help=_("args.show"), add_help=False))
-    # register_addon_arguments(subparsers.add_parser("addon", help=_("args.addon")))
 
 
 def register_search_arguments(parser: ArgumentParser) -> None:
@@ -147,14 +146,7 @@ def register_show_arguments(parser: ArgumentParser) -> None:
     subparsers.add_parser("about", help=_("args.show.about"), add_help=False)
     subparsers.add_parser("auth", help=_("args.show.auth"), add_help=False)
     subparsers.add_parser("lang", help=_("args.show.lang"), add_help=False)
-
-
-# def register_addon_arguments(parser: ArgumentParser):
-#     subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand")
-#     subparsers.required = True
-#     subparsers.add_parser("list", help=_("args.addon.list"))
-#     show_parser = subparsers.add_parser("show", help=_("args.addon.show"))
-#     show_parser.add_argument("addon_id")
+    subparsers.add_parser("dir", help=_("args.show.dir"), add_help=False)
 
 
 def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
