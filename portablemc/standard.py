@@ -988,7 +988,7 @@ class Version:
 
     def _resolve_env(self, watcher: Watcher) -> Environment:
         """Step for computing correct environment to run the game as configured in this 
-        version's instance.²
+        version's instance.
         """
 
         assert self._assets_index_version is not None, "_resolve_assets() missing"
@@ -1452,6 +1452,12 @@ class VersionManifest:
 
         return self.data
 
+    def is_alias(self, version: str) -> bool:
+        """Basic function that returns true if the given version is an release or
+        snapshot alias.
+        """
+        return version in ("release", "snapshot")
+
     def filter_latest(self, version: str) -> Tuple[str, bool]:
         """Filter a version identifier if 'release' or 'snapshot' alias is used, then it's
         replaced by the full version identifier, like `1.19.3`.
@@ -1459,10 +1465,11 @@ class VersionManifest:
         :param version: The version id or alias.
         :return: A tuple containing the full version id and a boolean indicating if the
         given version identifier is an alias.
-        :raises HttpError: Underlying HTTP error if manifest could not be requested.
+        :raises HttpError: Underlying HTTP error if manifest could not be requested, only
+        possible when the given version is a known alias.
         """
 
-        if version in ("release", "snapshot"):
+        if self.is_alias(version):
             latest = self._ensure_data()["latest"].get(version)
             if latest is not None:
                 return latest, True

@@ -74,6 +74,7 @@ def main(args: Optional[List[str]] = None):
     ns.context = Context(ns.main_dir, ns.work_dir)
     ns.version_manifest = VersionManifest(ns.context.work_dir / MANIFEST_CACHE_FILE_NAME)
     ns.auth_database = AuthDatabase(ns.context.work_dir / AUTH_DATABASE_FILE_NAME)
+    ns.socket_error_tips = []
     socket.setdefaulttimeout(ns.timeout)
 
     # Find the command handler and run it.
@@ -189,6 +190,11 @@ def cmd(handler: CommandHandler, ns: RootNs):
             ns.out.finish()
             ns.out.task("INFO", "suggest_verbose")
             ns.out.finish()
+
+        if key == "error.socket":
+            for error_tip in ns.socket_error_tips:
+                ns.out.task("INFO", f"error.socket.tip.{error_tip}")
+                ns.out.finish()
     
     sys.exit(EXIT_FAILURE)
 
@@ -215,6 +221,8 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
             _("search.flags"))
         table.separator()
 
+        ns.socket_error_tips.append("version_manifest")
+ 
         if search is not None:
             search, alias = ns.version_manifest.filter_latest(search)
         else:
@@ -250,6 +258,7 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
         table.separator()
 
         if search is not None:
+            ns.socket_error_tips.append("version_manifest")
             search = ns.version_manifest.filter_latest(search)[0]
 
         for alias, version in request_promo_versions().items():
@@ -291,6 +300,7 @@ def cmd_start(ns: StartNs):
         ns.out.finish()
         sys.exit(EXIT_FAILURE)
 
+    version.manifest = ns.version_manifest
     version.disable_multiplayer = ns.disable_mp
     version.disable_chat = ns.disable_chat
     version.demo = ns.demo
@@ -414,28 +424,33 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
     decodes, the corresponding version should be returned. The global version's format 
     being parsed is <kind>[:<part>..].
 
-    The parts list contains at least one element, parts may be empty.
+    The parts list contains at least one element.
 
     This function returns false if parsing fail, in such case the expected format is
-    printed out to the user on output (lang's key: "args.start.version.<kind>").
+    printed out to the user on output (language key: "args.start.version.<kind>").
     """
+
+    version = parts[0] or "release"
+    ns.socket_error_tips.append("version_manifest")
 
     if kind == "standard":
         if len(parts) != 1:
             return None
-        return Version(parts[0] or "release", context=ns.context)
+        return Version(version, context=ns.context)
     
     elif kind in ("fabric", "quilt"):
         if len(parts) > 2:
             return None
         constructor = FabricVersion.with_fabric if kind == "fabric" else FabricVersion.with_quilt
         prefix = ns.fabric_prefix if kind == "fabric" else ns.quilt_prefix
-        return constructor(parts[0] or "release", parts[1] if len(parts) == 2 else None, context=ns.context, prefix=prefix)
+        if len(parts) != 2:
+            ns.socket_error_tips.append(f"{kind}_loader_version")
+        return constructor(version, parts[1] if len(parts) == 2 else None, context=ns.context, prefix=prefix)
     
     elif kind == "forge":
         if len(parts) != 1:
             return None
-        return ForgeVersion(parts[0] or "release", context=ns.context, prefix=ns.forge_prefix)
+        return ForgeVersion(version, context=ns.context, prefix=ns.forge_prefix)
     
     else:
         return None

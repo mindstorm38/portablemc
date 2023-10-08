@@ -26,6 +26,7 @@ class RootNs:
     context: Context
     version_manifest: VersionManifest
     auth_database: AuthDatabase
+    socket_error_tips: List[str]
 
 class SearchNs(RootNs):
     kind: str
