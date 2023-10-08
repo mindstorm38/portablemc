@@ -118,6 +118,9 @@ lang = {
     "error.os": "An unexpected OS error happened:",
     "error.http": "Unhandled HTTP error happened:",
     "error.socket": "This operation requires an operational network, but a socket error happened:",
+    "error.socket.tip.version_manifest": "Version manifest may not be locally cached, try to run this command once with an operational network.",
+    "error.socket.tip.fabric_loader_version": "Fabric loader version must be specified if network is not operational.",
+    "error.socket.tip.quilt_loader_version": "Quilt loader version must be specified if network is not operational.",
     "error.cert": "Certificate verification failed, you can try installing 'certifi' package:",
     # Command search
     "search.type": "Type",
