@@ -458,6 +458,9 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
 
 def cmd_login(ns: LoginNs):
     session = prompt_authenticate(ns, ns.email_or_username, True, ns.auth_service)
+    if session is not None:
+        ns.out.task("INFO", "login.tip.remember_start_login", email=ns.email_or_username)
+        ns.out.finish()
     sys.exit(EXIT_FAILURE if session is None else EXIT_OK)
 
 

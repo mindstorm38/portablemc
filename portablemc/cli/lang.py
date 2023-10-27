@@ -130,6 +130,8 @@ lang = {
     "search.flags": "Flags",
     "search.flags.local": "local",
     "search.loader_version": "Loader version",
+    # Command login
+    "login.tip.remember_start_login": "Remember to start the game with '-l {email}' if you want to be authenticated in-game.",
     # Command logout
     "logout.yggdrasil.pending": "Logging out {email} from Mojang...",
     "logout.microsoft.pending": "Logging out {email} from Microsoft...",
