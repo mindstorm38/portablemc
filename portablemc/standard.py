@@ -744,7 +744,7 @@ class Version:
         if lwjgl_version is not None:
 
             # Check that we support this LWJGL version.
-            if lwjgl_version not in ("3.2.3", "3.3.0", "3.3.1", "3.3.2"):
+            if lwjgl_version != "3.2.3" and not lwjgl_version.startswith("3.3."):
                 raise ValueError(f"unsupported lwjgl fix version: {lwjgl_version}")
 
             # Compute natives required for the specific version
@@ -754,7 +754,8 @@ class Version:
                 "osx": {"x86_64": "natives-macos"}
             }
 
-            if lwjgl_version in ("3.3.0", "3.3.1", "3.3.2"):
+            # Versions after 3.2.3 supports aarch64 for windows and macOS.
+            if lwjgl_version != "3.2.3":
                 lwjgl_natives_map["windows"]["arm64"] = "natives-windows-arm64"
                 lwjgl_natives_map["osx"]["arm64"] = "natives-macos-arm64"
 

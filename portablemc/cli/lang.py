@@ -75,8 +75,8 @@ lang = {
     "args.start.fabric_prefix": "Change the prefix of the version ID when starting with Fabric (<prefix>-<vanilla-version>-<loader-version>).",
     "args.start.quilt_prefix": "Change the prefix of the version ID when starting with Quilt (<prefix>-<vanilla-version>-<loader-version>).",
     "args.start.forge_prefix": "Change the prefix of the version ID when starting with Forge (<prefix>-<forge-version>).",
-    "args.start.lwjgl": "Change the default LWJGL version used by Minecraft. "
-        "This argument makes additional changes in order to support additional architectures such as Arm. "
+    "args.start.lwjgl": "Change the default LWJGL version used by Minecraft (LWJGL >= 3.2.3). "
+        "This argument makes additional changes in order to support processor architectures such as Arm. "
         "It's not guaranteed to work with every version of Minecraft and downgrading LWJGL version is not recommended.",
     "args.start.exclude_lib": "Specify Java libraries to exclude from the classpath (and download) "
         "before launching the game. Follow this pattern to specify libraries: <artifact>[:[<version>][:<classifier>]]. "
