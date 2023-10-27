@@ -14,7 +14,7 @@ It also includes fast installation of common mod loaders such as Fabric, Forge a
 - [Commands](#commands)
   - [Start Minecraft](#start-minecraft)
     - [Authentication](#authentication)
-    - [Offline mode](#offline-mode)
+    - [Username and UUID](#username-and-uuid)
     - [Custom JVM](#custom-jvm)
     - [Server auto-connect](#server-auto-connect)
     - [LWJGL version and ARM support](#lwjgl-version-and-arm-support)
@@ -22,7 +22,7 @@ It also includes fast installation of common mod loaders such as Fabric, Forge a
     - [Miscellaneous](#miscellaneous)
   - [Search for versions](#search-for-versions)
   - [Authentication sessions](#authentication-sessions)
-- [Log4J exploit](#log4j-exploit)
+- [Offline support](#offline-support)
 - [Certifi support](#certifi-support)
 - [Contribute](#contribute)
   - [Setup environment](#setup-environment)
@@ -146,7 +146,7 @@ However, if you use this, make sure that you either use an alias or a variable w
 *[Check below](#authentication-sessions) for more information about authentication 
 sessions.*
 
-#### Offline mode
+#### Username and UUID
 If you need fake offline accounts you can use `-u <username>` (`--username`) to define the
 username and/or `-i <uuid>` (`--uuid`) to define your player's 
 [UUID](https://wikipedia.org/wiki/Universally_unique_identifier).
@@ -157,9 +157,8 @@ characters of the UUID are used for it.
 
 #### Custom JVM
 The launcher uses Java Virtual Machine to run the game, by default the launcher downloads
-and uses the official JVM [distributed by Mojang](https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json)
-which is adapted to the running version. The JVM is installed in a sub-directory called
-`jvm` inside the main directory. 
+and uses the official JVM distributed by Mojang which is compatible with the game version. 
+The JVM is installed in a sub-directory called `jvm` inside the main directory. 
 You can change it by providing a path to the `java` binary with the
 `--jvm <path_to/bin/java>` argument. By default, the launcher starts the JVM with default
 arguments, these are the following and are the same as the Mojang launcher:
@@ -179,12 +178,12 @@ To do so you can use `-s <addr>` (`--server`) for the server address
 defaults to 25565.
 
 *Modern releases use the quick play arguments rather than arguments specified above, the
-behavior remains the same.*
+behavior remains the same, singleplayer and realm are not yet supported by the launcher.*
 
 #### LWJGL version and ARM support
-With `--lwjgl {3.2.3,3.3.0,3.3.1}` you can update the LWJGL version used when starting the
-game. This can be used to support ARM architectures, but this may only work with modern
-versions which are already using LWJGL 3. This argument works by dynamically rewriting the
+With `--lwjgl VERSION` you can update the LWJGL version used when starting the game. This 
+can be used to support ARM architectures, but this may only work with modern versions 
+which are already using LWJGL 3. This argument works by dynamically rewriting the 
 version's metadata, the new metadata is dumped in the version directory.
 
 Using these versions on ARM is unstable and can show you an error with `GLXBadFBConfig`,
@@ -253,10 +252,15 @@ you need to log into an old Mojang account (being phased out by Mojang).
 **Your password is not saved!** Only tokens are saved *(the official launcher also does 
 that)* in the file `portablemc_auth.json` in the working directory.
 
-## Log4j exploit
-The launcher is safe to Log4j exploit since v2.2.0, if you are running an older version, 
-please update or read the following issue for a temporary fix: 
-[#52](https://github.com/mindstorm38/portablemc/issues/52).
+## Offline support
+This launcher can be used without internet access under certain conditions. Launching
+versions is possible if all required resources are locally installed, it is also possible
+to search for versions *(only Mojang, not Forge/Fabric/Quilt)* if the version manifest 
+is locally cached, this can be forced by just running the search of start commands with
+internet access, you can also copy the relevant files from an online computer. 
+Authentication commands and arguments are however not supported while offline. 
+
+An example use case has been documented in issue [#178](https://github.com/mindstorm38/portablemc/issues/178#issuecomment-1752102655).
 
 ## Certifi support
 The launcher supports [certifi](https://pypi.org/project/certifi/) when installed. 
