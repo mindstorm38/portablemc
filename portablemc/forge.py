@@ -18,17 +18,23 @@ from .http import http_request, HttpError
 from typing import Dict, Optional, List
 
 
+FORGE_UPSTREAM = "https://maven.minecraftforge.net/net/minecraftforge/forge"
+NEO_FORGED_UPSTREAM = "https://maven.neoforged.net/releases/net/neoforged/forge"
+
+
 class ForgeVersion(Version):
     
     def __init__(self, forge_version: str = "release", *,
         context: Optional[Context] = None,
         prefix: str = "forge",
+        upstream: Optional[str] = None,
     ) -> None:
 
         super().__init__("", context=context)  # Do not give a root version for now.
 
         self.forge_version = forge_version
         self.prefix = prefix
+        self.upstream = upstream  # None = trying both
         self._forge_post_info: Optional[ForgePostInfo] = None
     
     def _resolve_version(self, watcher: Watcher) -> None:
@@ -98,17 +104,21 @@ class ForgeVersion(Version):
             "1.7.2":    ["-mc172"],
         }.get(game_version, [])
 
+        # Trying both upstreams if not specified.
+        upstreams = [FORGE_UPSTREAM, NEO_FORGED_UPSTREAM] if self.upstream is None else [self.upstream]
+
         # Iterate suffix and find the first install JAR that works.
         install_jar = None
-        for suffix in suffixes:
-            try:
-                install_jar = request_install_jar(f"{self.forge_version}{suffix}")
-                break
-            except HttpError as error:
-                if error.res.status != 404:
-                    raise
-                # Silently ignore if the file was not found.
-                pass
+        for upstream in upstreams:
+            for suffix in suffixes:
+                try:
+                    install_jar = request_install_jar(f"{self.forge_version}{suffix}", upstream=upstream)
+                    break
+                except HttpError as error:
+                    if error.res.status != 404:
+                        raise
+                    # Silently ignore if the file was not found.
+                    pass
         
         if install_jar is None:
             raise VersionNotFoundError(version.id)
@@ -420,12 +430,12 @@ def request_promo_versions() -> Dict[str, str]:
         accept="application/json").json()["promos"]
 
 
-def request_maven_versions() -> List[str]:
+def request_maven_versions(*, upstream: str = FORGE_UPSTREAM) -> List[str]:
     """Internal function that parses maven metadata of forge in order to get all 
     supported forge versions.
     """
 
-    text = http_request("GET", "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml", 
+    text = http_request("GET", f"{upstream}/maven-metadata.xml", 
         accept="application/xml").text()
     
     versions = list()
@@ -447,11 +457,10 @@ def request_maven_versions() -> List[str]:
     return versions
 
 
-def request_install_jar(version: str) -> ZipFile:
+def request_install_jar(version: str, *, upstream: str = FORGE_UPSTREAM) -> ZipFile:
     """Internal function to request the installation JAR file.
     """
-    # print(f"https://maven.minecraftforge.net/net/minecraftforge/forge/{version}/forge-{version}-installer.jar")
-    res = http_request("GET", f"https://maven.minecraftforge.net/net/minecraftforge/forge/{version}/forge-{version}-installer.jar",
+    res = http_request("GET", f"{upstream}/{version}/forge-{version}-installer.jar",
         accept="application/java-archive")
     
     return ZipFile(BytesIO(res.data))
