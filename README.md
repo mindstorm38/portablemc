@@ -256,9 +256,10 @@ that)* in the file `portablemc_auth.json` in the working directory.
 This launcher can be used without internet access under certain conditions. Launching
 versions is possible if all required resources are locally installed, it is also possible
 to search for versions *(only Mojang, not Forge/Fabric/Quilt)* if the version manifest 
-is locally cached, this can be forced by just running the search of start commands with
-internet access, you can also copy the relevant files from an online computer. 
-Authentication commands and arguments are however not supported while offline. 
+is locally cached, this can be forced by just running the search or start commands with
+internet access, you can also copy the relevant files from an online computer to your
+offline one. 
+*Authentication commands and arguments are however not supported while offline.*
 
 An example use case has been documented in issue [#178](https://github.com/mindstorm38/portablemc/issues/178#issuecomment-1752102655).
 
