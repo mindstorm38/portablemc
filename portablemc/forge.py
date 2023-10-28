@@ -18,8 +18,8 @@ from .http import http_request, HttpError
 from typing import Dict, Optional, List
 
 
-FORGE_UPSTREAM = "https://maven.minecraftforge.net/net/minecraftforge/forge"
-NEO_FORGED_UPSTREAM = "https://maven.neoforged.net/releases/net/neoforged/forge"
+ORIGINAL_REPO = "https://maven.minecraftforge.net/net/minecraftforge/forge"
+NEO_FORGED_REPO = "https://maven.neoforged.net/releases/net/neoforged/forge"
 
 
 class ForgeVersion(Version):
@@ -27,14 +27,14 @@ class ForgeVersion(Version):
     def __init__(self, forge_version: str = "release", *,
         context: Optional[Context] = None,
         prefix: str = "forge",
-        upstream: Optional[str] = None,
+        forge_repo: Optional[str] = None,
     ) -> None:
 
         super().__init__("", context=context)  # Do not give a root version for now.
 
         self.forge_version = forge_version
         self.prefix = prefix
-        self.upstream = upstream  # None = trying both
+        self.forge_repo = forge_repo  # None = trying both
         self._forge_post_info: Optional[ForgePostInfo] = None
     
     def _resolve_version(self, watcher: Watcher) -> None:
@@ -104,15 +104,15 @@ class ForgeVersion(Version):
             "1.7.2":    ["-mc172"],
         }.get(game_version, [])
 
-        # Trying both upstreams if not specified.
-        upstreams = [FORGE_UPSTREAM, NEO_FORGED_UPSTREAM] if self.upstream is None else [self.upstream]
+        # Trying both repositories if not specified.
+        repos = [ORIGINAL_REPO, NEO_FORGED_REPO] if self.forge_repo is None else [self.forge_repo]
 
         # Iterate suffix and find the first install JAR that works.
         install_jar = None
-        for upstream in upstreams:
+        for repo in repos:
             for suffix in suffixes:
                 try:
-                    install_jar = request_install_jar(f"{self.forge_version}{suffix}", upstream=upstream)
+                    install_jar = request_install_jar(f"{self.forge_version}{suffix}", repo=repo)
                     break
                 except HttpError as error:
                     if error.res.status != 404:
@@ -426,16 +426,19 @@ class ForgePostProcessedEvent:
 
 
 def request_promo_versions() -> Dict[str, str]:
+    """Request recommended and latest versions for each supported game release, this only
+    works.
+    """
     return http_request("GET", "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json", 
         accept="application/json").json()["promos"]
 
 
-def request_maven_versions(*, upstream: str = FORGE_UPSTREAM) -> List[str]:
+def request_maven_versions(*, repo: str = ORIGINAL_REPO) -> List[str]:
     """Internal function that parses maven metadata of forge in order to get all 
     supported forge versions.
     """
 
-    text = http_request("GET", f"{upstream}/maven-metadata.xml", 
+    text = http_request("GET", f"{repo}/maven-metadata.xml", 
         accept="application/xml").text()
     
     versions = list()
@@ -457,10 +460,10 @@ def request_maven_versions(*, upstream: str = FORGE_UPSTREAM) -> List[str]:
     return versions
 
 
-def request_install_jar(version: str, *, upstream: str = FORGE_UPSTREAM) -> ZipFile:
+def request_install_jar(version: str, *, repo: str = ORIGINAL_REPO) -> ZipFile:
     """Internal function to request the installation JAR file.
     """
-    res = http_request("GET", f"{upstream}/{version}/forge-{version}-installer.jar",
+    res = http_request("GET", f"{repo}/{version}/forge-{version}-installer.jar",
         accept="application/java-archive")
     
     return ZipFile(BytesIO(res.data))
