@@ -174,7 +174,7 @@ def get_outputs() -> List[str]:
 
 
 def get_search_kinds() -> List[str]:
-    return ["mojang", "local", "forge", "fabric", "quilt", "neoforge"]
+    return ["mojang", "local", "forge", "fabric", "quilt"]
 
 
 def get_auth_services() -> List[str]:
