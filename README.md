@@ -90,9 +90,9 @@ is started, but you can specify a version to launch, or a version alias: `releas
 or `snapshot` for the latest version of their type:
 
 In addition to Mojang's vanilla versions, the launcher natively supports common mod
-loaders such as **Fabric**, **Forge** and **Quilt**. To start such versions, you can
-prefix the version with either `fabric:`, `forge:` or `quilt:` (or `vanilla:` to
-explicitly choose a vanilla version).
+loaders such as **Fabric**, **Forge**, **NeoForge** and **Quilt**. To start such versions,
+you can prefix the version with either `fabric:`, `forge:`, `neoforge:` or `quilt:` (or 
+`vanilla:` to explicitly choose a vanilla version).
 Depending on the mod loader, the version you put after the colon is different:
 - For Fabric and Quilt, you can directly specify the vanilla version, optionally followed
   by `:<loader_version>`.
@@ -113,6 +113,7 @@ portablemc start 1.20.1
 portablemc start fabric:
 portablemc start quilt:
 portablemc start forge:
+portablemc start neoforge:
 # Start Fabric for 1.20.1
 portablemc start fabric:1.20.1
 # Start Fabric for 1.20.1 with loader 0.11.2
@@ -122,6 +123,8 @@ portablemc start forge:1.20.1-latest
 portablemc start forge:1.20.1-recommended
 # Start Forge for 1.20.1 with loader 46.0.14
 portablemc start forge:1.20-46.0.14
+# Start NeoForge for 1.20.1
+portablemc start neoforge:1.20.1
 ```
 
 #### Authentication

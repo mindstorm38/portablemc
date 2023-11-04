@@ -142,10 +142,19 @@ def cmd(handler: CommandHandler, ns: RootNs):
         sys.exit(EXIT_OK)
     
     except ValueError as error:
-        ns.out.task("FAILED", None)
-        ns.out.finish()
-        for arg in error.args:
-            ns.out.task(None, "echo", echo=arg)
+        if len(error.args):
+            for i, arg in enumerate(error.args):
+                ns.out.task("FAILED" if i == 0 else None, "echo", echo=arg)
+                ns.out.finish()
+        else:
+            ns.out.task("FAILED", "echo", echo="programming error")
+            ns.out.finish()
+        
+        if ns.verbose >= 1:
+            import traceback
+            traceback.print_exc()
+        else:
+            ns.out.task("INFO", "suggest_verbose")
             ns.out.finish()
     
     except KeyboardInterrupt:
