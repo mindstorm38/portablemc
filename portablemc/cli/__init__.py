@@ -34,7 +34,7 @@ from portablemc.standard import Context, Version, VersionManifest, SimpleWatcher
 
 from portablemc.fabric import FabricVersion, FabricResolveEvent
 from portablemc.forge import ForgeVersion, ForgeResolveEvent, ForgePostProcessingEvent, \
-    ForgePostProcessedEvent, ForgeInstallError
+    ForgePostProcessedEvent, ForgeInstallError, _FORGE_REPO, _NEO_FORGE_REPO
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
 
@@ -447,10 +447,11 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
             ns.socket_error_tips.append(f"{kind}_loader_version")
         return constructor(version, parts[1] if len(parts) == 2 else None, context=ns.context, prefix=prefix)
     
-    elif kind == "forge":
+    elif kind in ("forge", "neoforge"):
         if len(parts) != 1:
             return None
-        return ForgeVersion(version, context=ns.context, prefix=ns.forge_prefix)
+        repo = _FORGE_REPO if kind == "forge" else _NEO_FORGE_REPO
+        return ForgeVersion(version, context=ns.context, prefix=ns.forge_prefix, _forge_repo=repo)
     
     else:
         return None

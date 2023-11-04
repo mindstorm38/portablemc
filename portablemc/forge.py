@@ -1,4 +1,6 @@
 """Module providing tasks for launching forge mod loader versions.
+
+The NeoForge support is still unstable API.
 """
 
 from zipfile import ZipFile
@@ -18,8 +20,8 @@ from .http import http_request, HttpError
 from typing import Dict, Optional, List
 
 
-ORIGINAL_REPO = "https://maven.minecraftforge.net/net/minecraftforge/forge"
-NEO_FORGED_REPO = "https://maven.neoforged.net/releases/net/neoforged/forge"
+_FORGE_REPO = "https://maven.minecraftforge.net/net/minecraftforge/forge"
+_NEO_FORGE_REPO = "https://maven.neoforged.net/releases/net/neoforged/forge"
 
 
 class ForgeVersion(Version):
@@ -27,14 +29,14 @@ class ForgeVersion(Version):
     def __init__(self, forge_version: str = "release", *,
         context: Optional[Context] = None,
         prefix: str = "forge",
-        forge_repo: Optional[str] = None,
+        _forge_repo: str = _FORGE_REPO,
     ) -> None:
 
         super().__init__("", context=context)  # Do not give a root version for now.
 
         self.forge_version = forge_version
         self.prefix = prefix
-        self.forge_repo = forge_repo  # None = trying both
+        self._forge_repo = _forge_repo
         self._forge_post_info: Optional[ForgePostInfo] = None
     
     def _resolve_version(self, watcher: Watcher) -> None:
@@ -42,34 +44,50 @@ class ForgeVersion(Version):
         # Maybe "release" or "snapshot", we process this first.
         self.forge_version = self.manifest.filter_latest(self.forge_version)[0]
 
-        # No dash or alias version, resolve against promo version.
-        alias = self.forge_version.endswith(("-latest", "-recommended"))
-        if "-" not in self.forge_version or alias:
+        if self._forge_repo == _FORGE_REPO:
 
-            # If it's not an alias, create the alias from the game version.
-            alias_version = self.forge_version if alias else f"{self.forge_version}-recommended"
-            watcher.handle(ForgeResolveEvent(alias_version, True))
+            # No dash or alias version, resolve against promo version.
+            alias = self.forge_version.endswith(("-latest", "-recommended"))
+            if "-" not in self.forge_version or alias:
 
-            # Try to get loader from promo versions.
-            promo_versions = request_promo_versions()
-            loader_version = promo_versions.get(alias_version)
-
-            # Try with "-latest", some version do not have recommended.
-            if loader_version is None and not alias:
-                alias_version = f"{self.forge_version}-latest"
+                # If it's not an alias, create the alias from the game version.
+                alias_version = self.forge_version if alias else f"{self.forge_version}-recommended"
                 watcher.handle(ForgeResolveEvent(alias_version, True))
+
+                # Try to get loader from promo versions.
+                promo_versions = request_promo_versions()
                 loader_version = promo_versions.get(alias_version)
-            
-            # Remove alias
-            last_dash = alias_version.rindex("-")
-            alias_version = alias_version[:last_dash]
 
-            if loader_version is None:
-                raise VersionNotFoundError(f"{self.prefix}-{alias_version}-???")
+                # Try with "-latest", some version do not have recommended.
+                if loader_version is None and not alias:
+                    alias_version = f"{self.forge_version}-latest"
+                    watcher.handle(ForgeResolveEvent(alias_version, True))
+                    loader_version = promo_versions.get(alias_version)
+                
+                # Remove alias
+                last_dash = alias_version.rindex("-")
+                alias_version = alias_version[:last_dash]
 
-            self.forge_version = f"{alias_version}-{loader_version}"
+                if loader_version is None:
+                    raise VersionNotFoundError(f"{self.prefix}-{alias_version}-???")
 
-            watcher.handle(ForgeResolveEvent(self.forge_version, False))
+                self.forge_version = f"{alias_version}-{loader_version}"
+
+                watcher.handle(ForgeResolveEvent(self.forge_version, False))
+        
+        elif self._forge_repo == _NEO_FORGE_REPO:
+
+            # The forge version is not fully specified.
+            if "-" not in self.forge_version:
+
+                watcher.handle(ForgeResolveEvent(self.forge_version, True))
+                full_version = _request_neoforge_version(self.forge_version)
+
+                if full_version is None:
+                    raise VersionNotFoundError(f"{self.prefix}-{self.forge_version}-???")
+                
+                self.forge_version = full_version
+                watcher.handle(ForgeResolveEvent(self.forge_version, False))
         
         # Finally define the full version id.
         self.version = f"{self.prefix}-{self.forge_version}"
@@ -104,21 +122,17 @@ class ForgeVersion(Version):
             "1.7.2":    ["-mc172"],
         }.get(game_version, [])
 
-        # Trying both repositories if not specified.
-        repos = [ORIGINAL_REPO, NEO_FORGED_REPO] if self.forge_repo is None else [self.forge_repo]
-
         # Iterate suffix and find the first install JAR that works.
         install_jar = None
-        for repo in repos:
-            for suffix in suffixes:
-                try:
-                    install_jar = request_install_jar(f"{self.forge_version}{suffix}", repo=repo)
-                    break
-                except HttpError as error:
-                    if error.res.status != 404:
-                        raise
-                    # Silently ignore if the file was not found.
-                    pass
+        for suffix in suffixes:
+            try:
+                install_jar = request_install_jar(f"{self.forge_version}{suffix}", _repo=self._forge_repo)
+                break
+            except HttpError as error:
+                if error.res.status not in (403, 404):
+                    raise
+                # Silently ignore if the file was not found or forbidden.
+                pass
         
         if install_jar is None:
             raise VersionNotFoundError(version.id)
@@ -433,12 +447,31 @@ def request_promo_versions() -> Dict[str, str]:
         accept="application/json").json()["promos"]
 
 
-def request_maven_versions(*, repo: str = ORIGINAL_REPO) -> List[str]:
+def _request_neoforge_version(game_version: str) -> Optional[str]:
+    """Request a neoforge version from a game version. Because of the NeoForge API 
+    returning any matching version number, this function will also check that the returned
+    version is of the right game version.
+    """
+    try:
+        # NOTE: For now we don't sanitize the parameter.
+        url = f"https://maven.neoforged.net/api/maven/latest/version/releases/net%2Fneoforged%2Fforge?filter={game_version}"
+        ret = http_request("GET", url, accept="application/json").json()
+        loader_version = ret.get("version", "")
+        if not loader_version.startswith(f"{game_version}-"):
+            return None
+        return loader_version
+    except HttpError as err:
+        if err.res.status != 404:
+            raise
+        return None
+
+
+def request_maven_versions(*, _repo: str = _FORGE_REPO) -> List[str]:
     """Internal function that parses maven metadata of forge in order to get all 
     supported forge versions.
     """
 
-    text = http_request("GET", f"{repo}/maven-metadata.xml", 
+    text = http_request("GET", f"{_repo}/maven-metadata.xml", 
         accept="application/xml").text()
     
     versions = list()
@@ -460,10 +493,10 @@ def request_maven_versions(*, repo: str = ORIGINAL_REPO) -> List[str]:
     return versions
 
 
-def request_install_jar(version: str, *, repo: str = ORIGINAL_REPO) -> ZipFile:
+def request_install_jar(version: str, *, _repo: str = _FORGE_REPO) -> ZipFile:
     """Internal function to request the installation JAR file.
     """
-    res = http_request("GET", f"{repo}/{version}/forge-{version}-installer.jar",
+    res = http_request("GET", f"{_repo}/{version}/forge-{version}-installer.jar",
         accept="application/java-archive")
     
     return ZipFile(BytesIO(res.data))
