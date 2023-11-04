@@ -195,8 +195,8 @@ lang = {
     "start.fabric.resolving": "Resolving {api} loader for {vanilla_version}...",
     "start.fabric.resolved": "Resolved {api} loader {loader_version} for {vanilla_version}",
     # Command start (forge)
-    "start.forge.resolving": "Resolving forge alias {version}...",
-    "start.forge.resolved": "Resolved forge {version}",
+    "start.forge.resolving": "Resolving {api} alias {version}...",
+    "start.forge.resolved": "Resolved {api} {version}",
     "start.forge.post_processing": "Forge post processing: {task}...",
     "start.forge.post_processed": "Forge post processing done",
     f"start.forge.install_error.{ForgeInstallError.INSTALL_PROFILE_NOT_FOUND}": "Install profile not found in the forge installer.",

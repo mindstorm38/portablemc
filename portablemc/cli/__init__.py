@@ -451,7 +451,8 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
         if len(parts) != 1:
             return None
         repo = _FORGE_REPO if kind == "forge" else _NEO_FORGE_REPO
-        return ForgeVersion(version, context=ns.context, prefix=ns.forge_prefix, _forge_repo=repo)
+        prefix = ns.forge_prefix if kind == "forge" else ns.neoforge_prefix
+        return ForgeVersion(version, context=ns.context, prefix=prefix, _forge_repo=repo)
     
     else:
         return None
@@ -752,10 +753,11 @@ class StartWatcher(SimpleWatcher):
                 ns.out.finish()
         
         def forge_resolve(e: ForgeResolveEvent) -> None:
+            api = "forge" if e._forge_repo == _FORGE_REPO else "neoforge"
             if e.alias:
-                ns.out.task("..", "start.forge.resolving", version=e.forge_version)
+                ns.out.task("..", "start.forge.resolving", api=api, version=e.forge_version)
             else:
-                ns.out.task("OK", "start.forge.resolved", version=e.forge_version)
+                ns.out.task("OK", "start.forge.resolved", api=api, version=e.forge_version)
                 ns.out.finish()
 
         super().__init__({

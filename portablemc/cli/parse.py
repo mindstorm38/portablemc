@@ -44,6 +44,7 @@ class StartNs(RootNs):
     fabric_prefix: str
     quilt_prefix: str
     forge_prefix: str
+    neoforge_prefix: str
     lwjgl: Optional[str]
     exclude_lib: Optional[List[LibrarySpecifierFilter]]
     include_bin: Optional[List[str]]
