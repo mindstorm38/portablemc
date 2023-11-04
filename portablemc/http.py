@@ -8,6 +8,8 @@ import urllib.parse
 import json
 import ssl
 
+from . import LAUNCHER_VERSION
+
 from typing import Optional, Any, cast
 
 
@@ -79,6 +81,8 @@ def http_request(method: str, url: str, *,
         headers["Accept"] = accept
     if content_type is not None:
         headers["Content-Type"] = content_type
+    if "User-Agent" not in headers:
+        headers["User-Agent"] = f"portablemc/{LAUNCHER_VERSION}"
 
     try:
         import certifi

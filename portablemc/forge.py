@@ -52,7 +52,7 @@ class ForgeVersion(Version):
 
                 # If it's not an alias, create the alias from the game version.
                 alias_version = self.forge_version if alias else f"{self.forge_version}-recommended"
-                watcher.handle(ForgeResolveEvent(alias_version, True))
+                watcher.handle(ForgeResolveEvent(alias_version, True, _forge_repo=_FORGE_REPO))
 
                 # Try to get loader from promo versions.
                 promo_versions = request_promo_versions()
@@ -61,7 +61,7 @@ class ForgeVersion(Version):
                 # Try with "-latest", some version do not have recommended.
                 if loader_version is None and not alias:
                     alias_version = f"{self.forge_version}-latest"
-                    watcher.handle(ForgeResolveEvent(alias_version, True))
+                    watcher.handle(ForgeResolveEvent(alias_version, True, _forge_repo=_FORGE_REPO))
                     loader_version = promo_versions.get(alias_version)
                 
                 # Remove alias
@@ -73,21 +73,21 @@ class ForgeVersion(Version):
 
                 self.forge_version = f"{alias_version}-{loader_version}"
 
-                watcher.handle(ForgeResolveEvent(self.forge_version, False))
+                watcher.handle(ForgeResolveEvent(self.forge_version, False, _forge_repo=_FORGE_REPO))
         
         elif self._forge_repo == _NEO_FORGE_REPO:
 
             # The forge version is not fully specified.
             if "-" not in self.forge_version:
 
-                watcher.handle(ForgeResolveEvent(self.forge_version, True))
+                watcher.handle(ForgeResolveEvent(self.forge_version, True, _forge_repo=_NEO_FORGE_REPO))
                 full_version = _request_neoforge_version(self.forge_version)
 
                 if full_version is None:
                     raise VersionNotFoundError(f"{self.prefix}-{self.forge_version}-???")
                 
                 self.forge_version = full_version
-                watcher.handle(ForgeResolveEvent(self.forge_version, False))
+                watcher.handle(ForgeResolveEvent(self.forge_version, False, _forge_repo=_NEO_FORGE_REPO))
         
         # Finally define the full version id.
         self.version = f"{self.prefix}-{self.forge_version}"
@@ -129,7 +129,7 @@ class ForgeVersion(Version):
                 install_jar = request_install_jar(f"{self.forge_version}{suffix}", _repo=self._forge_repo)
                 break
             except HttpError as error:
-                if error.res.status not in (403, 404):
+                if error.res.status != 404:
                     raise
                 # Silently ignore if the file was not found or forbidden.
                 pass
@@ -421,10 +421,11 @@ class ForgeResolveEvent:
     The 'alias' attribute specifies if an alias version is being resolved, if false the
     resolving has finished and we'll try to install the given version.
     """
-    __slots__ = "forge_version", "alias"
-    def __init__(self, forge_version: str, alias: bool) -> None:
+    __slots__ = "forge_version", "alias", "_forge_repo"
+    def __init__(self, forge_version: str, alias: bool, *, _forge_repo: str) -> None:
         self.forge_version = forge_version
         self.alias = alias
+        self._forge_repo = _forge_repo
 
 class ForgePostProcessingEvent:
     """Event triggered when a post processing task is starting.
