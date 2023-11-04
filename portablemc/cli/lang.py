@@ -61,6 +61,7 @@ lang = {
     "args.start.version.fabric": "fabric:[<vanilla-version>[:<loader-version>]]",
     "args.start.version.quilt": "quilt:[<vanilla-version>[:<loader-version>]]",
     "args.start.version.forge": "forge:[<forge-version>] (forge-version >= 1.5.2)",
+    "args.start.version.neoforge": "neoforge:[<neoforge-version>] (neoforge-version >= 1.20.1)",
     "args.start.dry": "Simulate game starting.",
     "args.start.disable_multiplayer": "Disable the multiplayer buttons (>= 1.16).",
     "args.start.disable_chat": "Disable the online chat (>= 1.16).",
@@ -75,6 +76,7 @@ lang = {
     "args.start.fabric_prefix": "Change the prefix of the version ID when starting with Fabric (<prefix>-<vanilla-version>-<loader-version>).",
     "args.start.quilt_prefix": "Change the prefix of the version ID when starting with Quilt (<prefix>-<vanilla-version>-<loader-version>).",
     "args.start.forge_prefix": "Change the prefix of the version ID when starting with Forge (<prefix>-<forge-version>).",
+    "args.start.neoforge_prefix": "Change the prefix of the version ID when starting with NeoForge (<prefix>-<neoforge-version>).",
     "args.start.lwjgl": "Change the default LWJGL version used by Minecraft (LWJGL >= 3.2.3). "
         "This argument makes additional changes in order to support processor architectures such as ARM. "
         "It's not guaranteed to work with every version of Minecraft and downgrading LWJGL version is not recommended.",

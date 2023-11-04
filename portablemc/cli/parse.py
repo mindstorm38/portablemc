@@ -115,6 +115,7 @@ def register_start_arguments(parser: ArgumentParser) -> None:
     parser.add_argument("--fabric-prefix", help=_("args.start.fabric_prefix"), default="fabric", metavar="PREFIX")
     parser.add_argument("--quilt-prefix", help=_("args.start.quilt_prefix"), default="quilt", metavar="PREFIX")
     parser.add_argument("--forge-prefix", help=_("args.start.forge_prefix"), default="forge", metavar="PREFIX")
+    parser.add_argument("--neoforge-prefix", help=_("args.start.neoforge_prefix"), default="neoforge", metavar="PREFIX")
     parser.add_argument("--lwjgl", help=_("args.start.lwjgl"))
     parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), action="append", metavar="SPEC", type=LibrarySpecifierFilter.from_str)
     parser.add_argument("--include-bin", help=_("args.start.include_bin"), action="append", metavar="PATH")
@@ -126,7 +127,7 @@ def register_start_arguments(parser: ArgumentParser) -> None:
     parser.add_argument("-i", "--uuid", help=_("args.start.uuid"))
     parser.add_argument("-s", "--server", help=_("args.start.server"))
     parser.add_argument("-p", "--server-port", type=int, help=_("args.start.server_port"), metavar="PORT")
-    parser.add_argument("version", nargs="?", default="release", help=_("args.start.version", formats=", ".join(map(lambda s: _(f"args.start.version.{s}"), ("standard", "fabric", "quilt", "forge")))))
+    parser.add_argument("version", nargs="?", default="release", help=_("args.start.version", formats=", ".join(map(lambda s: _(f"args.start.version.{s}"), ("standard", "fabric", "quilt", "forge", "neoforge")))))
 
 
 def register_login_arguments(parser: ArgumentParser) -> None:
@@ -172,7 +173,7 @@ def get_outputs() -> List[str]:
 
 
 def get_search_kinds() -> List[str]:
-    return ["mojang", "local", "forge", "fabric", "quilt"]
+    return ["mojang", "local", "forge", "fabric", "quilt", "neoforge"]
 
 
 def get_auth_services() -> List[str]:
