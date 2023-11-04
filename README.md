@@ -54,7 +54,7 @@ For example `portablemc [global-args] <cmd> [args]`.
 You can use `-h` argument to display help *(also works for every command)*.
 
 By default the launcher will run any command from the OS standard `.minecraft` directory 
-([check wiki for more information](https://minecraft.gamepedia.com/.minecraft)). You can
+([check wiki for more information](https://minecraft.wiki/w/.minecraft)). You can
 change this directory using `--main-dir <path>` global argument.
 
 You may also need `--work-dir <path>` to change the directory where your saves, resource 
