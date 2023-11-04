@@ -9,7 +9,7 @@ from portablemc.standard import Context, Version, VersionManifest, TooMuchParent
     JarNotFoundError
 from portablemc.download import DownloadList
 from portablemc.fabric import FabricVersion
-from portablemc.forge import ForgeVersion
+from portablemc.forge import ForgeVersion, _NEO_FORGE_REPO
 
 from typing import Type, Optional
 
@@ -68,6 +68,17 @@ def test_install_forge(tmp_context: Context, test_version: str):
     """
 
     version = ForgeVersion(test_version)
+    version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
+    _remove_assets(version)
+    version.install()
+
+
+@pytest.mark.parametrize("test_version", ["1.20.1", "1.20.1-47.1.79"])
+def test_install_neoforge(tmp_context: Context, test_version: str):
+    """Testing neoforge install for both old an new formats.
+    """
+
+    version = ForgeVersion(test_version, _forge_repo=_NEO_FORGE_REPO)
     version.manifest = VersionManifest(tmp_context.work_dir / "version_manifest.json")
     _remove_assets(version)
     version.install()
