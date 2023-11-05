@@ -87,7 +87,7 @@ The first thing you may want to do is install and start Minecraft, to do so you 
 the `portablemc start [args] [version]` command. This command will install every component
 needed by the version before launching it. If you provide no version, the latest release
 is started, but you can specify a version to launch, or a version alias: `release`
-or `snapshot` for the latest version of their type:
+or `snapshot` for the latest version of their type.
 
 In addition to Mojang's vanilla versions, the launcher natively supports common mod
 loaders such as **Fabric**, **Forge**, **NeoForge** and **Quilt**. To start such versions,
