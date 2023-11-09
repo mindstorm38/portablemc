@@ -96,8 +96,9 @@ you can prefix the version with either `fabric:`, `forge:`, `neoforge:` or `quil
 Depending on the mod loader, the version you put after the colon is different:
 - For Fabric and Quilt, you can directly specify the vanilla version, optionally followed
   by `:<loader_version>`.
-- For Forge, you can put either a vanilla game version, optionally followed by `-latest`
-  or `-recommended`, or `-<loader_version>`.
+- For Forge and NeoForge, you can put either a vanilla game version, optionally followed
+  by `-<loader_version>`. Forge also supports `-latest` and `-recommended`, but NeoForge
+  will always take the latest loader.
 
 *You can search for versions using the [search command](#search-for-versions).*
 
