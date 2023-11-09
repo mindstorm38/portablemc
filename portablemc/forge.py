@@ -3,6 +3,7 @@
 The NeoForge support is still unstable API.
 """
 
+from urllib import parse as url_parse
 from zipfile import ZipFile
 from pathlib import Path
 from io import BytesIO
@@ -455,7 +456,7 @@ def _request_neoforge_version(game_version: str) -> Optional[str]:
     """
     try:
         # NOTE: For now we don't sanitize the parameter.
-        url = f"https://maven.neoforged.net/api/maven/latest/version/releases/net%2Fneoforged%2Fforge?filter={game_version}"
+        url = f"https://maven.neoforged.net/api/maven/latest/version/releases/net%2Fneoforged%2Fforge?filter={url_parse.quote(game_version)}"
         ret = http_request("GET", url, accept="application/json").json()
         loader_version = ret.get("version", "")
         if not loader_version.startswith(f"{game_version}-"):
