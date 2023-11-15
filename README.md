@@ -27,6 +27,7 @@ It also includes fast installation of common mod loaders such as Fabric, Forge a
 - [Contribute](#contribute)
   - [Setup environment](#setup-environment)
   - [Contributors](#contributors)
+  - [Sponsors](#sponsors)
 - [API Documentation (v4) ⇗](doc/API.md)
 
 ## Installation
@@ -325,3 +326,14 @@ better:
 
 There must be a lot of hidden issues, if you want to contribute you just have to install 
 and test the launcher, and report every issue you encounter, do not hesitate!
+
+### Sponsors
+I'm currently working on my open-source projects on my free time. So sponsorship would be
+a welcome extra income that would allow me to spend more time on my bigger projects. You 
+can sponsor this project by donating either on
+[GitHub Sponsors](https://github.com/sponsors/mindstorm38) or 
+[Ko-fi](https://ko-fi.com/theorozier).
+
+TODO:
+- [Erwan Or](https://github.com/erwanor)
+- [user10072023github](https://github.com/user10072023github)
