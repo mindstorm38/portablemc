@@ -330,7 +330,7 @@ and test the launcher, and report every issue you encounter, do not hesitate!
 ### Sponsors
 I'm currently working on my open-source projects on my free time. So sponsorship is an
 extra income that allows me to spend more time on the project! This can also help me
-on some other open-source projects. You can sponsor this project by donating either on
+on other open-source projects. You can sponsor this project by donating either on
 [GitHub Sponsors](https://github.com/sponsors/mindstorm38) or 
 [Ko-fi](https://ko-fi.com/theorozier). I've always been passionate about open-source
 programming and the relative success of PortableMC have been a first surprise to me, 
