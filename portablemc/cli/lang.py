@@ -51,6 +51,7 @@ lang = {
     # Args common langs
     "args.common.help": "Show this help message and exit.",
     "args.common.auth_service": "Authentication service type to use for logging in the game.",
+    "args.common.auth_no_browser": "Prevent the authentication service to open your system's web browser.",
     # Args search
     "args.search": "Search for Minecraft versions.",
     "args.search.kind": "Select the kind of search to operate.",
@@ -224,6 +225,7 @@ lang = {
     # Auth Microsoft
     "auth.microsoft": "Authenticating {email} with Microsoft...",
     "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser found on your system.",
+    "auth.microsoft.no_browser_fallback": "No web browser found on your system, please go to the following url to login:",
     "auth.microsoft.opening_browser_and_listening": "Opened authentication page in browser...",
     "auth.microsoft.close_tab_and_return": "Close this tab and return to the launcher.",
     "auth.microsoft.failed_to_authenticate": "Failed to authenticate.",

@@ -12,7 +12,7 @@ from pathlib import Path
 import socket
 import sys
 
-from .parse import register_arguments, RootNs, SearchNs, StartNs, LoginNs, LogoutNs
+from .parse import register_arguments, RootNs, SearchNs, StartNs, LoginNs, LogoutNs, AuthBaseNs
 from .util import format_locale_date, format_time, format_number, anonymize_email
 from .output import Output, HumanOutput, MachineOutput, OutputTable
 from .lang import get as _, lang
@@ -326,7 +326,7 @@ def cmd_start(ns: StartNs):
         version.fixes[Version.FIX_LWJGL] = ns.lwjgl
 
     if ns.login is not None:
-        version.auth_session = prompt_authenticate(ns, ns.login, not ns.temp_login, ns.auth_service, ns.auth_anonymize)
+        version.auth_session = prompt_authenticate(ns, ns.login, not ns.temp_login, ns.auth_anonymize)
         if version.auth_session is None:
             sys.exit(EXIT_FAILURE)
     else:
@@ -468,7 +468,7 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
 
 
 def cmd_login(ns: LoginNs):
-    session = prompt_authenticate(ns, ns.email_or_username, True, ns.auth_service)
+    session = prompt_authenticate(ns, ns.email_or_username, True)
     if session is not None:
         ns.out.task("INFO", "login.tip.remember_start_login", email=ns.email_or_username)
         ns.out.finish()
@@ -542,12 +542,14 @@ def cmd_show_lang(ns: RootNs):
     table.print()
 
 
-def prompt_authenticate(ns: RootNs, email: str, caching: bool, service: str, anonymise: bool = False) -> Optional[AuthSession]:
+def prompt_authenticate(ns: AuthBaseNs, email: str, caching: bool, anonymise: bool = False) -> Optional[AuthSession]:
     """Prompt the user to login using the given email (or legacy username) for specific 
     service (Microsoft or Yggdrasil) and return the :class:`AuthSession` if successful, 
     None otherwise. This function handles task printing and all exceptions are caught 
     internally.
     """
+
+    service = ns.auth_service
 
     session_class = {
         "microsoft": MicrosoftAuthSession,
@@ -624,7 +626,7 @@ def prompt_yggdrasil_authenticate(ns: RootNs, email_or_username: str) -> Optiona
         return YggdrasilAuthSession.authenticate(ns.auth_database.get_client_id(), email_or_username, password)
 
 
-def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftAuthSession]:
+def prompt_microsoft_authenticate(ns: AuthBaseNs, email: str) -> Optional[MicrosoftAuthSession]:
 
     from .. import LAUNCHER_NAME, LAUNCHER_VERSION
     from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -641,93 +643,99 @@ def prompt_microsoft_authenticate(ns: RootNs, email: str) -> Optional[MicrosoftA
     nonce = uuid4().hex
 
     auth_url = MicrosoftAuthSession.get_authentication_url(app_id, code_redirect_uri, email, nonce)
-    if not webbrowser.open(auth_url):
+
+    if ns.auth_no_browser or not webbrowser.open(auth_url):
+
         ns.out.finish()
-        ns.out.task("FAILED", "auth.microsoft.no_browser")
+        ns.out.task("INFO", "auth.microsoft.no_browser_fallback")
         ns.out.finish()
+        ns.out.print(auth_url + "\n")
+
         return None
+    
+    else:
 
-    class AuthServer(HTTPServer):
+        class AuthServer(HTTPServer):
 
-        def __init__(self):
-            super().__init__(("", server_port), RequestHandler)
-            self.timeout = 0.5
-            self.ms_auth_done = False
-            self.ms_auth_id_token: Optional[str] = None
-            self.ms_auth_code: Optional[str] = None
+            def __init__(self):
+                super().__init__(("", server_port), RequestHandler)
+                self.timeout = 0.5
+                self.ms_auth_done = False
+                self.ms_auth_id_token: Optional[str] = None
+                self.ms_auth_code: Optional[str] = None
 
-    class RequestHandler(BaseHTTPRequestHandler):
+        class RequestHandler(BaseHTTPRequestHandler):
 
-        server_version = f"{LAUNCHER_NAME}/{LAUNCHER_VERSION}"
+            server_version = f"{LAUNCHER_NAME}/{LAUNCHER_VERSION}"
 
-        def __init__(self, request, client_address: Tuple[str, int], auth_server: AuthServer) -> None:
-            super().__init__(request, client_address, auth_server)
+            def __init__(self, request, client_address: Tuple[str, int], auth_server: AuthServer) -> None:
+                super().__init__(request, client_address, auth_server)
 
-        def log_message(self, _format: str, *args: Any):
-            return
+            def log_message(self, _format: str, *args: Any):
+                return
 
-        def send_auth_response(self, msg: str):
-            self.end_headers()
-            self.wfile.write("{}\n\n{}".format(msg, _('auth.microsoft.close_tab_and_return') if cast(AuthServer, self.server).ms_auth_done else "").encode())
-            self.wfile.flush()
+            def send_auth_response(self, msg: str):
+                self.end_headers()
+                self.wfile.write("{}\n\n{}".format(msg, _('auth.microsoft.close_tab_and_return') if cast(AuthServer, self.server).ms_auth_done else "").encode())
+                self.wfile.flush()
 
-        def do_POST(self):
-            if self.path.startswith("/code") and self.headers.get_content_type() == "application/x-www-form-urlencoded":
-                content_length = int(self.headers["Content-Length"])
-                qs = urllib.parse.parse_qs(self.rfile.read(content_length).decode())
-                auth_server = cast(AuthServer, self.server)
-                if "code" in qs and "id_token" in qs:
-                    self.send_response(307)
-                    # We log out the user directly after authorization, this just clear the browser cache to allow
-                    # another user to authenticate with another email after. This doesn't invalid the access token.
-                    self.send_header("Location", MicrosoftAuthSession.get_logout_url(app_id, exit_redirect_uri))
-                    auth_server.ms_auth_id_token = qs["id_token"][0]
-                    auth_server.ms_auth_code = qs["code"][0]
-                    self.send_auth_response("Redirecting...")
-                elif "error" in qs:
-                    self.send_response(400)
-                    auth_server.ms_auth_done = True
-                    self.send_auth_response("Error: {} ({}).".format(qs["error_description"][0], qs["error"][0]))
+            def do_POST(self):
+                if self.path.startswith("/code") and self.headers.get_content_type() == "application/x-www-form-urlencoded":
+                    content_length = int(self.headers["Content-Length"])
+                    qs = urllib.parse.parse_qs(self.rfile.read(content_length).decode())
+                    auth_server = cast(AuthServer, self.server)
+                    if "code" in qs and "id_token" in qs:
+                        self.send_response(307)
+                        # We log out the user directly after authorization, this just clear the browser cache to allow
+                        # another user to authenticate with another email after. This doesn't invalid the access token.
+                        self.send_header("Location", MicrosoftAuthSession.get_logout_url(app_id, exit_redirect_uri))
+                        auth_server.ms_auth_id_token = qs["id_token"][0]
+                        auth_server.ms_auth_code = qs["code"][0]
+                        self.send_auth_response("Redirecting...")
+                    elif "error" in qs:
+                        self.send_response(400)
+                        auth_server.ms_auth_done = True
+                        self.send_auth_response("Error: {} ({}).".format(qs["error_description"][0], qs["error"][0]))
+                    else:
+                        self.send_response(404)
+                        self.send_auth_response("Missing parameters.")
                 else:
                     self.send_response(404)
-                    self.send_auth_response("Missing parameters.")
-            else:
-                self.send_response(404)
-                self.send_auth_response("Unexpected page.")
+                    self.send_auth_response("Unexpected page.")
 
-        def do_GET(self):
-            auth_server = cast(AuthServer, self.server)
-            if self.path.startswith("/exit"):
-                self.send_response(200)
-                auth_server.ms_auth_done = True
-                self.send_auth_response("Logged in.")
-            else:
-                self.send_response(404)
-                self.send_auth_response("Unexpected page.")
+            def do_GET(self):
+                auth_server = cast(AuthServer, self.server)
+                if self.path.startswith("/exit"):
+                    self.send_response(200)
+                    auth_server.ms_auth_done = True
+                    self.send_auth_response("Logged in.")
+                else:
+                    self.send_response(404)
+                    self.send_auth_response("Unexpected page.")
 
-    ns.out.task("..", "auth.microsoft.opening_browser_and_listening")
+        ns.out.task("..", "auth.microsoft.opening_browser_and_listening")
 
-    with AuthServer() as server:
-        try:
-            while not server.ms_auth_done:
-                server.handle_request()
-        except KeyboardInterrupt:
-            pass
+        with AuthServer() as server:
+            try:
+                while not server.ms_auth_done:
+                    server.handle_request()
+            except KeyboardInterrupt:
+                pass
 
-    if server.ms_auth_code is None or server.ms_auth_id_token is None:
-        ns.out.finish()
-        ns.out.task("FAILED", "auth.microsoft.failed_to_authenticate")
-        ns.out.finish()
-        return None
-    else:
-        ns.out.task("..", "auth.microsoft.processing")
-        if MicrosoftAuthSession.check_token_id(server.ms_auth_id_token, email, nonce):
-            return MicrosoftAuthSession.authenticate(ns.auth_database.get_client_id(), app_id, server.ms_auth_code, code_redirect_uri)
-        else:
+        if server.ms_auth_code is None or server.ms_auth_id_token is None:
             ns.out.finish()
-            ns.out.task("FAILED", "auth.microsoft.incoherent_data")
+            ns.out.task("FAILED", "auth.microsoft.failed_to_authenticate")
             ns.out.finish()
             return None
+        else:
+            ns.out.task("..", "auth.microsoft.processing")
+            if MicrosoftAuthSession.check_token_id(server.ms_auth_id_token, email, nonce):
+                return MicrosoftAuthSession.authenticate(ns.auth_database.get_client_id(), app_id, server.ms_auth_code, code_redirect_uri)
+            else:
+                ns.out.finish()
+                ns.out.task("FAILED", "auth.microsoft.incoherent_data")
+                ns.out.finish()
+                return None
 
     
 class StartWatcher(SimpleWatcher):

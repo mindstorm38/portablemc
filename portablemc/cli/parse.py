@@ -32,7 +32,11 @@ class SearchNs(RootNs):
     kind: str
     input: str
 
-class StartNs(RootNs):
+class AuthBaseNs(RootNs):
+    auth_service: str
+    auth_no_browser: bool
+
+class StartNs(AuthBaseNs):
     dry: bool
     disable_mp: bool
     disable_chat: bool
@@ -49,21 +53,19 @@ class StartNs(RootNs):
     exclude_lib: Optional[List[LibrarySpecifierFilter]]
     include_bin: Optional[List[str]]
     temp_login: bool
-    login: str
     auth_service: str
     auth_anonymize: bool
+    login: Optional[str]
     username: Optional[str]
     uuid: Optional[str]
     server: Optional[str]
     server_port: Optional[int]
     version: str
 
-class LoginNs(RootNs):
-    auth_service: str
+class LoginNs(AuthBaseNs):
     email_or_username: str
 
-class LogoutNs(RootNs):
-    auth_service: str
+class LogoutNs(AuthBaseNs):
     email_or_username: str
 
 
@@ -74,6 +76,7 @@ def register_common_help(parser: ArgumentParser) -> None:
 
 def register_common_auth_service(parser: ArgumentParser) -> None:
     parser.add_argument("--auth-service", help=_("args.common.auth_service"), default="microsoft", choices=get_auth_services())
+    parser.add_argument("--auth-no-browser", help=_("args.common.auth_no_browser"), action="store_true")
 
 
 def register_arguments() -> ArgumentParser:
