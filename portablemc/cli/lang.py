@@ -220,7 +220,7 @@ lang = {
     # Auth Yggdrasil
     "auth.yggdrasil": "Authenticating {email} with Mojang...",
     "auth.yggdrasil.enter_password": "Password: ",
-    "auth.yggdrasil.deprecated": "Mojang authentication is deprecated.",
+    "auth.yggdrasil.deprecated": "Mojang authentication is deprecated and does not work anymore.",
     # Auth Microsoft
     "auth.microsoft": "Authenticating {email} with Microsoft...",
     "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser found on your system.",
