@@ -166,10 +166,16 @@ class YggdrasilAuthSession(AuthSession):
                 content_type="application/json")
             return res.status, res.json()
         except HttpError as error:
-            if raise_error:
-                raise AuthError(error.res.json()["errorMessage"])
-            else:
-                return error.res.status, error.res.json()
+            try:
+                if raise_error:
+                    raise AuthError(error.res.json()["errorMessage"])
+                else:
+                    return error.res.status, error.res.json()
+            except json.JSONDecodeError:
+                if raise_error:
+                    raise AuthError("invalid json")
+                else:
+                    return error.res.status, {}
 
 
 class MicrosoftAuthSession(AuthSession):
