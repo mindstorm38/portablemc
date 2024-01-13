@@ -556,6 +556,10 @@ def prompt_authenticate(ns: RootNs, email: str, caching: bool, service: str, ano
 
     ns.auth_database.load()
 
+    if service == "yggdrasil":
+        ns.out.task("WARN", "auth.yggdrasil.deprecated")
+        ns.out.finish()
+
     task_text = f"auth.{service}"
     email_text = anonymize_email(email) if anonymise else email
 
@@ -591,8 +595,7 @@ def prompt_authenticate(ns: RootNs, email: str, caching: bool, service: str, ano
             session = prompt_yggdrasil_authenticate(ns, email)
         
     except AuthError as error:
-        ns.out.task("FAILED", None)
-        ns.out.task(None, "auth.error", message=str(error))
+        ns.out.task("FAILED", "auth.error", message=str(error))
         ns.out.finish()
         return None
 
