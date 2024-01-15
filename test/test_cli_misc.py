@@ -11,8 +11,8 @@ def test_format_number():
 
     from portablemc.cli.util import format_number, format_duration
 
-    assert format_number(0) == "0"
-    assert format_number(999) == "999"
+    assert format_number(0) == "0 "
+    assert format_number(999) == "999 "
     assert format_number(1000) == "1.0 k"
     assert format_number(999999) == "999.9 k"
     assert format_number(1000000) == "1.0 M"

@@ -26,7 +26,7 @@ def format_number(n: float) -> str:
     The string is at most 7 chars unless the size exceed 1 T.
     """
     if n < 1000:
-        return f"{int(n)}"
+        return f"{int(n)} "
     elif n < 1000000:
         return f"{(int(n / 100) / 10):.1f} k"
     elif n < 1000000000:
