@@ -47,33 +47,32 @@ class ForgeVersion(Version):
 
         if self._forge_repo == _FORGE_REPO:
 
-            # No dash or alias version, resolve against promo version.
-            alias = self.forge_version.endswith(("-latest", "-recommended"))
-            if "-" not in self.forge_version or alias:
+            # If no alias is specified, with add recommended.
+            if "-" not in self.forge_version:
+                self.forge_version = f"{self.forge_version}-recommended"
 
-                # If it's not an alias, create the alias from the game version.
-                alias_version = self.forge_version if alias else f"{self.forge_version}-recommended"
-                watcher.handle(ForgeResolveEvent(alias_version, True, _forge_repo=_FORGE_REPO))
+            # Now, if the specified version is an alias, we resolve it.
+            if self.forge_version.endswith(("-latest", "-recommended")):
+
+                # Split the version, used later.
+                alias_version, alias = self.forge_version.rsplit("-", maxsplit=1)
+                watcher.handle(ForgeResolveEvent(self.forge_version, True, _forge_repo=_FORGE_REPO))
 
                 # Try to get loader from promo versions.
                 promo_versions = request_promo_versions()
-                loader_version = promo_versions.get(alias_version)
+                loader_version = promo_versions.get(self.forge_version)
 
-                # Try with "-latest", some version do not have recommended.
-                if loader_version is None and not alias:
-                    alias_version = f"{self.forge_version}-latest"
-                    watcher.handle(ForgeResolveEvent(alias_version, True, _forge_repo=_FORGE_REPO))
-                    loader_version = promo_versions.get(alias_version)
-                
-                # Remove alias
-                last_dash = alias_version.rindex("-")
-                alias_version = alias_version[:last_dash]
+                # If we can't find the load version, just try to other alias (issue #189).
+                if loader_version is None:
+                    alias = { "latest": "recommended", "recommended": "latest" }[alias]
+                    self.forge_version = f"{alias_version}-{alias}"
+                    watcher.handle(ForgeResolveEvent(self.forge_version, True, _forge_repo=_FORGE_REPO))
+                    loader_version = promo_versions.get(self.forge_version)
 
                 if loader_version is None:
                     raise VersionNotFoundError(f"{self.prefix}-{alias_version}-???")
 
                 self.forge_version = f"{alias_version}-{loader_version}"
-
                 watcher.handle(ForgeResolveEvent(self.forge_version, False, _forge_repo=_FORGE_REPO))
         
         elif self._forge_repo == _NEO_FORGE_REPO:
