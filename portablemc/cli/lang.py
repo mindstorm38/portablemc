@@ -224,8 +224,8 @@ lang = {
     "auth.yggdrasil.deprecated": "Mojang authentication is deprecated and does not work anymore.",
     # Auth Microsoft
     "auth.microsoft": "Authenticating {email} with Microsoft...",
-    "auth.microsoft.no_browser": "Failed to open Microsoft login page, no web browser found on your system.",
-    "auth.microsoft.no_browser_fallback": "No web browser found on your system, please go to the following url to login:",
+    "auth.microsoft.no_browser_fallback": "Authenticating without local browser, please go to the following url to login:",
+    "auth.microsoft.no_browser_code": "Paste the code: ",
     "auth.microsoft.opening_browser_and_listening": "Opened authentication page in browser...",
     "auth.microsoft.close_tab_and_return": "Close this tab and return to the launcher.",
     "auth.microsoft.failed_to_authenticate": "Failed to authenticate.",
