@@ -237,6 +237,7 @@ class MicrosoftAuthSession(AuthSession):
 
     @staticmethod
     def get_authentication_url(app_id: str, redirect_uri: str, email: str, nonce: str):
+        """deprecated"""
         return "https://login.live.com/oauth20_authorize.srf?{}".format(url_parse.urlencode({
             "client_id": app_id,
             "redirect_uri": redirect_uri,
@@ -249,6 +250,7 @@ class MicrosoftAuthSession(AuthSession):
 
     @staticmethod
     def get_logout_url(app_id: str, redirect_uri: str):
+        """deprecated"""
         return "https://login.live.com/oauth20_logout.srf?{}".format(url_parse.urlencode({
             "client_id": app_id,
             "redirect_uri": redirect_uri
@@ -256,6 +258,7 @@ class MicrosoftAuthSession(AuthSession):
 
     @classmethod
     def check_token_id(cls, token_id: str, email: str, nonce: str) -> bool:
+        """deprecated"""
         id_token_payload = cls.decode_jwt_payload(token_id)
         return id_token_payload["nonce"] == nonce and id_token_payload["email"].casefold() == email.casefold()
 
