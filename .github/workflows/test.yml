@@ -38,7 +38,7 @@ jobs:
         run: |
           env\Scripts\Activate.ps1
           pip install poetry pytest-github-actions-annotate-failures
-          poetry install
+          poetry install --all-extras
           coverage run -m pytest -v test/
 
       - name: Test on UNIX
@@ -46,7 +46,7 @@ jobs:
         run: |
           source env/bin/activate
           pip install poetry pytest-github-actions-annotate-failures
-          poetry install
+          poetry install --all-extras
           coverage run -m pytest -v test/
       
       - name: Coverage & codecov
