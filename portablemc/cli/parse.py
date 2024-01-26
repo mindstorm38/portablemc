@@ -11,6 +11,10 @@ from .lang import get as _
 
 from typing import Optional, Type, Tuple, List
 
+try:
+    import argcomplete
+except ImportError:
+    argcomplete = None # No auto completion support
 
 # The following classes are only used for type checking and represent a typed namespace
 # as produced by the arguments registered to the argument parser.
@@ -80,14 +84,23 @@ def register_common_auth_service(parser: ArgumentParser) -> None:
 
 
 def register_arguments() -> ArgumentParser:
+    
     parser = ArgumentParser(allow_abbrev=False, prog="portablemc", description=_("args"), add_help=False)
     register_common_help(parser)
-    parser.add_argument("--main-dir", help=_("args.main_dir"), type=Path)
-    parser.add_argument("--work-dir", help=_("args.work_dir"), type=Path)
+    main_dir = parser.add_argument("--main-dir", help=_("args.main_dir"), type=Path)
+    work_dir = parser.add_argument("--work-dir", help=_("args.work_dir"), type=Path)
     parser.add_argument("--timeout", help=_("args.timeout"), type=float)
     parser.add_argument("--output", help=_("args.output"), dest="out_kind", choices=get_outputs(), default="human-color" if sys.stdout.isatty() else "human")
     parser.add_argument("-v", dest="verbose", help=_("args.verbose"), action="count", default=0)
     register_subcommands(parser.add_subparsers(title="subcommands", dest="subcommand"))
+    set_directories_completer(main_dir)
+    set_directories_completer(work_dir)
+
+    # If the "argcomplete" extra dependency is installed, we generate an autocompletion.
+    # Note: argcomplete is not type-hinted.
+    if argcomplete is not None:
+        argcomplete.autocomplete(parser, default_completer=None) # type: ignore
+
     return parser
 
 
@@ -97,13 +110,13 @@ def register_subcommands(subparsers) -> None:
     register_login_arguments(subparsers.add_parser("login", help=_("args.login"), add_help=False))
     register_logout_arguments(subparsers.add_parser("logout", help=_("args.logout"), add_help=False))
     register_show_arguments(subparsers.add_parser("show", help=_("args.show"), add_help=False))
-    # register_addon_arguments(subparsers.add_parser("addon", help=_("args.addon")))
 
 
 def register_search_arguments(parser: ArgumentParser) -> None:
     register_common_help(parser)
     parser.add_argument("-k", "--kind", help=_("args.search.kind"), default="mojang", choices=get_search_kinds())
-    parser.add_argument("input", nargs="?")
+    input_arg = parser.add_argument("input", nargs="?", help=_("args.search.input"))
+    set_choices_completer(input_arg, ("release", "snapshot"))
 
 
 def register_start_arguments(parser: ArgumentParser) -> None:
@@ -113,7 +126,7 @@ def register_start_arguments(parser: ArgumentParser) -> None:
     parser.add_argument("--disable-chat", help=_("args.start.disable_chat"), action="store_true")
     parser.add_argument("--demo", help=_("args.start.demo"), action="store_true")
     parser.add_argument("--resolution", help=_("args.start.resolution"), type=resolution_from_str)
-    parser.add_argument("--jvm", help=_("args.start.jvm"))
+    jvm_arg = parser.add_argument("--jvm", help=_("args.start.jvm"))
     parser.add_argument("--jvm-args", help=_("args.start.jvm_args"), metavar="ARGS")
     parser.add_argument("--no-fix", help=_("args.start.no_fix"), action="store_true")
     parser.add_argument("--fabric-prefix", help=_("args.start.fabric_prefix"), default="fabric", metavar="PREFIX")
@@ -122,7 +135,7 @@ def register_start_arguments(parser: ArgumentParser) -> None:
     parser.add_argument("--neoforge-prefix", help=_("args.start.neoforge_prefix"), default="neoforge", metavar="PREFIX")
     parser.add_argument("--lwjgl", help=_("args.start.lwjgl"))
     parser.add_argument("--exclude-lib", help=_("args.start.exclude_lib"), action="append", metavar="SPEC", type=LibrarySpecifierFilter.from_str)
-    parser.add_argument("--include-bin", help=_("args.start.include_bin"), action="append", metavar="PATH")
+    include_bin_arg = parser.add_argument("--include-bin", help=_("args.start.include_bin"), action="append", metavar="PATH")
     parser.add_argument("--auth-anonymize", help=_("args.start.auth_anonymize"), action="store_true")
     register_common_auth_service(parser)
     parser.add_argument("-t", "--temp-login", help=_("args.start.temp_login"), action="store_true")
@@ -131,7 +144,10 @@ def register_start_arguments(parser: ArgumentParser) -> None:
     parser.add_argument("-i", "--uuid", help=_("args.start.uuid"))
     parser.add_argument("-s", "--server", help=_("args.start.server"))
     parser.add_argument("-p", "--server-port", type=int, help=_("args.start.server_port"), metavar="PORT")
-    parser.add_argument("version", nargs="?", default="release", help=_("args.start.version", formats=", ".join(map(lambda s: _(f"args.start.version.{s}"), ("standard", "fabric", "quilt", "forge", "neoforge")))))
+    version_arg = parser.add_argument("version", nargs="?", default="release", help=_("args.start.version", formats=", ".join(map(lambda s: _(f"args.start.version.{s}"), ("standard", "fabric", "quilt", "forge", "neoforge")))))
+    set_files_completer(jvm_arg)
+    set_files_completer(include_bin_arg)
+    set_choices_completer(version_arg, ("release", "snapshot", "fabric:", "quilt:", "forge:", "neoforge:"))
 
 
 def register_login_arguments(parser: ArgumentParser) -> None:
@@ -153,14 +169,6 @@ def register_show_arguments(parser: ArgumentParser) -> None:
     subparsers.add_parser("about", help=_("args.show.about"), add_help=False)
     subparsers.add_parser("auth", help=_("args.show.auth"), add_help=False)
     subparsers.add_parser("lang", help=_("args.show.lang"), add_help=False)
-
-
-# def register_addon_arguments(parser: ArgumentParser):
-#     subparsers = parser.add_subparsers(title="subcommands", dest="addon_subcommand")
-#     subparsers.required = True
-#     subparsers.add_parser("list", help=_("args.addon.list"))
-#     show_parser = subparsers.add_parser("show", help=_("args.addon.show"))
-#     show_parser.add_argument("addon_id")
 
 
 def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
@@ -190,3 +198,16 @@ def resolution_from_str(s: str) -> Tuple[int, int]:
         return (int(parts[0]), int(parts[1]))
     else:
         raise ArgumentTypeError(_("args.start.resolution.invalid", given=s))
+
+
+def set_choices_completer(action, choices):
+    if argcomplete is not None:
+        action.completer = argcomplete.completers.ChoicesCompleter(choices)
+
+def set_files_completer(action):
+    if argcomplete is not None:
+        action.completer = argcomplete.completers.FilesCompleter()
+
+def set_directories_completer(action):
+    if argcomplete is not None:
+        action.completer = argcomplete.completers.DirectoriesCompleter()

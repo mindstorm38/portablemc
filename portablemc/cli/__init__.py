@@ -125,10 +125,6 @@ def get_command_handlers() -> CommandTree:
             "auth": cmd_show_auth,
             "lang": cmd_show_lang,
         },
-        # "addon": {
-        #     "list": cmd_addon_list,
-        #     "show": cmd_addon_show
-        # }
     }
 
 

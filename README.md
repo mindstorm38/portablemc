@@ -7,7 +7,7 @@ It also includes fast installation of common mod loaders such as Fabric, Forge a
 
 ![illustration](doc/illustration.png)
 
-*This launcher is tested for Python 3.7, 3.8, 3.9, 3.10, 3.11.*
+*This launcher is tested for Python 3.8, 3.9, 3.10, 3.11, 3.12.*
 
 ## Table of contents
 - [Installation](#installation)

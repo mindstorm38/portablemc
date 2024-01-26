@@ -33,9 +33,6 @@ def get(key: str, **kwargs) -> str:
 
 
 lang = {
-    # Addons
-    # "addon.import_error": "The addon '{addon}' has failed to build because some packages is missing:",
-    # "addon.unknown_error": "The addon '{addon}' has failed to build for unknown reason:",
     # Args root
     "args": "A fast, reliable and cross-platform command-line Minecraft launcher and API "
         "for developers. This launcher is compatible with the official Minecraft "
@@ -55,6 +52,7 @@ lang = {
     # Args search
     "args.search": "Search for Minecraft versions.",
     "args.search.kind": "Select the kind of search to operate.",
+    "args.search.input": "Search input.",
     # Args start
     "args.start": "Start a Minecraft version.",
     "args.start.version": "Version identifier (default to release): {formats}.",
@@ -108,10 +106,6 @@ lang = {
     "args.show.about": "Display authors, version and license of PortableMC.",
     "args.show.auth": "Debug the authentication database and supported services.",
     "args.show.lang": "Debug the language mappings used for messages translation.",
-    # Args addon
-    # "args.addon": "Addons management subcommands.",
-    # "args.addon.list": "List addons.",
-    # "args.addon.show": "Show an addon details.",
     # Common
     "echo": "{echo}",
     "cancelled": "Cancelled.",
@@ -140,15 +134,6 @@ lang = {
     "logout.microsoft.pending": "Logging out {email} from Microsoft...",
     "logout.success": "Logged out {email}",
     "logout.unknown_session": "No session for {email}",
-    # Command addon list
-    # "addon.list.id": "ID ({count})",
-    # "addon.list.version": "Version",
-    # "addon.list.authors": "Authors",
-    # Command addon show
-    # "addon.show.not_found": "Addon '{addon}' not found.",
-    # "addon.show.version": "Version: {version}",
-    # "addon.show.authors": "Authors: {authors}",
-    # "addon.show.description": "Description: {description}",
     # Command start
     "start.version.invalid_id": "Invalid version id, expected: {expected}",
     "start.version.invalid_id_unknown_kind": "Invalid version id, unknown kind: {kind}.",
