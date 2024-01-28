@@ -10,27 +10,23 @@ from .parse import type_path, type_path_dir, \
 from typing import Dict, Tuple, cast
 
 
-def escape_zsh(s: str, *, space = False) -> str:
-    s = s.replace("'", "''").replace("[", "\\[").replace("]", "\\]").replace(":", "\\:")
-    if space:
-        s = s.replace(" ", "\\ ")
-    return s
-
-
 def gen_zsh_completion(parser: ArgumentParser) -> str:
     buffer = StringIO()
-    gen_zsh_parser_completion(parser, buffer, "_complete_portablemc")
-    buffer.write("compdef _complete_portablemc portablemc\n")
+    gen_zsh_parser_completion(parser, buffer, "_portablemc")
+    buffer.write("compdef _portablemc portablemc\n")
     return buffer.getvalue()
 
-
 def gen_zsh_parser_completion(parser: ArgumentParser, buffer: StringIO, function: str):
+
+    # Sources:
+    # - https://zsh.sourceforge.io/Doc/Release/Completion-Widgets.html
+    # - https://zsh.sourceforge.io/Doc/Release/Completion-System.html
 
     commands: Dict[str, Tuple[str, ArgumentParser]] = {}
     completions: Dict[str, Dict[str, str]] = {}
 
     buffer.write(function)
-    buffer.write("() {\n")
+    buffer.write(" () {\n")
     buffer.write("  local curcontext=$curcontext state line\n")
     buffer.write("  integer ret=1\n")
 
@@ -63,8 +59,8 @@ def gen_zsh_parser_completion(parser: ArgumentParser, buffer: StringIO, function
             elif action.type == type_host:
                 zsh_action = ": :_hosts"
             elif len(action_completions):
-                zsh_action = f": :->action_{action.dest}"
-                completions[f"action_{action.dest}"] = action_completions
+                zsh_action = f": :->arg_{action.dest}"
+                completions[f"arg_{action.dest}"] = action_completions
 
         elif isinstance(action, (_HelpAction, _StoreConstAction, _AppendConstAction)):
             zsh_action = ""
@@ -99,15 +95,15 @@ def gen_zsh_parser_completion(parser: ArgumentParser, buffer: StringIO, function
         if len(commands):
             buffer.write("  command)\n")
             buffer.write("    local -a commands=(\n")
-            for name, (description, parser) in commands.items():
-                buffer.write(f"      '{name}:{escape_zsh(description)}'\n")
+            for name, (cmd_description, cmd_parser) in commands.items():
+                buffer.write(f"      '{name}:{escape_zsh(cmd_description)}'\n")
             buffer.write("    )\n")
             buffer.write("    _describe -t commands command commands && ret=0\n")
             buffer.write("    ;;\n")
 
             buffer.write("  option)\n")
             buffer.write("    case $line[1] in\n")
-            for name, (description, parser) in commands.items():
+            for name, (cmd_description, cmd_parser) in commands.items():
                 buffer.write(f"    {name}) {function}_{name} ;;\n")
             buffer.write("    esac\n")
             buffer.write("    ;;\n")
@@ -128,5 +124,123 @@ def gen_zsh_parser_completion(parser: ArgumentParser, buffer: StringIO, function
 
     buffer.write("}\n\n")
 
-    for name, (description, parser) in commands.items():
-        gen_zsh_parser_completion(parser, buffer, f"{function}_{name}")
+    for cmd_name, (cmd_description, cmd_parser) in commands.items():
+        gen_zsh_parser_completion(cmd_parser, buffer, f"{function}_{cmd_name}")
+
+def escape_zsh(s: str) -> str:
+    return s.replace("'", "''").replace("[", "\\[").replace("]", "\\]").replace(":", "\\:")
+
+
+def gen_bash_completion(parser: ArgumentParser) -> str:
+    buffer = StringIO()
+    buffer.write("#/usr/bin/env bash\n\n")
+    gen_bash_parser_completion(parser, buffer, "_portablemc")
+    buffer.write("\ncomplete -o filenames -o nosort -F _portablemc portablemc\n")
+    return buffer.getvalue()
+
+def gen_bash_parser_completion(parser: ArgumentParser, buffer: StringIO, function: str):
+
+    # Note: We use single quote in this function because we double quote in bash.
+    # Sources:
+    # - https://www.gnu.org/software/bash/manual/html_node/Programmable-Completion-Builtins.html
+    # - https://www.gnu.org/savannah-checkouts/gnu/bash/manual/bash.html
+    
+    buffer.write(function)
+    buffer.write(' () {\n')
+
+    # We guess that there we always be two argument, the command and the argument to comp.
+    buffer.write('  local index="$(( COMP_CWORD - 1 ))"\n')
+    buffer.write('  local words=(${COMP_WORDS[@]:1})\n')
+    buffer.write('  local word="${words[$index]}"\n')
+
+    # Start by finding if there are sub parsers.
+    commands: Dict[str, ArgumentParser] = {}
+    for action in parser._actions:
+        if isinstance(action, _SubParsersAction):
+            commands.update(action.choices)
+        elif len(action.option_strings):
+            buffer.write(f'  local arg_{action.dest}="{" ".join(action.option_strings)}"\n')
+    
+    # Write a loop to find potential sub-command, and construct arguments list.
+    # We overwrite the COMP_ variables because we don't use them after loop.
+    buffer.write('  for i in ${!words[@]}; do\n')
+
+    # Start by sub-commands...
+    if len(commands):
+        buffer.write("    if (( i < index )); then\n")
+        buffer.write("      COMP_WORDS=(${words[@]:$i})\n")
+        buffer.write("      COMP_CWORD=$((index - i))\n")
+        buffer.write('      case "${words[$i]}" in\n')
+        for cmd_name, cmd_parser in commands.items():
+            buffer.write(f'      {cmd_name}) {function}_{cmd_name}; return ;;\n')
+        buffer.write("      esac\n")
+        buffer.write("    fi\n")
+    
+    # Then arguments...
+    buffer.write('    case "${words[$i]}" in\n')
+    for action in parser._actions:
+        if isinstance(action, _SubParsersAction):
+            pass
+        elif len(action.option_strings):
+            buffer.write( "    ")
+            buffer.write( " | ".join(f'"{option}"' for option in action.option_strings))
+            buffer.write(f') arg_{action.dest}="" ;;\n')
+    buffer.write("    esac\n")
+
+    buffer.write("  done\n")
+
+    # Special case for options with associated value.
+    buffer.write('  if (( index >= 1 )); then\n')
+    buffer.write('    case ${words[$(( index - 1 ))]} in\n')
+    
+    for action in parser._actions:
+        
+        if isinstance(action, _StoreAction):
+
+            action_completions = get_completions(action)
+            if action.choices is not None:
+                for choice in action.choices:
+                    if choice not in action_completions:
+                        action_completions[choice] = ""
+
+            if len(action.option_strings):
+                
+                buffer.write("    ")
+                buffer.write(" | ".join(f'"{option}"' for option in action.option_strings))
+                buffer.write(")\n")
+                
+                reply = ""
+
+                if action.type == type_path:
+                    reply = '$(compgen -o plusdirs -f -- "$word")'
+                elif action.type == type_path_dir:
+                    reply = '$(compgen -o plusdirs -d -- "$word")'
+                elif action.type == type_email_or_username:
+                    pass
+                elif action.type == type_host:
+                    reply = '$(compgen -A hostname -- "$word")'
+                elif len(action_completions):
+                    reply = f'$(compgen -W "{" ".join(action_completions.keys())}" -- "$word")'
+
+                buffer.write(f"      COMPREPLY=({reply})\n")
+                buffer.write( "      return\n")
+                buffer.write( "      ;;\n")
+            
+    buffer.write("    esac\n")
+    buffer.write("  fi\n")
+
+    # This is the default reply for argument names.
+    buffer.write('  COMPREPLY=($(compgen -W "')
+    for cmd_name, cmd_parser in commands.items():
+        buffer.write(f"{cmd_name} ")
+    for action in parser._actions:
+        if isinstance(action, _SubParsersAction):
+            pass
+        elif len(action.option_strings):
+            buffer.write(f"$arg_{action.dest} ")
+    buffer.write('" -- "$word"))\n')
+
+    buffer.write('}\n\n')
+
+    for cmd_name, cmd_parser in commands.items():
+        gen_bash_parser_completion(cmd_parser, buffer, f"{function}_{cmd_name}")
