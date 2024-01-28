@@ -376,7 +376,6 @@ def cmd_start(ns: StartNs):
             # Included binaries
             if ns.include_bin is not None:
                 for bin_path in ns.include_bin:
-                    bin_path = Path(bin_path)
                     if not bin_path.is_file():
                         ns.out.task("FAILED", "start.additional_binary_not_found", path=bin_path)
                         ns.out.finish()
