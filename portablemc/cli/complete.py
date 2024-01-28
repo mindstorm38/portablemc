@@ -144,9 +144,14 @@ def gen_bash_parser_completion(parser: ArgumentParser, buffer: StringIO, functio
     # Sources:
     # - https://www.gnu.org/software/bash/manual/html_node/Programmable-Completion-Builtins.html
     # - https://www.gnu.org/savannah-checkouts/gnu/bash/manual/bash.html
-    
+    #
+    # Current limitations of the bash completer:
+    # - Choices for positional arguments are not support, luckily the launcher don't use 
+    #   such construct.
+    # - Short arguments cannot be completed when stacked.
+
     buffer.write(function)
-    buffer.write(' () {\n')
+    buffer.write(' ()\n{\n')
 
     # We guess that there we always be two argument, the command and the argument to comp.
     buffer.write('  local index="$(( COMP_CWORD - 1 ))"\n')
@@ -159,6 +164,7 @@ def gen_bash_parser_completion(parser: ArgumentParser, buffer: StringIO, functio
         if isinstance(action, _SubParsersAction):
             commands.update(action.choices)
         elif len(action.option_strings):
+            # Named argument
             buffer.write(f'  local arg_{action.dest}="{" ".join(action.option_strings)}"\n')
     
     # Write a loop to find potential sub-command, and construct arguments list.
@@ -179,8 +185,8 @@ def gen_bash_parser_completion(parser: ArgumentParser, buffer: StringIO, functio
     # Then arguments...
     buffer.write('    case "${words[$i]}" in\n')
     for action in parser._actions:
-        if isinstance(action, _SubParsersAction):
-            pass
+        if isinstance(action, (_SubParsersAction, _CountAction)):
+            pass  # Count action are not limited in number
         elif len(action.option_strings):
             buffer.write( "    ")
             buffer.write( " | ".join(f'"{option}"' for option in action.option_strings))
@@ -196,12 +202,6 @@ def gen_bash_parser_completion(parser: ArgumentParser, buffer: StringIO, functio
     for action in parser._actions:
         
         if isinstance(action, _StoreAction):
-
-            action_completions = get_completions(action)
-            if action.choices is not None:
-                for choice in action.choices:
-                    if choice not in action_completions:
-                        action_completions[choice] = ""
 
             if len(action.option_strings):
                 
@@ -219,8 +219,8 @@ def gen_bash_parser_completion(parser: ArgumentParser, buffer: StringIO, functio
                     pass
                 elif action.type == type_host:
                     reply = '$(compgen -A hostname -- "$word")'
-                elif len(action_completions):
-                    reply = f'$(compgen -W "{" ".join(action_completions.keys())}" -- "$word")'
+                elif action.choices is not None:
+                    reply = f'$(compgen -W "{" ".join(action.choices)}" -- "$word")'
 
                 buffer.write(f"      COMPREPLY=({reply})\n")
                 buffer.write( "      return\n")
