@@ -1,6 +1,7 @@
 from argparse import ArgumentParser, Action, HelpFormatter, ArgumentTypeError, SUPPRESS
 from pathlib import Path
 import sys
+import os
 
 from portablemc.standard import Context, VersionManifest
 from portablemc.auth import AuthDatabase
@@ -188,10 +189,16 @@ def register_show_arguments(parser: ArgumentParser) -> None:
 def register_show_completion_arguments(parser: ArgumentParser) -> None:
 
     register_common_help(parser)
-    arg_shell = parser.add_argument("--shell", default="zsh", choices=get_completion_shells(), help=_("args.show.completion.shell"))
 
-    for shell in get_completion_shells():
-        add_completion(arg_shell, shell, _(f"args.show.completion.shell.comp.{shell}"))
+    # The shell argument is only required if the shell cannot be determined.
+    shell_choices = get_completion_shells()
+    shell_default = os.getenv("SHELL")
+    if shell_default is not None and shell_default not in shell_choices:
+        shell_default = None
+    shell_arg = parser.add_argument("--shell", required=shell_default is None, default=shell_default, choices=shell_choices, help=_("args.show.completion.shell"))
+
+    for choice in shell_choices:
+        add_completion(shell_arg, choice, _(f"args.show.completion.shell.comp.{choice}"))
 
 
 def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
