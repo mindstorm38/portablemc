@@ -12,7 +12,9 @@ from pathlib import Path
 import socket
 import sys
 
-from .parse import register_arguments, RootNs, SearchNs, StartNs, LoginNs, LogoutNs, AuthBaseNs
+from .parse import register_arguments, RootNs, SearchNs, StartNs, LoginNs, LogoutNs, AuthBaseNs, ShowCompletionNs
+from .complete import gen_zsh_completion
+
 from .util import format_locale_date, format_time, format_number, anonymize_email
 from .output import Output, HumanOutput, MachineOutput, OutputTable
 from .lang import get as _, lang
@@ -70,6 +72,7 @@ def main(args: Optional[List[str]] = None):
     ns: RootNs = cast(RootNs, parser.parse_args(args or sys.argv[1:]))
 
     # Setup common objects in the namespace.
+    ns.parser = parser
     ns.out = get_output(ns.out_kind)
     ns.context = Context(ns.main_dir, ns.work_dir)
     ns.version_manifest = VersionManifest(ns.context.work_dir / MANIFEST_CACHE_FILE_NAME)
@@ -124,6 +127,7 @@ def get_command_handlers() -> CommandTree:
             "about": cmd_show_about,
             "auth": cmd_show_auth,
             "lang": cmd_show_lang,
+            "completion": cmd_show_completion,
         },
     }
 
@@ -310,7 +314,7 @@ def cmd_start(ns: StartNs):
     version.disable_chat = ns.disable_chat
     version.demo = ns.demo
     version.resolution = ns.resolution
-    version.jvm_path = None if ns.jvm is None else Path(ns.jvm)
+    version.jvm_path = ns.jvm
 
     if ns.server is not None:
         version.set_quick_play_multiplayer(ns.server, ns.server_port or 25565)
@@ -536,6 +540,16 @@ def cmd_show_lang(ns: RootNs):
         table.add(key, msg)
 
     table.print()
+
+
+def cmd_show_completion(ns: ShowCompletionNs):
+    
+    if ns.shell == "zsh":
+        content = gen_zsh_completion(ns.parser)
+    else:
+        raise RuntimeError
+    
+    print(content, end="")
 
 
 def prompt_authenticate(ns: AuthBaseNs, email: str, caching: bool, anonymise: bool = False) -> Optional[AuthSession]:
