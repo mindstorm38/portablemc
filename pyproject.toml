@@ -24,7 +24,6 @@ classifiers = [
 # version. See https://devguide.python.org/versions/
 python = ">=3.8"
 certifi = { version = "*", optional = true }
-argcomplete = { version = "^3.1.5", optional = true }
 
 [tool.poetry.group.test.dependencies]
 pytest = "*"
@@ -36,5 +35,3 @@ portablemc = "portablemc.cli:main"
 
 [tool.poetry.extras]
 certifi = ["certifi"]
-argcomplete = ["argcomplete"]
-
