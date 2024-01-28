@@ -13,7 +13,6 @@ import socket
 import sys
 
 from .parse import register_arguments, RootNs, SearchNs, StartNs, LoginNs, LogoutNs, AuthBaseNs, ShowCompletionNs
-from .complete import gen_zsh_completion
 
 from .util import format_locale_date, format_time, format_number, anonymize_email
 from .output import Output, HumanOutput, MachineOutput, OutputTable
@@ -543,8 +542,12 @@ def cmd_show_lang(ns: RootNs):
 
 def cmd_show_completion(ns: ShowCompletionNs):
     
+    from .complete import gen_zsh_completion, gen_bash_completion
+
     if ns.shell == "zsh":
         content = gen_zsh_completion(ns.parser)
+    elif ns.shell == "bash":
+        content = gen_bash_completion(ns.parser)
     else:
         raise RuntimeError
     
