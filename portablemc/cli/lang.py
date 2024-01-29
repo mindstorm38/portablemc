@@ -34,10 +34,11 @@ def get(key: str, **kwargs) -> str:
 
 lang = {
     # Args root
-    "args": "A fast, reliable and cross-platform command-line Minecraft launcher and API "
-        "for developers. This launcher is compatible with the official Minecraft "
-        "launcher's version specification. It also includes fast installation of "
-        "common mod loaders such as Fabric, Forge and Quilt.",
+    "args._": 
+        "  A fast, reliable and cross-platform command-line Minecraft launcher and API\n"
+        "  for developers. Including fast and easy installation of common mod loaders such\n"
+        "  as Fabric, Forge, NeoForge and Quilt. This launcher is compatible with the\n"
+        "  standard Minecraft directories.\n\n",
     "args.main_dir": "Set the main directory where libraries, assets and versions.",
     "args.work_dir": "Set the working directory where the game run and place for examples "
         "saves, screenshots (and resources for legacy versions), it also store "
@@ -47,7 +48,8 @@ lang = {
     "args.output.comp.human-color": "Human readable output with color.",
     "args.output.comp.human": "Human readable output.",
     "args.output.comp.machine": "Machine readable output.",
-    "args.verbose": "Enable verbose output. The more -v argument you put, the more verbose the launcher will be, depending on subcommands' support (usually -v, -vv, -vvv).",
+    "args.verbose": "Enable verbose output. The more -v argument you put, the more verbose "
+        "the launcher will be, depending on subcommands' support (usually -v, -vv, -vvv).",
     # Args common langs
     "args.common.help": "Show this help message and exit.",
     "args.common.auth_service": "Authentication service type to use for logging in the game.",
@@ -56,6 +58,15 @@ lang = {
     "args.common.auth_no_browser": "Prevent the authentication service to open your system's web browser.",
     # Args search
     "args.search": "Search for versions.",
+    "args.search._": 
+        "  Search for versions, by default this command will search for official Mojang version\n"
+        "  but you can change this behavior and search for local or mod loaders versions with the\n"
+        "  -k (--kind) argument. Note that the displayed table layout depends on the version kind.\n"
+        "  There is a special case when using version aliases 'release' or 'snapshot', in such case\n"
+        "  the version alias is resolved and the real version is displayed. If no filter is given,\n"
+        "  all results are displayed.\n\n"
+        "    $ portablemc search\n"
+        "    $ portablemc search release\n",
     "args.search.kind": "Select the kind of search to operate.",
     "args.search.kind.comp.mojang": "Search for official Mojang versions (default).",
     "args.search.kind.comp.local": "Search for locally installed versions.",
@@ -108,7 +119,8 @@ lang = {
     "args.start.auth_anonymize": "Anonymize your email or username for authentication messages.",
     "args.start.temp_login": "Flag used with -l (--login) to tell launcher not to cache your session if "
         "not already cached, disabled by default.",
-    "args.start.login": "Use a email (or deprecated username) to authenticate using selected service (with --auth-service, also overrides --username and --uuid).",
+    "args.start.login": "Use a email (or deprecated username) to authenticate using selected "
+        "service (with --auth-service, also overrides --username and --uuid).",
     "args.start.username": "Set a custom user name to play.",
     "args.start.uuid": "Set a custom user UUID to play.",
     "args.start.server": "Start the game and directly connect to a multiplayer server (>= 1.6).",
@@ -130,20 +142,20 @@ lang = {
         "  This command prints a shell completion script in the terminal.\n"
         "  The installation of this completion script depends on you shell and is explained below.\n\n"
         "  BASH:\n\n"
-        "    Completion files are commonly stored in /etc/bash_completion.d/ for system-wide commands,\n"
-        "    but can be stored in ~/.local/share/bash-completion/completions for user-specific commands.\n"
-        "    You can run the following commands to generate the file:\n\n"
-        "      $ mkdir -p ~/.local/share/bash-completion/completions\n"
-        "      $ portablemc show completion --shell bash > ~/.local/share/bash-completion/completions/portablemc\n\n"
-        "    You can also dynamically evaluate the script, but it may slow your shell startup:\n\n"
-        "      $ eval \"$(portablemc show completion --shell bash)\"\n\n"
+        "  Completion files are commonly stored in '/etc/bash_completion.d/' for system-wide commands,\n"
+        "  but can be stored in '~/.local/share/bash-completion/completions' for user-specific commands.\n"
+        "  You can run the following commands to generate the file:\n\n"
+        "    $ mkdir -p ~/.local/share/bash-completion/completions\n"
+        "    $ portablemc show completion --shell bash > ~/.local/share/bash-completion/completions/portablemc\n\n"
+        "  You can also dynamically evaluate the script, but it may slow your shell startup:\n\n"
+        "    $ eval \"$(portablemc show completion --shell bash)\"\n\n"
         "  ZSH:\n\n"
-        "    ZSH completions are commonly stored in any directory listed in your $fpath variable.\n"
-        "    To use these completions, you must either add the generated script to one of those\n"
-        "    directories, or add your own to this list. Once you chose a $fpath directory:\n\n"
-        "      $ portablemc show completion --shell zsh > your-dir/_portablemc\n\n"
-        "    You can also dynamically evaluate a script, but it may slow your shell startup:\n\n"
-        "      $ eval \"$(portablemc show completion --shell zsh-eval)\"\n\n",
+        "  Zsh completions are commonly stored in any directory listed in your '$fpath' variable.\n"
+        "  To use these completions, you must either add the generated script to one of those\n"
+        "  directories, or add your own to this list. Once you chose a '$fpath' directory:\n\n"
+        "    $ portablemc show completion --shell zsh > your-dir/_portablemc\n\n"
+        "  You can also dynamically evaluate a script, but it may slow your shell startup:\n\n"
+        "    $ eval \"$(portablemc show completion --shell zsh-eval)\"\n\n",
     "args.show.completion.shell": "The shell to generate completion script for (default to your current shell, required if not found).",
     "args.show.completion.shell.comp.bash": "Generate completion script for Bash.",
     "args.show.completion.shell.comp.zsh": "Generate completion script for Zsh.",
