@@ -1,4 +1,5 @@
-from argparse import ArgumentParser, Action, HelpFormatter, ArgumentTypeError, SUPPRESS
+from argparse import ArgumentParser, Action, SUPPRESS, \
+    HelpFormatter, RawDescriptionHelpFormatter, ArgumentTypeError
 from pathlib import Path
 import sys
 import os
@@ -110,11 +111,11 @@ def register_arguments() -> ArgumentParser:
 
 
 def register_subcommands(subparsers) -> None:
-    register_search_arguments(subparsers.add_parser("search", help=_("args.search"), add_help=False))
-    register_start_arguments(subparsers.add_parser("start", help=_("args.start"), add_help=False))
-    register_login_arguments(subparsers.add_parser("login", help=_("args.login"), add_help=False))
-    register_logout_arguments(subparsers.add_parser("logout", help=_("args.logout"), add_help=False))
-    register_show_arguments(subparsers.add_parser("show", help=_("args.show"), add_help=False))
+    register_search_arguments(subparsers.add_parser("search", help=_("args.search"), description=_("args.search"), add_help=False))
+    register_start_arguments(subparsers.add_parser("start", help=_("args.start"), description=_("args.start"), add_help=False))
+    register_login_arguments(subparsers.add_parser("login", help=_("args.login"), description=_("args.login"), add_help=False))
+    register_logout_arguments(subparsers.add_parser("logout", help=_("args.logout"), description=_("args.logout"), add_help=False))
+    register_show_arguments(subparsers.add_parser("show", help=_("args.show"), description=_("args.show"), add_help=False))
 
 
 def register_search_arguments(parser: ArgumentParser) -> None:
@@ -188,6 +189,7 @@ def register_show_arguments(parser: ArgumentParser) -> None:
 
 def register_show_completion_arguments(parser: ArgumentParser) -> None:
 
+    parser.description = _("args.show.completion._")
     register_common_help(parser)
 
     # The shell argument is only required if the shell cannot be determined.
@@ -203,7 +205,7 @@ def register_show_completion_arguments(parser: ArgumentParser) -> None:
 
 def new_help_formatter_class(max_help_position: int) -> Type[HelpFormatter]:
 
-    class CustomHelpFormatter(HelpFormatter):
+    class CustomHelpFormatter(RawDescriptionHelpFormatter):
         def __init__(self, prog):
             super().__init__(prog, max_help_position=max_help_position)
 
