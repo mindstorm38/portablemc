@@ -3,9 +3,9 @@ A fast, reliable and cross-platform command-line Minecraft launcher and API for 
 This launcher is compatible with the official Minecraft launcher's version specification.
 It also includes fast installation of common mod loaders such as Fabric, Forge and Quilt.
 
-![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square)
+[![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square)](https://pypi.org/project/portablemc/)
 
-![illustration](doc/illustration.png)
+![illustration](https://github.com/mindstorm38/portablemc/blob/main/doc/illustration.png)
 
 *This launcher is tested for Python 3.8, 3.9, 3.10, 3.11, 3.12.*
 
@@ -28,7 +28,7 @@ It also includes fast installation of common mod loaders such as Fabric, Forge a
   - [Setup environment](#setup-environment)
   - [Contributors](#contributors)
   - [Sponsors](#sponsors)
-- [API Documentation (v4) ⇗](doc/API.md)
+- [API Documentation (v4) ⇗](https://github.com/mindstorm38/portablemc/blob/main/doc/API.md)
 
 ## Installation
 This launcher can be installed using `pip`.  On some linux distribution you might have to 
