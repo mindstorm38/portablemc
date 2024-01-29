@@ -1,7 +1,7 @@
 # Portable Minecraft Launcher
 A fast, reliable and cross-platform command-line Minecraft launcher and API for developers.
-This launcher is compatible with the official Minecraft launcher's version specification.
-It also includes fast installation of common mod loaders such as Fabric, Forge and Quilt.
+Including fast and easy installation of common mod loaders such as Fabric, Forge, NeoForge and Quilt.
+This launcher is compatible with the standard Minecraft directories. 
 
 [![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square)](https://pypi.org/project/portablemc/)
 

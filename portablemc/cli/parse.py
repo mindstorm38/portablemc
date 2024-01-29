@@ -91,7 +91,7 @@ def register_common_auth_service(parser: ArgumentParser) -> None:
 
 def register_arguments() -> ArgumentParser:
 
-    parser = ArgumentParser(allow_abbrev=False, prog="portablemc", description=_("args"), add_help=False)
+    parser = ArgumentParser(allow_abbrev=False, prog="portablemc", description=_("args._"), add_help=False)
     register_common_help(parser)
     
     parser.add_argument("--main-dir", help=_("args.main_dir"), type=type_path_dir)
@@ -111,15 +111,16 @@ def register_arguments() -> ArgumentParser:
 
 
 def register_subcommands(subparsers) -> None:
-    register_search_arguments(subparsers.add_parser("search", help=_("args.search"), description=_("args.search"), add_help=False))
-    register_start_arguments(subparsers.add_parser("start", help=_("args.start"), description=_("args.start"), add_help=False))
-    register_login_arguments(subparsers.add_parser("login", help=_("args.login"), description=_("args.login"), add_help=False))
-    register_logout_arguments(subparsers.add_parser("logout", help=_("args.logout"), description=_("args.logout"), add_help=False))
-    register_show_arguments(subparsers.add_parser("show", help=_("args.show"), description=_("args.show"), add_help=False))
+    register_search_arguments(subparsers.add_parser("search", help=_("args.search"), add_help=False))
+    register_start_arguments(subparsers.add_parser("start", help=_("args.start"), add_help=False))
+    register_login_arguments(subparsers.add_parser("login", help=_("args.login"), add_help=False))
+    register_logout_arguments(subparsers.add_parser("logout", help=_("args.logout"), add_help=False))
+    register_show_arguments(subparsers.add_parser("show", help=_("args.show"), add_help=False))
 
 
 def register_search_arguments(parser: ArgumentParser) -> None:
     
+    parser.description = _("args.search._")
     register_common_help(parser)
 
     kind_choices = get_search_kinds()
