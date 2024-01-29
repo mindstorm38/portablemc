@@ -55,7 +55,7 @@ lang = {
     "args.common.auth_service.comp.yggdrasil": "Mojang authentication (deprecated).",
     "args.common.auth_no_browser": "Prevent the authentication service to open your system's web browser.",
     # Args search
-    "args.search": "Search for Minecraft versions.",
+    "args.search": "Search for versions.",
     "args.search.kind": "Select the kind of search to operate.",
     "args.search.kind.comp.mojang": "Search for official Mojang versions (default).",
     "args.search.kind.comp.local": "Search for locally installed versions.",
@@ -66,7 +66,7 @@ lang = {
     "args.search.input.comp.release": "Resolve version of the latest release.",
     "args.search.input.comp.snapshot": "Resolve version of the latest snapshot.",
     # Args start
-    "args.start": "Start a Minecraft version.",
+    "args.start": "Start the game.",
     "args.start.version": "Version identifier (default to release): {formats}.",
     "args.start.version.standard": "release|snapshot|<vanilla-version>",
     "args.start.version.fabric": "fabric:[<vanilla-version>[:<loader-version>]]",
@@ -120,14 +120,34 @@ lang = {
     "args.logout": "Logout and invalidate a session.",
     "args.logout.microsoft": "Logout from a Microsoft account.",
     # Args show
-    "args.show": "Show and debug various data.",
+    "args.show": "Show, debug and generate data unrelated to the game.",
     "args.show.about": "Display authors, version and license of PortableMC.",
     "args.show.auth": "Debug the authentication database and supported services.",
     "args.show.lang": "Debug the language mappings used for messages translation.",
     "args.show.completion": "Print a shell completion script.",
-    "args.show.completion.shell": "The shell to generate completion script for (default to your current shell).",
-    "args.show.completion.shell.comp.zsh": "Generate completion script for Zsh.",
+    "args.show.completion._": 
+        # Part of this description are from 'rustup' completion description.
+        "  This command prints a shell completion script in the terminal.\n"
+        "  The installation of this completion script depends on you shell and is explained below.\n\n"
+        "  BASH:\n\n"
+        "    Completion files are commonly stored in /etc/bash_completion.d/ for system-wide commands,\n"
+        "    but can be stored in ~/.local/share/bash-completion/completions for user-specific commands.\n"
+        "    You can run the following commands to generate the file:\n\n"
+        "      $ mkdir -p ~/.local/share/bash-completion/completions\n"
+        "      $ portablemc show completion --shell bash > ~/.local/share/bash-completion/completions/portablemc\n\n"
+        "    You can also dynamically evaluate the script, but it may slow your shell startup:\n\n"
+        "      $ eval \"$(portablemc show completion --shell bash)\"\n\n"
+        "  ZSH:\n\n"
+        "    ZSH completions are commonly stored in any directory listed in your $fpath variable.\n"
+        "    To use these completions, you must either add the generated script to one of those\n"
+        "    directories, or add your own to this list. Once you chose a $fpath directory:\n\n"
+        "      $ portablemc show completion --shell zsh > your-dir/_portablemc\n\n"
+        "    You can also dynamically evaluate a script, but it may slow your shell startup:\n\n"
+        "      $ eval \"$(portablemc show completion --shell zsh-eval)\"\n\n",
+    "args.show.completion.shell": "The shell to generate completion script for (default to your current shell, required if not found).",
     "args.show.completion.shell.comp.bash": "Generate completion script for Bash.",
+    "args.show.completion.shell.comp.zsh": "Generate completion script for Zsh.",
+    "args.show.completion.shell.comp.zsh-eval": "Generate completion script for Zsh to inline (eval).",
     # Common
     "echo": "{echo}",
     "cancelled": "Cancelled.",
