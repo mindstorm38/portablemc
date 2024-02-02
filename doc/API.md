@@ -3,7 +3,7 @@ This page documents the public API of the launcher. This launcher
 library provides high flexibility for launching Minecraft in many
 environments.
 
-Documented version: `4.0.0`.
+Documented version: `4.2.0`.
 
 ## Table of contents
 - [File structure](#file-structure)

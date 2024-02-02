@@ -28,7 +28,7 @@ This launcher is compatible with the standard Minecraft directories.
   - [Setup environment](#setup-environment)
   - [Contributors](#contributors)
   - [Sponsors](#sponsors)
-- [API Documentation (v4) ⇗](https://github.com/mindstorm38/portablemc/blob/main/doc/API.md)
+- [API Documentation (v4.2) ⇗](https://github.com/mindstorm38/portablemc/blob/main/doc/API.md)
 
 ## Installation
 This launcher can be installed using `pip`.  On some linux distribution you might have to 
