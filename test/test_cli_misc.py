@@ -35,14 +35,6 @@ def test_anonymise_email():
     assert anonymize_email("foo.bar@baz.com") == "f*****r@b*z.com"
 
 
-def test_register_arguments():
-
-    from portablemc.cli import register_arguments
-
-    # Ensure that the arguments registering successfully works.
-    register_arguments()
-
-
 def test_library_specifier_filter():
     
     from portablemc.cli.util import LibrarySpecifierFilter
@@ -78,3 +70,15 @@ def test_library_specifier_filter():
     assert not LibrarySpecifierFilter("baz", "0.2.0", "natives-windows-x86").matches(spec_classified)
     assert not LibrarySpecifierFilter("baz", "0.1.0", "windows").matches(spec)
     assert not LibrarySpecifierFilter("baz", "0.1.0", "windows").matches(spec_classified)
+
+
+def test_parser_and_completion():
+
+    from portablemc.cli.complete import gen_zsh_completion, gen_bash_completion
+    from portablemc.cli import register_arguments
+
+    # Ensure that the arguments registering successfully works.
+    args = register_arguments()
+    # Just check that it doesn't crash.
+    gen_zsh_completion(args)
+    gen_bash_completion(args)
