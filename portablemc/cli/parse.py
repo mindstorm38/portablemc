@@ -195,10 +195,7 @@ def register_show_completion_arguments(parser: ArgumentParser) -> None:
 
     # The shell argument is only required if the shell cannot be determined.
     shell_choices = get_completion_shells()
-    shell_default = os.getenv("SHELL")
-    if shell_default is not None and shell_default not in shell_choices:
-        shell_default = None
-    shell_arg = parser.add_argument("--shell", required=shell_default is None, default=shell_default, choices=shell_choices, help=_("args.show.completion.shell"))
+    shell_arg = parser.add_argument("shell", choices=shell_choices, help=_("args.show.completion.shell"))
 
     for choice in shell_choices:
         add_completion(shell_arg, choice, _(f"args.show.completion.shell.comp.{choice}"))
