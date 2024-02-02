@@ -127,10 +127,8 @@ lang = {
     "args.start.server_port": "Set the server port (given with -s, --server, >= 1.6).",
     # Args login
     "args.login": "Login into your account and save the session.",
-    "args.login.microsoft": "Login using Microsoft account.",
     # Args logout
     "args.logout": "Logout and invalidate a session.",
-    "args.logout.microsoft": "Logout from a Microsoft account.",
     # Args show
     "args.show": "Show, debug and generate data unrelated to the game.",
     "args.show.about": "Display authors, version and license of PortableMC.",
