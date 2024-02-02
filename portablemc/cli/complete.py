@@ -10,15 +10,15 @@ from .parse import type_path, type_path_dir, \
 from typing import Dict, Tuple, cast
 
 
-def gen_zsh_completion(parser: ArgumentParser, evaluated: bool) -> str:
+def gen_zsh_completion(parser: ArgumentParser) -> str:
     buffer = StringIO()
-    if not evaluated:
-        buffer.write("#compdef portablemc\n\n")
+    buffer.write("#compdef portablemc\n\n")
     gen_zsh_parser_completion(parser, buffer, "_portablemc")
-    if not evaluated:
-        buffer.write("_portablemc\n")
-    else:
-        buffer.write("compdef _portablemc portablemc\n")
+    buffer.write("if [[ $zsh_eval_context[-1] == loadautofunc ]]; then\n")
+    buffer.write("  _portablemc\n")
+    buffer.write("else\n")
+    buffer.write("  compdef _portablemc portablemc\n")
+    buffer.write("fi\n")
     return buffer.getvalue()
 
 def gen_zsh_parser_completion(parser: ArgumentParser, buffer: StringIO, function: str):

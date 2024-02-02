@@ -146,20 +146,19 @@ lang = {
         "  but can be stored in '~/.local/share/bash-completion/completions' for user-specific commands.\n"
         "  You can run the following commands to generate the file:\n\n"
         "    $ mkdir -p ~/.local/share/bash-completion/completions\n"
-        "    $ portablemc show completion --shell bash > ~/.local/share/bash-completion/completions/portablemc\n\n"
+        "    $ portablemc show completion bash > ~/.local/share/bash-completion/completions/portablemc\n\n"
         "  You can also dynamically evaluate the script, but it may slow your shell startup:\n\n"
-        "    $ eval \"$(portablemc show completion --shell bash)\"\n\n"
+        "    $ eval \"$(portablemc show completion bash)\"\n\n"
         "  ZSH:\n\n"
         "  Zsh completions are commonly stored in any directory listed in your '$fpath' variable.\n"
         "  To use these completions, you must either add the generated script to one of those\n"
         "  directories, or add your own to this list. Once you chose a '$fpath' directory:\n\n"
-        "    $ portablemc show completion --shell zsh > your-dir/_portablemc\n\n"
+        "    $ portablemc show completion zsh > your-dir/_portablemc\n\n"
         "  You can also dynamically evaluate a script, but it may slow your shell startup:\n\n"
-        "    $ eval \"$(portablemc show completion --shell zsh-eval)\"\n\n",
+        "    $ eval \"$(portablemc show completion zsh)\"\n\n",
     "args.show.completion.shell": "The shell to generate completion script for (default to your current shell, required if not found).",
     "args.show.completion.shell.comp.bash": "Generate completion script for Bash.",
     "args.show.completion.shell.comp.zsh": "Generate completion script for Zsh.",
-    "args.show.completion.shell.comp.zsh-eval": "Generate completion script for Zsh to inline (eval).",
     # Common
     "echo": "{echo}",
     "cancelled": "Cancelled.",

@@ -220,7 +220,7 @@ def get_auth_services() -> List[str]:
     return ["microsoft", "yggdrasil"]
 
 def get_completion_shells() -> List[str]:
-    return ["bash", "zsh", "zsh-eval"]
+    return ["bash", "zsh"]
 
 
 def type_path(s: str) -> Path:

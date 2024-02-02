@@ -545,9 +545,7 @@ def cmd_show_completion(ns: ShowCompletionNs):
     from .complete import gen_zsh_completion, gen_bash_completion
 
     if ns.shell == "zsh":
-        content = gen_zsh_completion(ns.parser, False)
-    elif ns.shell == "zsh-eval":
-        content = gen_zsh_completion(ns.parser, True)
+        content = gen_zsh_completion(ns.parser)
     elif ns.shell == "bash":
         content = gen_bash_completion(ns.parser)
     else:
