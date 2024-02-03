@@ -11,6 +11,8 @@ This launcher is compatible with the standard Minecraft directories.
 
 ## Table of contents
 - [Installation](#installation)
+  - [With pip](#with-pip)
+  - [With Arch Linux](#with-arch-linux)
 - [Commands](#commands)
   - [Start Minecraft](#start-minecraft)
     - [Authentication](#authentication)
@@ -22,6 +24,7 @@ This launcher is compatible with the standard Minecraft directories.
     - [Miscellaneous](#miscellaneous)
   - [Search for versions](#search-for-versions)
   - [Authentication sessions](#authentication-sessions)
+  - [Shell completion](#shell-completion)
 - [Offline support](#offline-support)
 - [Certifi support](#certifi-support)
 - [Contribute](#contribute)
@@ -31,6 +34,9 @@ This launcher is compatible with the standard Minecraft directories.
 - [API Documentation (v4.2) ⇗](https://github.com/mindstorm38/portablemc/blob/main/doc/API.md)
 
 ## Installation
+
+### With pip
+
 This launcher can be installed using `pip`.  On some linux distribution you might have to 
 use `pip3` instead of `pip` in order to run it on Python 3. You can also use 
 `python -m pip` if the `pip` command is not in the path and the python executable is.
@@ -48,6 +54,12 @@ terminal. If it fails, you should check that the scripts directory is in your us
 environment variable. On Windows you have to search for a directory at 
 `%appdata%/Python/Python3X/Scripts` and add it to the user's environment variable `Path`. 
 On UNIX systems it's `~/.local/bin`.
+
+### With Arch Linux
+
+For Arch Linus users, the package is available as `portablemc` in the 
+[AUR](https://aur.archlinux.org/packages/portablemc).
+*This is currently maintained by Maks Jopek, Thanks!*
 
 ## Commands
 Arguments are split between multiple commands. 
@@ -256,6 +268,16 @@ you need to log into an old Mojang account (being phased out by Mojang).
 
 **Your password is not saved!** Only tokens are saved *(the official launcher also does 
 that)* in the file `portablemc_auth.json` in the working directory.
+
+### Shell completion
+The launcher can generate shell completions scripts for Bash and Zsh shells through the
+`portablemc show completion {bash,zsh}` command. If you need precise explanation on how
+to install the completions, read this command's help message. **This command needs to be
+re-run for every new version of the launcher**, you're not affected if you directly eval
+the result.
+
+*Note that Zsh completion scripts can be used both as an auto-load script and as
+evaluated one.*
 
 ## Offline support
 This launcher can be used without internet access under certain conditions. Launching
