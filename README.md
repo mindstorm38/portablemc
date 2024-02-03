@@ -42,12 +42,8 @@ use `pip3` instead of `pip` in order to run it on Python 3. You can also use
 `python -m pip` if the `pip` command is not in the path and the python executable is.
 
 ```sh
-pip install --user portablemc
+pip install --user portablemc[certifi]
 ```
-
-It's recommended to keep `--user` because this installs the launcher for your
-current user only, it is implicit if you are not an administrator and if you are, it 
-allows not to modify other users' installations.
 
 After that, you can try to show the launcher help message using `portablemc` in your 
 terminal. If it fails, you should check that the scripts directory is in your user path
@@ -55,9 +51,17 @@ environment variable. On Windows you have to search for a directory at
 `%appdata%/Python/Python3X/Scripts` and add it to the user's environment variable `Path`. 
 On UNIX systems it's `~/.local/bin`.
 
+You can opt-out from the `certifi` optional feature if you don't want to depend on it,
+learn more in the [Certifi support](#certifi-support) section.
+
+> [!TIP]
+> It's recommended to keep `--user` because this installs the launcher for your current 
+> user only and does not pollute other's environments, it is implicit if you are not an 
+> administrator and if you are, it allows not to modify other users' installations.
+
 ### With Arch Linux
 
-For Arch Linus users, the package is available as `portablemc` in the 
+For Arch Linux users, the package is available as `portablemc` in the 
 [AUR](https://aur.archlinux.org/packages/portablemc).
 *This is currently maintained by Maks Jopek, Thanks!*
 
@@ -231,8 +235,10 @@ these are discarded in the bin directory, for example
 These arguments can be used together to fix various issues (e.g. wrong libc being linked
 by the LWJGL-provided natives).
 
-*Note that these arguments are compatible with, and executed after the `--lwjgl` argument.
-You must however ensure that excluded lib and included binaries are compatible.*
+> [!NOTE]
+> Note that these arguments are compatible with, and executed after the `--lwjgl` 
+> argument. You must however ensure that excluded lib and included binaries are 
+> compatible.
 
 #### Miscellaneous
 With `--dry`, the start command does not start the game, but simply installs it.
