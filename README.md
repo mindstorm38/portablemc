@@ -3,7 +3,7 @@ A fast, reliable and cross-platform command-line Minecraft launcher and API for 
 Including fast and easy installation of common mod loaders such as Fabric, Forge, NeoForge and Quilt.
 This launcher is compatible with the standard Minecraft directories. 
 
-[![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square) &nbsp;![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square)](https://pypi.org/project/portablemc/)
+[![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square)![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square)](https://pypi.org/project/portablemc/)
 
 ![illustration](https://github.com/mindstorm38/portablemc/blob/main/doc/illustration.png)
 
@@ -63,6 +63,7 @@ learn more in the [Certifi support](#certifi-support) section.
 
 For Arch Linux users, the package is available as `portablemc` in the 
 [AUR](https://aur.archlinux.org/packages/portablemc).
+
 *This is currently maintained by Maks Jopek, Thanks!*
 
 ## Commands
