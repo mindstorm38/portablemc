@@ -36,7 +36,20 @@ class FabricApi:
 
 FABRIC_API = FabricApi("fabric", "https://meta.fabricmc.net/v2/")
 QUILT_API = FabricApi("quilt", "https://meta.quiltmc.org/v3/")
-
+LEGACYFABRIC_API = FabricApi("legacyfabric", "https://meta.legacyfabric.net/v2/")
+LEGACYFABRIC_VERSIONS = [
+    "1.13.2",
+    "1.12.2",
+    "1.11.2",
+    "1.10.2",
+    "1.9.4",
+    "1.8.9",
+    "1.7.10",
+    "1.6.4",
+    "1.5.2",
+    "1.4.7",
+    "1.3.2"
+]
 
 class FabricVersion(Version):
 
@@ -59,7 +72,8 @@ class FabricVersion(Version):
     ) -> "FabricVersion":
         """Construct a root for resolving a Fabric version.
         """
-        return cls(FABRIC_API, vanilla_version, loader_version, prefix, context=context)
+        return cls(FABRIC_API if vanilla_version not in LEGACYFABRIC_VERSIONS else LEGACYFABRIC_API,
+                   vanilla_version, loader_version, prefix, context=context)
 
     @classmethod
     def with_quilt(cls, vanilla_version: str = "release", loader_version: Optional[str] = None, *,
