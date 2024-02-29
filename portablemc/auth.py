@@ -337,7 +337,7 @@ class MicrosoftAuthSession(AuthSession):
                 raise OutdatedTokenError()
             else:
                 res = error.res.json()
-                raise AuthError(res.get("errorMessage", res.get("error", "Unknown error")))
+                raise AuthError(res.get("errorMessage", res.get("error", "unknown error")))
 
         return {
             "refresh_token": ms_refresh_token,
@@ -465,7 +465,9 @@ class AuthError(Exception):
     pass
 
 class DoesNotOwnMinecraftError(AuthError):
-    pass
+    def __init__(self) -> None:
+        super().__init__("does not own minecraft")
 
 class OutdatedTokenError(AuthError):
-    pass
+    def __init__(self) -> None:
+        super().__init__("outdated token")
