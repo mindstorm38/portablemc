@@ -37,7 +37,7 @@ lang = {
     "args._": 
         "  A fast, reliable and cross-platform command-line Minecraft launcher and API\n"
         "  for developers. Including fast and easy installation of common mod loaders such\n"
-        "  as Fabric, Forge, NeoForge and Quilt. This launcher is compatible with the\n"
+        "  as Fabric, LegacyFabric, Forge, NeoForge and Quilt. This launcher is compatible with the\n"
         "  standard Minecraft directories.\n\n",
     "args.main_dir": "Set the main directory where libraries, assets and versions.",
     "args.work_dir": "Set the working directory where the game run and place for examples "
@@ -72,6 +72,7 @@ lang = {
     "args.search.kind.comp.local": "Search for locally installed versions.",
     "args.search.kind.comp.forge": "Search for Forge versions.",
     "args.search.kind.comp.fabric": "Search for Fabric versions.",
+    "args.search.kind.comp.legacyfabric": "Search for LegacyFabric versions.",
     "args.search.kind.comp.quilt": "Search for Quilt versions.",
     "args.search.input": "Search input.",
     "args.search.input.comp.release": "Resolve version of the latest release.",
@@ -81,12 +82,14 @@ lang = {
     "args.start.version": "Version identifier (default to release): {formats}.",
     "args.start.version.standard": "release|snapshot|<vanilla-version>",
     "args.start.version.fabric": "fabric:[<vanilla-version>[:<loader-version>]]",
+    "args.start.version.legacyfabric": "legacyfabric:[<vanilla-version>[:<loader-version>]]",
     "args.start.version.quilt": "quilt:[<vanilla-version>[:<loader-version>]]",
     "args.start.version.forge": "forge:[<forge-version>] (forge-version >= 1.5.2)",
     "args.start.version.neoforge": "neoforge:[<neoforge-version>] (neoforge-version >= 1.20.1)",
     "args.start.version.comp.release": "Start the latest release (default).",
     "args.start.version.comp.snapshot": "Start the latest snapshot.",
     "args.start.version.comp.fabric": "Start Fabric mod loader with latest release.",
+    "args.start.version.comp.legacyfabric": "Start LegacyFabric mod loader with latest release.",
     "args.start.version.comp.quilt": "Start Quilt mod loader with latest release.",
     "args.start.version.comp.forge": "Start Forge mod loader with latest release.",
     "args.start.version.comp.neoforge": "Start NeoForge mod loader with latest release.",
@@ -102,6 +105,7 @@ lang = {
     "args.start.no_fix": "Flag that globally disable fixes (proxy for old versions), "
         "enabled by default.",
     "args.start.fabric_prefix": "Change the prefix of the version ID when starting with Fabric (<prefix>-<vanilla-version>-<loader-version>).",
+    "args.start.legacyfabric_prefix": "Change the prefix of the version ID when starting with LegacyFabric (<prefix>-<vanilla-version>-<loader-version>).",
     "args.start.quilt_prefix": "Change the prefix of the version ID when starting with Quilt (<prefix>-<vanilla-version>-<loader-version>).",
     "args.start.forge_prefix": "Change the prefix of the version ID when starting with Forge (<prefix>-<forge-version>).",
     "args.start.neoforge_prefix": "Change the prefix of the version ID when starting with NeoForge (<prefix>-<neoforge-version>).",
@@ -168,6 +172,7 @@ lang = {
     "error.socket": "This operation requires an operational network, but a socket error happened:",
     "error.socket.tip.version_manifest": "Version manifest may not be locally cached, try to run this command once with an operational network.",
     "error.socket.tip.fabric_loader_version": "Fabric loader version must be specified if network is not operational.",
+    "error.socket.tip.legacyfabric_loader_version": "Fabric loader version must be specified if network is not operational.",
     "error.socket.tip.quilt_loader_version": "Quilt loader version must be specified if network is not operational.",
     "error.cert": "Certificate verification failed, you can try installing 'certifi' package:",
     # Command search
