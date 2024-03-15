@@ -273,14 +273,19 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
             if search is None or search in alias:
                 table.add(alias, version)
 
-    elif kind in ("fabric", "quilt"):
+    elif kind in ("fabric", "quilt", "legacyfabric"):
 
-        from ..fabric import FABRIC_API, QUILT_API
+        from ..fabric import FABRIC_API, QUILT_API, LEGACYFABRIC_API
 
         table.add(_("search.loader_version"))
         table.separator()
 
-        api = FABRIC_API if kind == "fabric" else QUILT_API
+        if kind == "fabric":
+            api = FABRIC_API()
+        elif kind == "quilt":
+            api = QUILT_API()
+        else:
+            api = LEGACYFABRIC_API()
         for version in api.request_fabric_loader_versions():
             if search is None or search in version:
                 table.add(version)
@@ -445,10 +450,15 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
             return None
         return Version(version, context=ns.context)
     
-    elif kind in ("fabric", "quilt"):
+    elif kind in ("fabric", "quilt", "legacyfabric"):
         if len(parts) > 2:
             return None
-        constructor = FabricVersion.with_fabric if kind == "fabric" else FabricVersion.with_quilt
+        if kind == "fabric":
+            constructor = FabricVersion.with_fabric
+        elif kind == "quilt":
+            constructor = FabricVersion.with_quilt
+        else:
+            constructor = FabricVersion._with_legacyfabric
         prefix = ns.fabric_prefix if kind == "fabric" else ns.quilt_prefix
         if len(parts) != 2:
             ns.socket_error_tips.append(f"{kind}_loader_version")
