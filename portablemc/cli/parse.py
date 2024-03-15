@@ -145,6 +145,7 @@ def register_start_arguments(parser: ArgumentParser) -> None:
     parser.add_argument("--no-fix", help=_("args.start.no_fix"), action="store_true")
     parser.add_argument("--fabric-prefix", help=_("args.start.fabric_prefix"), default="fabric", metavar="PREFIX")
     parser.add_argument("--quilt-prefix", help=_("args.start.quilt_prefix"), default="quilt", metavar="PREFIX")
+    parser.add_argument("--legacyfabric-prefix", help=_("args.start.legacyfabric_prefix"), default="legacyfabric", metavar="PREFIX")
     parser.add_argument("--forge-prefix", help=_("args.start.forge_prefix"), default="forge", metavar="PREFIX")
     parser.add_argument("--neoforge-prefix", help=_("args.start.neoforge_prefix"), default="neoforge", metavar="PREFIX")
     parser.add_argument("--lwjgl", help=_("args.start.lwjgl"))
@@ -159,10 +160,10 @@ def register_start_arguments(parser: ArgumentParser) -> None:
     parser.add_argument("-s", "--server", help=_("args.start.server"), type=type_host)
     parser.add_argument("-p", "--server-port", help=_("args.start.server_port"), metavar="PORT")
 
-    version_arg = parser.add_argument("version", nargs="?", default="release", help=_("args.start.version", formats=", ".join(map(lambda s: _(f"args.start.version.{s}"), ("standard", "fabric", "quilt", "forge", "neoforge")))))
+    version_arg = parser.add_argument("version", nargs="?", default="release", help=_("args.start.version", formats=", ".join(map(lambda s: _(f"args.start.version.{s}"), ("standard", "fabric", "quilt", "legacyfabric", "forge", "neoforge")))))
     for standard in ("release", "snapshot"):
         add_completion(version_arg, standard, _(f"args.start.version.comp.{standard}"))
-    for loader in ("fabric", "quilt", "forge", "neoforge"):
+    for loader in ("fabric", "quilt", "legacyfabric", "forge", "neoforge"):
         add_completion(version_arg, f"{loader}:", _(f"args.start.version.comp.{loader}"))
 
 

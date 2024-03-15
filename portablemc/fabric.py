@@ -16,7 +16,7 @@ class FabricApi:
     def __init__(self, name: str, api_url: str) -> None:
         self.name = name
         self.api_url = api_url
-    
+
     def request_fabric_meta(self, method: str) -> Any:
         """Generic HTTP request to the fabric's REST API.
         """
@@ -37,27 +37,15 @@ class FabricApi:
 FABRIC_API = FabricApi("fabric", "https://meta.fabricmc.net/v2/")
 QUILT_API = FabricApi("quilt", "https://meta.quiltmc.org/v3/")
 LEGACYFABRIC_API = FabricApi("legacyfabric", "https://meta.legacyfabric.net/v2/")
-LEGACYFABRIC_VERSIONS = [
-    "1.13.2",
-    "1.12.2",
-    "1.11.2",
-    "1.10.2",
-    "1.9.4",
-    "1.8.9",
-    "1.7.10",
-    "1.6.4",
-    "1.5.2",
-    "1.4.7",
-    "1.3.2"
-]
+
 
 class FabricVersion(Version):
 
-    def __init__(self, api: FabricApi, vanilla_version: str, loader_version: Optional[str], 
-        prefix: str, *,
-        context: Optional[Context] = None,
-    ) -> None:
-        
+    def __init__(self, api: FabricApi, vanilla_version: str, loader_version: Optional[str],
+                 prefix: str, *,
+                 context: Optional[Context] = None,
+                 ) -> None:
+
         super().__init__("", context=context)  # Do not give a root version for now.
 
         self.api = api
@@ -67,28 +55,35 @@ class FabricVersion(Version):
 
     @classmethod
     def with_fabric(cls, vanilla_version: str = "release", loader_version: Optional[str] = None, *,
-        context: Optional[Context] = None, 
-        prefix: str = "fabric"
-    ) -> "FabricVersion":
+                    context: Optional[Context] = None,
+                    prefix: str = "fabric"
+                    ) -> "FabricVersion":
         """Construct a root for resolving a Fabric version.
         """
-        return cls(FABRIC_API if vanilla_version not in LEGACYFABRIC_VERSIONS else LEGACYFABRIC_API,
-                   vanilla_version, loader_version, prefix, context=context)
+        return cls(FABRIC_API, vanilla_version, loader_version, prefix, context=context)
 
     @classmethod
     def with_quilt(cls, vanilla_version: str = "release", loader_version: Optional[str] = None, *,
-        context: Optional[Context] = None,
-        prefix: str = "quilt"
-    ) -> "FabricVersion":
+                   context: Optional[Context] = None,
+                   prefix: str = "quilt"
+                   ) -> "FabricVersion":
         """Construct a root for resolving a Quilt version.
         """
         return cls(QUILT_API, vanilla_version, loader_version, prefix, context=context)
+
+    @classmethod
+    def _with_legacyfabric(cls, vanilla_version: str = "release", loader_version: Optional[str] = None, *,
+                           context: Optional[Context] = None,
+                           prefix="legacyfabric"
+                           ) -> "FabricVersion":
+        """Construct a root for resolving a LegacyFabric version"""
+        return cls(LEGACYFABRIC_API, vanilla_version, loader_version, prefix, context=context)
 
     def _resolve_version(self, watcher: Watcher) -> None:
 
         # Vanilla version may be "release" or "snapshot"
         self.vanilla_version = self.manifest.filter_latest(self.vanilla_version)[0]
-        
+
         # Resolve loader version if not specified.
         if self.loader_version is None:
 
@@ -100,13 +95,13 @@ class FabricVersion(Version):
                 if error.res.status not in (404, 400):
                     raise
                 self.loader_version = None
-            
+
             if self.loader_version is None:
                 # Correct error if the error is just a not found.
                 raise VersionNotFoundError(f"{self.prefix}-{self.vanilla_version}-???")
 
             watcher.handle(FabricResolveEvent(self.api, self.vanilla_version, self.loader_version))
-        
+
         # Finally define the full version id.
         self.version = f"{self.prefix}-{self.vanilla_version}-{self.loader_version}"
 
@@ -120,9 +115,9 @@ class FabricVersion(Version):
 
         if version.id != self.version:
             return super()._fetch_version(version, watcher)
-        
+
         assert self.loader_version is not None, "_resolve_fabric_loader(...) missing"
-        
+
         try:
             version.metadata = self.api.request_version_loader_profile(self.vanilla_version, self.loader_version)
         except HttpError as error:
@@ -130,7 +125,7 @@ class FabricVersion(Version):
                 raise
             # Correct error if the error is just a not found.
             raise VersionNotFoundError(version.id)
-            
+
         version.metadata["id"] = version.id
         version.write_metadata_file()
 
@@ -139,6 +134,7 @@ class FabricResolveEvent:
     """Event triggered when the loader version is missing and is being resolved.
     """
     __slots__ = "api", "vanilla_version", "loader_version"
+
     def __init__(self, api: FabricApi, vanilla_version: str, loader_version: Optional[str]) -> None:
         self.api = api
         self.vanilla_version = vanilla_version
