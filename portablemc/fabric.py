@@ -42,9 +42,9 @@ LEGACYFABRIC_API = FabricApi("legacyfabric", "https://meta.legacyfabric.net/v2/"
 class FabricVersion(Version):
 
     def __init__(self, api: FabricApi, vanilla_version: str, loader_version: Optional[str],
-                 prefix: str, *,
-                 context: Optional[Context] = None,
-                 ) -> None:
+        prefix: str, *,
+        context: Optional[Context] = None,
+    ) -> None:
 
         super().__init__("", context=context)  # Do not give a root version for now.
 
@@ -55,18 +55,18 @@ class FabricVersion(Version):
 
     @classmethod
     def with_fabric(cls, vanilla_version: str = "release", loader_version: Optional[str] = None, *,
-                    context: Optional[Context] = None,
-                    prefix: str = "fabric"
-                    ) -> "FabricVersion":
+        context: Optional[Context] = None,
+        prefix: str = "fabric"
+    ) -> "FabricVersion":
         """Construct a root for resolving a Fabric version.
         """
         return cls(FABRIC_API, vanilla_version, loader_version, prefix, context=context)
 
     @classmethod
     def with_quilt(cls, vanilla_version: str = "release", loader_version: Optional[str] = None, *,
-                   context: Optional[Context] = None,
-                   prefix: str = "quilt"
-                   ) -> "FabricVersion":
+        context: Optional[Context] = None,
+        prefix: str = "quilt"
+    ) -> "FabricVersion":
         """Construct a root for resolving a Quilt version.
         """
         return cls(QUILT_API, vanilla_version, loader_version, prefix, context=context)
@@ -134,7 +134,6 @@ class FabricResolveEvent:
     """Event triggered when the loader version is missing and is being resolved.
     """
     __slots__ = "api", "vanilla_version", "loader_version"
-
     def __init__(self, api: FabricApi, vanilla_version: str, loader_version: Optional[str]) -> None:
         self.api = api
         self.vanilla_version = vanilla_version
