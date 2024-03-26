@@ -288,8 +288,8 @@ class MicrosoftAuthSession(AuthSession):
         # Microsoft OAuth
         try:
             res = cls.ms_request("https://login.live.com/oauth20_token.srf", request_token_payload, payload_url_encoded=True)
-        except HttpError:
-            raise OutdatedTokenError()
+        except HttpError as error:
+            raise OutdatedTokenError(error.res.text())
 
         ms_refresh_token = res.get("refresh_token")
 
@@ -332,12 +332,12 @@ class MicrosoftAuthSession(AuthSession):
             res = cls.mc_request_profile(mc_access_token)
         except HttpError as error:
             if error.res.status == 404:
-                raise DoesNotOwnMinecraftError()
+                raise DoesNotOwnMinecraftError(error.res.text())
             elif error.res.status == 401:
-                raise OutdatedTokenError()
+                raise OutdatedTokenError(error.res.text())
             else:
                 res = error.res.json()
-                raise AuthError(res.get("errorMessage", res.get("error", "Unknown error")))
+                raise AuthError(res.get("errorMessage", res.get("error", "unknown error")))
 
         return {
             "refresh_token": ms_refresh_token,
@@ -465,7 +465,9 @@ class AuthError(Exception):
     pass
 
 class DoesNotOwnMinecraftError(AuthError):
-    pass
+    def __init__(self, *args) -> None:
+        super().__init__("does not own minecraft", *args)
 
 class OutdatedTokenError(AuthError):
-    pass
+    def __init__(self, *args) -> None:
+        super().__init__("outdated token", *args)
