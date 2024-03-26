@@ -277,18 +277,19 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
 
         from ..fabric import FABRIC_API, QUILT_API, LEGACYFABRIC_API
 
-        table.add(_("search.loader_version"))
+        table.add(_("search.loader_version"), _("search.flags"))
         table.separator()
 
         if kind == "fabric":
-            api = FABRIC_API()
+            api = FABRIC_API
         elif kind == "quilt":
-            api = QUILT_API()
+            api = QUILT_API
         else:
-            api = LEGACYFABRIC_API()
-        for version in api.request_fabric_loader_versions():
-            if search is None or search in version:
-                table.add(version)
+            api = LEGACYFABRIC_API
+        
+        for loader in api.request_loaders():
+            if search is None or search in loader.version:
+                table.add(loader.version, _("search.flags.stable") if loader.stable else "")
 
     else:
         raise ValueError()

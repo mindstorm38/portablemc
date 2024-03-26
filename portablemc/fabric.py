@@ -7,6 +7,15 @@ from .http import http_request, HttpError
 from typing import Optional, Any, Iterator
 
 
+class FabricApiLoader:
+    """This class describes a loader returned from the fabric API.
+    """
+    __slots__ = "version", "stable"
+    def __init__(self, version: str, stable: bool) -> None:
+        self.version = version
+        self.stable = stable
+
+
 class FabricApi:
     """This class is internally used to defined two constant for both official Fabric
     backend API and Quilt API which have the same endpoints. So we use the same logic
@@ -22,16 +31,44 @@ class FabricApi:
         """
         return http_request("GET", f"{self.api_url}{method}", accept="application/json").json()
 
-    def request_fabric_loader_version(self, vanilla_version: str) -> Optional[str]:
-        loaders = self.request_fabric_meta(f"versions/loader/{vanilla_version}")
-        return loaders[0].get("loader", {}).get("version") if len(loaders) else None
-
     def request_version_loader_profile(self, vanilla_version: str, loader_version: str) -> dict:
+        """Return the version profile for the given vanilla version and loader.
+        """
         return self.request_fabric_meta(f"versions/loader/{vanilla_version}/{loader_version}/profile/json")
 
+    def request_loaders(self, vanilla_version: Optional[str] = None) -> Iterator[FabricApiLoader]:
+        """Return an iterator of loaders available for the given vanilla version, if no
+        vanilla version is specified, this returned an iterator of all loaders.
+        """
+        
+        def map_loader(obj) -> FabricApiLoader:
+            return FabricApiLoader(str(obj.get("version", "")), bool(obj.get("stable", False)))
+
+        if vanilla_version is not None:
+            loaders = self.request_fabric_meta(f"versions/loader/{vanilla_version}")
+            return map(lambda obj: map_loader(obj["loader"]), loaders)
+        else:
+            return map(map_loader, self.request_fabric_meta("versions/loader"))
+
+    def request_latest_loader(self, vanilla_version: Optional[str] = None) -> Optional[FabricApiLoader]:
+        """Return the latest loader version for the given vanilla version, if no vanilla
+        version is specified, this return the latest loader.
+        """
+        try:
+            return next(self.request_loaders(vanilla_version))
+        except StopIteration:
+            return None
+
+    # DEPRECATED:
+    
     def request_fabric_loader_versions(self) -> Iterator[str]:
-        loaders = self.request_fabric_meta("versions/loader")
-        return map(lambda obj: obj["version"], loaders)
+        """ deprecated, use request_loaders """
+        return map(lambda loader: loader.version, self.request_loaders())
+
+    def request_fabric_loader_version(self, vanilla_version: str) -> Optional[str]:
+        """ deprecated, use request_latest_loader """
+        loader = self.request_latest_loader(vanilla_version)
+        return None if loader is None else loader.version
 
 
 FABRIC_API = FabricApi("fabric", "https://meta.fabricmc.net/v2/")
@@ -90,7 +127,8 @@ class FabricVersion(Version):
             watcher.handle(FabricResolveEvent(self.api, self.vanilla_version, None))
 
             try:
-                self.loader_version = self.api.request_fabric_loader_version(self.vanilla_version)
+                loader = self.api.request_latest_loader(self.vanilla_version)
+                self.loader_version = None if loader is None else loader.version
             except HttpError as error:
                 if error.res.status not in (404, 400):
                     raise
