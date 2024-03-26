@@ -37,8 +37,8 @@ lang = {
     "args._": 
         "  A fast, reliable and cross-platform command-line Minecraft launcher and API\n"
         "  for developers. Including fast and easy installation of common mod loaders such\n"
-        "  as Fabric, LegacyFabric, Forge, NeoForge and Quilt. This launcher is compatible with the\n"
-        "  standard Minecraft directories.\n\n",
+        "  as Fabric, LegacyFabric, Forge, NeoForge and Quilt. This launcher is compatible\n" 
+        "  with the standard Minecraft directories.\n\n",
     "args.main_dir": "Set the main directory where libraries, assets and versions.",
     "args.work_dir": "Set the working directory where the game run and place for examples "
         "saves, screenshots (and resources for legacy versions), it also store "
@@ -89,7 +89,7 @@ lang = {
     "args.start.version.comp.release": "Start the latest release (default).",
     "args.start.version.comp.snapshot": "Start the latest snapshot.",
     "args.start.version.comp.fabric": "Start Fabric mod loader with latest release.",
-    "args.start.version.comp.legacyfabric": "Start (legacy) Fabric mod loader with latest release.",
+    "args.start.version.comp.legacyfabric": "Start (Legacy)Fabric mod loader with latest release.",
     "args.start.version.comp.quilt": "Start Quilt mod loader with latest release.",
     "args.start.version.comp.forge": "Start Forge mod loader with latest release.",
     "args.start.version.comp.neoforge": "Start NeoForge mod loader with latest release.",
@@ -182,6 +182,7 @@ lang = {
     "search.last_modified": "Last modified",
     "search.flags": "Flags",
     "search.flags.local": "local",
+    "search.flags.stable": "stable",
     "search.loader_version": "Loader version",
     # Command login
     "login.tip.remember_start_login": "Remember to start the game with '-l {email}' if you want to be authenticated in-game.",
