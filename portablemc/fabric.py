@@ -7,8 +7,8 @@ from .http import http_request, HttpError
 from typing import Optional, Any, Iterator
 
 
-class FabricApiLoader:
-    """This class describes a loader returned from the fabric API.
+class _FabricApiLoader:
+    """This class describes a loader returned from the fabric API. (unstable API)
     """
     __slots__ = "version", "stable"
     def __init__(self, version: str, stable: bool) -> None:
@@ -36,13 +36,13 @@ class FabricApi:
         """
         return self.request_fabric_meta(f"versions/loader/{vanilla_version}/{loader_version}/profile/json")
 
-    def request_loaders(self, vanilla_version: Optional[str] = None) -> Iterator[FabricApiLoader]:
+    def _request_loaders(self, vanilla_version: Optional[str] = None) -> Iterator[_FabricApiLoader]:
         """Return an iterator of loaders available for the given vanilla version, if no
         vanilla version is specified, this returned an iterator of all loaders.
         """
         
-        def map_loader(obj) -> FabricApiLoader:
-            return FabricApiLoader(str(obj.get("version", "")), bool(obj.get("stable", False)))
+        def map_loader(obj) -> _FabricApiLoader:
+            return _FabricApiLoader(str(obj.get("version", "")), bool(obj.get("stable", False)))
 
         if vanilla_version is not None:
             loaders = self.request_fabric_meta(f"versions/loader/{vanilla_version}")
@@ -50,24 +50,24 @@ class FabricApi:
         else:
             return map(map_loader, self.request_fabric_meta("versions/loader"))
 
-    def request_latest_loader(self, vanilla_version: Optional[str] = None) -> Optional[FabricApiLoader]:
+    def _request_latest_loader(self, vanilla_version: Optional[str] = None) -> Optional[_FabricApiLoader]:
         """Return the latest loader version for the given vanilla version, if no vanilla
         version is specified, this return the latest loader.
         """
         try:
-            return next(self.request_loaders(vanilla_version))
+            return next(self._request_loaders(vanilla_version))
         except StopIteration:
             return None
 
     # DEPRECATED:
     
     def request_fabric_loader_versions(self) -> Iterator[str]:
-        """ deprecated, use request_loaders """
-        return map(lambda loader: loader.version, self.request_loaders())
+        """ deprecated, will be replaced by request_loaders """
+        return map(lambda loader: loader.version, self._request_loaders())
 
     def request_fabric_loader_version(self, vanilla_version: str) -> Optional[str]:
-        """ deprecated, use request_latest_loader """
-        loader = self.request_latest_loader(vanilla_version)
+        """ deprecated, will be replaced by request_latest_loader """
+        loader = self._request_latest_loader(vanilla_version)
         return None if loader is None else loader.version
 
 
@@ -110,14 +110,14 @@ class FabricVersion(Version):
 
     @classmethod
     def _with_legacyfabric(cls, vanilla_version: str = "release", loader_version: Optional[str] = None, *,
-                           context: Optional[Context] = None,
-                           prefix="legacyfabric"
-                           ) -> "FabricVersion":
+        context: Optional[Context] = None,
+        prefix="legacyfabric"
+    ) -> "FabricVersion":
         """Construct a root for resolving a LegacyFabric version"""
         return cls(LEGACYFABRIC_API, vanilla_version, loader_version, prefix, context=context)
 
     def _resolve_version(self, watcher: Watcher) -> None:
-
+        
         # Vanilla version may be "release" or "snapshot"
         self.vanilla_version = self.manifest.filter_latest(self.vanilla_version)[0]
 
@@ -127,7 +127,7 @@ class FabricVersion(Version):
             watcher.handle(FabricResolveEvent(self.api, self.vanilla_version, None))
 
             try:
-                loader = self.api.request_latest_loader(self.vanilla_version)
+                loader = self.api._request_latest_loader(self.vanilla_version)
                 self.loader_version = None if loader is None else loader.version
             except HttpError as error:
                 if error.res.status not in (404, 400):
