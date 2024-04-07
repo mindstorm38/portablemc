@@ -48,6 +48,7 @@ class StartNs(AuthBaseNs):
     jvm_args: Optional[str]
     no_fix: bool
     fabric_prefix: str
+    legacyfabric_prefix: str
     quilt_prefix: str
     forge_prefix: str
     neoforge_prefix: str

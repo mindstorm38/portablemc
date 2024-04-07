@@ -287,7 +287,7 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
         else:
             api = LEGACYFABRIC_API
         
-        for loader in api.request_loaders():
+        for loader in api._request_loaders():
             if search is None or search in loader.version:
                 table.add(loader.version, _("search.flags.stable") if loader.stable else "")
 
@@ -452,17 +452,23 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
         return Version(version, context=ns.context)
     
     elif kind in ("fabric", "quilt", "legacyfabric"):
+
         if len(parts) > 2:
             return None
+        
         if kind == "fabric":
             constructor = FabricVersion.with_fabric
+            prefix = ns.fabric_prefix
         elif kind == "quilt":
             constructor = FabricVersion.with_quilt
+            prefix = ns.quilt_prefix
         else:
             constructor = FabricVersion._with_legacyfabric
-        prefix = ns.fabric_prefix if kind == "fabric" else ns.quilt_prefix
+            prefix = ns.legacyfabric_prefix
+        
         if len(parts) != 2:
             ns.socket_error_tips.append(f"{kind}_loader_version")
+
         return constructor(version, parts[1] if len(parts) == 2 else None, context=ns.context, prefix=prefix)
     
     elif kind in ("forge", "neoforge"):
