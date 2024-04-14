@@ -1591,10 +1591,10 @@ class StandardRunner(Runner):
 
 
 class StreamRunner(StandardRunner):
-    """A specialized implementation of `RunTask` which allows streaming the game's output
-    logs. This implementation also provides parsing of log4j XML layouts for logs. This
-    runner handles KeyboardInterrupt errors and properly kill the game and waits for it
-    completion.
+    """A specialized implementation of `StandardRunner` which allows streaming the game's 
+    output logs. This implementation also provides parsing of log4j XML layouts for logs. 
+    This runner handles KeyboardInterrupt errors and properly kill the game and waits for 
+    its completion.
     """
     
     def process_create(self, args: List[str], work_dir: Path) -> Popen:
