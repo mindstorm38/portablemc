@@ -464,6 +464,11 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
         if len(parts) > 2:
             return None
         
+        # Legacy fabric has a special case because it will never be supported for 
+        # versions past 1.12.2, it is not made for latest release version.
+        if kind == "legacyfabric" and version == "release":
+            version = "1.12.2"
+        
         if kind == "fabric":
             constructor = FabricVersion.with_fabric
             prefix = ns.fabric_prefix
