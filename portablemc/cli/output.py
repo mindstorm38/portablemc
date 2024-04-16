@@ -175,10 +175,10 @@ class HumanOutput(Output):
                     break
             
             if chosen_color is not None:
-                print(chosen_color, text, "\033[0m", sep="", end="")
+                print(chosen_color, text, "\033[0m", sep="", end="", flush=True)
                 return
         
-        print(text, end="")
+        print(text, end="", flush=True)
     
     def prompt(self, password: bool = False) -> Optional[str]:
         try:
@@ -247,7 +247,7 @@ class HumanTable(OutputTable):
                 
                 print(format_string.format(*format_columns), flush=False)
         
-        print("└─{}─┘".format("─┴─".join(columns_lines)))
+        print("└─{}─┘".format("─┴─".join(columns_lines)), flush=True)
 
 
 class MachineOutput(Output):

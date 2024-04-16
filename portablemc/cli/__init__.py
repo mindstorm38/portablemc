@@ -11,6 +11,7 @@ from subprocess import Popen
 from pathlib import Path
 import socket
 import sys
+import io
 
 from .parse import register_arguments, RootNs, SearchNs, StartNs, LoginNs, LogoutNs, AuthBaseNs, ShowCompletionNs
 
@@ -66,6 +67,13 @@ def main(args: Optional[List[str]] = None):
     find a command handler to dispatch to. These command handlers are specified by the
     `get_command_handlers` function.
     """
+
+    # Force stdout/stderr to use UTF-8 encoding, this reconfigure method 
+    # is available for Python 3.7 and onward.
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if isinstance(sys.stderr, io.TextIOWrapper):
+        sys.stderr.reconfigure(encoding='utf-8')
 
     parser = register_arguments()
     ns: RootNs = cast(RootNs, parser.parse_args(args or sys.argv[1:]))
