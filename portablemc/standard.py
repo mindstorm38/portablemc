@@ -1622,14 +1622,14 @@ class StreamRunner(StandardRunner):
         stdout = process.stdout
         assert stdout is not None, "should not be none because it should be piped"
 
-        parser = None
+        parser = StreamParser()
         for line in iter(stdout.readline, ""):
 
-            if parser is None:
-                if line.lstrip().startswith("<log4j:"):
-                    parser = XmlStreamParser()
-                else:
-                    parser = StreamParser()
+            # By default the parser is raw but if we encounter any potential XML tag we
+            # set the parser to the XML one and starting parsing. If it fails immediately
+            # then it reset it to a raw stream parser.
+            if line.lstrip().startswith("<log4j:") and not isinstance(parser, XmlStreamParser):
+                parser = XmlStreamParser()
 
             if not parser.feed(line, self.process_stream_event):
                 parser = StreamParser()
