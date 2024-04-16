@@ -31,7 +31,7 @@ This launcher is compatible with the standard Minecraft directories.
   - [Setup environment](#setup-environment)
   - [Contributors](#contributors)
   - [Sponsors](#sponsors)
-- [API Documentation (v4.2) ⇗](https://github.com/mindstorm38/portablemc/blob/main/doc/API.md)
+- [API Documentation (v4.3) ⇗](https://github.com/mindstorm38/portablemc/blob/main/doc/API.md)
 
 ## Installation
 
@@ -107,13 +107,19 @@ needed by the version before launching it. If you provide no version, the latest
 is started, but you can specify a version to launch, or a version alias: `release`
 or `snapshot` for the latest version of their type.
 
-In addition to Mojang's vanilla versions, the launcher natively supports common mod
-loaders such as **Fabric**, **Forge**, **NeoForge** and **Quilt**. To start such versions,
-you can prefix the version with either `fabric:`, `forge:`, `neoforge:` or `quilt:` (or 
-`vanilla:` to explicitly choose a vanilla version).
-Depending on the mod loader, the version you put after the colon is different:
-- For Fabric and Quilt, you can directly specify the vanilla version, optionally followed
-  by `:<loader_version>`.
+In addition to Mojang's versions, the launcher natively supports common mod
+loaders: 
+[Fabric](https://fabricmc.net/), 
+[Forge](https://minecraftforge.net/), 
+[NeoForge](https://neoforged.net/), 
+[LegacyFabric](https://legacyfabric.net/) and 
+[Quilt](https://quiltmc.org/). 
+To start such versions, you can prefix the version with either `fabric:`, `forge:`, 
+`neoforge:`, `legacyfabric:` or `quilt:` (or `standard:` to explicitly choose a vanilla 
+version). Depending on the mod loader, the version you put after the colon is different:
+- For Fabric, LegacyFabric and Quilt, you can directly specify the vanilla version, 
+  optionally followed by `:<loader_version>`. Note that legacy fabric start 1.13.2
+  by default and does not support more recent version as it's not the goal.
 - For Forge and NeoForge, you can put either a vanilla game version, optionally followed
   by `-<loader_version>`. Forge also supports `-latest` and `-recommended`, but NeoForge
   will always take the latest loader.
@@ -260,6 +266,7 @@ you can instead search for many kinds of versions using the `-k` (`--kind`) argu
 - `forge`, show all recommended and latest Forge loader versions *(only 1.5.2 and 
   onward can be started)*.
 - `fabric`, show all available Fabric loader versions.
+- `legacyfabric`, show all available LegacyFabric loader versions.
 - `quilt`, show all available Quilt loader versions.
 
 The search string is optional, if not specified no filter is applied on the table shown.

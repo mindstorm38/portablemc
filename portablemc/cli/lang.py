@@ -89,7 +89,7 @@ lang = {
     "args.start.version.comp.release": "Start the latest release (default).",
     "args.start.version.comp.snapshot": "Start the latest snapshot.",
     "args.start.version.comp.fabric": "Start Fabric mod loader with latest release.",
-    "args.start.version.comp.legacyfabric": "Start (Legacy)Fabric mod loader with latest release.",
+    "args.start.version.comp.legacyfabric": "Start LegacyFabric mod loader with latest release.",
     "args.start.version.comp.quilt": "Start Quilt mod loader with latest release.",
     "args.start.version.comp.forge": "Start Forge mod loader with latest release.",
     "args.start.version.comp.neoforge": "Start NeoForge mod loader with latest release.",
