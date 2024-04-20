@@ -306,11 +306,11 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
 def cmd_start(ns: StartNs):
 
     version_parts = ns.version.split(":")
-
+    
     # If no split, the kind of version is "standard": parts have at least 2 elements.
     if len(version_parts) == 1:
         version_parts = ["standard", version_parts[0]]
-    
+
     # No handler means that the format is invalid.
     version = cmd_start_handler(ns, version_parts[0], version_parts[1:])
     if version is None:
@@ -376,33 +376,28 @@ def cmd_start(ns: StartNs):
 
         env = version.install(watcher=StartWatcher(ns))
 
-        if ns.verbose >= 1 and len(env.fixes):
-            ns.out.task("INFO", "start.fixes")
-            ns.out.finish()
+        if ns.verbose >= 1:
             for fix, fix_value in env.fixes.items():
-                ns.out.task(None, f"start.fix.{fix}", value=fix_value)
+                ns.out.task("INFO", f"start.fix.{fix}", value=fix_value)
                 ns.out.finish()
 
-        # If not dry run, run it!
-        if not ns.dry:
-
-            # Included binaries
-            if ns.include_bin is not None:
-                for bin_path in ns.include_bin:
-                    if not bin_path.is_file():
-                        ns.out.task("FAILED", "start.additional_binary_not_found", path=bin_path)
-                        ns.out.finish()
-                        sys.exit(EXIT_FAILURE)
-                    env.native_libs.append(bin_path)
+        # Included binaries
+        if ns.include_bin is not None:
+            for bin_path in ns.include_bin:
+                if not bin_path.is_file():
+                    ns.out.task("FAILED", "start.additional_binary_not_found", path=bin_path)
+                    ns.out.finish()
+                    sys.exit(EXIT_FAILURE)
+                env.native_libs.append(bin_path)
             
-            # Extend JVM arguments with given arguments, or defaults
-            if ns.jvm_args is None:
-                env.jvm_args.extend(DEFAULT_JVM_ARGS)
-            elif len(ns.jvm_args):
-                env.jvm_args.extend(ns.jvm_args.split())
+        # Extend JVM arguments with given arguments, or defaults
+        if ns.jvm_args is None:
+            env.jvm_args.extend(DEFAULT_JVM_ARGS)
+        elif len(ns.jvm_args):
+            env.jvm_args.extend(ns.jvm_args.split())
 
-            env.run(CliRunner(ns))
-
+        # This CliRunner will abort running if in dry mode.
+        env.run(CliRunner(ns))
         sys.exit(EXIT_OK)
     
     except VersionNotFoundError as error:
@@ -453,6 +448,10 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
 
     version = parts[0] or "release"
     ns.socket_error_tips.append("version_manifest")
+    
+    if ns.verbose >= 1:
+        ns.out.task("INFO", "start.global_version", kind=kind, version=version, remaining=" ".join(parts[1:]))
+        ns.out.finish()
 
     if kind == "standard":
         if len(parts) != 1:
@@ -465,9 +464,9 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
             return None
         
         # Legacy fabric has a special case because it will never be supported for 
-        # versions past 1.12.2, it is not made for latest release version.
+        # versions past 1.13.2, it is not made for latest release version.
         if kind == "legacyfabric" and version == "release":
-            version = "1.12.2"
+            version = "1.13.2"
         
         if kind == "fabric":
             constructor = FabricVersion.with_fabric
@@ -800,7 +799,7 @@ class StartWatcher(SimpleWatcher):
             ns.out.finish()
         
         def features(e: FeaturesEvent) -> None:
-            if ns.verbose >= 1 and len(e.features):
+            if ns.verbose >= 1:
                 ns.out.task("INFO", "start.features", features=", ".join(e.features))
                 ns.out.finish()
         
@@ -896,16 +895,21 @@ class StartWatcher(SimpleWatcher):
 
 class CliRunner(StreamRunner):
 
-    def __init__(self, ns: RootNs) -> None:
+    def __init__(self, ns: StartNs) -> None:
         super().__init__()
         self.ns = ns
 
-    def process_create(self, args: List[str], work_dir: Path) -> Popen:
+    def process_create(self, args: List[str], work_dir: Path) -> Optional[Popen]:
         
-        self.ns.out.print("\n")
-        if self.ns.verbose >= 1:
+        if not self.ns.dry or self.ns.verbose >= 2:
+            self.ns.out.print("\n")
+
+        if self.ns.verbose >= 2:
             self.ns.out.print(" ".join(args) + "\n")
 
+        if self.ns.dry:
+            return None
+        
         return super().process_create(args, work_dir)
 
     def process_stream_event(self, event: Any) -> None:
