@@ -1561,17 +1561,20 @@ class StandardRunner(Runner):
                 *replace_list_vars(env.game_args, replacements)
             ], env.context.work_dir)
 
-            self.process_wait(process)
+            if process is not None:
+                self.process_wait(process)
 
         finally:
             # Any error while setting up the binary directory cause it to be deleted.
             shutil.rmtree(bin_dir, ignore_errors=True)
 
-    def process_create(self, args: List[str], work_dir: Path) -> Popen:
+    def process_create(self, args: List[str], work_dir: Path) -> Optional[Popen]:
         """This function is called when process needs to be created with the given 
         arguments in the given working directory. The default implementation does nothing
         special but this can be used to create the process with enabled output piping,
         to later use in `process_wait`.
+
+        None can be returned to abort starting the game.
         """
         return Popen(args, cwd=work_dir)
 
@@ -1597,7 +1600,7 @@ class StreamRunner(StandardRunner):
     its completion.
     """
     
-    def process_create(self, args: List[str], work_dir: Path) -> Popen:
+    def process_create(self, args: List[str], work_dir: Path) -> Optional[Popen]:
         return Popen(args, cwd=work_dir, stdout=PIPE, stderr=STDOUT, bufsize=1, universal_newlines=True, encoding="utf-8", errors="replace")
 
     def process_wait(self, process: Popen) -> None:

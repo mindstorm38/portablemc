@@ -192,6 +192,7 @@ lang = {
     "logout.success": "Logged out {email}",
     "logout.unknown_session": "No session for {email}",
     # Command start
+    "start.global_version": "Global version: {kind} {version} {remaining}",
     "start.version.invalid_id": "Invalid version id, expected: {expected}",
     "start.version.invalid_id_unknown_kind": "Invalid version id, unknown kind: {kind}.",
     "start.version.loading": "Loading version {version}... ",
@@ -200,7 +201,7 @@ lang = {
     "start.version.loaded.fetched": "Loaded version {version} (fetched)",
     "start.version.not_found": "Version {version} not found",
     "start.version.too_much_parents": "Too much parents while resolving versions.",
-    "start.features": "Features: {features}",
+    "start.features": "Features: [{features}]",
     "start.jar.found": "Checked version jar",
     "start.jar.not_found": "Version jar not found",
     "start.assets.resolving": "Checking assets version {index_version}... ",
@@ -223,7 +224,6 @@ lang = {
         "use --jvm argument to manually set the path to your JVM executable.",
     f"start.jvm.not_found_error.{JvmNotFoundError.BUILTIN_INVALID_VERSION}": f"The builtin JVM ({jvm_bin_filename}) is not compatible "
         "with selected game version.",
-    "start.fixes": "Applied the following fixes:",
     f"start.fix.{Version.FIX_LEGACY_PROXY}": "Using legacy proxy for online resources: {value}",
     f"start.fix.{Version.FIX_LEGACY_MERGE_SORT}": "Using legacy merge sort: {value}",
     f"start.fix.{Version.FIX_LEGACY_RESOLUTION}": "Included resolution into game arguments: {value}",
