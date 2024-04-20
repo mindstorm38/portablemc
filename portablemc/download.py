@@ -330,17 +330,18 @@ def _download_thread(
                         pass
 
                     if res.status == 301 or res.status == 302:
-
-                        redirect_url = res.headers["location"]
-                        redirect_entry = DownloadEntry(
-                            redirect_url, 
-                            entry.dst, 
-                            size=entry.size, 
-                            sha1=entry.sha1, 
-                            name=entry.name)
-                        
-                        entries_queue.put(_DownloadEntry.from_entry(redirect_entry))
-                        break  # Abort on redirect
+                        # If location header is absent, consider it not found.
+                        redirect_url = res.headers.get("location")
+                        if redirect_url is not None:
+                            redirect_entry = DownloadEntry(
+                                redirect_url, 
+                                entry.dst, 
+                                size=entry.size, 
+                                sha1=entry.sha1, 
+                                name=entry.name)
+                            
+                            entries_queue.put(_DownloadEntry.from_entry(redirect_entry))
+                            break  # Abort on redirect
 
                     # Any other non-200 code is considered not found and we retry...
                     last_error = DownloadResultError.NOT_FOUND
