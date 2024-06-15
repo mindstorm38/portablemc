@@ -35,7 +35,7 @@ class DownloadEntry:
         self.executable = executable
 
     def __repr__(self) -> str:
-        return f"<DownloadEntry {self.name}>"
+        return f"<DownloadEntry {self.name} @ {self.url}>"
 
     def __hash__(self) -> int:
         # Making size and sha1 in the hash is useful to make them, 
@@ -120,10 +120,11 @@ class DownloadList:
     with multithreading.
     """
 
-    __slots__ = "entries", "count", "size"
+    __slots__ = "entries", "count", "size", "_dst_entries"
 
     def __init__(self):
         self.entries: List[_DownloadEntry] = []
+        self._dst_entries = {}
         self.count = 0
         self.size = 0
     
@@ -131,6 +132,7 @@ class DownloadList:
         """Clear the download entry, removing all entries and computed count/size.
         """
         self.entries.clear()
+        self._dst_entries.clear()
         self.count = 0
         self.size = 0
 
@@ -142,10 +144,14 @@ class DownloadList:
         size has the given entry, in such case the entry is not added.
         """
 
+        if entry.dst in self._dst_entries:
+            raise ValueError("duplicate entry destination", entry, self._dst_entries[entry.dst])
+
         if verify and entry.dst.is_file() and (entry.size is None or entry.size == entry.dst.stat().st_size):
             return
         
         self.entries.append(_DownloadEntry.from_entry(entry))
+        self._dst_entries[entry.dst] = entry
         self.count += 1
         if entry.size is not None:
             self.size += entry.size

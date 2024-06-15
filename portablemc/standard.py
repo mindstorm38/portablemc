@@ -534,6 +534,8 @@ class Version:
         if not isinstance(assets_objects, dict):
             raise ValueError("assets index: /objects must be an object")
 
+        assets_unique = set()
+
         for asset_id, asset_obj in assets_objects.items():
 
             if not isinstance(asset_obj, dict):
@@ -550,8 +552,15 @@ class Version:
             asset_hash_prefix = asset_hash[:2]
             asset_file = assets_objects_dir.joinpath(asset_hash_prefix, asset_hash)
 
-            asset_url = f"{RESOURCES_URL}{asset_hash_prefix}/{asset_hash}"
             self._assets[asset_id] = asset_file
+
+            # Some assets are represented with multiple files, but we don't want to 
+            # download a file multiple time so we abort here.
+            if asset_hash in assets_unique:
+                continue
+            assets_unique.add(asset_hash)
+
+            asset_url = f"{RESOURCES_URL}{asset_hash_prefix}/{asset_hash}"
             self._dl.add(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id), verify=True)
         
         self._assets_index_version = assets_index_version
