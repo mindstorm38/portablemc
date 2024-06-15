@@ -1431,8 +1431,12 @@ class VersionManifest:
                 try:
                     with self.cache_file.open("rt") as cache_fp:
                         cache_data = json.load(cache_fp)
-                    if "last_modified" in cache_data:
-                        headers["If-Modified-Since"] = cache_data["last_modified"]
+                    if isinstance(cache_data, dict):
+                        if "last_modified" in cache_data:
+                            headers["If-Modified-Since"] = cache_data["last_modified"]
+                    else:
+                        # If the data isn't a dictionary, it's invalid.
+                        cache_data = None
                 except (OSError, json.JSONDecodeError):
                     pass
             
@@ -1443,6 +1447,9 @@ class VersionManifest:
                     accept="application/json")
                 
                 self.data = res.json()
+                if not isinstance(self.data, dict):
+                    # Raise error because the API is faulting.
+                    raise ValueError("manifest api data is not dict")
 
                 if "Last-Modified" in res.headers:
                     self.data["last_modified"] = res.headers["Last-Modified"]
@@ -1460,6 +1467,9 @@ class VersionManifest:
                 else:
                     raise
 
+        if self.data is None:
+            raise ValueError("manifest data should not be null at this point")
+        
         return self.data
 
     def is_alias(self, version: str) -> bool:
