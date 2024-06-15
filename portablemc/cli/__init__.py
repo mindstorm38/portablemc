@@ -281,9 +281,9 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
             if search is None or search in alias:
                 table.add(alias, version)
 
-    elif kind in ("fabric", "quilt", "legacyfabric"):
+    elif kind in ("fabric", "quilt", "legacyfabric", "babric"):
 
-        from ..fabric import FABRIC_API, QUILT_API, LEGACYFABRIC_API
+        from ..fabric import FABRIC_API, QUILT_API, LEGACYFABRIC_API, BABRIC_API
 
         table.add(_("search.loader_version"), _("search.flags"))
         table.separator()
@@ -292,8 +292,10 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
             api = FABRIC_API
         elif kind == "quilt":
             api = QUILT_API
-        else:
+        elif kind == "legacyfabric":
             api = LEGACYFABRIC_API
+        else:
+            api = BABRIC_API
         
         for loader in api._request_loaders():
             if search is None or search in loader.version:
@@ -458,15 +460,18 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
             return None
         return Version(version, context=ns.context)
     
-    elif kind in ("fabric", "quilt", "legacyfabric"):
+    elif kind in ("fabric", "quilt", "legacyfabric", "babric"):
 
         if len(parts) > 2:
             return None
         
         # Legacy fabric has a special case because it will never be supported for 
         # versions past 1.13.2, it is not made for latest release version.
-        if kind == "legacyfabric" and version == "release":
-            version = "1.13.2"
+        if version == "release":
+            if kind == "legacyfabric":
+                version = "1.13.2"
+            elif kind == "babric":
+                version = "b1.7.3"
         
         if kind == "fabric":
             constructor = FabricVersion.with_fabric
@@ -474,9 +479,12 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
         elif kind == "quilt":
             constructor = FabricVersion.with_quilt
             prefix = ns.quilt_prefix
-        else:
+        elif kind == "legacyfabric":
             constructor = FabricVersion._with_legacyfabric
             prefix = ns.legacyfabric_prefix
+        else:
+            constructor = FabricVersion._with_babric
+            prefix = "babric"
         
         if len(parts) != 2:
             ns.socket_error_tips.append(f"{kind}_loader_version")
