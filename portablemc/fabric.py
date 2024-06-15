@@ -74,6 +74,7 @@ class FabricApi:
 FABRIC_API = FabricApi("fabric", "https://meta.fabricmc.net/v2/")
 QUILT_API = FabricApi("quilt", "https://meta.quiltmc.org/v3/")
 LEGACYFABRIC_API = FabricApi("legacyfabric", "https://meta.legacyfabric.net/v2/")
+BABRIC_API = FabricApi("babric", "https://meta.babric.glass-launcher.net/v2/")
 
 
 class FabricVersion(Version):
@@ -115,6 +116,14 @@ class FabricVersion(Version):
     ) -> "FabricVersion":
         """Construct a root for resolving a LegacyFabric version"""
         return cls(LEGACYFABRIC_API, vanilla_version, loader_version, prefix, context=context)
+
+    @classmethod
+    def _with_babric(cls, vanilla_version: str = "release", loader_version: Optional[str] = None, *,
+        context: Optional[Context] = None,
+        prefix="babric"
+    ) -> "FabricVersion":
+        """Construct a root for resolving a LegacyFabric version"""
+        return cls(BABRIC_API, vanilla_version, loader_version, prefix, context=context)
 
     def _resolve_version(self, watcher: Watcher) -> None:
         

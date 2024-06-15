@@ -161,10 +161,10 @@ def register_start_arguments(parser: ArgumentParser) -> None:
     parser.add_argument("-s", "--server", help=_("args.start.server"), type=type_host)
     parser.add_argument("-p", "--server-port", help=_("args.start.server_port"), metavar="PORT")
 
-    version_arg = parser.add_argument("version", nargs="?", default="release", help=_("args.start.version", formats=", ".join(map(lambda s: _(f"args.start.version.{s}"), ("standard", "fabric", "quilt", "legacyfabric", "forge", "neoforge")))))
+    version_arg = parser.add_argument("version", nargs="?", default="release", help=_("args.start.version", formats=", ".join(map(lambda s: _(f"args.start.version.{s}"), ("standard", "fabric", "quilt", "legacyfabric", "babric", "forge", "neoforge")))))
     for standard in ("release", "snapshot"):
         add_completion(version_arg, standard, _(f"args.start.version.comp.{standard}"))
-    for loader in ("fabric", "quilt", "legacyfabric", "forge", "neoforge"):
+    for loader in ("fabric", "quilt", "legacyfabric", "babric", "forge", "neoforge"):
         add_completion(version_arg, f"{loader}:", _(f"args.start.version.comp.{loader}"))
 
 
@@ -216,7 +216,7 @@ def get_outputs() -> List[str]:
     return ["human-color", "human", "machine"]
 
 def get_search_kinds() -> List[str]:
-    return ["mojang", "local", "forge", "fabric", "quilt", "legacyfabric"]
+    return ["mojang", "local", "forge", "fabric", "quilt", "legacyfabric", "babric"]
 
 def get_auth_services() -> List[str]:
     return ["microsoft", "yggdrasil"]
