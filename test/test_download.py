@@ -47,7 +47,7 @@ def test_download(tmp_path):
         name="not_found")
 
     conn_err = DownloadEntry("https://rfdfdfesources.download.minecraft.net/bd/bdf48ef6b5d0d23bbb02e17d04865216",
-        assets_dir / "icons" / "icon_16x16_not_found.png",
+        assets_dir / "icons" / "icon_16x16_conn_err.png",
         sha1="bdf48ef6b5d0d23bbb02e17d04865216179f510a",
         size=3665,
         name="conn_err")
