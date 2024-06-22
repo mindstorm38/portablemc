@@ -294,7 +294,7 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
             api = QUILT_API
         elif kind == "legacyfabric":
             api = LEGACYFABRIC_API
-        else:
+        elif kind == "babric":
             api = BABRIC_API
         
         for loader in api._request_loaders():
@@ -482,7 +482,7 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
         elif kind == "legacyfabric":
             constructor = FabricVersion._with_legacyfabric
             prefix = ns.legacyfabric_prefix
-        else:
+        elif kind == "babric":
             constructor = FabricVersion._with_babric
             prefix = "babric"
         
