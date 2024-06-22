@@ -599,6 +599,8 @@ class Version:
 
         watcher.handle(LibrariesResolvingEvent())
 
+        lib_names = set()
+
         # Recursion order is important for libraries resolving, root libraries should
         # be placed first.
         for version in self._hierarchy[0].recurse():
@@ -620,15 +622,7 @@ class Version:
                     raise ValueError(f"metadata: /libraries/{library_idx}/name must be a string")
                 
                 spec = LibrarySpecifier.from_str(name)
-
-                rules = library.get("rules")
-                if rules is not None:
-
-                    if not isinstance(rules, list):
-                        raise ValueError(f"metadata: /libraries/{library_idx}/rules must be a list")
-                    
-                    if not interpret_rule(rules, self._features, f"metadata: /libraries/{library_idx}/rules"):
-                        continue
+                spec_name = (spec.group, spec.artifact)
 
                 # Old metadata files provides a 'natives' mapping from OS to the classifier
                 # specific for this OS, this kind of libs are "native libs", we need to
@@ -647,6 +641,26 @@ class Version:
 
                     if minecraft_arch_bits is not None:
                         spec.classifier = spec.classifier.replace("${arch}", str(minecraft_arch_bits))
+
+                # We just abort here if the lib name has already been specified.
+                if spec_name in lib_names:
+                    continue
+                
+                lib_names.add(spec_name)
+
+                # Changed in 4.3.1, rules are checked after natives
+                rules = library.get("rules")
+                if rules is not None:
+
+                    if not isinstance(rules, list):
+                        raise ValueError(f"metadata: /libraries/{library_idx}/rules must be a list")
+                    
+                    if not interpret_rule(rules, self._features, f"metadata: /libraries/{library_idx}/rules"):
+                        
+                        if spec.version != "*":
+                            lib_names.remove(spec_name)
+                        
+                        continue
 
                 lib_entry: Optional[DownloadEntry] = None
                 
