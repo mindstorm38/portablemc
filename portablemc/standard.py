@@ -599,7 +599,9 @@ class Version:
 
         watcher.handle(LibrariesResolvingEvent())
 
-        lib_names = set()
+        # This set contains all unique library specifiers that have been found so far. 
+        # It also contains libs that have been filtered out by rules.
+        unique_specs = set()
 
         # Recursion order is important for libraries resolving, root libraries should
         # be placed first.
@@ -622,7 +624,6 @@ class Version:
                     raise ValueError(f"metadata: /libraries/{library_idx}/name must be a string")
                 
                 spec = LibrarySpecifier.from_str(name)
-                spec_name = (spec.group, spec.artifact)
 
                 # Old metadata files provides a 'natives' mapping from OS to the classifier
                 # specific for this OS, this kind of libs are "native libs", we need to
@@ -642,11 +643,18 @@ class Version:
                     if minecraft_arch_bits is not None:
                         spec.classifier = spec.classifier.replace("${arch}", str(minecraft_arch_bits))
 
-                # We just abort here if the lib name has already been specified.
-                if spec_name in lib_names:
+                # Create a wildcard copy of the spec without version, because we don't
+                # want to match against version, regardless of its version, a library
+                # should not be added twice.
+                spec_wild = spec.copy()
+                spec_wild.version = "*"
+
+                # We just abort here if the lib name has already been specified. It is
+                # really important to do that here after natives resolution because it
+                # adds a classifier to the lib spec.
+                if spec_wild in unique_specs:
                     continue
-                
-                lib_names.add(spec_name)
+                unique_specs.add(spec_wild)
 
                 # Changed in 4.3.1, rules are checked after natives
                 rules = library.get("rules")
@@ -656,10 +664,6 @@ class Version:
                         raise ValueError(f"metadata: /libraries/{library_idx}/rules must be a list")
                     
                     if not interpret_rule(rules, self._features, f"metadata: /libraries/{library_idx}/rules"):
-                        
-                        if spec.version != "*":
-                            lib_names.remove(spec_name)
-                        
                         continue
 
                 lib_entry: Optional[DownloadEntry] = None
