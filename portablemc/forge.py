@@ -18,11 +18,19 @@ from .standard import parse_download_entry, LIBRARIES_URL, \
 from .util import calc_input_sha1, LibrarySpecifier
 from .http import http_request, HttpError
 
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 
 
-_FORGE_REPO = "https://maven.minecraftforge.net/net/minecraftforge/forge"
-_NEO_FORGE_REPO = "https://maven.neoforged.net/releases/net/neoforged/forge"
+_FORGE_REPO_URL = "https://maven.minecraftforge.net/"
+_FORGE_GROUP = "net.minecraftforge"
+_FORGE_ARTIFACT = "forge"
+
+_NEO_FORGE_REPO_URL = "https://maven.neoforged.net/releases/"
+_NEO_FORGE_GROUP = "net.neoforged"
+_NEO_FORGE_ARTIFACT = "neoforge"
+
+# _FORGE_SPEC = LibrarySpecifier("net.minecraftforge", "forge", "")
+# _NEO_FORGE_LEGACY_ARTIFACT_URL = "https://maven.neoforged.net/releases/net/neoforged/forge"
 
 
 class ForgeVersion(Version):
@@ -30,67 +38,56 @@ class ForgeVersion(Version):
     def __init__(self, forge_version: str = "release", *,
         context: Optional[Context] = None,
         prefix: str = "forge",
-        _forge_repo: str = _FORGE_REPO,
     ) -> None:
 
         super().__init__("", context=context)  # Do not give a root version for now.
 
         self.forge_version = forge_version
         self.prefix = prefix
-        self._forge_repo = _forge_repo
-        self._forge_post_info: Optional[ForgePostInfo] = None
+        
+        # This is set when version is resolved.
+        self._forge_repo_url: Optional[str] = None
+        self._forge_installer_spec: Optional[LibrarySpecifier] = None
+
+        self._forge_post_info: Optional[_ForgePostInfo] = None
     
     def _resolve_version(self, watcher: Watcher) -> None:
         
         # Maybe "release" or "snapshot", we process this first.
         self.forge_version = self.manifest.filter_latest(self.forge_version)[0]
 
-        if self._forge_repo == _FORGE_REPO:
+        # If no alias is specified, with add recommended.
+        if "-" not in self.forge_version:
+            self.forge_version = f"{self.forge_version}-recommended"
 
-            # If no alias is specified, with add recommended.
-            if "-" not in self.forge_version:
-                self.forge_version = f"{self.forge_version}-recommended"
+        # Now, if the specified version is an alias, we resolve it.
+        if self.forge_version.endswith(("-latest", "-recommended")):
 
-            # Now, if the specified version is an alias, we resolve it.
-            if self.forge_version.endswith(("-latest", "-recommended")):
+            # Split the version, used later.
+            alias_version, alias = self.forge_version.rsplit("-", maxsplit=1)
+            watcher.handle(ForgeResolveEvent(self.forge_version, True))
 
-                # Split the version, used later.
-                alias_version, alias = self.forge_version.rsplit("-", maxsplit=1)
-                watcher.handle(ForgeResolveEvent(self.forge_version, True, _forge_repo=_FORGE_REPO))
+            # Try to get loader from promo versions.
+            promo_versions = request_promo_versions()
+            loader_version = promo_versions.get(self.forge_version)
 
-                # Try to get loader from promo versions.
-                promo_versions = request_promo_versions()
+            # If we can't find the load version, just try to other alias (issue #189).
+            if loader_version is None:
+                alias = { "latest": "recommended", "recommended": "latest" }[alias]
+                self.forge_version = f"{alias_version}-{alias}"
+                watcher.handle(ForgeResolveEvent(self.forge_version, True))
                 loader_version = promo_versions.get(self.forge_version)
 
-                # If we can't find the load version, just try to other alias (issue #189).
-                if loader_version is None:
-                    alias = { "latest": "recommended", "recommended": "latest" }[alias]
-                    self.forge_version = f"{alias_version}-{alias}"
-                    watcher.handle(ForgeResolveEvent(self.forge_version, True, _forge_repo=_FORGE_REPO))
-                    loader_version = promo_versions.get(self.forge_version)
+            if loader_version is None:
+                raise VersionNotFoundError(f"{self.prefix}-{alias_version}-???")
 
-                if loader_version is None:
-                    raise VersionNotFoundError(f"{self.prefix}-{alias_version}-???")
-
-                self.forge_version = f"{alias_version}-{loader_version}"
-                watcher.handle(ForgeResolveEvent(self.forge_version, False, _forge_repo=_FORGE_REPO))
-        
-        elif self._forge_repo == _NEO_FORGE_REPO:
-
-            # The forge version is not fully specified.
-            if "-" not in self.forge_version:
-
-                watcher.handle(ForgeResolveEvent(self.forge_version, True, _forge_repo=_NEO_FORGE_REPO))
-                full_version = _request_neoforge_version(self.forge_version)
-
-                if full_version is None:
-                    raise VersionNotFoundError(f"{self.prefix}-{self.forge_version}-???")
-                
-                self.forge_version = full_version
-                watcher.handle(ForgeResolveEvent(self.forge_version, False, _forge_repo=_NEO_FORGE_REPO))
+            self.forge_version = f"{alias_version}-{loader_version}"
+            watcher.handle(ForgeResolveEvent(self.forge_version, False))
         
         # Finally define the full version id.
         self.version = f"{self.prefix}-{self.forge_version}"
+        self._forge_repo_url = _FORGE_REPO_URL
+        self._forge_installer_spec = LibrarySpecifier(_FORGE_GROUP, _FORGE_ARTIFACT, self.forge_version, classifier="installer")
 
     def _load_version(self, version: VersionHandle, watcher: Watcher) -> bool:
         if version.id == self.version:
@@ -103,6 +100,10 @@ class ForgeVersion(Version):
         if version.id != self.version:
             return super()._fetch_version(version, watcher)
         
+        # Must have been set in _resolve_version
+        assert self._forge_repo_url is not None
+        assert self._forge_installer_spec is not None
+
         # Extract the game version from the forge version, we'll use
         # it to add suffix to find the right forge version if needed.
         game_version = self.forge_version.split("-", 1)[0]
@@ -124,9 +125,14 @@ class ForgeVersion(Version):
 
         # Iterate suffix and find the first install JAR that works.
         install_jar = None
+        original_version = self._forge_installer_spec.version
         for suffix in suffixes:
             try:
-                install_jar = request_install_jar(f"{self.forge_version}{suffix}", _repo=self._forge_repo)
+                # Apply the suffix before request...
+                self._forge_installer_spec.version = f"{original_version}{suffix}"
+                install_jar_url = f"{self._forge_repo_url}{self._forge_installer_spec.file_path()}"
+                install_jar_res = res = http_request("GET", install_jar_url, accept="application/java-archive")
+                install_jar = ZipFile(BytesIO(install_jar_res.data))
                 break
             except HttpError as error:
                 if error.res.status != 404:
@@ -159,17 +165,16 @@ class ForgeVersion(Version):
             except KeyError:
                 raise ForgeInstallError(self.forge_version, ForgeInstallError.INSTALL_PROFILE_NOT_FOUND)
 
-            # print(f"{install_profile=}")
+            # print(f"{json.dumps(install_profile, indent='  ')}")
 
-            if "json" in install_profile:
-
-                # Forge versions since 1.12.2-14.23.5.2851
+            if "json" in install_profile:  # Forge versions since 1.12.2-14.23.5.2851
+                
                 info = install_jar.getinfo(install_profile["json"].lstrip("/"))
                 with install_jar.open(info) as fp:
                     version.metadata = json.load(fp)
 
                 # We use the bin directory if there is a need to extract temporary files.
-                post_info = ForgePostInfo(self.context.gen_bin_dir())
+                post_info = _ForgePostInfo(self.context.gen_bin_dir())
 
                 # Parse processors
                 for i, processor in enumerate(install_profile["processors"]):
@@ -185,9 +190,11 @@ class ForgeVersion(Version):
                     if not isinstance(processor_jar_name, str):
                         raise ValueError(f"forge profile: /json/processors/{i}/jar must be a string")
 
-                    post_info.processors.append(ForgePostProcessor(
-                        processor_jar_name,
-                        processor.get("classpath", []),
+                    processor_spec = LibrarySpecifier.from_str(processor_jar_name)
+
+                    post_info.processors.append(_ForgePostProcessor(
+                        processor_spec,
+                        [LibrarySpecifier.from_str(raw_spec) for raw_spec in processor.get("classpath", [])],
                         processor.get("args", []),
                         processor.get("outputs", {})
                     ))
@@ -210,7 +217,12 @@ class ForgeVersion(Version):
                     lib_artifact = install_lib["downloads"]["artifact"]
                     lib_path = self.context.libraries_dir / lib_spec.file_path()
 
-                    post_info.libraries[lib_name] = lib_path
+                    # Ignore the library if it has already been specified, has been seen
+                    # in neoforge installer...
+                    if lib_spec in post_info.libraries:
+                        continue
+                    post_info.libraries[lib_spec] = lib_path
+                    # print(lib_spec, lib_path)
                     
                     if len(lib_artifact["url"]):
                         self._dl.add(parse_download_entry(lib_artifact, lib_path, "forge profile: /json/libraries/"), verify=True)
@@ -235,9 +247,8 @@ class ForgeVersion(Version):
                 
                 self._forge_post_info = post_info
 
-            else: 
+            else:  # Forge versions before 1.12.2-14.23.5.2847
 
-                # Forge versions before 1.12.2-14.23.5.2847
                 version.metadata = install_profile.get("versionInfo")
                 if not isinstance(version.metadata, dict):
                     raise ForgeInstallError(self.forge_version, ForgeInstallError.VERSION_METADATA_NOT_FOUND)
@@ -250,7 +261,7 @@ class ForgeVersion(Version):
                         del version_lib["clientreq"]
                     if "checksums" in version_lib:
                         del version_lib["checksums"]
-                    # Older version uses to require libraries that are no longer installed
+                    # Older versions used to require libraries that are no longer installed
                     # by parent versions, therefore it's required to add url if not 
                     # provided, pointing to maven central repository, for downloading.
                     if not version_lib.get("url"):
@@ -323,7 +334,7 @@ class ForgeVersion(Version):
 
             # Extract the main-class from manifest. Required because we cannot use 
             # both -cp and -jar.
-            jar_path = info.libraries[processor.jar_name].absolute()
+            jar_path = info.libraries[processor.spec].absolute()
             main_class = None
             with ZipFile(jar_path) as jar_fp:
                 with jar_fp.open("META-INF/MANIFEST.MF") as manifest_fp:
@@ -338,21 +349,18 @@ class ForgeVersion(Version):
             # Try to find the task name in the arguments, just for information purpose.
             if len(processor.args) >= 2 and processor.args[0] == "--task":
                 task = processor.args[1].lower()
-            elif processor.jar_name.startswith("net.minecraftforge:jarsplitter:"):
-                task = "split_jar"
-            elif processor.jar_name.startswith("net.minecraftforge:ForgeAutoRenamingTool:"):
-                task = "forge_auto_renaming"
-            elif processor.jar_name.startswith("net.minecraftforge:binarypatcher:"):
-                task = "patch_binary"
-            elif processor.jar_name.startswith("net.md-5:SpecialSource:"):
-                task = "special_source_renaming"
             else:
-                task = "unknown"
+                task = {
+                    "jarsplitter": "split_jar",
+                    "ForgeAutoRenamingTool": "forge_auto_renaming",
+                    "binarypatcher": "patch_binary",
+                    "SpecialSource": "special_source_renaming",
+                }.get(processor.spec.artifact, f"unknown({processor.spec})")
 
             # Compute the full arguments list.
             args = [
                 str(self._jvm_path.absolute()),
-                "-cp", os.pathsep.join([str(jar_path), *(str(info.libraries[lib_name].absolute()) for lib_name in processor.class_path)]),
+                "-cp", os.pathsep.join([str(jar_path), *(str(info.libraries[lib_spec].absolute()) for lib_spec in processor.class_path)]),
                 main_class,
                 *(replace_install_args(arg) for arg in processor.args)
             ]
@@ -378,18 +386,53 @@ class ForgeVersion(Version):
         watcher.handle(ForgePostProcessedEvent())
 
 
-class ForgePostProcessor:
+class _NeoForgeVersion(ForgeVersion):
+
+    def __init__(self, neoforge_version: str = "release", *,
+        context: Optional[Context] = None,
+        prefix: str = "neoforge",
+    ) -> None:
+        super().__init__(neoforge_version, context=context, prefix=prefix)
+    
+    def _resolve_version(self, watcher: Watcher) -> None:
+        
+        # Maybe "release" or "snapshot", we process this first.
+        self.forge_version = self.manifest.filter_latest(self.forge_version)[0]
+
+        # The forge version is not fully specified.
+        if "-" not in self.forge_version:
+
+            watcher.handle(ForgeResolveEvent(self.forge_version, True))
+            full_version = _request_neoforge_version(self.forge_version)
+
+            if full_version is None:
+                raise VersionNotFoundError(f"{self.prefix}-{self.forge_version}-???")
+            
+            self.forge_version = full_version
+            watcher.handle(ForgeResolveEvent(self.forge_version, False))
+        
+        # Finally define the full version id.
+        self.version = f"{self.prefix}-{self.forge_version}"
+        
+        # This is using the legacy forge artifact for 1.20.1 only.
+        forge_artifact = _FORGE_ARTIFACT if self.forge_version.startswith("1.20.1-") else _NEO_FORGE_ARTIFACT
+
+        self._forge_repo_url = _NEO_FORGE_REPO_URL
+        self._forge_installer_spec = LibrarySpecifier(_NEO_FORGE_GROUP, forge_artifact, self.forge_version, classifier="installer")
+
+
+class _ForgePostProcessor:
     """Describe the execution model of a post process.
     """
-    __slots__ = "jar_name", "class_path", "args", "sha1"
-    def __init__(self, jar_name: str, class_path: List[str], args: List[str], sha1: Dict[str, str]) -> None:
-        self.jar_name = jar_name
+    __slots__ = "spec", "class_path", "args", "sha1"
+    def __init__(self, spec: LibrarySpecifier, class_path: List[LibrarySpecifier], args: List[str], sha1: Dict[str, str]) -> None:
+        self.spec = spec
         self.class_path = class_path
         self.args = args
         self.sha1 = sha1
 
 
-class ForgePostInfo:
+class _ForgePostInfo:
     """Internal state, used only when forge installer is "modern" (>= 1.12.2-14.23.5.2851)
     describing data and post processors.
     """
@@ -397,8 +440,8 @@ class ForgePostInfo:
     def __init__(self, tmp_dir: Path) -> None:
         self.tmp_dir = tmp_dir
         self.variables: Dict[str, str] = {}   # Data for variable replacements.
-        self.libraries: Dict[str, Path] = {}  # Install-time libraries.  FIXME: Get rid of this?
-        self.processors: List[ForgePostProcessor] = []
+        self.libraries: Dict[LibrarySpecifier, Path] = {}  # Install-time libraries.
+        self.processors: List[_ForgePostProcessor] = []
 
 
 class ForgeInstallError(Exception):
@@ -421,11 +464,11 @@ class ForgeResolveEvent:
     The 'alias' attribute specifies if an alias version is being resolved, if false the
     resolving has finished and we'll try to install the given version.
     """
-    __slots__ = "forge_version", "alias", "_forge_repo"
-    def __init__(self, forge_version: str, alias: bool, *, _forge_repo: str) -> None:
+    __slots__ = "forge_version", "alias"
+
+    def __init__(self, forge_version: str, alias: bool) -> None:
         self.forge_version = forge_version
         self.alias = alias
-        self._forge_repo = _forge_repo
 
 class ForgePostProcessingEvent:
     """Event triggered when a post processing task is starting.
@@ -442,7 +485,7 @@ class ForgePostProcessedEvent:
 
 def request_promo_versions() -> Dict[str, str]:
     """Request recommended and latest versions for each supported game release, this only
-    works.
+    works for forge version.
     """
     return http_request("GET", "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json", 
         accept="application/json").json()["promos"]
@@ -453,26 +496,37 @@ def _request_neoforge_version(game_version: str) -> Optional[str]:
     returning any matching version number, this function will also check that the returned
     version is of the right game version.
     """
+
+    # Just remove the first 1. because its not really the major version.
+    if not game_version.startswith("1."):
+        return None
+    
+    game_version = game_version[2:]
+    if not game_version:
+        return None
+    
+    # Special case for the first version NeoForged was introduced.
+    if game_version == "20.1":
+        url = "https://maven.neoforged.net/api/maven/latest/version/releases/net%2Fneoforged%2Fforge?filter=1.20.1-"
+    else:
+        url = f"https://maven.neoforged.net/api/maven/latest/version/releases/net%2Fneoforged%2Fneoforge?filter={url_parse.quote(game_version)}"
+
     try:
-        # NOTE: For now we don't sanitize the parameter.
-        url = f"https://maven.neoforged.net/api/maven/latest/version/releases/net%2Fneoforged%2Fforge?filter={url_parse.quote(game_version)}"
         ret = http_request("GET", url, accept="application/json").json()
-        loader_version = ret.get("version", "")
-        if not loader_version.startswith(f"{game_version}-"):
-            return None
-        return loader_version
     except HttpError as err:
         if err.res.status != 404:
             raise
         return None
 
+    return ret.get("version")
 
-def request_maven_versions(*, _repo: str = _FORGE_REPO) -> List[str]:
+
+def request_maven_versions() -> List[str]:
     """Internal function that parses maven metadata of forge in order to get all 
     supported forge versions.
     """
 
-    text = http_request("GET", f"{_repo}/maven-metadata.xml", 
+    text = http_request("GET", f"{_FORGE_REPO_URL}/net/minecraftforge/forge/maven-metadata.xml", 
         accept="application/xml").text()
     
     versions = list()
@@ -494,10 +548,9 @@ def request_maven_versions(*, _repo: str = _FORGE_REPO) -> List[str]:
     return versions
 
 
-def request_install_jar(version: str, *, _repo: str = _FORGE_REPO) -> ZipFile:
-    """Internal function to request the installation JAR file.
-    """
-    res = http_request("GET", f"{_repo}/{version}/forge-{version}-installer.jar",
+def request_install_jar(version: str) -> ZipFile:
+    """deprecated"""
+    res = http_request("GET", f"{_FORGE_REPO_URL}/net/minecraftforge/forge/{version}/forge-{version}-installer.jar",
         accept="application/java-archive")
     
     return ZipFile(BytesIO(res.data))
@@ -510,3 +563,27 @@ def zip_extract_file(zf: ZipFile, entry_path: str, dst_path: Path):
     dst_path.parent.mkdir(parents=True, exist_ok=True)
     with zf.open(entry_path) as src, dst_path.open("wb") as dst:
         shutil.copyfileobj(src, dst)
+
+#
+# Following classes are deprecated public class that should never have been private...
+#
+
+class ForgePostProcessor:
+    """deprecated: This class should have been private...
+    """
+    __slots__ = "jar_name", "class_path", "args", "sha1"
+    def __init__(self, jar_name: str, class_path: List[str], args: List[str], sha1: Dict[str, str]) -> None:
+        self.jar_name = jar_name
+        self.class_path = class_path
+        self.args = args
+        self.sha1 = sha1
+
+class ForgePostInfo:
+    """deprecated: This class should have been private..
+    """
+
+    def __init__(self, tmp_dir: Path) -> None:
+        self.tmp_dir = tmp_dir
+        self.variables: Dict[str, str] = {}   # Data for variable replacements.
+        self.libraries: Dict[str, Path] = {}  # Install-time libraries.
+        self.processors: List[ForgePostProcessor] = []

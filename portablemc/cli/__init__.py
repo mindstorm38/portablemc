@@ -36,7 +36,7 @@ from portablemc.standard import Context, Version, VersionManifest, SimpleWatcher
 
 from portablemc.fabric import FabricVersion, FabricResolveEvent
 from portablemc.forge import ForgeVersion, ForgeResolveEvent, ForgePostProcessingEvent, \
-    ForgePostProcessedEvent, ForgeInstallError, _FORGE_REPO, _NEO_FORGE_REPO
+    ForgePostProcessedEvent, ForgeInstallError, _NeoForgeVersion
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
 
@@ -494,9 +494,9 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
     elif kind in ("forge", "neoforge"):
         if len(parts) != 1:
             return None
-        repo = _FORGE_REPO if kind == "forge" else _NEO_FORGE_REPO
+        constructor = ForgeVersion if kind == "forge" else _NeoForgeVersion
         prefix = ns.forge_prefix if kind == "forge" else ns.neoforge_prefix
-        return ForgeVersion(version, context=ns.context, prefix=prefix, _forge_repo=repo)
+        return constructor(version, context=ns.context, prefix=prefix)
     
     else:
         return None
@@ -830,7 +830,8 @@ class StartWatcher(SimpleWatcher):
                 ns.out.finish()
         
         def forge_resolve(e: ForgeResolveEvent) -> None:
-            api = "forge" if e._forge_repo == _FORGE_REPO else "neoforge"
+            # api = "forge" if e._forge_repo == _FORGE_REPO else "neoforge"
+            api="forge"
             if e.alias:
                 ns.out.task("..", "start.forge.resolving", api=api, version=e.forge_version)
             else:
