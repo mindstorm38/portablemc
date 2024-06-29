@@ -400,16 +400,16 @@ class _NeoForgeVersion(ForgeVersion):
         self.forge_version = self.manifest.filter_latest(self.forge_version)[0]
 
         # The forge version is not fully specified.
-        if "-" not in self.forge_version:
+        if "-" not in self.forge_version and self.forge_version.startswith("1."):
 
-            watcher.handle(ForgeResolveEvent(self.forge_version, True))
+            watcher.handle(ForgeResolveEvent(self.forge_version, True, _api = "neoforge"))
             full_version = _request_neoforge_version(self.forge_version)
 
             if full_version is None:
                 raise VersionNotFoundError(f"{self.prefix}-{self.forge_version}-???")
             
             self.forge_version = full_version
-            watcher.handle(ForgeResolveEvent(self.forge_version, False))
+            watcher.handle(ForgeResolveEvent(self.forge_version, False, _api = "neoforge"))
         
         # Finally define the full version id.
         self.version = f"{self.prefix}-{self.forge_version}"
@@ -464,11 +464,12 @@ class ForgeResolveEvent:
     The 'alias' attribute specifies if an alias version is being resolved, if false the
     resolving has finished and we'll try to install the given version.
     """
-    __slots__ = "forge_version", "alias"
+    __slots__ = "forge_version", "alias", "_api"
 
-    def __init__(self, forge_version: str, alias: bool) -> None:
+    def __init__(self, forge_version: str, alias: bool, *, _api = "forge") -> None:
         self.forge_version = forge_version
         self.alias = alias
+        self._api = _api
 
 class ForgePostProcessingEvent:
     """Event triggered when a post processing task is starting.
@@ -497,19 +498,21 @@ def _request_neoforge_version(game_version: str) -> Optional[str]:
     version is of the right game version.
     """
 
-    # Just remove the first 1. because its not really the major version.
-    if not game_version.startswith("1."):
+    game_version_parts = game_version.split(".")
+    if len(game_version_parts) < 2 or len(game_version_parts) > 3:
         return None
     
-    game_version = game_version[2:]
-    if not game_version:
+    # If the "super-major" version is not "1", abort...
+    if game_version_parts[0] != "1":
         return None
     
     # Special case for the first version NeoForged was introduced.
-    if game_version == "20.1":
+    if game_version_parts == [1, 20, 1]:
         url = "https://maven.neoforged.net/api/maven/latest/version/releases/net%2Fneoforged%2Fforge?filter=1.20.1-"
     else:
-        url = f"https://maven.neoforged.net/api/maven/latest/version/releases/net%2Fneoforged%2Fneoforge?filter={url_parse.quote(game_version)}"
+        # Just keep major and minor version number and construct the neoforge version prefix.
+        filter_version = ".".join(game_version_parts[1:3])
+        url = f"https://maven.neoforged.net/api/maven/latest/version/releases/net%2Fneoforged%2Fneoforge?filter={url_parse.quote(filter_version)}"
 
     try:
         ret = http_request("GET", url, accept="application/json").json()

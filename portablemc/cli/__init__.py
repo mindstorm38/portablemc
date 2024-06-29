@@ -830,12 +830,10 @@ class StartWatcher(SimpleWatcher):
                 ns.out.finish()
         
         def forge_resolve(e: ForgeResolveEvent) -> None:
-            # api = "forge" if e._forge_repo == _FORGE_REPO else "neoforge"
-            api="forge"
             if e.alias:
-                ns.out.task("..", "start.forge.resolving", api=api, version=e.forge_version)
+                ns.out.task("..", "start.forge.resolving", api=e._api, version=e.forge_version)
             else:
-                ns.out.task("OK", "start.forge.resolved", api=api, version=e.forge_version)
+                ns.out.task("OK", "start.forge.resolved", api=e._api, version=e.forge_version)
                 ns.out.finish()
 
         super().__init__({
