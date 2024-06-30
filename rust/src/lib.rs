@@ -2,6 +2,10 @@ use std::collections::HashMap;
 use std::num::NonZeroU16;
 
 
+pub mod context;
+pub mod install;
+
+
 /// Handlers can be added to a version to alter the game while resolving it.
 pub trait Handler {
 
