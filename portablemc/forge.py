@@ -507,7 +507,7 @@ def _request_neoforge_version(game_version: str) -> Optional[str]:
         return None
     
     # Special case for the first version NeoForged was introduced.
-    if game_version_parts == [1, 20, 1]:
+    if game_version_parts == ["1", "20", "1"]:
         url = "https://maven.neoforged.net/api/maven/latest/version/releases/net%2Fneoforged%2Fforge?filter=1.20.1-"
     else:
         # Just keep major and minor version number and construct the neoforge version prefix.
