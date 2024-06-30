@@ -9,6 +9,7 @@ use std::io::{self, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::fmt::Write;
 use std::fs::File;
+use std::mem;
 
 use sha1::{Digest, Sha1};
 
@@ -17,11 +18,554 @@ use crate::util::PathExt;
 pub use self::error::{Result, Error, ErrorKind, ErrorOrigin};
 pub use self::specifier::LibrarySpecifier;
 
+
 /// Base URL for downloading game's assets.
 const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
 /// Base URL for downloading game's libraries.
 const LIBRARIES_URL: &str = "https://libraries.minecraft.net/";
 
+
+/// Represent the installation context that can be shared between multiple installers.
+#[derive(Debug)]
+pub struct Context {
+    /// The main directory contains all static resources that will not be modified during
+    /// runtime, this includes versions, libraries and assets.
+    pub main_dir: PathBuf,
+    /// The working directory from where the game is run, the game stores thing like 
+    /// saves, resource packs, options and mods if relevant.
+    pub work_dir: PathBuf,
+    /// The binary directory contains temporary directories that are used only during the
+    /// game's runtime, modern versions no longer use it but it.
+    pub bin_dir: PathBuf,
+    /// The OS name used when applying rules for the version metadata.
+    pub meta_os_name: String,
+    /// The OS system architecture name used when applying rules for version metadata.
+    pub meta_os_arch: String,
+    /// The OS version name used when applying rules for version metadata.
+    pub meta_os_version: String,
+    /// The OS bits replacement for "${arch}" replacement of library natives.
+    pub meta_os_bits: String,
+}
+
+impl Context {
+
+    /// Construct path to the versions directory.
+    pub fn versions_dir(&self) -> PathBuf {
+        self.main_dir.join("versions")
+    }
+
+    /// Construct path to a particular version directory.
+    pub fn version_dir(&self, version: &str) -> PathBuf {
+        let mut buf = self.versions_dir();
+        buf.push(version);
+        buf
+    }
+
+    /// Construct path to a particular version file inside the version directory.
+    pub fn version_file(&self, version: &str, extension: &str) -> PathBuf {
+        let mut buf = self.version_dir(version);
+        buf.push(version);
+        buf.with_extension(extension);
+        buf
+    }
+
+    /// Resolve the given JSON array as rules and return true if allowed.
+    fn check_rules(&self,
+        rules: &[serde::Rule],
+        features: &HashMap<String, bool>,
+        mut all_features: Option<&mut HashSet<String>>,
+    ) -> bool {
+
+        // Initially disallowed...
+        let mut allowed = false;
+
+        for rule in rules {
+            // NOTE: Diverge from what have been done in the Python module for long, we
+            // no longer early return on disallow.
+            match self.check_rule(rule, features, all_features.as_deref_mut()) {
+                Some(serde::RuleAction::Allow) => allowed = true,
+                Some(serde::RuleAction::Disallow) => allowed = false,
+                None => (),
+            }
+        }
+
+        allowed
+
+    }
+
+    /// Resolve a single rule JSON object and return action if the rule passes. This 
+    /// function accepts a set of all features that will be filled with all features
+    /// that are checked, accepted or not.
+    /// 
+    /// This function may return unexpected schema error.
+    fn check_rule(&self, 
+        rule: &serde::Rule, 
+        features: &HashMap<String, bool>, 
+        mut all_features: Option<&mut HashSet<String>>
+    ) -> Option<serde::RuleAction> {
+
+        if !self.check_rule_os(&rule.os) {
+            return None;
+        }
+
+        for (feature, feature_expected) in &rule.features {
+
+            // Only check if still valid...
+            if features.get(feature).copied().unwrap_or_default() != *feature_expected {
+                return None;
+            }
+            
+            if let Some(all_features) = all_features.as_deref_mut() {
+                all_features.insert(feature.clone());
+            }
+
+        }
+
+        Some(rule.action)
+
+    }
+
+    /// Resolve OS rules JSON object and return true if the OS is matching the rule.
+    /// 
+    /// This function may return an unexpected schema error.
+    fn check_rule_os(&self, rule_os: &serde::RuleOs) -> bool {
+
+        if let Some(name) = &rule_os.name {
+            if name != &self.meta_os_name {
+                return false;
+            }
+        }
+
+        if let Some(arch) = &rule_os.arch {
+            if arch != &self.meta_os_arch {
+                return false;
+            }
+        }
+
+        if let Some(version) = &rule_os.version {
+            if !version.is_match(&self.meta_os_version) {
+                return false;
+            }
+        }
+
+        true
+
+    }
+
+}
+
+/// A state machine standard version installer.
+#[derive(Debug)]
+pub struct Installer0<'ctx> {
+    /// The installer context, directories and configurations for the installation.
+    context: &'ctx Context,
+    /// Current state of the installer with its specific data.
+    state: State,
+    /// Bulk download at the end of the installation.
+    downloads: Vec<Download>,
+    /// The hierarchy of versions.
+    hierarchy: Vec<Version>,
+    /// If there are assets.
+    assets: Option<Assets>,
+}
+
+impl<'ctx> Installer0<'ctx> {
+
+    pub fn new(context: &'ctx Context, id: String) -> Self {
+        Self {
+            context,
+            state: State::VersionPreLoading(id),
+            downloads: Vec::new(),
+            hierarchy: Vec::new(),
+            assets: None,
+        }
+    }
+
+    /// Advance to the next installer event.
+    pub fn advance(&mut self) -> Event<'_> {
+
+        // We are using this busy state because it allows us to release ownership on the
+        // state field and therefore pass full control to the state-specific function we
+        // are calling, this function will be able to restore the state if needed.s
+        match self.state {
+            State::Invalid => unreachable!("invalid state"),
+            State::Dead => Event::Dead,
+            State::VersionPreLoading(_) => self.version_pre_loading(),
+            State::VersionLoading(_, _) => self.version_loading(),
+            State::AssetsPreLoading => self.assets_pre_loading(),
+            State::AssetsLoading(_, _) => self.assets_loading(),
+            _ => todo!(),
+        }
+
+    }
+
+    /// Advance from the version pre-loading step to version loading.
+    fn version_pre_loading(&mut self) -> Event<'_> {
+
+        let State::VersionPreLoading(id) = &mut self.state else { unreachable!() };
+        let metadata_file = self.context.version_file(&*id, "json");
+
+        self.state = State::VersionLoading(std::mem::take(id), metadata_file.into_boxed_path());
+        let State::VersionLoading(id, file) = &self.state else { unreachable!() };
+
+        Event::VersionLoading { id: &id, file: &file }
+
+    }
+
+    /// Advance from version loading to another version loading for inherited version,
+    /// or switch to assets resolving when done.
+    fn version_loading(&mut self) -> Event<'_> {
+
+        let State::VersionLoading(id, file) = mem::take(&mut self.state) else { unreachable!() };
+
+        let metadata_reader = match File::open(&file) {
+            Ok(metadata_reader) => metadata_reader,
+            Err(e) => {
+                // Reset state to version loading to allow fixing the issue.
+                self.state = State::VersionLoading(id, file);
+                let State::VersionLoading(id, file) = &self.state else { unreachable!() };
+                return Event::VersionLoadingFailed { 
+                    id: &id, 
+                    file: &file, 
+                    error: EventError::Io(e),
+                }
+            }
+        };
+
+        let deserializer = &mut serde_json::Deserializer::from_reader(metadata_reader);
+        let metadata: serde::VersionMetadata = match serde_path_to_error::deserialize(deserializer) {
+            Ok(obj) => obj,
+            Err(e) => {
+                // Read above.
+                self.state = State::VersionLoading(id, file);
+                let State::VersionLoading(id, file) = &self.state else { unreachable!() };
+                return Event::VersionLoadingFailed {
+                    id: &id,
+                    file: &file,
+                    error: EventError::Json(e),
+                }
+            }
+        };
+
+        // We take the id before replacing the state.
+        self.hierarchy.push(Version {
+            id,
+            metadata,
+        });
+
+        let version = self.hierarchy.last_mut().unwrap();
+
+        // We start by changing the current state to load the inherited metadata.
+        // If there is no inherited version, we advance to assets state.
+        if let Some(next_version_id) = &version.metadata.inherits_from {
+            self.state = State::VersionPreLoading(next_version_id.clone());
+        } else {
+            self.state = State::AssetsPreLoading;
+        }
+
+        Event::VersionLoaded { 
+            id: &version.id, 
+            metadata: &mut version.metadata,
+        }
+
+    }
+
+    fn assets_pre_loading(&mut self) -> Event<'_> {
+
+        /// Internal description of asset information first found in hierarchy.
+        #[derive(Debug)]
+        struct AssetIndexInfo<'a> {
+            download: Option<&'a serde::Download>,
+            id: &'a str,
+        }
+
+        // We search the first version that provides asset informations, we also support
+        // the legacy 'assets' that doesn't have download information.
+        let asset_index_info = self.hierarchy.iter()
+            .find_map(|version| {
+                if let Some(asset_index) = &version.metadata.asset_index {
+                    Some(AssetIndexInfo {
+                        download: Some(&asset_index.download),
+                        id: &asset_index.id,
+                    })
+                } else if let Some(asset_id) = &version.metadata.assets {
+                    Some(AssetIndexInfo {
+                        download: None,
+                        id: &asset_id,
+                    })
+                } else {
+                    None
+                }
+            });
+
+        // Just ignore if no asset information is provided.
+        let Some(asset_index_info) = asset_index_info else {
+            self.state = State::LibrariesLoading;
+            return Event::AssetsSkipped;
+        };
+
+        // Resolve all used directories and files...
+        let asset_dir = self.context.main_dir.join("assets");
+        let asset_indexes_dir = asset_dir.join("indexes");
+        let asset_index_file = asset_indexes_dir.join_with_extension(asset_index_info.id, "json");
+
+        if let Some(dl) = asset_index_info.download {
+            if !check_file(&asset_index_file, dl.size, dl.sha1.as_deref().copied()) {
+                todo!("download file...");
+            }
+        }
+        
+        self.state = State::AssetsLoading(asset_index_info.id.to_string(), asset_index_file.into_boxed_path());
+        Event::AssetsLoading { id: asset_index_info.id }
+
+    }
+
+    fn assets_loading(&mut self) -> Event<'_> {
+        
+        let State::AssetsLoading(id, file) = &self.state else { unreachable!() };
+
+        let reader = match File::open(&file) {
+            Ok(reader) => reader,
+            Err(e) => {
+                // Don't change the state, this can be retried.
+                return Event::AssetsLoadingFailed { 
+                    id: &id, 
+                    file: &file, 
+                    error: EventError::Io(e), 
+                }
+            }
+        };
+
+        let deserializer = &mut serde_json::Deserializer::from_reader(reader);
+        let index: serde::AssetIndex = match serde_path_to_error::deserialize(deserializer) {
+            Ok(obj) => obj,
+            Err(e) => {
+                // Read above.
+                return Event::AssetsLoadingFailed { 
+                    id: &id, 
+                    file: &file, 
+                    error: EventError::Json(e), 
+                }
+            }
+        };
+
+        // Finally done, switch to libraries resolution.
+        let State::AssetsLoading(id, file) = mem::replace(&mut self.state, State::LibrariesLoading) else { unreachable!() };
+
+        self.assets = Some(Assets {
+            id,
+            file,
+            index,
+        });
+
+        let assets = self.assets.as_mut().unwrap();
+
+        Event::AssetsLoaded { 
+            id: &assets.id,
+            index: &assets.index,
+        }
+
+    }
+
+}
+
+/// Internal installer state.
+#[derive(Debug, Default)]
+enum State {
+    /// A temporary invalid state used for temporary swaps, default to ease `mem::take`.
+    #[default]
+    Invalid,
+    /// The installer is in a dead state, an error has been returned and is waiting to
+    /// be recovered, if possible, it's not possible 
+    Dead,
+    /// This state contains the version that will be opened on the next step, it's just
+    /// used to return a load version event, and then immediately go to 
+    VersionPreLoading(String),
+    /// The version will be loaded from its JSON file.
+    VersionLoading(String, Box<Path>),
+    /// The assets will be loaded, or not if absent. If enabled the assets index file is
+    /// read and changed to loading with the
+    AssetsPreLoading,
+
+    AssetsLoading(String, Box<Path>),
+    /// The libraries will be loaded.
+    LibrariesLoading,
+}
+
+/// Represent a single version in the versions hierarchy. This contains the loaded version
+/// name and metadata that will be merged after filtering.
+#[derive(Debug, Clone)]
+struct Version {
+    /// The name of the version.
+    id: String,
+    /// The serde object describing this version.
+    metadata: serde::VersionMetadata,
+}
+
+/// Represent all the assets used for the game.
+#[derive(Debug, Clone)]
+struct Assets {
+    /// The version of assets index.
+    id: String,
+    file: Box<Path>,
+    /// The index contains the definition for all objects.
+    index: serde::AssetIndex,
+}
+
+/// Event returned when running the next step of the installer, the lifetime is tied to
+/// to state machine installer, therefore you need to drop or clone to owned object any 
+/// reference before running the next installer step.
+#[derive(Debug)]
+pub enum Event<'a> {
+    /// The installer is already in a dead state, an error has been previously returned
+    /// and it is not possible to recover.
+    Dead,
+    /// A version is being loaded.
+    VersionLoading {
+        id: &'a str,
+        file: &'a Path,
+    },
+    /// Parsing of the version JSON failed, the step can be retrieve indefinitely and can
+    /// be fixed by writing a valid file at the path, if the error underlying error is
+    /// recoverable (file not found, syntax error).
+    VersionLoadingFailed {
+        id: &'a str,
+        file: &'a Path,
+        error: EventError,
+    },
+    /// A version has been loaded from its JSON definition, it is possible to modify the
+    /// metadata before releasing borrowing and advancing installation.
+    VersionLoaded {
+        id: &'a str,
+        metadata: &'a mut serde::VersionMetadata,
+    },
+    /// There are no assets in this version.
+    AssetsSkipped,
+    /// An assets index of the given id is being loaded, all assets will be checked.
+    /// It's possible to have no id if the version doesn't define any assets index id.
+    AssetsLoading {
+        id: &'a str,
+    },
+    /// If an assets index if defined and opening and parsing its JSON definition fails.
+    AssetsLoadingFailed {
+        id: &'a str,
+        file: &'a Path,
+        error: EventError,
+    },
+    /// Assets index has been loaded.
+    AssetsLoaded {
+        id: &'a str,
+        index: &'a serde::AssetIndex,
+    }
+}
+
+/// Describe an unexpected error, generally on a file.
+#[derive(Debug)]
+pub enum EventError {
+    Io(io::Error),
+    Json(serde_path_to_error::Error<serde_json::Error>),
+}
+
+/// Ensure that a file exists from its download entry, checking that the file has the
+/// right size and SHA-1, if relevant. This will push the download to the handler and
+/// immediately flush the handler.
+fn check_and_read_file(
+    file: &Path,
+    size: Option<u32>,
+    sha1: Option<[u8; 20]>,
+    url: &str,
+) -> io::Result<File> {
+
+    // If the file need to be (re)downloaded...
+    if !check_file(file, size, sha1)? {
+        // TODO: Download file...
+        // handler.download(&[Download {
+        //     source: DownloadSource {
+        //         url: url.into(),
+        //         size,
+        //         sha1,
+        //     },
+        //     file: file.into(),
+        //     executable: false,
+        // }])?;
+    }
+
+    // The handler should have checked it and it should be existing.
+    match File::open(file) {
+        Ok(reader) => Ok(reader),
+        Err(e) if e.kind() == io::ErrorKind::NotFound =>
+            unreachable!("handler returned no error but downloaded file is absent"),
+        Err(e) => return Err(e),
+    }
+    
+}
+
+/// Check if a file at a given path has the corresponding properties, returning true if
+/// it is valid.
+fn check_file(
+    file: &Path,
+    size: Option<u32>,
+    sha1: Option<[u8; 20]>,
+) -> io::Result<bool> {
+
+    if let Some(sha1) = sha1 {
+        // If we want to check SHA-1 we need to open the file and compute it...
+        match File::open(file) {
+            Ok(mut reader) => {
+
+                // If relevant, start by checking the actual size of the file.
+                if let Some(size) = size {
+                    let actual_size = reader.seek(SeekFrom::End(0))?;
+                    if size as u64 != actual_size {
+                        return Ok(false);
+                    }
+                    reader.seek(SeekFrom::Start(0))?;
+                }
+                
+                // Only after we compute hash...
+                let mut digest = Sha1::new();
+                io::copy(&mut reader, &mut digest)?;
+                if digest.finalize().as_slice() != sha1 {
+                    return Ok(false);
+                }
+                
+                Ok(true)
+
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
+            Err(e) => return Err(e),
+        }
+    } else {
+        match (file.metadata(), size) {
+            // File is existing and we want to check size...
+            (Ok(metadata), Some(size)) => Ok(metadata.len() != size as u64),
+            // File is existing but we don't have size to check, no need to download.
+            (Ok(_metadata), None) => Ok(true),
+            (Err(e), _) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            (Err(e), _) => return Err(e),
+        }
+    }
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
 /// This is the standard version installer that provides minimal and common installation
 /// of Minecraft versions. The install procedure given by this installer is idempotent,
 /// which mean that if the installer's configuration has not been modified, running it a
@@ -47,27 +591,6 @@ pub struct Installer {
     pub meta_os_version: String,
     /// The OS bits replacement for "${arch}" replacement of library natives.
     pub meta_os_bits: String,
-}
-
-/// This installer step is returned upon successful version hierarchy resolution, all 
-/// version's metadata are loaded and ready to be used.
-#[derive(Debug, Clone)]
-pub struct Hierarchy<'installer> {
-    /// Back reference to the installer.
-    installer: &'installer Installer,
-    /// The resolved version hierarchy.
-    hierarchy: Vec<Version>,
-}
-
-/// This installer step is returned upon successful intermediate resolution, when assets,
-/// libraries have been parsed from the raw metadata, this can be altered before actually
-/// checking all files and computing what needs to be downloaded.
-#[derive(Debug, Clone)]
-pub struct Intermediate<'installer, 'hierarchy> {
-    /// Back reference to the installer.
-    installer: &'installer Installer,
-    /// Back reference to the resolved hierarchy.
-    hierarchy: &'hierarchy [Version],
 }
 
 impl Installer {
@@ -739,60 +1262,9 @@ pub trait Handler {
 /// Default implementation that doesn't override the default method implementations,
 /// useful to terminate generic handler wrappers.
 impl Handler for () { }
+*/
 
-/// Represent a single version in the versions hierarchy. This contains the loaded version
-/// name and metadata that will be merged after filtering.
-#[derive(Debug, Clone)]
-pub struct Version {
-    /// The name of the version.
-    id: String,
-    /// The serde object describing this version.
-    metadata: serde::VersionMetadata,
-}
-
-impl Version {
-
-    /// Return the identifier of the version.
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub fn metadata(&self) -> &serde::VersionMetadata {
-        &self.metadata
-    }
-
-    pub fn metadata_mut(&mut self) -> &mut serde::VersionMetadata {
-        &mut self.metadata
-    }
-
-}
-
-/// Represent all the assets used for the game.
-#[derive(Debug, Clone)]
-pub struct Assets {
-    /// The version of assets index.
-    id: String,
-    /// The index contains the definition for all objects.
-    index: serde::AssetIndex,
-}
-
-impl Assets {
-
-    /// Return the identifier of the asset index.
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub fn index(&self) -> &serde::AssetIndex {
-        &self.index
-    }
-
-    pub fn index_mut(&mut self) -> &mut serde::AssetIndex {
-        &mut self.index
-    } 
-
-}
-
+/*
 /// Resolution state for a library, before filtering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LibraryState {
@@ -819,6 +1291,7 @@ pub struct Environment<'installer> {
     /// Main class entrypoint for the JVM.
     main_class: String,
 }
+*/
 
 /// A download entry that can be delayed until a call to [`Handler::flush_download`].
 /// This download object borrows the URL and file path.
