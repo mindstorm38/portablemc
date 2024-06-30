@@ -29,9 +29,6 @@ _NEO_FORGE_REPO_URL = "https://maven.neoforged.net/releases/"
 _NEO_FORGE_GROUP = "net.neoforged"
 _NEO_FORGE_ARTIFACT = "neoforge"
 
-# _FORGE_SPEC = LibrarySpecifier("net.minecraftforge", "forge", "")
-# _NEO_FORGE_LEGACY_ARTIFACT_URL = "https://maven.neoforged.net/releases/net/neoforged/forge"
-
 
 class ForgeVersion(Version):
     
