@@ -534,6 +534,8 @@ class Version:
         if not isinstance(assets_objects, dict):
             raise ValueError("assets index: /objects must be an object")
 
+        assets_unique = set()
+
         for asset_id, asset_obj in assets_objects.items():
 
             if not isinstance(asset_obj, dict):
@@ -550,8 +552,15 @@ class Version:
             asset_hash_prefix = asset_hash[:2]
             asset_file = assets_objects_dir.joinpath(asset_hash_prefix, asset_hash)
 
-            asset_url = f"{RESOURCES_URL}{asset_hash_prefix}/{asset_hash}"
             self._assets[asset_id] = asset_file
+
+            # Some assets are represented with multiple files, but we don't want to 
+            # download a file multiple time so we abort here.
+            if asset_hash in assets_unique:
+                continue
+            assets_unique.add(asset_hash)
+
+            asset_url = f"{RESOURCES_URL}{asset_hash_prefix}/{asset_hash}"
             self._dl.add(DownloadEntry(asset_url, asset_file, size=asset_size, sha1=asset_hash, name=asset_id), verify=True)
         
         self._assets_index_version = assets_index_version
@@ -590,6 +599,10 @@ class Version:
 
         watcher.handle(LibrariesResolvingEvent())
 
+        # This set contains all unique library specifiers that have been found so far. 
+        # It also contains libs that have been filtered out by rules.
+        unique_specs = set()
+
         # Recursion order is important for libraries resolving, root libraries should
         # be placed first.
         for version in self._hierarchy[0].recurse():
@@ -612,15 +625,6 @@ class Version:
                 
                 spec = LibrarySpecifier.from_str(name)
 
-                rules = library.get("rules")
-                if rules is not None:
-
-                    if not isinstance(rules, list):
-                        raise ValueError(f"metadata: /libraries/{library_idx}/rules must be a list")
-                    
-                    if not interpret_rule(rules, self._features, f"metadata: /libraries/{library_idx}/rules"):
-                        continue
-
                 # Old metadata files provides a 'natives' mapping from OS to the classifier
                 # specific for this OS, this kind of libs are "native libs", we need to
                 # extract their dynamic libs into the "bin" directory before running.
@@ -638,6 +642,29 @@ class Version:
 
                     if minecraft_arch_bits is not None:
                         spec.classifier = spec.classifier.replace("${arch}", str(minecraft_arch_bits))
+
+                # Create a wildcard copy of the spec without version, because we don't
+                # want to match against version, regardless of its version, a library
+                # should not be added twice.
+                spec_wild = spec.copy()
+                spec_wild.version = "*"
+
+                # We just abort here if the lib name has already been specified. It is
+                # really important to do that here after natives resolution because it
+                # adds a classifier to the lib spec.
+                if spec_wild in unique_specs:
+                    continue
+                unique_specs.add(spec_wild)
+
+                # Changed in 4.3.1, rules are checked after natives
+                rules = library.get("rules")
+                if rules is not None:
+
+                    if not isinstance(rules, list):
+                        raise ValueError(f"metadata: /libraries/{library_idx}/rules must be a list")
+                    
+                    if not interpret_rule(rules, self._features, f"metadata: /libraries/{library_idx}/rules"):
+                        continue
 
                 lib_entry: Optional[DownloadEntry] = None
                 
@@ -1422,8 +1449,12 @@ class VersionManifest:
                 try:
                     with self.cache_file.open("rt") as cache_fp:
                         cache_data = json.load(cache_fp)
-                    if "last_modified" in cache_data:
-                        headers["If-Modified-Since"] = cache_data["last_modified"]
+                    if isinstance(cache_data, dict):
+                        if "last_modified" in cache_data:
+                            headers["If-Modified-Since"] = cache_data["last_modified"]
+                    else:
+                        # If the data isn't a dictionary, it's invalid.
+                        cache_data = None
                 except (OSError, json.JSONDecodeError):
                     pass
             
@@ -1434,6 +1465,9 @@ class VersionManifest:
                     accept="application/json")
                 
                 self.data = res.json()
+                if not isinstance(self.data, dict):
+                    # Raise error because the API is faulting.
+                    raise ValueError("manifest api data is not dict")
 
                 if "Last-Modified" in res.headers:
                     self.data["last_modified"] = res.headers["Last-Modified"]
@@ -1451,6 +1485,9 @@ class VersionManifest:
                 else:
                     raise
 
+        if self.data is None:
+            raise ValueError("manifest data should not be null at this point")
+        
         return self.data
 
     def is_alias(self, version: str) -> bool:
