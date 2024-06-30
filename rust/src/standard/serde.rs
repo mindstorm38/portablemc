@@ -9,9 +9,9 @@ use super::specifier::LibrarySpecifier;
 
 
 /// A version metadata JSON schema.
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct Version {
+pub struct VersionMetadata {
     /// The version id, should be the same as the directory the metadata is in.
     pub id: String,
     /// The version type, such as 'release' or 'snapshot'.
@@ -53,14 +53,14 @@ pub struct Version {
 }
 
 /// Object describing the Mojang-provided Java version to use to launch the game.
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionJavaVersion {
     pub component: String,
     pub major_version: u32,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionAssetIndex {
     pub id: String,
@@ -69,7 +69,7 @@ pub struct VersionAssetIndex {
     pub download: Download,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionLibrary {
     pub name: LibrarySpecifier,
@@ -80,7 +80,7 @@ pub struct VersionLibrary {
     pub url: Option<String>,
 }
 
-#[derive(Debug, Default, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionLibraryDownloads {
     pub artifact: Option<VersionLibraryDownload>,
@@ -88,7 +88,7 @@ pub struct VersionLibraryDownloads {
     pub classifiers: HashMap<String, VersionLibraryDownload>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionLibraryDownload {
     pub path: Option<String>,
@@ -96,7 +96,7 @@ pub struct VersionLibraryDownload {
     pub download: Download,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionArguments {
     #[serde(flatten)]
@@ -105,21 +105,21 @@ pub struct VersionArguments {
     pub jvm: Vec<VersionArgument>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum VersionArgument {
     Raw(String),
     Conditional(VersionConditionalArgument),
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionConditionalArgument {
     pub value: SingleOrVec<String>,
     pub rules: Option<Vec<Rule>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct AssetIndex {
     /// For version <= 13w23b (1.6.1).
     #[serde(default)]
@@ -131,13 +131,13 @@ pub struct AssetIndex {
     pub objects: HashMap<String, AssetObject>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct AssetObject {
     pub size: u32,
     pub hash: Sha1HashString,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Rule {
     pub action: RuleAction,
@@ -147,7 +147,7 @@ pub struct Rule {
     pub features: HashMap<String, bool>,
 }
 
-#[derive(Debug, Default, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct RuleOs {
     pub name: Option<String>,
@@ -156,21 +156,21 @@ pub struct RuleOs {
     pub version: Option<RegexString>,
 }
 
-#[derive(Debug, serde::Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleAction {
     Allow,
     Disallow,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct Download {
     pub url: String,
     pub size: Option<u32>,
     pub sha1: Option<Sha1HashString>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum SingleOrVec<T> {
     Single(T),
@@ -178,7 +178,7 @@ pub enum SingleOrVec<T> {
 }
 
 /// A SHA-1 hash parsed has a 40 hex characters string.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Sha1HashString(pub [u8; 20]);
 
 impl Deref for Sha1HashString {
@@ -222,7 +222,7 @@ impl<'de> serde::Deserialize<'de> for Sha1HashString {
 }
 
 /// A Regex parsed from the string it is defined in.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RegexString(pub Regex);
 
 impl Deref for RegexString {
