@@ -1,0 +1,231 @@
+//! Definition of library specifier structure...
+
+use std::num::NonZeroU16;
+use std::ops::Range;
+use std::str::FromStr;
+
+
+/// A maven-style library specifier.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LibrarySpecifier {
+    /// Internal buffer containing the whole specifier. This should follows the pattern 
+    /// `group:artifact:version[:classifier][@extension]`.
+    raw: String,
+    /// Length of the group part in the specifier.
+    group_len: NonZeroU16,
+    /// Length of the artifact part in the specifier.
+    artifact_len: NonZeroU16,
+    /// Length of the version part in the specifier.
+    version_len: NonZeroU16,
+    /// Length of the classifier part in the specifier, if relevant.
+    classifier_len: Option<NonZeroU16>,
+    /// Length of the extension part in the specifier, if relevant.
+    extension_len: Option<NonZeroU16>,
+}
+
+impl LibrarySpecifier {
+
+    /// Create a new library specifier with the given components.
+    /// Each component, if given, should not be empty.
+    pub fn new(group: &str, artifact: &str, version: &str, classifier: Option<&str>, extension: Option<&str>) -> Self {
+        
+        let mut raw = format!("{group}:{artifact}:{version}");
+        
+        if let Some(classifier) = classifier {
+            raw.push(':');
+            raw.push_str(classifier);
+        }
+
+        if let Some(extension) = extension {
+            raw.push('@');
+            raw.push_str(extension);
+        }
+
+        Self {
+            raw,
+            group_len: NonZeroU16::new(group.len().try_into().expect("group too long")).expect("group empty"),
+            artifact_len: NonZeroU16::new(artifact.len().try_into().expect("artifact too long")).expect("artifact empty"),
+            version_len: NonZeroU16::new(version.len().try_into().expect("version too long")).expect("version empty"),
+            classifier_len: classifier.map(|classifier| NonZeroU16::new(classifier.len().try_into().expect("classifier too long")).expect("classifier empty")),
+            extension_len: extension.map(|extension| NonZeroU16::new(extension.len().try_into().expect("extension too long")).expect("extension empty")),
+        }
+
+    }
+
+    /// Internal method to parse 
+    fn _from_str(raw: &str) -> Option<Self> {
+
+        // Early check that raw string is not longer than u16 max because we cast using 
+        // 'as' and we don't want the cast to overflow, checking the size of the full 
+        // string is a guarantee that any of its piece will be less than u16 max long.
+        if raw.len() > u16::MAX as usize {
+            return None;
+        }
+
+        let mut split = raw.split('@');
+        let raw0 = split.next()?;
+        let extension_len = match split.next() {
+            Some(s) => Some(NonZeroU16::new(s.len() as _)?),
+            None => None,
+        };
+
+        if split.next().is_some() {
+            return None;
+        }
+
+        let mut split = raw0.split(':');
+        let group_len = NonZeroU16::new(split.next()?.len() as _)?;
+        let artifact_len = NonZeroU16::new(split.next()?.len() as _)?;
+        let version_len = NonZeroU16::new(split.next()?.len() as _)?;
+        let classifier_len = match split.next() {
+            Some(s) => Some(NonZeroU16::new(s.len() as _)?),
+            None => None,
+        };
+
+        if split.next().is_some() {
+            return None;
+        }
+
+        Some(Self {
+            raw: raw.to_string(),
+            group_len,
+            artifact_len,
+            version_len,
+            classifier_len,
+            extension_len,
+        })
+
+    }
+
+    #[inline]
+    fn group_range(&self) -> Range<usize> {
+        0..self.group_len.get() as usize
+    }
+
+    #[inline]
+    fn artifact_range(&self) -> Range<usize> {
+        let prev = self.group_range();
+        prev.end + 1..prev.end + 1 + self.artifact_len.get() as usize
+    }
+
+    #[inline]
+    fn version_range(&self) -> Range<usize> {
+        let prev = self.artifact_range();
+        prev.end + 1..prev.end + 1 + self.version_len.get() as usize
+    }
+
+    #[inline]
+    fn classifier_range(&self) -> Range<usize> {
+        let prev = self.version_range();
+        match self.classifier_len {
+            Some(classifier_len) => prev.end + 1..prev.end + 1 + classifier_len.get() as usize,
+            None => prev.end..prev.end
+        }
+    }
+
+    #[inline]
+    fn extension_range(&self) -> Range<usize> {
+        let prev = self.classifier_range();
+        match self.extension_len {
+            Some(extension_len) => prev.end + 1..prev.end + 1 + extension_len.get() as usize,
+            None => prev.end..prev.end
+        }
+    }
+
+    /// Return the group name of the library, never empty.
+    #[inline]
+    pub fn group(&self) -> &str {
+        &self.raw[self.group_range()]
+    }
+
+    /// Change the group of the library, should not be empty.
+    pub fn set_group(&mut self, group: &str) {
+        let range = self.group_range();
+        self.group_len = NonZeroU16::new(group.len().try_into().expect("group too long")).expect("group empty");
+        self.raw.replace_range(range, group);
+    }
+
+    /// Return the artifact name of the library, never empty.
+    #[inline]
+    pub fn artifact(&self) -> &str {
+        &self.raw[self.artifact_range()]
+    }
+
+    /// Change the artifact of the library, should not be empty.
+    pub fn set_artifact(&mut self, artifact: &str) {
+        let range = self.artifact_range();
+        self.artifact_len = NonZeroU16::new(artifact.len().try_into().expect("artifact too long")).expect("artifact empty");
+        self.raw.replace_range(range, artifact);
+    }
+
+    /// Return the version of the library, never empty.
+    #[inline]
+    pub fn version(&self) -> &str {
+        &self.raw[self.version_range()]
+    }
+
+    /// Change the version of the library, should not be empty.
+    pub fn set_version(&mut self, version: &str) {
+        let range = self.version_range();
+        self.version_len = NonZeroU16::new(version.len().try_into().expect("version too long")).expect("version empty");
+        self.raw.replace_range(range, version);
+    }
+
+    /// Return the classifier of the library, empty if no specifier.
+    #[inline]
+    pub fn classifier(&self) -> &str {
+        &self.raw[self.classifier_range()]
+    }
+
+    /// Change the classifier of the library, should not be empty.
+    pub fn set_classifier(&mut self, classifier: Option<&str>) {
+        let range = self.classifier_range();
+        if let Some(classifier) = classifier {
+            self.classifier_len = Some(NonZeroU16::new(classifier.len().try_into().expect("classifier too long")).expect("classifier empty"));
+            self.raw.replace_range(range.clone(), classifier);
+            if range.is_empty() {
+                self.raw.insert(range.start, ':');
+            }
+        } else if !range.is_empty() {
+            self.classifier_len = None;
+            self.raw.replace_range(range, "");
+        }
+    }
+
+    /// Return the extension of the library, never empty, defaults to "jar".
+    #[inline]
+    pub fn extension(&self) -> &str {
+        let range = self.extension_range();
+        if range.is_empty() {
+            "jar"
+        } else {
+            &self.raw[range]
+        }
+    }
+
+    /// Change the extension of the library, should not be empty.
+    pub fn set_extension(&mut self, extension: Option<&str>) {
+        let range = self.extension_range();
+        if let Some(extension) = extension {
+            self.extension_len = Some(NonZeroU16::new(extension.len().try_into().expect("extension too long")).expect("extension empty"));
+            self.raw.replace_range(range.clone(), extension);
+            if range.is_empty() {
+                self.raw.insert(range.start, ':');
+            }
+        } else if !range.is_empty() {
+            self.extension_len = None;
+            self.raw.replace_range(range, "");
+        }
+    }
+
+}
+
+impl FromStr for LibrarySpecifier {
+    
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::_from_str(s).ok_or(())
+    }
+
+}
