@@ -1,13 +1,13 @@
 //! Standard installation procedure.
 
 mod serde;
-mod error;
 mod specifier;
+
+// mod metadata;
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::fmt::Write;
 use std::fs::File;
 use std::mem;
 
@@ -15,7 +15,6 @@ use sha1::{Digest, Sha1};
 
 use crate::util::PathExt;
 
-pub use self::error::{Result, Error, ErrorKind, ErrorOrigin};
 pub use self::specifier::LibrarySpecifier;
 
 
@@ -154,13 +153,16 @@ impl Context {
 
 }
 
+
 /// A state machine standard version installer.
 #[derive(Debug)]
-pub struct Installer0<'ctx> {
+pub struct Installer<'ctx> {
     /// The installer context, directories and configurations for the installation.
     context: &'ctx Context,
     /// Current state of the installer with its specific data.
     state: State,
+    /// Data associated to the current state.
+    state_data: StateData,
     /// Bulk download at the end of the installation.
     downloads: Vec<Download>,
     /// The hierarchy of versions.
@@ -169,12 +171,16 @@ pub struct Installer0<'ctx> {
     assets: Option<Assets>,
 }
 
-impl<'ctx> Installer0<'ctx> {
+impl<'ctx> Installer<'ctx> {
 
     pub fn new(context: &'ctx Context, id: String) -> Self {
         Self {
             context,
-            state: State::VersionPreLoading(id),
+            state: State::VersionPreLoading,
+            state_data: StateData {
+                id,
+                ..Default::default()
+            },
             downloads: Vec::new(),
             hierarchy: Vec::new(),
             assets: None,
@@ -187,62 +193,63 @@ impl<'ctx> Installer0<'ctx> {
         // We are using this busy state because it allows us to release ownership on the
         // state field and therefore pass full control to the state-specific function we
         // are calling, this function will be able to restore the state if needed.s
-        match self.state {
+        match mem::take(&mut self.state) {
             State::Invalid => unreachable!("invalid state"),
             State::Dead => Event::Dead,
-            State::VersionPreLoading(_) => self.version_pre_loading(),
-            State::VersionLoading(_, _) => self.version_loading(),
+            State::VersionPreLoading => self.version_pre_loading(),
+            State::VersionLoading => self.version_loading(),
             State::AssetsPreLoading => self.assets_pre_loading(),
-            State::AssetsLoading(_, _) => self.assets_loading(),
+            State::AssetsLoading => self.assets_loading(),
             _ => todo!(),
         }
 
     }
 
     /// Advance from the version pre-loading step to version loading.
-    fn version_pre_loading(&mut self) -> Event<'_> {
+    fn version_pre_loading(&mut self, id: String) -> Event<'_> {
 
-        let State::VersionPreLoading(id) = &mut self.state else { unreachable!() };
-        let metadata_file = self.context.version_file(&*id, "json");
+        let metadata_file = self.context.version_file(&id, "json");
 
-        self.state = State::VersionLoading(std::mem::take(id), metadata_file.into_boxed_path());
-        let State::VersionLoading(id, file) = &self.state else { unreachable!() };
+        self.state = State::VersionLoading {
+            id, 
+            file: metadata_file.into_boxed_path()
+        };
 
-        Event::VersionLoading { id: &id, file: &file }
+        let State::VersionLoading {
+            id, 
+            file
+        } = &self.state else { unreachable!() };
+
+        Event::VersionLoading { id, file }
 
     }
 
     /// Advance from version loading to another version loading for inherited version,
     /// or switch to assets resolving when done.
-    fn version_loading(&mut self) -> Event<'_> {
+    fn version_loading(&mut self, id: String, file: Box<Path>) -> Event<'_> {
 
-        let State::VersionLoading(id, file) = mem::take(&mut self.state) else { unreachable!() };
+        /// Read version metadata and wrap event error if relevant.
+        fn read_metadata(file: &Path) -> Result<serde::VersionMetadata, EventError> {
 
-        let metadata_reader = match File::open(&file) {
-            Ok(metadata_reader) => metadata_reader,
-            Err(e) => {
-                // Reset state to version loading to allow fixing the issue.
-                self.state = State::VersionLoading(id, file);
-                let State::VersionLoading(id, file) = &self.state else { unreachable!() };
-                return Event::VersionLoadingFailed { 
-                    id: &id, 
-                    file: &file, 
-                    error: EventError::Io(e),
-                }
-            }
-        };
+            let metadata_reader = File::open(&file)
+                .map_err(EventError::Io)?;
 
-        let deserializer = &mut serde_json::Deserializer::from_reader(metadata_reader);
-        let metadata: serde::VersionMetadata = match serde_path_to_error::deserialize(deserializer) {
-            Ok(obj) => obj,
-            Err(e) => {
-                // Read above.
-                self.state = State::VersionLoading(id, file);
-                let State::VersionLoading(id, file) = &self.state else { unreachable!() };
+            serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_reader(metadata_reader))
+                .map_err(EventError::Json)
+
+        }
+
+        // Use the wrapper and reset state to "version loading" in case of error to allow
+        // fixing the issue.
+        let metadata = match read_metadata(&file) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                self.state = State::VersionLoading { id, file };
+                let State::VersionLoading { id, file } = &self.state else { unreachable!() };
                 return Event::VersionLoadingFailed {
-                    id: &id,
-                    file: &file,
-                    error: EventError::Json(e),
+                    id,
+                    file,
+                    error,
                 }
             }
         };
@@ -258,7 +265,7 @@ impl<'ctx> Installer0<'ctx> {
         // We start by changing the current state to load the inherited metadata.
         // If there is no inherited version, we advance to assets state.
         if let Some(next_version_id) = &version.metadata.inherits_from {
-            self.state = State::VersionPreLoading(next_version_id.clone());
+            self.state = State::VersionPreLoading { id: next_version_id.clone() };
         } else {
             self.state = State::AssetsPreLoading;
         }
@@ -270,6 +277,7 @@ impl<'ctx> Installer0<'ctx> {
 
     }
 
+    /// During this state we resolve the asset index to use, compute its path
     fn assets_pre_loading(&mut self) -> Event<'_> {
 
         /// Internal description of asset information first found in hierarchy.
@@ -298,10 +306,10 @@ impl<'ctx> Installer0<'ctx> {
                 }
             });
 
-        // Just ignore if no asset information is provided.
         let Some(asset_index_info) = asset_index_info else {
+            // No asset information so we just ignore and directly load libraries.
             self.state = State::LibrariesLoading;
-            return Event::AssetsSkipped;
+            return Event::AssetsLoading { id: None };
         };
 
         // Resolve all used directories and files...
@@ -310,20 +318,27 @@ impl<'ctx> Installer0<'ctx> {
         let asset_index_file = asset_indexes_dir.join_with_extension(asset_index_info.id, "json");
 
         if let Some(dl) = asset_index_info.download {
+            match check_file(&asset_index_file, dl.size, dl.sha1.as_deref().copied()) {
+                Ok(true) => {}
+                Ok(false) => {
+
+                }
+                Err(error) => {
+                    
+                }
+            }
             if !check_file(&asset_index_file, dl.size, dl.sha1.as_deref().copied()) {
                 todo!("download file...");
             }
         }
         
         self.state = State::AssetsLoading(asset_index_info.id.to_string(), asset_index_file.into_boxed_path());
-        Event::AssetsLoading { id: asset_index_info.id }
+        Event::AssetsLoading { id: Some(asset_index_info.id) }
 
     }
 
-    fn assets_loading(&mut self) -> Event<'_> {
+    fn assets_loading(&mut self, id: String, file: Box<Path>) -> Event<'_> {
         
-        let State::AssetsLoading(id, file) = &self.state else { unreachable!() };
-
         let reader = match File::open(&file) {
             Ok(reader) => reader,
             Err(e) => {
@@ -369,8 +384,27 @@ impl<'ctx> Installer0<'ctx> {
 
 }
 
+
+
+
+
+
+#[derive(Debug)]
+enum RootState {
+    Invalid,
+    Dead,
+    Version {
+        id: String,
+        state: VersionState,
+    },
+    Assets {
+        
+    }
+}
+
+
 /// Internal installer state.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 enum State {
     /// A temporary invalid state used for temporary swaps, default to ease `mem::take`.
     #[default]
@@ -379,17 +413,27 @@ enum State {
     /// be recovered, if possible, it's not possible 
     Dead,
     /// This state contains the version that will be opened on the next step, it's just
-    /// used to return a load version event, and then immediately go to 
-    VersionPreLoading(String),
+    /// used to return a load version event, and then immediately go to next state, it
+    /// also compute the path, which allows returning a ref to it in the event.
+    VersionPreLoading,
     /// The version will be loaded from its JSON file.
-    VersionLoading(String, Box<Path>),
+    VersionLoading,
     /// The assets will be loaded, or not if absent. If enabled the assets index file is
     /// read and changed to loading with the
     AssetsPreLoading,
-
-    AssetsLoading(String, Box<Path>),
+    
+    AssetsLoading,
     /// The libraries will be loaded.
     LibrariesLoading,
+}
+
+/// Shared data across states, this is used to avoid duplication between .
+#[derive(Debug, Default)]
+struct StateData {
+    /// A generic identifier to be used for various states.
+    id: String,
+    /// A generic file path to be used for various states.
+    file: PathBuf,
 }
 
 /// Represent a single version in the versions hierarchy. This contains the loaded version
@@ -439,12 +483,10 @@ pub enum Event<'a> {
         id: &'a str,
         metadata: &'a mut serde::VersionMetadata,
     },
-    /// There are no assets in this version.
-    AssetsSkipped,
     /// An assets index of the given id is being loaded, all assets will be checked.
     /// It's possible to have no id if the version doesn't define any assets index id.
     AssetsLoading {
-        id: &'a str,
+        id: Option<&'a str>,
     },
     /// If an assets index if defined and opening and parsing its JSON definition fails.
     AssetsLoadingFailed {
@@ -500,8 +542,8 @@ fn check_and_read_file(
     
 }
 
-/// Check if a file at a given path has the corresponding properties, returning true if
-/// it is valid.
+/// Check if a file at a given path has the corresponding properties (size and/or SHA-1), 
+/// returning true if it is valid, so false is returned anyway if the file doesn't exists.
 fn check_file(
     file: &Path,
     size: Option<u32>,
