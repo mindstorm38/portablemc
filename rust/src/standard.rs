@@ -2,7 +2,7 @@
 
 use std::result::Result as StdResult;
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::num::NonZeroU16;
 use std::fs::File;
 use std::io::{self, Seek, SeekFrom};
@@ -406,6 +406,12 @@ pub trait Handler {
         Ok(())
     }
 
+    /// Filter assets that will be installed in the 
+    fn filter_assets(&mut self, installer: &Installer, assets: &mut Assets) -> Result<()> {
+        let _ = (installer, assets);
+        Ok(())
+    }
+
     /// Filter the jar file that will be used as the entry point to launching the game.
     /// It is not possible for now to modify the JAR file used.
     fn filter_jar(&mut self, installer: &Installer, jar_file: &Path) -> Result<()> {
@@ -452,6 +458,19 @@ pub struct Version {
     pub name: String,
     /// The JSON metadata of the version, defaults to an empty object.
     pub metadata: Object,
+}
+
+/// Represent all the assets used for the game.
+#[derive(Debug)]
+pub struct Assets {
+    /// Inner list of assets.
+    inner: BTreeMap<String, Asset>,
+}
+
+/// Represent a single asset that will be used by the game.
+#[derive(Debug)]
+pub struct Asset {
+
 }
 
 #[derive(Debug)]
@@ -682,7 +701,7 @@ fn parse_json_download<'obj, 'file>(
 
     if let Some(size) = object.get("size") {
 
-        let make_err = || format!(" must be a number (32-bit unsigned)");
+        let make_err = || format!("/size must be a number (32-bit unsigned)");
 
         let Value::Number(size) = size else {
             return Err(make_err());
