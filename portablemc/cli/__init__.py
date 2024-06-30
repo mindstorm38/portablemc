@@ -36,7 +36,7 @@ from portablemc.standard import Context, Version, VersionManifest, SimpleWatcher
 
 from portablemc.fabric import FabricVersion, FabricResolveEvent
 from portablemc.forge import ForgeVersion, ForgeResolveEvent, ForgePostProcessingEvent, \
-    ForgePostProcessedEvent, ForgeInstallError, _FORGE_REPO, _NEO_FORGE_REPO
+    ForgePostProcessedEvent, ForgeInstallError, _NeoForgeVersion
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
 
@@ -281,9 +281,9 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
             if search is None or search in alias:
                 table.add(alias, version)
 
-    elif kind in ("fabric", "quilt", "legacyfabric"):
+    elif kind in ("fabric", "quilt", "legacyfabric", "babric"):
 
-        from ..fabric import FABRIC_API, QUILT_API, LEGACYFABRIC_API
+        from ..fabric import FABRIC_API, QUILT_API, LEGACYFABRIC_API, BABRIC_API
 
         table.add(_("search.loader_version"), _("search.flags"))
         table.separator()
@@ -292,8 +292,10 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
             api = FABRIC_API
         elif kind == "quilt":
             api = QUILT_API
-        else:
+        elif kind == "legacyfabric":
             api = LEGACYFABRIC_API
+        elif kind == "babric":
+            api = BABRIC_API
         
         for loader in api._request_loaders():
             if search is None or search in loader.version:
@@ -458,15 +460,18 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
             return None
         return Version(version, context=ns.context)
     
-    elif kind in ("fabric", "quilt", "legacyfabric"):
+    elif kind in ("fabric", "quilt", "legacyfabric", "babric"):
 
         if len(parts) > 2:
             return None
         
         # Legacy fabric has a special case because it will never be supported for 
         # versions past 1.13.2, it is not made for latest release version.
-        if kind == "legacyfabric" and version == "release":
-            version = "1.13.2"
+        if version == "release":
+            if kind == "legacyfabric":
+                version = "1.13.2"
+            elif kind == "babric":
+                version = "b1.7.3"
         
         if kind == "fabric":
             constructor = FabricVersion.with_fabric
@@ -474,9 +479,12 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
         elif kind == "quilt":
             constructor = FabricVersion.with_quilt
             prefix = ns.quilt_prefix
-        else:
+        elif kind == "legacyfabric":
             constructor = FabricVersion._with_legacyfabric
             prefix = ns.legacyfabric_prefix
+        elif kind == "babric":
+            constructor = FabricVersion._with_babric
+            prefix = "babric"
         
         if len(parts) != 2:
             ns.socket_error_tips.append(f"{kind}_loader_version")
@@ -486,9 +494,9 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
     elif kind in ("forge", "neoforge"):
         if len(parts) != 1:
             return None
-        repo = _FORGE_REPO if kind == "forge" else _NEO_FORGE_REPO
+        constructor = ForgeVersion if kind == "forge" else _NeoForgeVersion
         prefix = ns.forge_prefix if kind == "forge" else ns.neoforge_prefix
-        return ForgeVersion(version, context=ns.context, prefix=prefix, _forge_repo=repo)
+        return constructor(version, context=ns.context, prefix=prefix)
     
     else:
         return None
@@ -822,11 +830,10 @@ class StartWatcher(SimpleWatcher):
                 ns.out.finish()
         
         def forge_resolve(e: ForgeResolveEvent) -> None:
-            api = "forge" if e._forge_repo == _FORGE_REPO else "neoforge"
             if e.alias:
-                ns.out.task("..", "start.forge.resolving", api=api, version=e.forge_version)
+                ns.out.task("..", "start.forge.resolving", api=e._api, version=e.forge_version)
             else:
-                ns.out.task("OK", "start.forge.resolved", api=api, version=e.forge_version)
+                ns.out.task("OK", "start.forge.resolved", api=e._api, version=e.forge_version)
                 ns.out.finish()
 
         super().__init__({

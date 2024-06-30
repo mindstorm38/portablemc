@@ -132,3 +132,6 @@ class LibrarySpecifier:
             f".{self.extension}"
         
         return "/".join([*self.group.split("."), self.artifact, self.version, file_name])
+
+    def copy(self) -> "LibrarySpecifier":
+        return LibrarySpecifier(self.group, self.artifact, self.version, self.classifier, self.extension)
