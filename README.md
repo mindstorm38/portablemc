@@ -250,7 +250,7 @@ by the LWJGL-provided natives).
 #### Miscellaneous
 With `--dry`, the start command does not start the game, but simply installs it.
 
-With `--demo` you can enable the [demo mode](https://minecraft.gamepedia.com/Demo_mode) 
+With `--demo` you can enable the [demo mode](https://minecraft.wiki/w/Demo_mode) 
 of the game.  
 
 With `--resolution <width>x<height>` you can change the resolution of the game window.
