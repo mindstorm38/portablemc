@@ -49,7 +49,7 @@ class Context:
 
         :param main_dir: The main directory where versions, assets, libraries and 
         optionally JVM are installed. If not specified this path will be set the usual 
-        `.minecraft` (see https://minecraft.fandom.com/fr/wiki/.minecraft).
+        `.minecraft` (see https://minecraft.wiki/w/.minecraft).
         :param work_dir: The working directory from where the game is run, the game stores
         thing like saves, resource packs, options and mods if relevant. This defaults to
         `main_dir` if not specified.
