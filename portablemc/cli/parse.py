@@ -47,6 +47,7 @@ class StartNs(AuthBaseNs):
     jvm: Optional[Path]
     jvm_args: Optional[str]
     no_fix: bool
+    babric_prefix: str
     fabric_prefix: str
     legacyfabric_prefix: str
     quilt_prefix: str
@@ -147,6 +148,7 @@ def register_start_arguments(parser: ArgumentParser) -> None:
     parser.add_argument("--fabric-prefix", help=_("args.start.fabric_prefix"), default="fabric", metavar="PREFIX")
     parser.add_argument("--quilt-prefix", help=_("args.start.quilt_prefix"), default="quilt", metavar="PREFIX")
     parser.add_argument("--legacyfabric-prefix", help=_("args.start.legacyfabric_prefix"), default="legacyfabric", metavar="PREFIX")
+    parser.add_argument("--babric-prefix", help=_("args.start.babric_prefix"), default="babric", metavar="PREFIX")
     parser.add_argument("--forge-prefix", help=_("args.start.forge_prefix"), default="forge", metavar="PREFIX")
     parser.add_argument("--neoforge-prefix", help=_("args.start.neoforge_prefix"), default="neoforge", metavar="PREFIX")
     parser.add_argument("--lwjgl", help=_("args.start.lwjgl"))
