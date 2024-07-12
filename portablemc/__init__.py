@@ -7,7 +7,7 @@ public API, and therefore stable across minor and patch version bumps.
 """
 
 LAUNCHER_NAME = "portablemc"
-LAUNCHER_VERSION = "4.3.0"
+LAUNCHER_VERSION = "4.4.0"
 LAUNCHER_AUTHORS = ["Théo Rozier <contact@theorozier.fr>", "Contributors"]
 LAUNCHER_COPYRIGHT = "PortableMC  Copyright (C) 2021-2024  Théo Rozier"
 LAUNCHER_URL = "https://github.com/mindstorm38/portablemc"
