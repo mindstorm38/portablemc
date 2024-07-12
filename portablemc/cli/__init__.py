@@ -484,7 +484,7 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
             prefix = ns.legacyfabric_prefix
         elif kind == "babric":
             constructor = FabricVersion._with_babric
-            prefix = "babric"
+            prefix = ns.babric_prefix
         
         if len(parts) != 2:
             ns.socket_error_tips.append(f"{kind}_loader_version")
