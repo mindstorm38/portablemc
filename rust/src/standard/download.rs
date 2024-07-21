@@ -128,9 +128,6 @@ pub async fn download_many(
         let mut force_progress = false;
         
         match event.kind {
-            DownloadEventKind::Error(e) => {
-                println!("error: {}: {e}", download.source.url)
-            }
             DownloadEventKind::Progress(current_size) => {
 
                 let diff = current_size - tracker.size;
@@ -145,7 +142,12 @@ pub async fn download_many(
                 }
 
             }
-            DownloadEventKind::Completed => {
+            DownloadEventKind::Failed(e) => {
+                println!("error: {}: {e}", download.source.url);
+                completed += 1;
+                force_progress = true;
+            }
+            DownloadEventKind::Success => {
                 completed += 1;
                 force_progress = true;
             }
@@ -178,7 +180,12 @@ async fn download_wrapper(
     if let Err(e) = download_core(&client, &downloads, index, &mut tx).await {
         tx.send(DownloadEvent {
             index,
-            kind: DownloadEventKind::Error(e),
+            kind: DownloadEventKind::Failed(e),
+        }).await.unwrap();
+    } else {
+        tx.send(DownloadEvent {
+            index,
+            kind: DownloadEventKind::Success,
         }).await.unwrap();
     }
 }
@@ -236,11 +243,6 @@ async fn download_core(
         }
     }
 
-    tx.send(DownloadEvent {
-        index,
-        kind: DownloadEventKind::Completed,
-    }).await.unwrap();
-
     Ok(())
 
 }
@@ -265,12 +267,12 @@ struct DownloadEvent {
 
 #[derive(Debug)]
 enum DownloadEventKind {
-    /// An error happened with the download.
-    Error(DownloadError),
     /// Progress of the download, total downloaded size is given.
     Progress(usize),
-    /// The download has been completed.
-    Completed,
+    /// The download has been completed with an error.
+    Failed(DownloadError),
+    /// The download has been completed successfully.
+    Success,
 }
 
 #[derive(Debug, Default, Clone)]

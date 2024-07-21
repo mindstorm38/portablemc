@@ -5,8 +5,8 @@ mod specifier;
 mod download;
 
 use std::io::{self, BufReader, Seek, SeekFrom};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::fs::File;
 
@@ -97,7 +97,7 @@ impl Installer {
         let _logger_config = self.load_logger(handler, &hierarchy, &mut downloads)?;
         let _assets = self.load_assets(handler, &hierarchy, &mut downloads)?;
 
-        self.bulk_download(handler, downloads)?;
+        self.download_many(handler, downloads)?;
 
         Ok(())
 
@@ -433,7 +433,7 @@ impl Installer {
         handler: &mut dyn Handler, 
         hierarchy: &[Version], 
         downloads: &mut Vec<Download>
-    ) -> Result<()> {
+    ) -> Result<Option<Assets>> {
 
         /// Internal description of asset information first found in hierarchy.
         #[derive(Debug)]
@@ -463,7 +463,7 @@ impl Installer {
 
         let Some(index_info) = index_info else {
             handler.handle(self, Event::AssetsAbsent {  })?;
-            return Ok(());
+            return Ok(None);
         };
 
         handler.handle(self, Event::AssetsLoading { id: index_info.id })?;
@@ -477,7 +477,7 @@ impl Installer {
         // download this single file. If the file has no download info
         if let Some(dl) = index_info.download {
             if !check_file(&index_file, dl.size, dl.sha1.as_deref()).map_err(Error::new_io)? {
-                self.bulk_download(handler, vec![Download {
+                self.download_many(handler, vec![Download {
                     source: dl.into(),
                     file: index_file.clone().into_boxed_path(),
                     executable: false,
@@ -502,43 +502,54 @@ impl Installer {
         handler.handle(self, Event::AssetsLoaded { id: index_info.id, index: &asset_index })?;
 
         // Now we check assets that needs to be downloaded...
-        let mut asset_file = self.assets_dir.join("objects");
+        let objects_dir = self.assets_dir.join("objects");
         let mut asset_file_name = String::new();
+        let mut unique_hashes = HashSet::new();
+        let mut assets = Assets::default();
 
-        // FIXME: Avoid file duplication
-        for asset in asset_index.objects.values() {
+        for (asset_path, asset) in &asset_index.objects {
 
+            asset_file_name.clear();
             for byte in *asset.hash {
                 write!(asset_file_name, "{byte:02x}").unwrap();
             }
+            
+            let asset_hash_prefix = &asset_file_name[0..2];
+            let asset_hash_file = {
+                let mut buf = objects_dir.clone();
+                buf.push(asset_hash_prefix);
+                buf.push(&asset_file_name);
+                buf
+            };
 
-            let asset_hash_name = &asset_file_name[0..2];
-            asset_file.push(asset_hash_name);
-            asset_file.push(&asset_file_name);
+            // Save the association of asset path to the actual hash file.
+            assets.objects.insert(PathBuf::from(asset_path).into_boxed_path(), asset_hash_file.clone().into_boxed_path());
+
+            // Some assets are represented with multiple files, but we don't 
+            // want to download a file multiple time so we abort here.
+            if !unique_hashes.insert(&*asset.hash) {
+                continue;
+            }
 
             // Only check SHA-1 if strict checking.
             let check_asset_sha1 = self.strict_assets_checking.then_some(&*asset.hash);
-            if !check_file(&asset_file, Some(asset.size), check_asset_sha1).map_err(Error::new_io)? {
+            if !check_file(&asset_hash_file, Some(asset.size), check_asset_sha1).map_err(Error::new_io)? {
                 downloads.push(Download {
                     source: DownloadSource {
-                        url: format!("{RESOURCES_URL}{asset_hash_name}/{asset_file_name}").into_boxed_str(),
+                        url: format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_file_name}").into_boxed_str(),
                         size: Some(asset.size),
                         sha1: Some(*asset.hash),
                     },
-                    file: asset_file.clone().into_boxed_path(),
+                    file: asset_hash_file.into_boxed_path(),
                     executable: false,
                 });
             }
-
-            asset_file.pop();
-            asset_file.pop();
-            asset_file_name.clear();
 
         }
 
         handler.handle(self, Event::AssetsVerified { id: index_info.id, index: &asset_index })?;
 
-        Ok(())
+        Ok(Some(assets))
 
     }
 
@@ -625,9 +636,18 @@ impl Installer {
 
     }
 
-    /// Bulk download a sequence of entries, events will be sent to the handler.
-    fn bulk_download(&self, handler: &mut dyn Handler, downloads: Vec<Download>) -> Result<()> {
+    /// Bulk download a sequence of entries, events will be sent to the handler. After
+    /// this method returns successfully, all downloaded files are guaranteed to have
+    /// been downloaded at their location.
+    pub fn download_many(&self, handler: &mut dyn Handler, downloads: Vec<Download>) -> Result<()> {
         download::download_many_blocking(self, handler, downloads)
+    }
+
+    /// Shortcut for calling [`Self::download_many`] with a single download, check it
+    /// for more information.
+    #[inline]
+    pub fn download(&self, handler: &mut dyn Handler, download: Download) -> Result<()> {
+        self.download_many(handler, vec![download])
     }
 
 }
@@ -909,6 +929,12 @@ impl DownloadSource {
         }
     }
 
+}
+
+/// Internal resolved assets associating the virtual file path to its hash file path.
+#[derive(Debug, Default)]
+struct Assets {
+    objects: HashMap<Box<Path>, Box<Path>>,
 }
 
 /// Internal resolved libraries file paths.
