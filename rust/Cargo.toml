@@ -19,8 +19,9 @@ dirs = "5.0"
 digest = "0.10"
 sha1 = "0.10"
 
-reqwest = { version = "0.12", features = ["blocking"] }
-tokio = { version = "=1.37", features = ["full"] }
+reqwest = { version = "0.12", features = [] }
+tokio = { version = "=1.37", features = ["rt", "rt-multi-thread", "fs", "time", "net", "macros"] }
+futures = "0.3"
 
 [[bin]]
 name = "portablemc"

@@ -2,16 +2,15 @@
 
 mod serde;
 mod specifier;
+mod download;
 
 use std::io::{self, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::collections::HashSet;
-use std::fmt::Write;
+use std::fmt::Write as _;
 use std::fs::File;
 
 use sha1::{Digest, Sha1};
-
-use reqwest::blocking::Client;
 
 use crate::util::PathExt;
 
@@ -93,10 +92,10 @@ impl Installer {
         let features = HashSet::new();
 
         let hierarchy = self.load_hierarchy(handler, id)?;
-        let client_file = self.load_client(handler, &hierarchy, &mut downloads)?;
-        let lib_files = self.load_libraries(handler, &hierarchy, &features, &mut downloads)?;
-        let logger_config = self.load_logger(handler, &hierarchy, &mut downloads)?;
-        let assets = self.load_assets(handler, &hierarchy, &mut downloads)?;
+        let _client_file = self.load_client(handler, &hierarchy, &mut downloads)?;
+        let _lib_files = self.load_libraries(handler, &hierarchy, &features, &mut downloads)?;
+        let _logger_config = self.load_logger(handler, &hierarchy, &mut downloads)?;
+        let _assets = self.load_assets(handler, &hierarchy, &mut downloads)?;
 
         self.bulk_download(handler, downloads)?;
 
@@ -506,6 +505,7 @@ impl Installer {
         let mut asset_file = self.assets_dir.join("objects");
         let mut asset_file_name = String::new();
 
+        // FIXME: Avoid file duplication
         for asset in asset_index.objects.values() {
 
             for byte in *asset.hash {
@@ -539,32 +539,6 @@ impl Installer {
         handler.handle(self, Event::AssetsVerified { id: index_info.id, index: &asset_index })?;
 
         Ok(())
-
-    }
-
-    /// Bulk download a sequence of entries, events will be sent to the handler.
-    fn bulk_download(&self, handler: &mut dyn Handler, downloads: Vec<Download>) -> Result<()> {
-
-        // https://patshaughnessy.net/2020/1/20/downloading-100000-files-using-async-rust
-
-        static USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-
-        let client = Client::builder()
-            .user_agent(USER_AGENT)
-            .build()
-            .unwrap(); // FIXME:
-
-        // for download in downloads {
-            
-        //     let res = client.get(&*download.source.url)
-        //         .send()
-        //         .unwrap();
-
-            
-
-        // }
-
-        todo!()
 
     }
 
@@ -649,6 +623,11 @@ impl Installer {
 
         true
 
+    }
+
+    /// Bulk download a sequence of entries, events will be sent to the handler.
+    fn bulk_download(&self, handler: &mut dyn Handler, downloads: Vec<Download>) -> Result<()> {
+        download::download_many_blocking(self, handler, downloads)
     }
 
 }
@@ -749,14 +728,15 @@ pub enum Event<'a> {
         index: &'a serde::AssetIndex,
     },
     /// Notification of a download progress. This event isn't required to be produced
-    /// for each entry, it is required only for the first and last entries in a download
-    /// when the size reaches the total size.
+    /// for each entry, however it should be produced at the beginning with a count and 
+    /// size of 0 and a total count with the total number of downloads. A download is 
+    /// considered finished when the count reaches the total count.
     DownloadProgress {
-        /// Index (start at zero) of the entry being downloaded.
-        index: u32,
-        /// Total number of entries that will be downloaded.
+        /// Number of entries successfully downloaded.
         count: u32,
-        /// The current downloaded size, included the entry being downloaded.
+        /// Total number of entries that will be downloaded.
+        total_count: u32,
+        /// The current downloaded size.
         size: u32,
         /// Total size of all entries that will be downloaded, this can increase while 
         /// downloading if file sizes were unknown are are now known, or if some 
@@ -766,34 +746,41 @@ pub enum Event<'a> {
 }
 
 /// The standard installer could not proceed to the installation of a version.
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
     /// The given version is not found when trying to fetch it.
+    #[error("version not found: {id}")]
     VersionNotFound {
         id: String,
     },
     /// The given version is not found and no download information is provided.
+    #[error("assets not found: {id}")]
     AssetsNotFound {
         id: String,
     },
     /// The version JAR file that is required has no download information and is not 
     /// already existing, is is mandatory to build the class path.
+    #[error("client not found")]
     ClientNotFound,
     /// A library has no download information and is missing the libraries directory.
+    #[error("library not found: {spec}")]
     LibraryNotFound {
         spec: LibrarySpecifier,
     },
     /// A special error that is returned by the handler to request a retry for a specific
     /// phase, if this error is returned by the global installation process, it means that
     /// the retry was not possible. The retry-ability of a phase is described on events.
+    #[error("retry")]
     Retry,
     /// A special error than can be used by the handler to halt the installation process
     /// when an event is produced.
+    #[error("halt")]
     Halt,
     /// A developer-oriented error that cannot be handled with other errors, it has an
     /// origin that could be a file or any other raw string, attached to the actual error.
     /// This includes filesystem, network, JSON parsing and schema errors.
+    #[error("other: {kind:?} @ {origin:?}")]
     Other {
         /// The origin of the error, can be a file path.
         origin: ErrorOrigin,
@@ -971,7 +958,7 @@ fn check_file(
                 Ok(true)
 
             }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
             Err(e) => return Err(e),
         }
     } else {
