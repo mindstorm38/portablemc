@@ -11,7 +11,6 @@ use std::fmt::Write;
 use std::fs::File;
 
 use sha1::{Digest, Sha1};
-use serde_json::Value;
 
 use crate::util::PathExt;
 
@@ -29,7 +28,7 @@ const LIBRARIES_URL: &str = "https://libraries.minecraft.net/";
 /// second time won't do any modification.
 /// 
 /// This various important directories used by the installer can be configured as needed.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Installer {
     /// The main directory contains all static resources that will not be modified during
     /// runtime, this includes versions, libraries and assets.
@@ -96,7 +95,7 @@ impl Installer {
     /// to pass in a handler that will cover such case (for example with Mojang version),
     /// the handler also provides the download method, so handler predefined structures
     /// are made to be wrapped into other ones, each being specific.
-    pub fn install(&self, version: &str, handler: &mut dyn Handler) -> Result<Environment> {
+    pub fn install(&self, version: &str, handler: &mut dyn Handler) -> Result<Environment<'_>> {
 
         // TODO: Make a global list of JSON errors so that we can list every problem
         // and return all of them at once.
@@ -123,7 +122,10 @@ impl Installer {
         handler.download(&downloads)?;
 
         Ok(Environment {
-
+            installer: self,
+            jvm_args: todo!(),
+            game_args: todo!(),
+            main_class: todo!(),
         })
 
     }
@@ -159,7 +161,7 @@ impl Installer {
         match File::open(&metadata_file) {
             Ok(metadata_reader) => {
 
-                let metadata: serde::Version = match serde_json::from_reader(metadata_reader) {
+                let metadata: serde::VersionMetadata = match serde_json::from_reader(metadata_reader) {
                     Ok(obj) => obj,
                     Err(e) => return Err(Error::new_file_json(metadata_file, e)),
                 };
@@ -265,12 +267,14 @@ impl Installer {
             // therefore test SHA-1.
             if self.check_file(&asset_file, Some(asset.size), None)? {
                 downloads.push(Download {
-                    url: format!("{RESOURCES_URL}{asset_hash_name}/{asset_file_name}").into_boxed_str(),
+                    source: DownloadSource {
+                        url: format!("{RESOURCES_URL}{asset_hash_name}/{asset_file_name}").into_boxed_str(),
+                        size: Some(asset.size),
+                        sha1: Some(*asset.hash),
+                    },
                     file: asset_file.clone().into_boxed_path(),
-                    size: Some(asset.size),
-                    sha1: Some(*asset.hash),
                     executable: false,
-                })
+                });
             }
 
             asset_file.pop();
@@ -337,7 +341,23 @@ impl Installer {
         // only once, it's important for class path ordering for some corner cases with 
         // mod loaders.
 
-        let mut libraries = HashMap::new();
+        #[derive(Debug)]
+        struct Library {
+            /// Specifier for this library.
+            spec: LibrarySpecifier,
+            /// The path to install the library at, relative to the libraries directory, by 
+            /// default it is derived from the library specifier.
+            path: Option<Box<Path>>,
+            /// An optional download source for this library if it is missing.
+            source: Option<DownloadSource>,
+            /// True if this contains natives that should be extracted into the binaries 
+            /// directory before launching the game, instead of being in the class path.
+            natives: bool,
+        }
+
+        // Tracking libraries that are already defined and should not be overridden.
+        let mut libraries_set = HashSet::new();
+        let mut libraries = Vec::new();
 
         for version in hierarchy {
 
@@ -378,14 +398,24 @@ impl Installer {
                     }
                 }
 
+                // Never override...
+                if !libraries_set.insert(&lib.name) {
+                    handler.notify_library(self, &lib_spec, LibraryState::RejectedOverridden);
+                    continue;
+                }
+
                 // This library is retained so we insert it in the global libraries.
                 handler.notify_library(self, &lib_spec, LibraryState::Retained);
-                let lib_obj = libraries.entry(lib_spec.clone()).or_insert(Library {
+
+                // Using 'or_insert' to avoid overriding a library.
+                libraries.push(Library {
                     spec: lib_spec,
                     path: None,
                     source: None,
                     natives: lib.natives.is_some(),
                 });
+
+                let lib_obj = libraries.last_mut().unwrap();
 
                 let lib_dl;
                 if lib_obj.natives {
@@ -404,7 +434,10 @@ impl Installer {
                     // can derive with the library name to find a URL.
 
                     let mut url = repo_url.clone();
-                    url.strip_suffix('/');
+
+                    if url.ends_with('/') {
+                        url.truncate(url.len() - 1);
+                    }
                     
                     for component in lib_obj.spec.file_components() {
                         url.push('/');
@@ -423,17 +456,15 @@ impl Installer {
 
         }
 
+        for lib in libraries {
+
+            
+
+        }
+
         Err(Error::NotSupported("resolve_libraries"))
 
     }
-
-    // fn check_and_read_download(&self,
-    //     file: &Path,
-    //     download: JsonDownload<'_>,
-    //     handler: &mut dyn Handler,
-    // ) -> Result<File> {
-    //     self.check_and_read_file(file, download.size, download.sha1, download.url, handler)
-    // }
 
     /// Ensure that a file exists from its download entry, checking that the file has the
     /// right size and SHA-1, if relevant. This will push the download to the handler and
@@ -610,6 +641,29 @@ impl Installer {
 
 }
 
+/// This installer step is returned upon successful version hierarchy resolution, all 
+/// version's metadata are loaded and ready to be used.
+#[derive(Debug, Clone)]
+pub struct Hierarchy<'installer> {
+    /// Back reference to the installer.
+    installer: &'installer Installer,
+    /// The resolved version hierarchy.
+    hierarchy: Vec<Version>,
+}
+
+/// This installer step is returned upon successful intermediate resolution, when assets,
+/// libraries have been parsed from the raw metadata, this can be altered before actually
+/// checking all files and computing what needs to be downloaded.
+#[derive(Debug, Clone)]
+pub struct Intermediate<'installer, 'hierarchy> {
+    /// Back reference to the installer.
+    installer: &'installer Installer,
+    /// Back reference to the resolved hierarchy.
+    hierarchy: &'hierarchy [Version],
+}
+
+
+
 /// A handler is given when installing a version and allows tracking installation progress
 /// and also provides methods to alter the installed version, such as downloading missing
 /// versions or downloading missing files.
@@ -663,11 +717,11 @@ pub trait Handler {
         let _ = (installer, spec, state);
     }
 
-    /// Filter libraries after initial resolution.
-    fn filter_libraries(&mut self, installer: &Installer, libraries: &mut HashMap<LibrarySpecifier, Library>) -> Result<()> {
-        let _ = (installer, libraries);
-        Ok(())
-    }
+    // /// Filter libraries after initial resolution.
+    // fn filter_libraries(&mut self, installer: &Installer, libraries: &mut HashMap<LibrarySpecifier, Library>) -> Result<()> {
+    //     let _ = (installer, libraries);
+    //     Ok(())
+    // }
 
     /// Bulk download entries synchronously, this should be the preferred way to download
     /// a file as-is. When successful, this method should return the total bytes 
@@ -688,21 +742,55 @@ impl Handler for () { }
 
 /// Represent a single version in the versions hierarchy. This contains the loaded version
 /// name and metadata that will be merged after filtering.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Version {
     /// The name of the version.
-    pub id: String,
+    id: String,
     /// The serde object describing this version.
-    pub metadata: serde::Version,
+    metadata: serde::VersionMetadata,
+}
+
+impl Version {
+
+    /// Return the identifier of the version.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn metadata(&self) -> &serde::VersionMetadata {
+        &self.metadata
+    }
+
+    pub fn metadata_mut(&mut self) -> &mut serde::VersionMetadata {
+        &mut self.metadata
+    }
+
 }
 
 /// Represent all the assets used for the game.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Assets {
     /// The version of assets index.
-    pub id: String,
+    id: String,
     /// The index contains the definition for all objects.
-    pub index: serde::AssetIndex,
+    index: serde::AssetIndex,
+}
+
+impl Assets {
+
+    /// Return the identifier of the asset index.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn index(&self) -> &serde::AssetIndex {
+        &self.index
+    }
+
+    pub fn index_mut(&mut self) -> &mut serde::AssetIndex {
+        &mut self.index
+    } 
+
 }
 
 /// Resolution state for a library, before filtering.
@@ -715,32 +803,21 @@ pub enum LibraryState {
     /// The natives variant of the library got excluded because no classifier has been
     /// found for the current os name.
     RejectedNatives,
-}
-
-#[derive(Debug)]
-pub struct Libraries {
-    pub class: Vec<Library>,
-    pub natives: Vec<Library>,
-}
-
-#[derive(Debug)]
-pub struct Library {
-    /// Specifier for this library.
-    pub spec: LibrarySpecifier,
-    /// The path to install the library at, relative to the libraries directory, by 
-    /// default it is derived from the library specifier.
-    pub path: Option<Box<Path>>,
-    /// An optional download source for this library if it is missing.
-    pub source: Option<DownloadSource>,
-    /// True if this contains natives that should be extracted into the binaries 
-    /// directory before launching the game, instead of being in the classpath.
-    pub natives: bool,
+    /// The library is overridden by a version lower in the hierarchy.
+    RejectedOverridden,
 }
 
 /// The environment of an installed version, this is the entrypoint to run the game.
 #[derive(Debug)]
-pub struct Environment {
-
+pub struct Environment<'installer> {
+    /// Back reference to the installer that produced this environment.
+    installer: &'installer Installer,
+    /// Arguments for the JVM.
+    jvm_args: Vec<String>,
+    /// Arguments for the game itself.
+    game_args: Vec<String>,
+    /// Main class entrypoint for the JVM.
+    main_class: String,
 }
 
 /// A download entry that can be delayed until a call to [`Handler::flush_download`].
@@ -852,21 +929,3 @@ fn default_meta_os_bits() -> Option<String> {
         _ => return None
     }
 }
-
-// /// Merge two version metadata JSON values. Merging object is recursive and merging 
-// /// arrays just append to the destination.
-// fn merge_json_metadata(dst: &mut Object, src: &Object) {
-//     for (src_key, src_value) in src.iter() {
-//         if let Some(dst_value) = dst.get_mut(src_key) {
-//             match (dst_value, src_value) {
-//                 (Value::Object(dst_object), Value::Object(src_object)) => 
-//                     merge_json_metadata(dst_object, src_object),
-//                 (Value::Array(dst), Value::Array(src)) =>
-//                     dst.extend(src.iter().cloned()),
-//                 _ => {}  // Do nothing, do not override destination if mismatch.
-//             }
-//         } else {
-//             dst.insert(src_key.clone(), src_value.clone());
-//         }
-//     }
-// }
