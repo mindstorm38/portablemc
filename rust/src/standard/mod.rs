@@ -1,7 +1,6 @@
 //! Standard installation procedure.
 
 pub mod serde;
-mod download;
 
 use std::io::{self, BufReader, Seek, SeekFrom};
 use std::collections::{HashMap, HashSet};
@@ -13,8 +12,6 @@ use sha1::{Digest, Sha1};
 
 use crate::path::PathExt;
 use crate::gav::Gav;
-
-pub use self::download::{Download, DownloadSource, DownloadError};
 
 
 /// Base URL for downloading game's assets.

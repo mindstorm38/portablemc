@@ -1,4 +1,4 @@
-//! Parallel download implementation for standard installer.
+//! Parallel download implementation.
 //! 
 //! Partially inspired by: https://patshaughnessy.net/2020/1/20/downloading-100000-files-using-async-rust
 
@@ -17,9 +17,12 @@ use tokio::task::JoinSet;
 use tokio::sync::mpsc;
 use tokio::fs::File;
 
-use crate::http;
 
-use super::{serde, Event, Handler, Installer, Result, Error};
+/// A list of pending download that can be all downloaded at once.
+#[derive(Debug)]
+pub struct DownloadList {
+    inner: Vec<Download>,
+}
 
 
 /// Bulk download blocking entrypoint.
@@ -84,7 +87,7 @@ pub async fn download_many(
     })?;
 
     // Initialize the HTTP(S) client.
-    let client = http::builder()
+    let client = crate::http::builder()
         .build()
         .unwrap(); // FIXME:
 
@@ -253,6 +256,10 @@ async fn download_core(
 
 }
 
+pub trait DownloadWatcher {
+    
+}
+
 /// A download entry that can be delayed until a call to [`Handler::flush_download`].
 /// This download object borrows the URL and file path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -291,17 +298,17 @@ impl DownloadSource {
 
 }
 
-impl<'a> From<&'a serde::Download> for DownloadSource {
+// impl<'a> From<&'a serde::Download> for DownloadSource {
 
-    fn from(serde: &'a serde::Download) -> Self {
-        Self {
-            url: serde.url.clone().into(),
-            size: serde.size,
-            sha1: serde.sha1.as_deref().copied(),
-        }
-    }
+//     fn from(serde: &'a serde::Download) -> Self {
+//         Self {
+//             url: serde.url.clone().into(),
+//             size: serde.size,
+//             sha1: serde.sha1.as_deref().copied(),
+//         }
+//     }
 
-}
+// }
 
 #[derive(thiserror::Error, Debug)]
 pub enum DownloadError {

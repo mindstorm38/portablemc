@@ -1,9 +1,9 @@
 //! Optionally cached Mojang manifest.
 
+use std::io::{self, BufReader};
 use std::path::PathBuf;
 use std::fs::File;
 
-use crate::standard::{Result, Error};
 use super::serde;
 
 
@@ -32,21 +32,29 @@ impl MojangManifest {
         }
     }
 
-    pub fn get(&mut self) -> &serde::MojangManifest {
+    pub fn get(&mut self) -> io::Result<&serde::MojangManifest> {
 
         if let Some(data) = &self.data {
-            return data;
+            return Ok(data);
         }
 
         if let Some(cache_file) = self.cache_file.as_deref() {
+
+            let cache_reader = match File::open(cache_file) {
+                Ok(reader) => BufReader::new(reader),
+                Err(e) if e.kind() == io::ErrorKind::NotFound 
+            }
             
-            // let file = File::open(cache_file)
-            //     .map_err(|e| )
+            self.datamatch serde_json::from_reader(BufReader::new(File::open(cache_file)?)) {
+                Ok(obj) => obj
+            }
 
         }
 
         todo!()
 
     }
+
+    fn 
 
 }

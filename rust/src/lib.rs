@@ -4,6 +4,7 @@
 pub mod gav;
 pub mod path;
 pub mod http;
+pub mod download;
 
 pub mod standard;
 pub mod mojang;
