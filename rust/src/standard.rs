@@ -1,5 +1,6 @@
 //! Standard installer.
 
+use std::fmt::Write;
 use std::result::Result as StdResult;
 use std::path::{Path, PathBuf};
 use std::collections::{BTreeMap, HashMap};
@@ -107,6 +108,7 @@ impl Installer {
         for version in &hierarchy {
             merge_json_metadata(&mut metadata, &version.metadata);
         }
+        handler.filter_metadata(self, &mut metadata)?;
 
         // Downloads list to the end.
         let mut downloads = Vec::new();
@@ -118,6 +120,8 @@ impl Installer {
         // Assets may be absent and unspecified in metadata for some custom versions.
         let assets = self.resolve_assets(&metadata, &mut downloads, handler)?;
         handler.filter_assets(self, assets.as_ref());
+
+        self.resolve_libraries(&metadata, &mut downloads, handler)?;
 
         // Now we want to resolve the main version JAR file.
         let jar_file = self.version_file(version, "jar");
@@ -184,7 +188,11 @@ impl Installer {
     /// Resolve the given version's merged metadata assets to use for the version. This
     /// returns a full description of what assets to use (if so) and the list. This 
     /// function push downloads for each missing asset.
-    fn resolve_assets(&self, metadata: &Object, downloads: &mut Vec<Download>, handler: &mut dyn Handler) -> Result<Option<Assets>> {
+    fn resolve_assets(&self, 
+        metadata: &Object, 
+        downloads: &mut Vec<Download>, 
+        handler: &mut dyn Handler
+    ) -> Result<Option<Assets>> {
 
         let Some(assets_index_info) = metadata.get("assetIndex") else {
             // Asset info may not be present, it's not required because some custom 
@@ -242,25 +250,21 @@ impl Installer {
             return Err(Error::JsonSchema(format!("assets index: /objects must be an object")));
         };
 
-        let assets_objects_dir = assets_dir.join("objects");
-
         let mut assets = Assets {
             version: assets_index_version.clone(),
-            count: assets_objects.len(),
-            size: 0,
             with_resources: assets_resources,
             with_virtual: assets_virtual,
             objects: HashMap::new(),
         };
 
-        for (asset_id, asset_obj) in assets_objects.iter() {
+        for (asset_path, asset_obj) in assets_objects.iter() {
 
             let Value::Object(asset_obj) = asset_obj else {
-                return Err(Error::JsonSchema(format!("assets index: /objects/{asset_id} must be an object")));
+                return Err(Error::JsonSchema(format!("assets index: /objects/{asset_path} must be an object")));
             };
 
-            let size_make_err = || Error::JsonSchema(format!("assets index: /objects/{asset_id}/size must be a number (32-bit unsigned)"));
-            let hash_make_err = || Error::JsonSchema(format!("assets index: /objects/{asset_id}/hash must be a string (40 hex characters)"));
+            let size_make_err = || Error::JsonSchema(format!("assets index: /objects/{asset_path}/size must be a number (32-bit unsigned)"));
+            let hash_make_err = || Error::JsonSchema(format!("assets index: /objects/{asset_path}/hash must be a string (40 hex characters)"));
 
             let Some(Value::Number(asset_size)) = asset_obj.get("size") else {
                 return Err(size_make_err());
@@ -270,44 +274,56 @@ impl Installer {
                 .and_then(|size| u32::try_from(size).ok())
                 .ok_or_else(size_make_err)?;
             
-            assets.size += asset_size as u64;
-
-            let Some(Value::String(asset_hash_raw)) = asset_obj.get("hash") else {
+            let Some(Value::String(asset_hash)) = asset_obj.get("hash") else {
                 return Err(hash_make_err());
             };
 
-            let asset_hash = parse_hex_bytes::<20>(asset_hash_raw)
+            let asset_hash = parse_hex_bytes::<20>(asset_hash)
                 .ok_or_else(hash_make_err)?;
 
-            let asset_relative_file = PathBuf::from(asset_id);
+            assets.objects.insert(PathBuf::from(asset_path), Asset {
+                sha1: asset_hash,
+                size: asset_size,
+            });
 
-            // The asset file is located in a directory named after the first byte of the
-            // asset's SHA-1 hash, we extract the two first hex character from the hash.
-            // This should not panic if the hex parsing has been successful.
-            let asset_hash_prefix = &asset_hash_raw[..2];
-            let asset_file = {
-                let mut buf = assets_objects_dir.clone();
-                buf.extend([asset_hash_prefix, asset_hash_raw]);
-                buf
-            };
+        }
 
-            assets.objects.insert(asset_relative_file, asset_hash.clone());
+        // Filter assets before checking ones to download.
+        handler.filter_assets(self, &mut assets)?;
+
+        // Now we check assets that needs to be downloaded...
+        let mut asset_file = assets_dir.join("objects");
+        let mut asset_file_name = String::new();
+
+        for (asset_path, asset) in assets.objects {
+
+            for byte in asset.sha1 {
+                write!(asset_file_name, "{byte:02x}").unwrap();
+            }
+
+            let asset_hash_name = &asset_file_name[0..2];
+            asset_file.push(asset_hash_name);
+            asset_file.push(asset_file_name);
 
             let must_download = match asset_file.metadata() {
-                Ok(metadata) => metadata.len() != asset_size as u64,
+                Ok(metadata) => metadata.len() != asset.size as u64,
                 Err(e) if e.kind() == io::ErrorKind::NotFound => true,
                 Err(e) => return Err(e.into()),
             };
 
             if must_download {
                 downloads.push(Download {
-                    url: format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_hash_raw}"),
+                    url: format!("{RESOURCES_URL}{asset_hash_name}/{asset_file_name}"),
                     file: asset_file,
-                    size: Some(asset_size),
-                    sha1: Some(asset_hash),
+                    size: Some(asset.size),
+                    sha1: Some(asset.sha1),
                     executable: false,
                 })
             }
+
+            asset_file.pop();
+            asset_file.pop();
+            asset_file_name.clear();
 
         }
 
@@ -319,7 +335,12 @@ impl Installer {
     /// it is explicitly specified in the metadata, if so it will schedule it for 
     /// download if relevant, if not it will use the already present JAR file. If
     /// no JAR file exists, an [`Error::JarNotFound`] error is returned.
-    fn resolve_jar(&self, metadata: &Object, downloads: &mut Vec<Download>, jar_file: &Path, handler: &mut dyn Handler) -> Result<()> {
+    fn resolve_jar(&self, 
+        metadata: &Object, 
+        downloads: &mut Vec<Download>, 
+        jar_file: &Path, 
+        handler: &mut dyn Handler
+    ) -> Result<()> {
 
         if let Some(downloads) = metadata.get("downloads") {
 
@@ -351,10 +372,22 @@ impl Installer {
 
     }
 
+    /// Resolve all game libraries.
+    fn resolve_libraries(&self, 
+        metadata: &Object, 
+        downloads: &mut Vec<Download>, 
+        handler: &mut dyn Handler
+    ) -> Result<()> {
+        Err(Error::UnsupportedOperation("resolve_libraries"))
+    }
+
     /// Ensure that a file exists from its download entry, checking that the file has the
     /// right size and SHA-1, if relevant. This will push the download to the handler and
     /// immediately flush the handler.
-    fn read_with_download(&self, download: Download, handler: &mut dyn Handler) -> Result<File> {
+    fn read_with_download(&self, 
+        download: Download, 
+        handler: &mut dyn Handler
+    ) -> Result<File> {
 
         let file = download.file.as_path();
 
@@ -404,7 +437,9 @@ impl Installer {
 
 }
 
-/// A handler given to alter installation of a particular version.
+/// A handler is given when installing a version and allows altering the installation
+/// process during the installation. It also provides various methods that are required
+/// to provide missing version and download missing files.
 pub trait Handler {
 
     /// Filter an individual version that have just been loaded from a file, this method
@@ -428,14 +463,22 @@ pub trait Handler {
         Ok(())
     }
 
+    /// Filter the merged metadata of the version hierarchy.
+    fn filter_metadata(&mut self, installer: &Installer, metadata: &mut Object) -> Result<()> {
+        let _ = (installer, metadata);
+        Ok(())
+    }
+
     /// Filter features that will be used to resolve metadata libraries and arguments.
     fn filter_features(&mut self, installer: &Installer, features: &mut HashMap<String, bool>) -> Result<()> {
         let _ = (installer, features);
         Ok(())
     }
 
-    /// Filter assets that will be installed for that version, none if no assets.
-    fn filter_assets(&mut self, installer: &Installer, assets: Option<&Assets>) -> Result<()> {
+    /// Filter assets that will be installed for that version, this can be altered but 
+    /// you must be aware that changing any of the objects or index version will need 
+    /// to be coherent because the game only depends on the asset index file.
+    fn filter_assets(&mut self, installer: &Installer, assets: &mut Assets) -> Result<()> {
         let _ = (installer, assets);
         Ok(())
     }
@@ -460,10 +503,14 @@ pub trait Handler {
     /// download it and only then check size and SHA-1, if relevant.
     fn download(&mut self, entries: &[Download]) -> Result<usize> {
         let _ = entries;
-        Err(Error::UnsupportedOperation("download"))
+        Err(Error::UnsupportedOperation("Handler::download"))
     }
 
 }
+
+/// Default implementation that doesn't override the default method implementations,
+/// useful if you don't need a particular handler.
+impl Handler for () { }
 
 /// Represent a single version in the versions hierarchy. This contains the loaded version
 /// name and metadata that will be merged after filtering.
@@ -480,16 +527,21 @@ pub struct Version {
 pub struct Assets {
     /// The version of assets index.
     pub version: String,
-    /// Total number of asset objects.
-    pub count: usize,
-    /// Total size of asset objects.
-    pub size: u64,
     /// For version <= 13w23b (1.6.1)
     pub with_resources: bool,
     /// For 13w23b (1.6.1) < version <= 13w48b (1.7.2)
     pub with_virtual: bool,
-    /// Assets objects mapped from their relative path to their SHA-1 hash.
-    pub objects: HashMap<PathBuf, Sha1Hash>,
+    /// Assets objects mapped from their relative path to their object.
+    pub objects: HashMap<PathBuf, Asset>,
+}
+
+#[derive(Debug)]
+pub struct Asset {
+    /// The SHA-1 hash of the content of this asset, it also defines its path inside the
+    /// objects directory structure.
+    pub sha1: Sha1Hash,
+    /// Size of this asset in bytes.
+    pub size: u32,
 }
 
 #[derive(Debug)]
