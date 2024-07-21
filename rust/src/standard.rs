@@ -1,17 +1,22 @@
-//! Standard installer.
+//! Standard installation procedure.
 
+mod error;
+mod specifier;
+
+use std::collections::{HashMap, HashSet};
 use std::result::Result as StdResult;
 use std::io::{self, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
-use std::num::NonZeroU16;
 use std::fmt::Write;
 use std::fs::File;
 
 use sha1::{Digest, Sha1};
 use serde_json::Value;
 
-use crate::util::{PathExt, DigestReader};
+use crate::util::PathExt;
+
+pub use self::error::{Result, Error, ErrorKind, ErrorOrigin};
+pub use self::specifier::LibrarySpecifier;
 
 
 /// Base URL for downloading game's assets.
@@ -51,6 +56,8 @@ pub struct Installer {
     pub meta_os_arch: String,
     /// The OS version name used when applying rules for version metadata.
     pub meta_os_version: String,
+    /// The OS bits replacement for "${arch}" replacement of library natives.
+    pub meta_os_bits: String,
 }
 
 impl Installer {
@@ -68,6 +75,7 @@ impl Installer {
             meta_os_name: default_meta_os_name()?,
             meta_os_arch: default_meta_os_arch()?,
             meta_os_version: default_meta_os_version()?,
+            meta_os_bits: default_meta_os_bits()?,
         })
     }
 
@@ -98,7 +106,10 @@ impl Installer {
     /// to pass in a handler that will cover such case (for example with Mojang version),
     /// the handler also provides the download method, so handler predefined structures
     /// are made to be wrapped into other ones, each being specific.
-    pub fn install(&self, version: &str, handler: &mut dyn Handler) -> Result<()> {
+    pub fn install(&self, version: &str, handler: &mut dyn Handler) -> Result<Environment> {
+
+        // TODO: Make a global list of JSON errors so that we can list every problem
+        // and return all of them at once.
 
         // All downloads to start at the end of resolution before launching.
         let mut downloads = Vec::new();
@@ -123,7 +134,9 @@ impl Installer {
         // Finally download all required files.
         handler.download(&downloads)?;
 
-        Ok(())
+        Ok(Environment {
+
+        })
 
     }
 
@@ -142,7 +155,7 @@ impl Installer {
                 if let Value::String(next_version_name) = metadata_inherits {
                     version_name = Some(next_version_name);
                 } else {
-                    return Err(Error::JsonSchema(format!("metadata ({current_version_name}): /inheritsFrom must be a string")));
+                    return Err(Error::new_raw_schema(format!("metadata({current_version_name})"), "/inheritsFrom: expected string"));
                 }
             }
 
@@ -160,11 +173,18 @@ impl Installer {
     /// Load a specific version given its name, and fallback to handler when needed.
     fn load_version(&self, version: &str, handler: &mut dyn Handler) -> Result<Version> {
 
-        match File::open(self.version_file(&version, "json")) {
+        let metadata_file = self.version_file(&version, "json");
+        match File::open(&metadata_file) {
             Ok(metadata_reader) => {
 
+                let metadata = match serde_json::from_reader(metadata_reader) {
+                    Ok(metadata) => metadata,
+                    Err(e) => return Err(ErrorKind::Json(e)
+                        .with_file_origin(metadata_file))
+                };
+
                 let mut version = Version {
-                    metadata: serde_json::from_reader(metadata_reader)?,
+                    metadata,
                     name: version.to_string(),
                 };
 
@@ -174,7 +194,7 @@ impl Installer {
                 
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(Error::Io(e))
+            Err(e) => return Err(Error::new_file_io(metadata_file, e))
         };
 
         handler.fetch_version(self, version)
@@ -210,22 +230,22 @@ impl Installer {
         };
 
         let Value::Object(assets_index_info) = assets_index_info else {
-            return Err(Error::JsonSchema(format!("metadata: /assetIndex must be an object")));
+            return Err(Error::new_raw_schema("metadata", "/assetIndex, expected object"));
         };
 
         // We also keep the path used, for a more useful error message.
-        let Some((assets_index_version, assets_index_version_path)) = 
+        let Some((assets_index_version, schema_message)) = 
             metadata.get("assets")
-                .map(|val| (val, "/assets"))
+                .map(|val| (val, "/assets, expected string"))
                 .or_else(|| assets_index_info.get("id")
-                    .map(|val| (val, "/assetIndex/id"))) 
+                    .map(|val| (val, "/assetIndex/id, expected string"))) 
         else {
             // Asset info may not be present, same as above.
             return Ok(None);
         };
 
         let Value::String(assets_index_version) = assets_index_version else {
-            return Err(Error::JsonSchema(format!("metadata: {assets_index_version_path} must be a string")));
+            return Err(Error::new_raw_schema("metadata", schema_message));
         };
 
         // Resolve all used directories and files...
@@ -235,28 +255,31 @@ impl Installer {
 
         // The assets index info can be parsed as a download entry at this point.
         let assets_index_download = parse_json_download(assets_index_info)
-            .map_err(|err| Error::JsonSchema(format!("metadata: /assetIndex{err}")))?;
+            .map_err(|err| Error::new_raw_schema("metadata", format!("/assetIndex{err}")))?;
 
         let assets_index_reader = self.check_and_read_download(&assets_index_file, assets_index_download, handler)?;
-        let assets_index: Object = serde_json::from_reader(assets_index_reader)?;
+        let assets_index: Object = match serde_json::from_reader(assets_index_reader) {
+            Ok(obj) => obj,
+            Err(e) => return Err(Error::new_file_json(assets_index_file, e)),
+        };
         
         // For version <= 13w23b (1.6.1)
         let assets_resources = match assets_index.get("map_to_resources") {
             Some(&Value::Bool(val)) => val,
-            Some(_) => return Err(Error::JsonSchema(format!("assets index: /map_to_resources must be a boolean"))),
+            Some(_) => return Err(Error::new_file_schema(assets_index_file, "/map_to_resources, expected bool")),
             None => false,
         };
 
         // For 13w23b (1.6.1) < version <= 13w48b (1.7.2)
         let assets_virtual = match assets_index.get("virtual") {
             Some(&Value::Bool(val)) => val,
-            Some(_) => return Err(Error::JsonSchema(format!("assets index: /virtual must be a boolean"))),
+            Some(_) => return Err(Error::new_file_schema(assets_index_file, "/virtual, expected bool")),
             None => false,
         };
 
         // Objects are mandatory...
         let Some(Value::Object(assets_objects)) = assets_index.get("objects") else {
-            return Err(Error::JsonSchema(format!("assets index: /objects must be an object")));
+            return Err(Error::new_file_schema(assets_index_file, "/objects, expected object"));
         };
 
         let mut assets = Assets {
@@ -269,11 +292,11 @@ impl Installer {
         for (asset_path, asset_obj) in assets_objects.iter() {
 
             let Value::Object(asset_obj) = asset_obj else {
-                return Err(Error::JsonSchema(format!("assets index: /objects/{asset_path} must be an object")));
+                return Err(Error::new_file_schema(assets_index_file, "/objects/{asset_path}, expected object"));
             };
 
-            let size_make_err = || Error::JsonSchema(format!("assets index: /objects/{asset_path}/size must be a number (32-bit unsigned)"));
-            let hash_make_err = || Error::JsonSchema(format!("assets index: /objects/{asset_path}/hash must be a string (40 hex characters)"));
+            let size_make_err = || 
+                Error::new_file_schema(&*assets_index_file, format!("/objects/{asset_path}/size, expected number (32-bit unsigned)"));
 
             let Some(Value::Number(asset_size)) = asset_obj.get("size") else {
                 return Err(size_make_err());
@@ -282,6 +305,9 @@ impl Installer {
             let asset_size = asset_size.as_u64()
                 .and_then(|size| u32::try_from(size).ok())
                 .ok_or_else(size_make_err)?;
+
+            let hash_make_err = || 
+                Error::new_file_schema(&*assets_index_file, format!("/objects/{asset_path}/hash, expected string (40 hex characters)"));
             
             let Some(Value::String(asset_hash)) = asset_obj.get("hash") else {
                 return Err(hash_make_err());
@@ -350,17 +376,17 @@ impl Installer {
         if let Some(downloads_info) = metadata.get("downloads") {
 
             let Value::Object(downloads_info) = downloads_info else {
-                return Err(Error::JsonSchema(format!("metadata: /downloads must be an object")));
+                return Err(Error::new_raw_schema("metadata", "/downloads, expected object"));
             };
 
             if let Some(downloads_client) = downloads_info.get("client") {
 
                 let Value::Object(downloads_client) = downloads_client else {
-                    return Err(Error::JsonSchema(format!("metadata: /downloads/client must be an object")));
+                    return Err(Error::new_raw_schema("metadata", "/downloads/client, expected object"));
                 };
 
                 let download = parse_json_download(downloads_client)
-                    .map_err(|err| Error::JsonSchema(format!("metadata: /downloads/client{err}")))?;
+                    .map_err(|err| Error::new_raw_schema("metadata", format!("/downloads/client{err}")))?;
 
                 if self.check_file(&jar_file, download.size, download.sha1)? {
                     downloads.push(download.to_owned(jar_file.to_owned(), false));
@@ -372,10 +398,10 @@ impl Installer {
 
         // If no download entry has been found, but the JAR exists, we use it.
         if !jar_file.is_file() {
-            return Err(Error::JarNotFound);
+            return Err(Error::JarNotFound());
         }
         
-        handler.filter_jar(self, &jar_file)?;
+        handler.notify_jar(self, &jar_file)?;
         Ok(jar_file)
 
     }
@@ -403,6 +429,7 @@ impl Installer {
 
             // Used for error formatting...
             let version_name = version.name.as_str();
+            let schema_origin = || format!("metadata({version_name})");
 
             // Libraries object may be missing.
             let Some(libs) = version.metadata.get("libraries") else {
@@ -410,35 +437,26 @@ impl Installer {
             };
 
             let Value::Array(libs) = libs else {
-                return Err(Error::JsonSchema(format!("metadata({version_name}): /libraries must be a list")));
+                return Err(Error::new_raw_schema(schema_origin(), "/libraries, expected list"));
             };
 
             for (lib_idx, lib) in libs.iter().enumerate() {
 
                 let Value::Object(lib) = lib else {
-                    return Err(Error::JsonSchema(format!("metadata({version_name}): /libraries/{lib_idx} must be an object")));
+                    return Err(Error::new_raw_schema(schema_origin(), format!("/libraries/{lib_idx}, expected object")));
                 };
                 
-                let lib_spec_err = || Error::JsonSchema(format!("metadata({version_name}): /libraries/{lib_idx}/name must be a string (library specifier)"));
+                let lib_spec_err = || 
+                    Error::new_raw_schema(schema_origin(), format!("/libraries/{lib_idx}/name, expected string (library specifier)"));
 
                 let Some(Value::String(lib_spec)) = lib.get("name") else {
                     return Err(lib_spec_err());
                 };
 
-                let lib_spec = LibrarySpecifier::from_str(lib_spec.clone())
-                    .ok_or_else(lib_spec_err)?;
+                let mut lib_spec = lib_spec.parse::<LibrarySpecifier>()
+                    .map_err(|_| lib_spec_err())?;
 
-                // Start by applying rules before the actual parsing.
-                // TODO: Continue parsing after that just to check syntax?
-                if let Some(lib_rules) = lib.get("rules") {
-
-                    let Value::Array(lib_rules) = lib_rules else {
-                        return Err(Error::JsonSchema(format!("metadata({version_name}): /libraries/{lib_idx}/rules must be a list")));
-                    };
-
-                    // TODO: Interpret rules...
-
-                }
+                let mut lib_state = LibraryState::Retained;
 
                 // Old metadata files provides a 'natives' mapping from OS to the classifier
                 // specific for this OS, this kind of libs are "native libs", we need to
@@ -446,18 +464,58 @@ impl Installer {
                 if let Some(lib_natives) = lib.get("natives") {
 
                     let Value::Object(lib_natives) = lib_natives else {
-                        return Err(Error::JsonSchema(format!("metadata({version_name}): /libraries/{lib_idx}/natives must be an object")));
+                        return Err(Error::new_raw_schema(schema_origin(), format!("/libraries/{lib_idx}/natives, expected object")));
                     };
 
-                    
+                    // If natives object is present, the classifier associated to the
+                    // OS overrides the library specifier classifier. If not existing,
+                    // we just skip this library because natives are missing.
+                    match lib_natives.get(&self.meta_os_name) {
+                        Some(Value::String(classifier)) => {
+                            lib_spec.set_classifier(Some(&classifier));
+                        }
+                        Some(_) => {
+                            return Err(Error::new_raw_schema(schema_origin(), format!("/libraries/{lib_idx}/natives/{}, expected string", self.meta_os_name)));
+                        }
+                        None => {
+                            lib_state = LibraryState::RejectedNatives;
+                        }
+                    }
 
+                    // If we find a arch replacement pattern, we must replace it with
+                    // the target architecture bit-ness (32, 64).
+                    const ARCH_REPLACEMENT_PATTERN: &str = "${arch}";
+                    if let Some(pattern_idx) = lib_spec.classifier().find(ARCH_REPLACEMENT_PATTERN) {
+                        
+                    }
+
+                }
+
+                // Start by applying rules before the actual parsing. Important, we do
+                // that after checking natives, so this will override the lib state if
+                // rejected, and we still benefit from classifier resolution.
+                if let Some(lib_rules) = lib.get("rules") {
+
+                    let Value::Array(lib_rules) = lib_rules else {
+                        return Err(Error::new_raw_schema(schema_origin(), format!("/libraries/{lib_idx}/rules, expected list")));
+                    };
+
+                    // TODO: Interpret rules...
+                    lib_state = LibraryState::RejectedRules;
+
+                }
+
+                // Only keep retained libraries.
+                handler.notify_library(self, &lib_spec, lib_state);
+                if lib_state != LibraryState::Retained {
+                    continue;
                 }
 
             }
 
         }
 
-        Err(Error::UnsupportedOperation("resolve_libraries"))
+        Err(Error::NotSupported("resolve_libraries"))
 
     }
 
@@ -496,7 +554,7 @@ impl Installer {
             Ok(reader) => Ok(reader),
             Err(e) if e.kind() == io::ErrorKind::NotFound =>
                 unreachable!("handler returned no error but downloaded file is absent"),
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(Error::new_file_io(file, e)),
         }
         
     }
@@ -509,33 +567,41 @@ impl Installer {
         sha1: Option<Sha1Hash>,
     ) -> Result<bool> {
 
+        /// Just an internal block wrapper for I/O error.
+        fn check_reader(
+            mut reader: File,
+            size: Option<u32>,
+            sha1: Sha1Hash,
+        ) -> io::Result<bool> {
+
+            // If relevant, start by checking the actual size of the file.
+            if let Some(size) = size {
+                let actual_size = reader.seek(SeekFrom::End(0))?;
+                if size as u64 != actual_size {
+                    return Ok(true);
+                }
+                reader.seek(SeekFrom::Start(0))?;
+            }
+            
+            // Only after we compute hash...
+            let mut digest = Sha1::new();
+            io::copy(&mut reader, &mut digest)?;
+            if digest.finalize().as_slice() != sha1 {
+                return Ok(true);
+            }
+            reader.seek(SeekFrom::Start(0))?;
+            
+            Ok(false)
+
+        }
+
         if let Some(sha1) = sha1 {
             // If we want to check SHA-1 we need to open the file and compute it...
             match File::open(file) {
-                Ok(mut reader) => {
-
-                    // If relevant, start by checking the actual size of the file.
-                    if let Some(size) = size {
-                        let actual_size = reader.seek(SeekFrom::End(0))?;
-                        if size as u64 != actual_size {
-                            return Ok(true);
-                        }
-                        reader.seek(SeekFrom::Start(0))?;
-                    }
-                    
-                    // Only after we compute hash...
-                    let mut digest = Sha1::new();
-                    io::copy(&mut reader, &mut digest)?;
-                    if digest.finalize().as_slice() != sha1 {
-                        return Ok(true);
-                    }
-                    reader.seek(SeekFrom::Start(0))?;
-                    
-                    Ok(false)
-
-                }
+                Ok(reader) => check_reader(reader, size, sha1)
+                    .map_err(|e| Error::new_file_io(file, e)),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
-                Err(e) => Err(e.into()),
+                Err(e) => Err(Error::new_file_io(file, e)),
             }
         } else {
             match (file.metadata(), size) {
@@ -544,17 +610,28 @@ impl Installer {
                 // File is existing but we don't have size to check, no need to download.
                 (Ok(_metadata), None) => Ok(false),
                 (Err(e), _) if e.kind() == io::ErrorKind::NotFound => Ok(true),
-                (Err(e), _) => Err(e.into()),
+                (Err(e), _) => Err(Error::new_file_io(file, e)),
             }
         }
 
     }
 
+    /// Check 
+    fn check_rule(&self,
+        rules: Array,
+        features: &HashMap<String, bool>,
+        all_features: &mut HashSet<String>
+    ) -> Result<()> {
+
+        Ok(())
+
+    }
+
 }
 
-/// A handler is given when installing a version and allows altering the installation
-/// process during the installation. It also provides various methods that are required
-/// to provide missing version and download missing files.
+/// A handler is given when installing a version and allows tracking installation progress
+/// and also provides methods to alter the installed version, such as downloading missing
+/// versions or downloading missing files.
 pub trait Handler {
 
     /// Filter an individual version that have just been loaded from a file, this method
@@ -566,13 +643,14 @@ pub trait Handler {
 
     /// When a version is missing, is it requested by calling this method. This method
     /// returns a [`Error::VersionNotFound`] by default. This method is responsible of
-    /// writing the version metadata file if it's needed for it to be persistent.
+    /// writing the version metadata file if it's needed to be persistent.
     fn fetch_version(&mut self, installer: &Installer, version: &str) -> Result<Version> {
         let _ = installer;
-        Err(Error::VersionNotFound(version.to_string()))
+        Err(Error::VersionNotFound(version.into()))
     }
 
-    /// Filter the version hierarchy after full resolution.
+    /// Filter the version hierarchy after full resolution. The given hierarchy is never
+    /// empty and this function should not empty it.
     fn filter_hierarchy(&mut self, installer: &Installer, hierarchy: &mut Vec<Version>) -> Result<()> {
         let _ = (installer, hierarchy);
         Ok(())
@@ -600,9 +678,14 @@ pub trait Handler {
 
     /// Filter the jar file that will be used as the entry point to launching the game.
     /// It is not possible for now to modify the JAR file used.
-    fn filter_jar(&mut self, installer: &Installer, jar_file: &Path) -> Result<()> {
+    fn notify_jar(&mut self, installer: &Installer, jar_file: &Path) -> Result<()> {
         let _ = (installer, jar_file);
         Ok(())
+    }
+
+    // Notify the handler that a library has been resolved with the given state.
+    fn notify_library(&mut self, installer: &Installer, spec: &LibrarySpecifier, state: LibraryState) {
+        let _ = (installer, spec, state);
     }
 
     /// Filter libraries after initial resolution.
@@ -618,7 +701,7 @@ pub trait Handler {
     /// download it and only then check size and SHA-1, if relevant.
     fn download(&mut self, entries: &[Download]) -> Result<usize> {
         let _ = entries;
-        Err(Error::UnsupportedOperation("Handler::download"))
+        Err(Error::NotSupported("Handler::download"))
     }
 
 }
@@ -659,6 +742,18 @@ pub struct Asset {
     pub size: u32,
 }
 
+/// Resolution state for a library, before filtering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryState {
+    /// The library has been retained for installation.
+    Retained,
+    /// Some rules have rejected this library.
+    RejectedRules,
+    /// The natives variant of the library got excluded because no classifier has been
+    /// found for the current os name.
+    RejectedNatives,
+}
+
 #[derive(Debug)]
 pub struct Library {
 
@@ -682,155 +777,12 @@ pub struct Download {
     pub executable: bool,
 }
 
-/// A maven-style library specifier.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LibrarySpecifier {
-    /// Internal buffer containing the whole specifier. This should follows the pattern 
-    /// `group:artifact:version[:classifier][@extension]`.
-    raw: String,
-    /// Length of the group part in the specifier.
-    group_len: NonZeroU16,
-    /// Length of the artifact part in the specifier.
-    artifact_len: NonZeroU16,
-    /// Length of the version part in the specifier.
-    version_len: NonZeroU16,
-    /// Length of the classifier part in the specifier, if relevant.
-    classifier_len: Option<NonZeroU16>,
-    /// Length of the extension part in the specifier, if relevant.
-    extension_len: Option<NonZeroU16>,
-}
-
-impl LibrarySpecifier {
-
-    /// Parse the given library specifier and return it if successful.
-    /// TODO: Move to FromStr trait.
-    pub fn from_str(raw: String) -> Option<Self> {
-
-        // FIXME: Remove "as"
-
-        let mut split = raw.split('@');
-        let raw0 = split.next()?;
-        let extension_len = match split.next() {
-            Some(s) => Some(NonZeroU16::new(s.len() as _)?),
-            None => None,
-        };
-
-        if split.next().is_some() {
-            return None;
-        }
-
-        let mut split = raw0.split(':');
-        let group_len = NonZeroU16::new(split.next()?.len() as _)?;
-        let artifact_len = NonZeroU16::new(split.next()?.len() as _)?;
-        let version_len = NonZeroU16::new(split.next()?.len() as _)?;
-        let classifier_len = match split.next() {
-            Some(s) => Some(NonZeroU16::new(s.len() as _)?),
-            None => None,
-        };
-
-        if split.next().is_some() {
-            return None;
-        }
-
-        Some(Self {
-            raw,
-            group_len,
-            artifact_len,
-            version_len,
-            classifier_len,
-            extension_len,
-        })
-
-    }
-
-    pub fn new(group: &str, artifact: &str, version: &str, classifier: Option<&str>, extension: Option<&str>) -> Self {
-        
-        let mut raw = format!("{group}:{artifact}:{version}");
-        
-        if let Some(classifier) = classifier {
-            raw.push(':');
-            raw.push_str(classifier);
-        }
-
-        if let Some(extension) = extension {
-            raw.push('@');
-            raw.push_str(extension);
-        }
-
-        Self {
-            raw,
-            group_len: NonZeroU16::new(group.len().try_into().expect("group too long")).expect("group empty"),
-            artifact_len: NonZeroU16::new(artifact.len().try_into().expect("artifact too long")).expect("artifact empty"),
-            version_len: NonZeroU16::new(version.len().try_into().expect("version too long")).expect("version empty"),
-            classifier_len: classifier.map(|classifier| NonZeroU16::new(classifier.len().try_into().expect("classifier too long")).expect("classifier empty")),
-            extension_len: extension.map(|extension| NonZeroU16::new(extension.len().try_into().expect("extension too long")).expect("extension empty")),
-        }
-
-    }
-
-    /// Internal method to split the specifier in all of its component.
-    #[inline(always)]
-    fn split(&self) -> (&str, &str, &str, &str, &str) {
-        let (group, rem) = self.raw.split_at(self.group_len.get() as usize);
-        let (artifact, rem) = rem[1..].split_at(self.artifact_len.get() as usize);
-        let (version, rem) = rem[1..].split_at(self.version_len.get() as usize);
-        let (classifier, rem) = self.classifier_len.map(|len| rem[1..].split_at(len.get() as usize)).unwrap_or(("", rem));
-        let (extension, rem) = self.extension_len.map(|len| rem[1..].split_at(len.get() as usize)).unwrap_or(("jar", rem));
-        debug_assert!(rem.is_empty());
-        (group, artifact, version, classifier, extension)
-    }
-
-    /// Return the group name of the library, never empty.
-    #[inline]
-    pub fn group(&self) -> &str {
-        self.split().0
-    }
-
-    /// Return the artifact name of the library, never empty.
-    #[inline]
-    pub fn artifact(&self) -> &str {
-        self.split().1
-    }
-
-    /// Return the version of the library, never empty.
-    #[inline]
-    pub fn version(&self) -> &str {
-        self.split().2
-    }
-
-    /// Return the classifier of the library, empty if no specifier.
-    #[inline]
-    pub fn classifier(&self) -> &str {
-        self.split().3
-    }
-
-    /// Return the extension of the library, never empty, defaults to "jar".
-    #[inline]
-    pub fn extension(&self) -> &str {
-        self.split().4
-    }
+/// The environment of an installed version, this is the entrypoint to run the game.
+#[derive(Debug)]
+pub struct Environment {
 
 }
 
-/// The error type for standard installer.
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("io error: {0}")]
-    Io(#[from] io::Error),
-    #[error("json error: {0}")]
-    Json(#[from] serde_json::Error),
-    #[error("json schema error: {0}")]
-    JsonSchema(String),
-    #[error("unsupported operation: {0}")]
-    UnsupportedOperation(&'static str),
-    #[error("version not found: {0}")]
-    VersionNotFound(String),
-    #[error("jar not found")]
-    JarNotFound,
-}
-
-/// Type alias for result with the install error type.
-pub type Result<T> = StdResult<T, Error>;
 
 /// Return the default main directory for Minecraft, so called ".minecraft".
 fn default_main_dir() -> Option<PathBuf> {
@@ -845,6 +797,9 @@ fn default_main_dir() -> Option<PathBuf> {
 
 /// Return the default OS name for rules.
 /// Returning none if the OS is not supported.
+/// 
+/// This is currently not dynamic, so this will return the OS name the binary 
+/// has been compiled for.
 fn default_meta_os_name() -> Option<String> {
     Some(match std::env::consts::OS {
         "windows" => "windows",
@@ -858,6 +813,9 @@ fn default_meta_os_name() -> Option<String> {
 }
 
 /// Return the default OS system architecture name for rules.
+/// 
+/// This is currently not dynamic, so this will return the OS architecture the binary
+/// has been compiled for.
 fn default_meta_os_arch() -> Option<String> {
     Some(match std::env::consts::ARCH {
         "x86" => "x86",
@@ -874,6 +832,15 @@ fn default_meta_os_version() -> Option<String> {
     match os_info::get().version() {
         Version::Unknown => None,
         version => Some(version.to_string())
+    }
+}
+
+/// Return the default OS version name for rules.
+fn default_meta_os_bits() -> Option<String> {
+    match std::env::consts::ARCH {
+        "x86" | "arm" => Some("32".to_string()),
+        "x86_64" | "aarch64" => Some("64".to_string()),
+        _ => return None
     }
 }
 
