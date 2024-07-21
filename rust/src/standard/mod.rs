@@ -1,7 +1,6 @@
 //! Standard installation procedure.
 
-mod serde;
-mod specifier;
+pub mod serde;
 mod download;
 
 use std::io::{self, BufReader, Seek, SeekFrom};
@@ -12,9 +11,10 @@ use std::fs::File;
 
 use sha1::{Digest, Sha1};
 
-use crate::util::PathExt;
+use crate::path::PathExt;
+use crate::gav::Gav;
 
-pub use self::specifier::LibrarySpecifier;
+pub use self::download::{Download, DownloadSource, DownloadError};
 
 
 /// Base URL for downloading game's assets.
@@ -230,7 +230,7 @@ impl Installer {
 
             for lib in &version.metadata.libraries {
 
-                let mut lib_spec = lib.name.clone();
+                let mut lib_gav = lib.name.clone();
 
                 if let Some(lib_natives) = &lib.natives {
 
@@ -244,12 +244,12 @@ impl Installer {
                     // If we find a arch replacement pattern, we must replace it with
                     // the target architecture bit-ness (32, 64).
                     const ARCH_REPLACEMENT_PATTERN: &str = "${arch}";
-                    if let Some(pattern_idx) = lib_spec.classifier().find(ARCH_REPLACEMENT_PATTERN) {
+                    if let Some(pattern_idx) = lib_gav.classifier().find(ARCH_REPLACEMENT_PATTERN) {
                         let mut classifier = classifier.clone();
                         classifier.replace_range(pattern_idx..pattern_idx + ARCH_REPLACEMENT_PATTERN.len(), &self.meta_os_bits);
-                        lib_spec.set_classifier(Some(&classifier));
+                        lib_gav.set_classifier(Some(&classifier));
                     } else {
-                        lib_spec.set_classifier(Some(&classifier));
+                        lib_gav.set_classifier(Some(&classifier));
                     }
 
                 }
@@ -265,14 +265,14 @@ impl Installer {
 
                 // Clone the spec with wildcard for version because we shouldn't override
                 // if any of the group/artifact/classifier/extension are matching.
-                let mut lib_spec_wildcard = lib_spec.clone();
-                lib_spec_wildcard.set_version("*");
-                if !libraries_set.insert(lib_spec_wildcard) {
+                let mut lib_gav_wildcard = lib_gav.clone();
+                lib_gav_wildcard.set_version("*");
+                if !libraries_set.insert(lib_gav_wildcard) {
                     continue;
                 }
 
                 libraries.push(Library {
-                    spec: lib_spec,
+                    gav: lib_gav,
                     path: None,
                     source: None,
                     natives: lib.natives.is_some(),
@@ -282,7 +282,7 @@ impl Installer {
 
                 let lib_dl;
                 if lib_obj.natives {
-                    lib_dl = lib.downloads.classifiers.get(lib_obj.spec.classifier());
+                    lib_dl = lib.downloads.classifiers.get(lib_obj.gav.classifier());
                 } else {
                     lib_dl = lib.downloads.artifact.as_ref();
                 }
@@ -302,7 +302,7 @@ impl Installer {
                         url.truncate(url.len() - 1);
                     }
                     
-                    for component in lib_obj.spec.file_components() {
+                    for component in lib_obj.gav.file_components() {
                         url.push('/');
                         url.push_str(&component);
                     }
@@ -341,7 +341,7 @@ impl Installer {
                 if let Some(lib_rel_path) = lib.path.as_deref() {
                     buf.push(lib_rel_path);
                 } else {
-                    for comp in lib.spec.file_components() {
+                    for comp in lib.gav.file_components() {
                         buf.push(&*comp);
                     }
                 }
@@ -366,7 +366,7 @@ impl Installer {
                     });
                 }
             } else if !lib_file.is_file() {
-                return Err(Error::LibraryNotFound { spec: lib.spec })
+                return Err(Error::LibraryNotFound { gav: lib.gav })
             }
 
             (if lib.natives { 
@@ -784,9 +784,9 @@ pub enum Error {
     #[error("client not found")]
     ClientNotFound,
     /// A library has no download information and is missing the libraries directory.
-    #[error("library not found: {spec}")]
+    #[error("library not found: {gav}")]
     LibraryNotFound {
-        spec: LibrarySpecifier,
+        gav: Gav,
     },
     /// A special error that is returned by the handler to request a retry for a specific
     /// phase, if this error is returned by the global installation process, it means that
@@ -797,6 +797,11 @@ pub enum Error {
     /// when an event is produced.
     #[error("halt")]
     Halt,
+    /// Download error, associating its failed download entry to the download error.
+    #[error("download: {errors:?}")]
+    Download {
+        errors: Vec<(Download, DownloadError)>,
+    },
     /// A developer-oriented error that cannot be handled with other errors, it has an
     /// origin that could be a file or any other raw string, attached to the actual error.
     /// This includes filesystem, network, JSON parsing and schema errors.
@@ -869,8 +874,8 @@ pub struct Version {
 /// Represent a loaded library.
 #[derive(Debug)]
 pub struct Library {
-    /// Specifier for this library.
-    pub spec: LibrarySpecifier,
+    /// GAV for this library.
+    pub gav: Gav,
     /// The path to install the library at, relative to the libraries directory, by 
     /// default it will be derived from the library specifier.
     pub path: Option<PathBuf>,
@@ -879,56 +884,6 @@ pub struct Library {
     /// True if this contains natives that should be extracted into the binaries 
     /// directory before launching the game, instead of being in the class path.
     pub natives: bool,
-}
-
-/// A download entry that can be delayed until a call to [`Handler::flush_download`].
-/// This download object borrows the URL and file path.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Download {
-    /// Source of the download.
-    pub source: DownloadSource,
-    /// Path to the file to ultimately download.
-    pub file: Box<Path>,
-    /// True if the file should be made executable on systems where its relevant to 
-    /// later execute a binary.
-    pub executable: bool,
-}
-
-/// A download source, with the URL, expected size (optional) and hash (optional),
-/// it doesn't contain any information about the destination.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DownloadSource {
-    /// Url of the file to download.
-    pub url: Box<str>,
-    /// Expected size of the file, checked after downloading.
-    pub size: Option<u32>,
-    /// Expected SHA-1 of the file, checked after downloading.
-    pub sha1: Option<[u8; 20]>,
-}
-
-impl<'a> From<&'a serde::Download> for DownloadSource {
-
-    fn from(serde: &'a serde::Download) -> Self {
-        Self {
-            url: serde.url.clone().into(),
-            size: serde.size,
-            sha1: serde.sha1.as_deref().copied(),
-        }
-    }
-
-}
-
-impl DownloadSource {
-
-    #[inline]
-    pub fn into_full(self, file: Box<Path>, executable: bool) -> Download {
-        Download {
-            source: self,
-            file,
-            executable,
-        }
-    }
-
 }
 
 /// Internal resolved assets associating the virtual file path to its hash file path.
@@ -946,6 +901,7 @@ struct LibraryFiles {
 
 /// Internal resolved logger configuration.
 #[derive(Debug)]
+#[allow(unused)]  // FIXME:
 struct LoggerConfig {
     kind: serde::VersionLoggingType,
     argument: String,

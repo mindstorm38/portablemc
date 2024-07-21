@@ -1,4 +1,4 @@
-//! Definition of library specifier structure...
+//! Definition of a library specifier, known has GAV (Group, Artifact, Version).
 
 use std::num::NonZeroU16;
 use std::str::FromStr;
@@ -7,12 +7,13 @@ use std::ops::Range;
 use std::fmt;
 
 
-/// A maven-style library specifier with an optimized memory footprint. This is also
-/// known as "GAV" in maven terminology (Group Artifact Version).
+/// A maven-style library specifier, known as GAV, for Group, Artifact, Version, but it
+/// also contains an optional classifier and extension for the pointed file. The memory
+/// footprint of this structure is optimized to contain only one string, its format is
+/// following: `group:artifact:version[:classifier][@extension]`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LibrarySpecifier {
-    /// Internal buffer containing the whole specifier. This should follows the pattern 
-    /// `group:artifact:version[:classifier][@extension]`.
+pub struct Gav {
+    /// Internal buffer.
     raw: String,
     /// Length of the group part in the specifier.
     group_len: NonZeroU16,
@@ -26,7 +27,7 @@ pub struct LibrarySpecifier {
     extension_len: Option<NonZeroU16>,
 }
 
-impl LibrarySpecifier {
+impl Gav {
 
     /// Create a new library specifier with the given components.
     /// Each component, if given, should not be empty.
@@ -174,7 +175,7 @@ impl LibrarySpecifier {
         self.raw.replace_range(range, version);
     }
 
-    /// Return the classifier of the library, empty if no specifier.
+    /// Return the classifier of the library, empty if no classifier.
     #[inline]
     pub fn classifier(&self) -> &str {
         &self.raw[self.classifier_range()]
@@ -221,9 +222,9 @@ impl LibrarySpecifier {
         }
     }
 
-    /// Iterator over standard file path component for this specifier, the iterating
-    /// component is a cow because most of these are borrowed but the last file part
-    /// must be formatted and therefore owned.
+    /// Iterator over standard file path component for this GAV, the iterating
+    /// component is a cow because most of these are borrowed but the last 
+    /// file part must be formatted and therefore owned.
     pub fn file_components(&self) -> impl Iterator<Item = Cow<'_, str>> + '_ {
 
         let artifact = self.artifact();
@@ -246,7 +247,7 @@ impl LibrarySpecifier {
 
 }
 
-impl FromStr for LibrarySpecifier {
+impl FromStr for Gav {
     
     type Err = ();
 
@@ -256,13 +257,13 @@ impl FromStr for LibrarySpecifier {
 
 }
 
-impl fmt::Display for LibrarySpecifier {
+impl fmt::Display for Gav {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.raw)
     }
 }
 
-impl<'de> serde::Deserialize<'de> for LibrarySpecifier {
+impl<'de> serde::Deserialize<'de> for Gav {
 
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -272,26 +273,26 @@ impl<'de> serde::Deserialize<'de> for LibrarySpecifier {
         struct Visitor;
         impl<'de> serde::de::Visitor<'de> for Visitor {
             
-            type Value = LibrarySpecifier;
+            type Value = Gav;
         
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                write!(formatter, "a string library specifier (group:artifact:version[:classifier][@extension])")
+                write!(formatter, "a string gav (group:artifact:version[:classifier][@extension])")
             }
 
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
             where
                 E: serde::de::Error, 
             {
-                LibrarySpecifier::_from_str(Cow::Owned(v))
-                    .ok_or_else(|| E::custom("invalid string library specifier (group:artifact:version[:classifier][@extension])"))
+                Gav::_from_str(Cow::Owned(v))
+                    .ok_or_else(|| E::custom("invalid string gav (group:artifact:version[:classifier][@extension])"))
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error, 
             {
-                LibrarySpecifier::_from_str(Cow::Borrowed(v))
-                    .ok_or_else(|| E::custom("invalid string library specifier (group:artifact:version[:classifier][@extension])"))
+                Gav::_from_str(Cow::Borrowed(v))
+                    .ok_or_else(|| E::custom("invalid string gav (group:artifact:version[:classifier][@extension])"))
             }
 
         }

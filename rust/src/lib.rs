@@ -1,7 +1,9 @@
 // use std::collections::HashMap;
 // use std::num::NonZeroU16;
 
-pub mod util;
+pub mod gav;
+pub mod path;
+pub mod http;
 
 pub mod standard;
 pub mod mojang;

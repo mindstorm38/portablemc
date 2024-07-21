@@ -4,6 +4,7 @@
 
 use std::io::{self, Write};
 use std::cmp::Ordering;
+use std::path::Path;
 use std::sync::Arc;
 
 use sha1::{Digest, Sha1};
@@ -16,11 +17,10 @@ use tokio::task::JoinSet;
 use tokio::sync::mpsc;
 use tokio::fs::File;
 
-use super::{Download, Event, Handler, Installer, Result};
+use crate::http;
 
+use super::{serde, Event, Handler, Installer, Result, Error};
 
-/// The user agent to be used on each HTTP request.
-const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
 /// Bulk download blocking entrypoint.
 pub fn download_many_blocking(
@@ -84,8 +84,7 @@ pub async fn download_many(
     })?;
 
     // Initialize the HTTP(S) client.
-    let client = Client::builder()
-        .user_agent(USER_AGENT)
+    let client = http::builder()
         .build()
         .unwrap(); // FIXME:
 
@@ -104,6 +103,9 @@ pub async fn download_many(
     // Send a progress update for each 1000 parts of the download.
     let progress_size_interval = if total_size == 0 { 0 } else { total_size / 1000 };
     let mut last_size = 0u32;
+
+    // The error list returned as error if at least one entry.
+    let mut errors = Vec::new();
 
     // If we have theoretically completed all downloads, we still wait for joining all
     // remaining futures in the join set.
@@ -143,7 +145,7 @@ pub async fn download_many(
 
             }
             DownloadEventKind::Failed(e) => {
-                println!("error: {}: {e}", download.source.url);
+                errors.push((download.clone(), e));
                 completed += 1;
                 force_progress = true;
             }
@@ -165,7 +167,11 @@ pub async fn download_many(
 
     }
 
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::Download { errors })
+    }
 
 }
 
@@ -247,8 +253,58 @@ async fn download_core(
 
 }
 
+/// A download entry that can be delayed until a call to [`Handler::flush_download`].
+/// This download object borrows the URL and file path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Download {
+    /// Source of the download.
+    pub source: DownloadSource,
+    /// Path to the file to ultimately download.
+    pub file: Box<Path>,
+    /// True if the file should be made executable on systems where its relevant to 
+    /// later execute a binary.
+    pub executable: bool,
+}
+
+/// A download source, with the URL, expected size (optional) and hash (optional),
+/// it doesn't contain any information about the destination.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadSource {
+    /// Url of the file to download.
+    pub url: Box<str>,
+    /// Expected size of the file, checked after downloading.
+    pub size: Option<u32>,
+    /// Expected SHA-1 of the file, checked after downloading.
+    pub sha1: Option<[u8; 20]>,
+}
+
+impl DownloadSource {
+
+    #[inline]
+    pub fn into_full(self, file: Box<Path>, executable: bool) -> Download {
+        Download {
+            source: self,
+            file,
+            executable,
+        }
+    }
+
+}
+
+impl<'a> From<&'a serde::Download> for DownloadSource {
+
+    fn from(serde: &'a serde::Download) -> Self {
+        Self {
+            url: serde.url.clone().into(),
+            size: serde.size,
+            sha1: serde.sha1.as_deref().copied(),
+        }
+    }
+
+}
+
 #[derive(thiserror::Error, Debug)]
-enum DownloadError {
+pub enum DownloadError {
     #[error("reqwest: {0}")]
     Reqwest(#[from] reqwest::Error),
     #[error("io: {0}")]
