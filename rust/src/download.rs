@@ -21,7 +21,7 @@ use tokio::fs::File;
 /// A list of pending download that can be all downloaded at once.
 #[derive(Debug)]
 pub struct Batch {
-    inner: Vec<Entry>,
+    entries: Vec<Entry>,
 }
 
 impl Batch {
@@ -30,21 +30,22 @@ impl Batch {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            inner: Vec::new(),
+            entries: Vec::new(),
         }
     }
 
     /// Push a single download entry to the batch.
     #[inline]
     pub fn push(&mut self, entry: Entry) {
-        self.inner.push(entry);
+        self.entries.push(entry);
     }
 
-    /// Asynchronously download all files in the batch.
-    pub async fn download(self, mut handler: impl Handler) -> Result<()> {
-        download_impl(&mut handler, 40, self.inner).await
+    /// Asynchronously download all entries in the batch.
+    pub async fn download(self, handler: impl Handler) -> Result<()> {
+        download_impl(handler, 40, self.entries).await
     }
 
+    /// Block while downloading all entries in the batch.
     pub fn download_blocking(self, handler: impl Handler) -> Result<()> {
         
         let rt = Builder::new_current_thread()
@@ -63,7 +64,8 @@ impl Batch {
 pub trait Handler {
     
     /// Notification of a download progress. This function should return true to continue
-    /// the downloading.
+    /// the downloading. This is called anyway at the beginning and at the end of the
+    /// download.
     fn handle_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32);
 
 }
@@ -72,6 +74,18 @@ pub trait Handler {
 impl Handler for () {
     fn handle_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
         let _ = (count, total_count, size, total_size);
+    }
+}
+
+impl<H: Handler> Handler for &'_ mut H {
+    fn handle_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        (*self).handle_progress(count, total_count, size, total_size)
+    }
+}
+
+impl Handler for &'_ mut dyn Handler {
+    fn handle_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        (*self).handle_progress(count, total_count, size, total_size)
     }
 }
 
@@ -99,17 +113,13 @@ pub struct EntrySource {
     pub sha1: Option<[u8; 20]>,
 }
 
-// impl<'a> From<&'a serde::Download> for DownloadSource {
-
-//     fn from(serde: &'a serde::Download) -> Self {
-//         Self {
-//             url: serde.url.clone().into(),
-//             size: serde.size,
-//             sha1: serde.sha1.as_deref().copied(),
-//         }
-//     }
-
-// }
+/// Convert this entry into a batch with this single entry in it.
+impl From<Entry> for Batch {
+    #[inline]
+    fn from(value: Entry) -> Self {
+        Batch { entries: vec![value] }
+    }
+}
 
 /// The error type containing one error for each failed entry.
 #[derive(thiserror::Error, Debug)]
@@ -118,6 +128,7 @@ pub struct Error {
     pub errors: Vec<(Entry, EntryError)>,
 }
 
+/// An error for a single entry.
 #[derive(thiserror::Error, Debug)]
 pub enum EntryError {
     #[error("reqwest: {0}")]
@@ -128,8 +139,6 @@ pub enum EntryError {
     InvalidSize,
     #[error("invalid sha1")]
     InvalidSha1,
-    #[error("aborted")]
-    Aborted,
 }
 
 /// Type alias for a result of batch download.
@@ -138,7 +147,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Bulk download async entrypoint.
 async fn download_impl(
-    handler: &mut dyn Handler,
+    mut handler: impl Handler,
     concurrent_count: usize,
     mut entries: Vec<Entry>
 ) -> Result<()> {

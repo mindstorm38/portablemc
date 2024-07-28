@@ -9,8 +9,8 @@ use std::fmt;
 
 /// A maven-style library specifier, known as GAV, for Group, Artifact, Version, but it
 /// also contains an optional classifier and extension for the pointed file. The memory
-/// footprint of this structure is optimized to contain only one string, its format is
-/// following: `group:artifact:version[:classifier][@extension]`.
+/// footprint of this structure is optimized to contain only one string, its format is the
+/// the following: `group:artifact:version[:classifier][@extension]`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Gav {
     /// Internal buffer.
