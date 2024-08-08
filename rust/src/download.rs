@@ -40,13 +40,8 @@ impl Batch {
         self.entries.push(entry);
     }
 
-    /// Asynchronously download all entries in the batch.
-    pub async fn download(self, handler: impl Handler) -> Result<()> {
-        download_impl(handler, 40, self.entries).await
-    }
-
     /// Block while downloading all entries in the batch.
-    pub fn download_blocking(self, handler: impl Handler) -> Result<()> {
+    pub fn download(self, handler: impl Handler) -> Result<()> {
         
         let rt = Builder::new_current_thread()
             .enable_time()
@@ -54,7 +49,7 @@ impl Batch {
             .build()
             .unwrap();
 
-        rt.block_on(self.download(handler))
+        rt.block_on(download_impl(handler, 40, self.entries))
         
     }
 
@@ -66,26 +61,26 @@ pub trait Handler {
     /// Notification of a download progress. This function should return true to continue
     /// the downloading. This is called anyway at the beginning and at the end of the
     /// download.
-    fn handle_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32);
+    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32);
 
 }
 
 /// Blanket implementation it no handler is needed.
 impl Handler for () {
-    fn handle_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
         let _ = (count, total_count, size, total_size);
     }
 }
 
 impl<H: Handler> Handler for &'_ mut H {
-    fn handle_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
-        (*self).handle_progress(count, total_count, size, total_size)
+    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        (*self).handle_download_progress(count, total_count, size, total_size)
     }
 }
 
-impl Handler for &'_ mut dyn Handler {
-    fn handle_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
-        (*self).handle_progress(count, total_count, size, total_size)
+impl Handler for &'_ mut (dyn Handler + '_) {
+    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        (*self).handle_download_progress(count, total_count, size, total_size)
     }
 }
 
@@ -168,7 +163,7 @@ async fn download_impl(
         .map(|dl| dl.source.size.unwrap_or(0))
         .sum::<u32>();
 
-    handler.handle_progress(0, entries.len() as u32, size, total_size);
+    handler.handle_download_progress(0, entries.len() as u32, size, total_size);
 
     // Initialize the HTTP(S) client.
     let client = crate::http::builder()
@@ -245,7 +240,7 @@ async fn download_impl(
         }
         
         if force_progress || size - last_size >= progress_size_interval {
-            handler.handle_progress(completed as u32, entries.len() as u32, size, total_size);
+            handler.handle_download_progress(completed as u32, entries.len() as u32, size, total_size);
             last_size = size;
         }
 
