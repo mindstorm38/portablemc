@@ -83,25 +83,21 @@ impl Installer {
         }
     }
 
-
     /// Ensure that a the given version, from its id, is properly installed.
     pub fn install(&self, mut handler: impl Handler, id: &str) -> Result<()> {
-        self.install_impl(&mut handler, id)
-    }
-
-    /// Internal wrapper for using object reference to avoid code duplication.
-    fn install_impl(&self, handler: &mut dyn Handler, id: &str) -> Result<()> {
         
         let mut batch = Batch::new();
         let features = HashSet::new();
 
-        let hierarchy = self.load_hierarchy(handler, id)?;
-        let _client_file = self.load_client(handler, &hierarchy, &mut batch)?;
-        let _lib_files = self.load_libraries(handler, &hierarchy, &features, &mut batch)?;
-        let _logger_config = self.load_logger(handler, &hierarchy, &mut batch)?;
-        let _assets = self.load_assets(handler, &hierarchy, &mut batch)?;
+        let hierarchy = self.load_hierarchy(&mut handler, id)?;
+        let _client_file = self.load_client(&mut handler, &hierarchy, &mut batch)?;
+        let _lib_files = self.load_libraries(&mut handler, &hierarchy, &features, &mut batch)?;
+        let _logger_config = self.load_logger(&mut handler, &hierarchy, &mut batch)?;
+        let _assets = self.load_assets(&mut handler, &hierarchy, &mut batch)?;
 
-        batch.download(handler)?;
+        handler.handle_standard_event(Event::ResourcesDownloading {  });
+        batch.download(handler.as_download_dyn())?;
+        handler.handle_standard_event(Event::ResourcesDownloaded {  });
 
         Ok(())
 
@@ -109,7 +105,7 @@ impl Installer {
 
     /// Internal function that loads the version hierarchy from their JSON metadata files.
     fn load_hierarchy(&self, 
-        handler: &mut dyn Handler, 
+        handler: &mut impl Handler, 
         root_id: &str
     ) -> Result<Vec<Version>> {
 
@@ -134,7 +130,7 @@ impl Installer {
 
     /// Internal function that loads a version from its JSON metadata file.
     fn load_version(&self, 
-        handler: &mut dyn Handler, 
+        handler: &mut impl Handler, 
         id: String
     ) -> Result<Version> {
 
@@ -187,7 +183,7 @@ impl Installer {
 
     /// Load the entry point version JAR file.
     fn load_client(&self, 
-        handler: &mut dyn Handler, 
+        handler: &mut impl Handler, 
         hierarchy: &[Version], 
         batch: &mut Batch,
     ) -> Result<PathBuf> {
@@ -221,7 +217,7 @@ impl Installer {
 
     /// Load libraries required to run the game.
     fn load_libraries(&self,
-        handler: &mut dyn Handler,
+        handler: &mut impl Handler,
         hierarchy: &[Version], 
         features: &HashSet<String>,
         batch: &mut Batch,
@@ -395,7 +391,7 @@ impl Installer {
 
     /// Load libraries required to run the game.
     fn load_logger(&self,
-        handler: &mut dyn Handler,
+        handler: &mut impl Handler,
         hierarchy: &[Version], 
         batch: &mut Batch,
     ) -> Result<Option<LoggerConfig>> {
@@ -437,7 +433,7 @@ impl Installer {
 
     /// Load and verify all assets of the game.
     fn load_assets(&self, 
-        handler: &mut dyn Handler, 
+        handler: &mut impl Handler, 
         hierarchy: &[Version], 
         batch: &mut Batch,
     ) -> Result<Option<Assets>> {
@@ -488,7 +484,7 @@ impl Installer {
                     source: dl.into(),
                     file: index_file.clone().into_boxed_path(),
                     executable: false,
-                }).download(&mut *handler)?;
+                }).download(handler.as_download_dyn())?;
             }
         }
 
@@ -651,30 +647,23 @@ pub trait Handler: download::Handler {
     /// Handle an even from the installer.
     fn handle_standard_event(&mut self, event: Event);
 
+    fn as_standard_dyn(&mut self) -> &mut dyn Handler 
+    where Self: Sized {
+        self
+    }
+
 }
 
 /// Blanket implementation that does nothing.
 impl Handler for () {
     fn handle_standard_event(&mut self, event: Event) {
-        let _ = (event,);
+        let _ = event;
     }
 }
 
-impl<H: Handler> Handler for  &'_ mut H {
+impl<H: Handler + ?Sized> Handler for  &'_ mut H {
     fn handle_standard_event(&mut self, event: Event) {
         (*self).handle_standard_event(event)
-    }
-}
-
-impl Handler for &'_ mut (dyn Handler + '_) {
-    fn handle_standard_event(&mut self, event: Event) {
-        (*self).handle_standard_event(event)
-    }
-}
-
-impl download::Handler for &'_ mut (dyn Handler + '_) {
-    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
-        (*self).handle_download_progress(count, total_count, size, total_size)
     }
 }
 
@@ -756,6 +745,8 @@ pub enum Event<'a> {
         id: &'a str,
         index: &'a serde::AssetIndex,
     },
+    ResourcesDownloading {},
+    ResourcesDownloaded {},
 }
 
 /// The standard installer could not proceed to the installation of a version.
