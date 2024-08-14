@@ -14,9 +14,9 @@ use reqwest::{header, Client, StatusCode};
 
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::runtime::Builder;
+use tokio::fs::{self, File};
 use tokio::task::JoinSet;
 use tokio::sync::mpsc;
-use tokio::fs::{self, File};
 
 
 /// A list of pending download that can be all downloaded at once.

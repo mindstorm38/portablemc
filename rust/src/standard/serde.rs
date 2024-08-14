@@ -7,6 +7,10 @@ use crate::download::EntrySource;
 use crate::gav::Gav;
 
 
+// ================== //
+//  VERSION METADATA  //
+// ================== //
+
 /// A version metadata JSON schema.
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -155,6 +159,11 @@ pub struct VersionLoggingFile {
     pub download: Download,
 }
 
+
+// ================== //
+//    ASSET INDEX     //
+// ================== //
+
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct AssetIndex {
     /// For version <= 13w23b (1.6.1).
@@ -172,6 +181,75 @@ pub struct AssetObject {
     pub size: u32,
     pub hash: Sha1HashString,
 }
+
+// ================== //
+//   JVM MANIFESTS    //
+// ================== //
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct JvmMetaManifest {
+    #[serde(flatten)]
+    pub platforms: HashMap<String, JvmMetaManifestPlatform>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct JvmMetaManifestPlatform {
+    #[serde(flatten)]
+    pub distributions: HashMap<String, JvmMetaManifestDistribution>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct JvmMetaManifestDistribution {
+    pub variants: Vec<JvmMetaManifestVariant>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct JvmMetaManifestVariant {
+    pub availability: JvmMetaManifestAvailability,
+    pub manifest: Download,
+    pub version: JvmMetaManifestVersion,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct JvmMetaManifestAvailability {
+    pub group: u32,
+    pub progress: u8,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct JvmMetaManifestVersion {
+    pub name: String,
+    pub released: String,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct JvmManifest {
+    pub files: HashMap<String, JvmManifestFile>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[serde(rename_all = "lowercase", tag = "type")] // Internally tagged.
+pub enum JvmManifestFile {
+    Directory,
+    File {
+        #[serde(default)]
+        executable: bool,
+        downloads: JvmManifestFileDownloads,
+    },
+    Link {
+        target: String,
+    },
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct JvmManifestFileDownloads {
+    pub raw: Download,
+    pub lzma: Download,
+}
+
+// ================== //
+//       COMMON       //
+// ================== //
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]

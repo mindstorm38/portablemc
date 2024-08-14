@@ -18,7 +18,7 @@ use crate::gav::Gav;
 /// Base URL for downloading game's assets.
 const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
 
-const JVM_META_URL: &str = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
+const JVM_META_MANIFEST_URL: &str = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
 // /// Base URL for downloading game's libraries.
 // const LIBRARIES_URL: &str = "https://libraries.minecraft.net/";
@@ -40,20 +40,27 @@ pub struct Installer {
     pub jvm_dir: PathBuf,
     /// The directory where libraries are stored, organized like a maven repository.
     pub libraries_dir: PathBuf,
-    /// The OS name used when applying rules for the version metadata.
-    pub meta_os_name: String,
-    /// The OS system architecture name used when applying rules for version metadata.
-    pub meta_os_arch: String,
-    /// The OS version name used when applying rules for version metadata.
-    pub meta_os_version: String,
-    /// The OS bits replacement for "${arch}" replacement of library natives.
-    pub meta_os_bits: String,
     /// When enabled, all assets are strictly checked against their expected SHA-1,
     /// this is disabled by default because it's heavy on CPU.
     pub strict_assets_checking: bool,
     /// When enabled, all libraries are strictly checked against their expected SHA-1,
     /// this is disabled by default because it's heavy on CPU.
     pub strict_libraries_checking: bool,
+    /// The OS name used when applying rules for the version metadata.
+    pub os_name: String,
+    /// The OS system architecture name used when applying rules for version metadata.
+    pub os_arch: String,
+    /// The OS version name used when applying rules for version metadata.
+    pub os_version: String,
+    /// The OS bits replacement for "${arch}" replacement of library natives.
+    pub os_bits: String,
+    /// An optional JVM executable to be used for launching the game. 
+    /// If not set (the default), it will try to use Mojang provided distributions, if 
+    /// not available on your platform then it will try the one available in path (`java`
+    /// or `javaw.exe` on Windows). 
+    pub jvm: Option<PathBuf>,
+    /// The platform used for selecting from Mojang-provided JVMs.
+    pub jvm_platform: Option<String>,
 }
 
 impl Installer {
@@ -73,12 +80,14 @@ impl Installer {
             assets_dir: main_dir.join("assets"),
             libraries_dir: main_dir.join("libraries"),
             jvm_dir: main_dir.join("jvm"),
-            meta_os_name: default_meta_os_name().unwrap(),
-            meta_os_arch: default_meta_os_arch().unwrap(),
-            meta_os_version: default_meta_os_version().unwrap(),
-            meta_os_bits: default_meta_os_bits().unwrap(),
             strict_assets_checking: false,
             strict_libraries_checking: false,
+            os_name: default_os_name().unwrap(),
+            os_arch: default_os_arch().unwrap(),
+            os_version: default_os_version().unwrap(),
+            os_bits: default_os_bits().unwrap(),
+            jvm: None,
+            jvm_platform: default_jvm_platform(),
         }
     }
 
@@ -94,6 +103,7 @@ impl Installer {
         let lib_files = self.load_libraries(&mut handler, &hierarchy, &features, &mut batch)?;
         let logger_config = self.load_logger(&mut handler, &hierarchy, &mut batch)?;
         let assets = self.load_assets(&mut handler, &hierarchy, &mut batch)?;
+        let _jvm = self.load_jvm(&mut handler, &hierarchy)?;
         self.load_jvm(&mut handler, &hierarchy)?;
 
         if !batch.is_empty() {
@@ -299,7 +309,7 @@ impl Installer {
                     // If natives object is present, the classifier associated to the
                     // OS overrides the library specifier classifier. If not existing,
                     // we just skip this library because natives are missing.
-                    let Some(classifier) = lib_natives.get(&self.meta_os_name) else {
+                    let Some(classifier) = lib_natives.get(&self.os_name) else {
                         continue;
                     };
 
@@ -308,7 +318,7 @@ impl Installer {
                     const ARCH_REPLACEMENT_PATTERN: &str = "${arch}";
                     if let Some(pattern_idx) = lib_gav.classifier().find(ARCH_REPLACEMENT_PATTERN) {
                         let mut classifier = classifier.clone();
-                        classifier.replace_range(pattern_idx..pattern_idx + ARCH_REPLACEMENT_PATTERN.len(), &self.meta_os_bits);
+                        classifier.replace_range(pattern_idx..pattern_idx + ARCH_REPLACEMENT_PATTERN.len(), &self.os_bits);
                         lib_gav.set_classifier(Some(&classifier));
                     } else {
                         lib_gav.set_classifier(Some(&classifier));
@@ -626,7 +636,7 @@ impl Installer {
 
     }
     
-    /// Load and verify all assets of the game.
+    /// The goal of this step is to find a valid JVM to run the game on.
     fn load_jvm(&self, 
         handler: &mut impl Handler, 
         hierarchy: &[Version], 
@@ -636,12 +646,54 @@ impl Installer {
 
         let Some(java_version) = hierarchy.iter()
             .find_map(|version| version.metadata.java_version.as_ref()) else {
+                // FIXME:
                 return Ok(());
             };
 
-        let java_component = java_version.component.as_deref().unwrap_or("jre-legacy");
-        let _jvm_dir = self.jvm_dir.join(java_component);
-        let _jvm_manifest_file = self.jvm_dir.join_with_extension(java_component, "json");
+        // If we don't have JVM platform this means that we don't want 
+        let Some(jvm_platform) = self.jvm_platform.as_deref() else {
+            // FIXME:
+            return Ok(());
+        };
+
+        // Start by ensuring that we have a cached version of the JVM meta-manifest.
+        let meta_manifest_entry = Entry::new_cached(JVM_META_MANIFEST_URL);
+        let meta_manifest_file = meta_manifest_entry.file.to_path_buf();
+        meta_manifest_entry.download(&mut *handler)?;
+
+        let reader = match File::open(&meta_manifest_file) {
+            Ok(reader) => BufReader::new(reader),
+            Err(e) => return Err(Error::new_io_file(e, meta_manifest_file)),
+        };
+
+        let mut deserializer = serde_json::Deserializer::from_reader(reader);
+        let meta_manifest: serde::JvmMetaManifest = match serde_path_to_error::deserialize(&mut deserializer) {
+            Ok(obj) => obj,
+            Err(e) => return Err(Error::new_json_file(e, meta_manifest_file)),
+        };
+
+        // FIXME: On Linux, the provided JVMs will only work if GLIBC is dynamically 
+        //        available, which is not the case on MUSL systems.
+        let Some(meta_platform) = meta_manifest.platforms.get(jvm_platform) else {
+            // FIXME:
+            return Ok(());
+        };
+
+        let jvm_distribution = java_version.component.as_deref().unwrap_or("jre-legacy");
+        let Some(meta_distribution) = meta_platform.distributions.get(jvm_distribution) else {
+            // FIXME:
+            return Ok(());
+        };
+
+        // We take the first variant for now.
+        let Some(meta_variant) = meta_distribution.variants.get(0) else {
+            // FIXME:
+            return Ok(());
+        };
+
+        let _jvm_dir = self.jvm_dir.join(jvm_distribution);
+        let _jvm_manifest_file = self.jvm_dir.join_with_extension(jvm_distribution, "json");
+
 
         // if !check_file(&jvm_manifest_file, None, None).map_err(Error::new_io)? {
         //     Batch::from(Entry {
@@ -749,19 +801,19 @@ impl Installer {
     fn check_rule_os(&self, rule_os: &serde::RuleOs) -> bool {
 
         if let Some(name) = &rule_os.name {
-            if name != &self.meta_os_name {
+            if name != &self.os_name {
                 return false;
             }
         }
 
         if let Some(arch) = &rule_os.arch {
-            if arch != &self.meta_os_arch {
+            if arch != &self.os_arch {
                 return false;
             }
         }
 
         if let Some(version) = &rule_os.version {
-            if !version.is_match(&self.meta_os_version) {
+            if !version.is_match(&self.os_version) {
                 return false;
             }
         }
@@ -926,8 +978,8 @@ pub enum Error {
     /// Download error, associating its failed download entry to the download error.
     #[error("download: {0}")]
     Download(#[from] download::Error),
-    #[error("reqwest: {0}")]
-    Reqwest(#[from] reqwest::Error),
+    // #[error("reqwest: {0}")]
+    // Reqwest(#[from] reqwest::Error),
 }
 
 /// Type alias for a result with the standard error type.
@@ -1116,7 +1168,7 @@ fn default_main_dir() -> Option<PathBuf> {
 /// 
 /// This is currently not dynamic, so this will return the OS name the binary 
 /// has been compiled for.
-fn default_meta_os_name() -> Option<String> {
+fn default_os_name() -> Option<String> {
     Some(match std::env::consts::OS {
         "windows" => "windows",
         "linux" => "linux",
@@ -1132,7 +1184,7 @@ fn default_meta_os_name() -> Option<String> {
 /// 
 /// This is currently not dynamic, so this will return the OS architecture the binary
 /// has been compiled for.
-fn default_meta_os_arch() -> Option<String> {
+fn default_os_arch() -> Option<String> {
     Some(match std::env::consts::ARCH {
         "x86" => "x86",
         "x86_64" => "x86_64",
@@ -1143,7 +1195,7 @@ fn default_meta_os_arch() -> Option<String> {
 }
 
 /// Return the default OS version name for rules.
-fn default_meta_os_version() -> Option<String> {
+fn default_os_version() -> Option<String> {
     use os_info::Version;
     match os_info::get().version() {
         Version::Unknown => None,
@@ -1152,10 +1204,24 @@ fn default_meta_os_version() -> Option<String> {
 }
 
 /// Return the default OS version name for rules.
-fn default_meta_os_bits() -> Option<String> {
+fn default_os_bits() -> Option<String> {
     match std::env::consts::ARCH {
         "x86" | "arm" => Some("32".to_string()),
         "x86_64" | "aarch64" => Some("64".to_string()),
         _ => return None
     }
+}
+
+/// Return the default JVM platform to install from Mojang-provided ones.
+fn default_jvm_platform() -> Option<String> {
+    Some(match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "x86_64") => "mac-os",
+        ("macos", "aarch64") => "mac-os-arm64",
+        ("linux", "x86") => "linux-i386",
+        ("linux", "x86_64") => "linux",
+        ("windows", "x86") => "windows-x86",
+        ("windows", "x86_64") => "windows-x64",
+        ("windows", "aarch64") => "windows-arm64",
+        _ => return None,
+    }.to_string())
 }

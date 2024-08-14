@@ -16,7 +16,7 @@ fn main() {
     installer.strict_assets_checking = false;
 
     let installer = mojang::Installer::from(installer);
-    let installed = installer.install(&mut CliHandler::default(), "1.21").unwrap();
+    let _installed = installer.install(&mut CliHandler::default(), "1.21").unwrap();
 
 }
 
@@ -89,6 +89,11 @@ impl download::Handler for CliHandler {
         }
 
         if size == 0 {
+            if count == total_count {
+                // If all entries have been downloaded but the weight nothing, reset the
+                // download start. This is possible with zero-sized files or cache mode.
+                self.download_start = None;
+            }
             return;
         }
 
