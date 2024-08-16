@@ -187,18 +187,19 @@ pub struct AssetObject {
 // ================== //
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[serde(transparent)]
 pub struct JvmMetaManifest {
-    #[serde(flatten)]
     pub platforms: HashMap<String, JvmMetaManifestPlatform>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[serde(transparent)]
 pub struct JvmMetaManifestPlatform {
-    #[serde(flatten)]
     pub distributions: HashMap<String, JvmMetaManifestDistribution>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[serde(transparent)]
 pub struct JvmMetaManifestDistribution {
     pub variants: Vec<JvmMetaManifestVariant>,
 }

@@ -10,13 +10,22 @@ use portablemc::{download, standard, mojang};
 
 
 fn main() {
-    
+
+    let mut handler = CliHandler::default();
+
     let mut installer = standard::Installer::with_dir(r"C:\Users\theor\AppData\Roaming\.minecraft_test".into());
-    installer.strict_libraries_checking = false;
-    installer.strict_assets_checking = false;
+    installer.strict_libraries_check = false;
+    installer.strict_assets_check = false;
 
     let installer = mojang::Installer::from(installer);
-    let _installed = installer.install(&mut CliHandler::default(), "1.21").unwrap();
+    let _installed = match installer.install(&mut handler, "1.21") {
+        Ok(v) => v,
+        Err(e) => {
+            handler.newline();
+            handler.state("FAILED", format_args!("{e}"));
+            return;
+        }
+    };
 
 }
 
@@ -71,8 +80,11 @@ impl CliHandler {
         self.line(format_args!("[{state:^6}] {message}"))
     }
 
-    /// Add a newline and reset the buffer.
+    /// Add a newline and reset the buffer, only if there was a preview.
     fn newline(&mut self) -> &mut Self {
+        if self.line_buf.is_empty() {
+            return self;
+        }
         self.line_buf.clear();
         self.suffix_buf.clear();
         println!();
@@ -184,10 +196,12 @@ impl standard::Handler for CliHandler {
             Event::ResourcesDownloaded {  } =>
                 self.state("OK", format_args!("Downloaded"))
                     .newline(),
-            Event::JvmLoading {  } => 
-                self.state("..", format_args!("Loading JVM")),
-            Event::JvmLoaded {  } => 
-                self.state("OK", format_args!("Loaded JVM"))
+            Event::JvmLoading { major_version } => 
+                self.state("..", format_args!("Loading JVM (preferred: {major_version:?}")),
+            Event::JvmVersionRejected { file, version } =>
+                self.state("INFO", format_args!("Rejected JVM version {version:?} at {file:?}")),
+            Event::JvmLoaded { file, version } => 
+                self.state("OK", format_args!("Loaded JVM version {version:?} at {file:?}"))
                     .newline(),
             _ => todo!(),
             
@@ -203,7 +217,7 @@ impl mojang::Handler for CliHandler {
 
         match event {
             Event::MojangVersionInvalidated { id } => 
-                self.state("FAILED", format_args!("Version {id} invalidated"))
+                self.state("OK", format_args!("Version {id} invalidated"))
                     .newline(),
             Event::MojangVersionFetching { id } => 
                 self.state("..", format_args!("Fetching version {id}")),
