@@ -245,7 +245,7 @@ pub enum JvmManifestFile {
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct JvmManifestFileDownloads {
     pub raw: Download,
-    pub lzma: Download,
+    pub lzma: Option<Download>,
 }
 
 // ================== //
