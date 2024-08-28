@@ -27,7 +27,8 @@ fn main() {
         }
     };
 
-    let _ = game.finalize();
+    let _ = game;
+    // let _ = game.finalize();
 
 }
 
@@ -149,7 +150,7 @@ impl standard::Handler for CliHandler {
                     .newline(),
             Event::ClientLoading {  } => 
                 self.state("..", format_args!("Loading client")),
-            Event::ClientLoaded {  } => 
+            Event::ClientLoaded { .. } => 
                 self.state("OK", format_args!("Loaded client"))
                     .newline(),
             Event::LibrariesLoading {  } => 
