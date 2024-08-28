@@ -73,7 +73,9 @@ pub trait Handler {
     /// Notification of a download progress. This function should return true to continue
     /// the downloading. This is called anyway at the beginning and at the end of the
     /// download.
-    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32);
+    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        let _ = (count, total_count, size, total_size);
+    }
 
     fn as_download_dyn(&mut self) -> &mut dyn Handler
     where Self: Sized {
@@ -83,11 +85,7 @@ pub trait Handler {
 }
 
 /// Blanket implementation it no handler is needed.
-impl Handler for () {
-    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
-        let _ = (count, total_count, size, total_size);
-    }
-}
+impl Handler for () { }
 
 impl<H: Handler + ?Sized> Handler for &'_ mut H {
     fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {

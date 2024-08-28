@@ -18,7 +18,7 @@ pub struct VersionMetadata {
     /// The version id, should be the same as the directory the metadata is in.
     pub id: String,
     /// The version type, such as 'release' or 'snapshot'.
-    pub r#type: VersionType,
+    pub r#type: Option<VersionType>,
     /// The last time this version has been updated.
     pub time: String,
     /// The first release time of this version.
@@ -47,7 +47,7 @@ pub struct VersionMetadata {
     #[serde(default)]
     pub libraries: Vec<VersionLibrary>,
     /// The full class name to run as the main JVM class.
-    pub main_class: String,
+    pub main_class: Option<String>,
     /// Legacy arguments command line.
     #[serde(rename = "minecraftArguments")]
     pub legacy_arguments: Option<String>,
@@ -65,6 +65,19 @@ pub enum VersionType {
     Snapshot,
     OldBeta,
     OldAlpha,
+}
+
+impl VersionType {
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            VersionType::Release => "release",
+            VersionType::Snapshot => "snapshot",
+            VersionType::OldBeta => "old_beta",
+            VersionType::OldAlpha => "old_alpha",
+        }
+    }
+
 }
 
 /// Object describing the Mojang-provided Java version to use to launch the game.
