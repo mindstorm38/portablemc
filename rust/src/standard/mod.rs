@@ -56,15 +56,18 @@ pub struct Installer {
     /// their expected SHA-1, this is disabled by default because it's heavy on CPU.
     pub strict_jvm_check: bool,
     /// The OS name used when applying rules for the version metadata.
+    /// This is also used to select the JVM platform if needed.
+    /// 
+    /// This string, like all others `os_` fields can be used to install the game to run
+    /// it on a different operating system later
     pub os_name: String,
     /// The OS system architecture name used when applying rules for version metadata.
+    /// This is also used to select the JVM platform if needed.
     pub os_arch: String,
     /// The OS version name used when applying rules for version metadata.
     pub os_version: String,
     /// The OS bits replacement for "${arch}" replacement of library natives.
     pub os_bits: String,
-    /// The platform used for selecting from Mojang-provided JVMs.
-    pub jvm_platform: Option<String>,
     /// The policy for finding a JVM to run the game on.
     pub jvm_policy: JvmPolicy,
 }
@@ -94,7 +97,6 @@ impl Installer {
             os_arch: default_os_arch().unwrap(),
             os_version: default_os_version().unwrap(),
             os_bits: default_os_bits().unwrap(),
-            jvm_platform: default_jvm_platform(),
             jvm_policy: JvmPolicy::SystemThenMojang,
         }
     }
@@ -179,7 +181,7 @@ impl Installer {
         replace_strings_args(&mut game_args, |arg| {
             Some(match arg {
                 "version_name" => hierarchy[0].id.clone(),
-                "version_type" => return hierarchy.iter()
+                "version_type" => return hierarchy.iter() // First occurrence of 'type'.
                     .filter_map(|v| v.metadata.r#type.as_ref())
                     .map(|t| t.as_str().to_string())
                     .next(),
@@ -835,7 +837,7 @@ impl Installer {
     ) -> Result<Option<Jvm>> {
 
         let mut candidates = Vec::new();
-        let exec_name = jvm_exec_name();
+        let exec_name = self.jvm_exec_name();
 
         // Check every JVM available in PATH.
         if let Some(path) = env::var_os("PATH") {
@@ -910,9 +912,18 @@ impl Installer {
         }
 
         // If we don't have JVM platform this means that we can't load Mojang JVM.
-        let Some(jvm_platform) = self.jvm_platform.as_deref() else {
-            handler.handle_standard_event(Event::JvmPlatformUnsupported {  });
-            return Ok(None);
+        let jvm_platform = match (&*self.os_name, &*self.os_arch) {
+            ("osx", "x86_64") => "mac-os",
+            ("osx", "aarch64") => "mac-os-arm64",
+            ("linux", "x86") => "linux-i386",
+            ("linux", "x86_64") => "linux",
+            ("windows", "x86") => "windows-x86",
+            ("windows", "x86_64") => "windows-x64",
+            ("windows", "aarch64") => "windows-arm64",
+            _ => {
+                handler.handle_standard_event(Event::JvmPlatformUnsupported {  });
+                return Ok(None);
+            }
         };
 
         // Start by ensuring that we have a cached version of the JVM meta-manifest.
@@ -951,10 +962,10 @@ impl Installer {
         let manifest_file = self.jvm_dir.join_with_extension(distribution, "json");
 
         // On macOS the JVM bundle structure is a bit different so different bin path.
-        let bin_file = if cfg!(target_os = "macos") {
+        let bin_file = if self.os_name == "osx" {
             dir.join("jre.bundle/Contents/Home/bin/java")
         } else {
-            dir.join("bin").joined(jvm_exec_name())
+            dir.join("bin").joined(self.jvm_exec_name())
         };
 
         // Check the manifest, download it, read and parse it...
@@ -1035,6 +1046,14 @@ impl Installer {
         }))
 
     }
+
+    
+    /// Return the JVM exec file name. 
+    #[inline]
+    fn jvm_exec_name(&self) -> &'static str {
+        if self.os_name == "windows" { "javaw.exe" } else { "java" }
+    }
+
 
     /// Find the version of a JVM given its path. It returns none if the JVM doesn't
     /// work.
@@ -1812,25 +1831,4 @@ fn default_os_bits() -> Option<String> {
         "x86_64" | "aarch64" => Some("64".to_string()),
         _ => return None
     }
-}
-
-/// Return the default JVM platform to install from Mojang-provided ones.
-#[inline]
-fn default_jvm_platform() -> Option<String> {
-    Some(match (env::consts::OS, env::consts::ARCH) {
-        ("macos", "x86_64") => "mac-os",
-        ("macos", "aarch64") => "mac-os-arm64",
-        ("linux", "x86") => "linux-i386",
-        ("linux", "x86_64") => "linux",
-        ("windows", "x86") => "windows-x86",
-        ("windows", "x86_64") => "windows-x64",
-        ("windows", "aarch64") => "windows-arm64",
-        _ => return None,
-    }.to_string())
-}
-
-/// Return the JVM exec file name. 
-#[inline]
-fn jvm_exec_name() -> &'static str {
-    if cfg!(windows) { "javaw.exe" } else { "java" }
 }
