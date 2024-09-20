@@ -36,7 +36,13 @@ fn main() {
     };
 
     println!("game: {game:?}");
-    let _ = game;
+    match game.launch() {
+        Ok(()) => (),
+        Err(e) => {
+            handler.newline();
+            handler.state("FAILED", format_args!("{e}"));
+        }
+    }
 
 }
 

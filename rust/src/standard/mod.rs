@@ -797,7 +797,7 @@ impl Installer {
         if let Some(version) = version {
             
             let major_version_num = version.major_version;
-            let major_version = if major_version_num < 8 { 
+            let major_version = if major_version_num <= 8 { 
                 format!("1.{major_version_num}.")
             } else {
                 format!("{major_version_num}.")
