@@ -8,9 +8,9 @@ use crate::standard;
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct MojangManifest {
-    /// A map associated the latest versions, usually for release and snapshot, but we
-    /// keep this a map because we don't really know if more types can be added in the
-    /// future.
+    /// A map associated the latest versions, usually for 'release' and 'snapshot', 
+    /// but we keep this a map because we don't really know if more types can be 
+    /// added in the future.
     pub latest: HashMap<String, String>,
     /// List of all versions.
     pub versions: Vec<MojangManifestVersion>,
