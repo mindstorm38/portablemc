@@ -5,20 +5,25 @@
 pub mod serde;
 
 use std::collections::{HashMap, HashSet};
+use std::io::{Write as _, BufReader};
 use std::fs::{self, File};
-use std::io::BufReader;
 use std::path::PathBuf;
 use std::env;
 
 use crate::standard::{self, LIBRARIES_URL, Handler as _, Library, check_file, replace_strings_args};
 use crate::download::{self, Entry, EntrySource};
 use crate::gav::Gav;
+use crate::msa;
 
 pub use standard::Game;
+use uuid::{uuid, Uuid};
 
 
 /// Static URL to the version manifest provided by Mojang.
 const VERSION_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+
+/// The UUID namespace used in PMC versions prior to v5 to derive from.
+const UUID_NAMESPACE: Uuid = uuid!("8df5a464-38de-11ec-aa66-3fd636ee2ed7");
 
 /// An installer for supporting Mojang-provided versions. It provides support for various
 /// standard arguments such as demo mode, window resolution and quick play, it also 
@@ -42,6 +47,12 @@ struct InstallerInner {
     resolution: Option<(u16, u16)>,
     disable_multiplayer: bool,
     disable_chat: bool,
+    auth_type: String,  // Empty to trigger default auth.
+    auth_uuid: Uuid,
+    auth_username: String,
+    auth_token: String,
+    auth_xuid: String,
+    auth_client_id: String,
     fix_legacy_quick_play: bool,
     fix_legacy_proxy: bool,
     fix_legacy_merge_sort: bool,
@@ -67,6 +78,12 @@ impl Installer {
                 resolution: None,
                 disable_multiplayer: false,
                 disable_chat: false,
+                auth_type: String::new(),
+                auth_uuid: Uuid::nil(),
+                auth_username: String::new(),
+                auth_token: String::new(),
+                auth_xuid: String::new(),
+                auth_client_id: String::new(),
                 fix_legacy_quick_play: true,
                 fix_legacy_proxy: true,
                 fix_legacy_merge_sort: true,
@@ -162,6 +179,95 @@ impl Installer {
         self
     }
 
+    /// Manually set the authentication UUID, not touching any other parameter.
+    pub fn auth_raw_uuid(&mut self, uuid: Uuid) -> &mut Self {
+        self.inner.auth_uuid = uuid;
+        self
+    }
+
+    /// Internal function to reset to zero-length all online-related auth variables.
+    #[inline(always)]
+    fn reset_auth_online(&mut self) -> &mut Self {
+        self.inner.auth_type = String::new();
+        self.inner.auth_token = String::new();
+        self.inner.auth_xuid = String::new();
+        self.inner.auth_client_id = String::new();
+        self
+    }
+
+    /// Use offline session with the given UUID and username, note that the username will
+    /// be truncated 16 bytes at most (this function will panic if the truncation is not 
+    /// on a valid UTF-8 character boundary).
+    pub fn auth_offline(&mut self, uuid: Uuid, username: impl Into<String>) -> &mut Self {
+        self.inner.auth_uuid = uuid;
+        self.inner.auth_username = username.into();
+        self.inner.auth_username.truncate(16);
+        self.reset_auth_online()
+    }
+
+    /// Use offline session with the given UUID, the username is derived from the first
+    /// 8 characters of the rendered UUID.
+    pub fn auth_offline_uuid(&mut self, uuid: Uuid) -> &mut Self {
+        self.inner.auth_username = uuid.to_string();
+        self.inner.auth_username.truncate(8);
+        self.reset_auth_online()
+    }
+
+    /// Use offline session with a deterministic UUID, derived from this machine's 
+    /// hostname, the username is then derived from the UUID following the same logic
+    /// as for [`Self::auth_offline_uuid`].
+    /// 
+    /// **This is the default UUID/username used if no auth is specified, so you don't
+    /// need to call this function, except if you want to override previous auth.**
+    pub fn auth_offline_hostname(&mut self) -> &mut Self {
+        self.auth_offline_uuid(Uuid::new_v5(&UUID_NAMESPACE, gethostname::gethostname().as_encoded_bytes()))
+    }
+
+    /// Use offline session with the given username (initially truncated to 16 chars), 
+    /// the UUID is then derived from this username using a PMC-specific derivation of 
+    /// the username and the PMC namespace with SHA-1 (UUID v5).
+    pub fn auth_offline_username(&mut self, username: impl Into<String>) -> &mut Self {
+        self.inner.auth_username = username.into();
+        self.inner.auth_username.truncate(16);
+        self.inner.auth_uuid = Uuid::new_v5(&UUID_NAMESPACE, self.inner.auth_username.as_bytes());
+        self.reset_auth_online()
+    }
+
+    /// Use offline session with the given username (initially truncated to 16 chars), 
+    /// the UUID is then derived from this username using the same derivation used by 
+    /// most Mojang clients (versions to be defined), this produces a MD5 (v3) UUID 
+    /// with `OfflinePlayer:{username}` as the hashed string.
+    /// 
+    /// The advantage of this method is to produce the same UUID as the one that will
+    /// be produced by Mojang's authlib when the game is running, because in case of
+    /// offline session the UUID given to the game through `--uuid` is not used.
+    pub fn auth_offline_username_authlib(&mut self, username: impl Into<String>) -> &mut Self {
+        
+        self.inner.auth_username = username.into();
+        self.inner.auth_username.truncate(16);
+
+        let mut context = md5::Context::new();
+        context.write_fmt(format_args!("OfflinePlayer:{}", self.inner.auth_username)).unwrap();
+        
+        self.inner.auth_uuid = uuid::Builder::from_bytes(context.compute().0)
+            .with_variant(uuid::Variant::RFC4122)
+            .with_version(uuid::Version::Md5)
+            .into_uuid();
+
+        self.reset_auth_online()
+
+    }
+
+    /// Use online authentication with the given Microsoft Account.
+    pub fn auth_msa(&mut self, account: &msa::Account) -> &mut Self {
+        self.inner.auth_uuid = account.uuid().clone();
+        self.inner.auth_username = account.username().to_string();
+        self.inner.auth_token = account.access_token().to_string();
+        self.inner.auth_xuid = account.xuid().to_string();
+        self.inner.auth_type = "msa".to_string();
+        self
+    }
+
     /// When starting versions older than 1.20 (23w14a) where Quick Play was not supported
     /// by the client, this fix tries to use legacy arguments instead, such as --server
     /// and --port, this is enabled by default.
@@ -234,12 +340,18 @@ impl Installer {
     /// the version metadata must already exists.
     pub fn install(&mut self, mut handler: impl Handler) -> Result<Game> {
         
+        // Apply default offline auth, derived from hostname.
+        if self.inner.auth_username.is_empty() {
+            self.auth_offline_hostname();
+        }
+
         let Self {
             ref mut standard,
             ref inner,
         } = self;
 
         // We only load the manifest if checking and fetching is enabled.
+        // FIXME: TODO: Only fetch when actually needed? So inside handler.
         let manifest = if inner.fetch {
             Some(request_manifest(&mut handler)?)
         } else {
@@ -278,6 +390,21 @@ impl Installer {
             res?
 
         };
+
+        // Apply auth parameters.
+        replace_strings_args(&mut game.game_args, |arg| {
+            match arg {
+                "auth_player_name" => Some(inner.auth_username.clone()),
+                "auth_uuid" => Some(inner.auth_uuid.as_simple().to_string()),
+                "auth_access_token" => Some(inner.auth_token.clone()),
+                "auth_xuid" => Some(inner.auth_xuid.clone()),
+                // Legacy parameter
+                "auth_session" => Some(format!("token:{}:{}", inner.auth_token, inner.auth_uuid.as_simple())),
+                "user_type" => Some(inner.auth_type.clone()),
+                "clientid" => Some(inner.auth_client_id.clone()),
+                _ => None
+            }
+        });
 
         // If Quick Play is enabled, we know that the feature has been enabled by the
         // handler, and if the feature is actually present (1.20 and after), if not
@@ -424,24 +551,6 @@ impl<H: Handler + ?Sized> Handler for  &'_ mut H {
     }
 }
 
-/// Specify the root version to start with Mojang.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Root {
-    /// Resolve the latest release version.
-    Release,
-    /// Resolve the latest snapshot version.
-    Snapshot,
-    /// Resolve a specific root version from its id.
-    Id(String),
-}
-
-/// An impl so that we can give string-like objects to the builder.
-impl<T: Into<String>> From<T> for Root {
-    fn from(value: T) -> Self {
-        Root::Id(value.into())
-    }
-}
-
 /// An event produced by the installer that can be handled by the install handler.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -504,6 +613,24 @@ pub enum Error {
 
 /// Type alias for a result with the standard error type.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Specify the root version to start with Mojang.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Root {
+    /// Resolve the latest release version.
+    Release,
+    /// Resolve the latest snapshot version.
+    Snapshot,
+    /// Resolve a specific root version from its id.
+    Id(String),
+}
+
+/// An impl so that we can give string-like objects to the builder.
+impl<T: Into<String>> From<T> for Root {
+    fn from(value: T) -> Self {
+        Root::Id(value.into())
+    }
+}
 
 /// This represent the optional Quick Play mode when launching the game. This is usually 
 /// not supported on versions older than 1.20 (23w14a), however a fix exists for 

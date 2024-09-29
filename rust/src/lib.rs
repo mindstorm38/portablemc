@@ -7,7 +7,7 @@ pub mod serde;
 pub mod http;
 pub mod download;
 
-pub mod auth;
+pub mod msa;
 
 pub mod standard;
 // pub mod simple;

@@ -10,8 +10,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_path_to_error = "0.1"
 serde_json = "1.0"
 
+uuid = { version = "1.10", features = ["v4", "v5", "serde"] }
 regex = "1.10"
-uuid = { version = "1.10", features = ["v4", "v5"] }
 
 thiserror = "1.0"
 
@@ -22,7 +22,7 @@ dirs = "5.0"
 sha1 = "0.10"
 md5 = "0.7"
 
-reqwest = { version = "0.12", features = [] }
+reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "=1.37", features = ["rt", "rt-multi-thread", "fs", "time", "net", "macros"] }
 
 [[bin]]

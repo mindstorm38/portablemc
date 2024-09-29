@@ -87,7 +87,8 @@ impl Installer {
     /// the given path, the directories `versions`, `assets`, `libraries` and `jvm`
     /// are defined.
     #[inline]
-    pub fn main_dir(&mut self, main_dir: PathBuf) -> &mut Self {
+    pub fn main_dir(&mut self, main_dir: impl Into<PathBuf>) -> &mut Self {
+        let main_dir: PathBuf = main_dir.into();
         self.versions_dir = main_dir.join("versions");
         self.assets_dir = main_dir.join("assets");
         self.libraries_dir = main_dir.join("libraries");
@@ -97,8 +98,8 @@ impl Installer {
 
     /// The directory where versions are stored.
     #[inline]
-    pub fn versions_dir(&mut self, versions_dir: PathBuf) -> &mut Self {
-        self.versions_dir = versions_dir;
+    pub fn versions_dir(&mut self, versions_dir: impl Into<PathBuf>) -> &mut Self {
+        self.versions_dir = versions_dir.into();
         self
     }
 
@@ -107,22 +108,22 @@ impl Installer {
     /// directory where the client will need to write, and so it needs the permission
     /// to do so.
     #[inline]
-    pub fn assets_dir(&mut self, assets_dir: PathBuf) -> &mut Self {
-        self.assets_dir = assets_dir;
+    pub fn assets_dir(&mut self, assets_dir: impl Into<PathBuf>) -> &mut Self {
+        self.assets_dir = assets_dir.into();
         self
     }
 
     /// The directory where libraries are stored, organized like a maven repository.
     #[inline]
-    pub fn libraries_dir(&mut self, libraries_dir: PathBuf) -> &mut Self {
-        self.libraries_dir = libraries_dir;
+    pub fn libraries_dir(&mut self, libraries_dir: impl Into<PathBuf>) -> &mut Self {
+        self.libraries_dir = libraries_dir.into();
         self
     }
 
     /// The directory where Mojang-provided JVM has been installed.
     #[inline]
-    pub fn jvm_dir(&mut self, jvm_dir: PathBuf) -> &mut Self {
-        self.jvm_dir = jvm_dir;
+    pub fn jvm_dir(&mut self, jvm_dir: impl Into<PathBuf>) -> &mut Self {
+        self.jvm_dir = jvm_dir.into();
         self
     }
 
@@ -239,7 +240,9 @@ impl Installer {
             Some(match arg {
                 #[cfg(windows)]      "classpath_separator" => ";".to_string(),
                 #[cfg(not(windows))] "classpath_separator" => ":".to_string(),
-                "classpath" => std::env::join_paths(&lib_files.class_files).unwrap()
+                "classpath" => std::env::join_paths(lib_files.class_files.iter()
+                        .map(|file| file.canonicalize().unwrap()))
+                    .unwrap()
                     .to_string_lossy()
                     .into_owned(),
                 "launcher_name" => self.launcher_name.as_deref()
@@ -1635,17 +1638,21 @@ impl Game {
 
     /// Launch the game, building the command line giving it to the given closure. This
     /// closure should block until the game is terminated, because this will 
-    pub fn launch_with<F, R>(&self, func: F) -> io::Result<R>
+    pub fn launch_with<P, F, R>(&self, bin_dir: P, func: F) -> io::Result<R>
     where
+        P: AsRef<Path>,
         F: FnOnce(Command) -> io::Result<R>,
     {
 
+        let bin_dir = bin_dir.as_ref();
+
         let mut command = Command::new(&self.jvm_file);
         command
+            .current_dir(bin_dir)
             .args(&self.jvm_args)
             .arg(&self.main_class)
             .args(&self.game_args);
-
+        
         let ret = func(command)?;
 
         Ok(ret)
@@ -1653,8 +1660,8 @@ impl Game {
     }
 
     /// Launch the game and wait for its termination.
-    pub fn launch(&self) -> io::Result<()> {
-        self.launch_with(|mut command| {
+    pub fn launch<P: AsRef<Path>>(&self, bin_dir: P) -> io::Result<()> {
+        self.launch_with(bin_dir, |mut command| {
             command.spawn()?.wait()?;
             Ok(())
         })
