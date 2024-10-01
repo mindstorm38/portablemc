@@ -16,14 +16,11 @@ use crate::gav::Gav;
 use crate::msa;
 
 pub use standard::Game;
-use uuid::{uuid, Uuid};
+use uuid::Uuid;
 
 
 /// Static URL to the version manifest provided by Mojang.
-const VERSION_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
-
-/// The UUID namespace used in PMC versions prior to v5 to derive from.
-const UUID_NAMESPACE: Uuid = uuid!("8df5a464-38de-11ec-aa66-3fd636ee2ed7");
+pub(crate) const VERSION_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
 /// An installer for supporting Mojang-provided versions. It provides support for various
 /// standard arguments such as demo mode, window resolution and quick play, it also 
@@ -181,7 +178,7 @@ impl Installer {
 
     /// Manually set the authentication UUID, not touching any other parameter.
     pub fn auth_raw_uuid(&mut self, uuid: Uuid) -> &mut Self {
-        self.inner.auth_uuid = uuid;
+        self.inner.auth_uuid = uuid;  // TODO: add missing other methods
         self
     }
 
@@ -220,16 +217,23 @@ impl Installer {
     /// **This is the default UUID/username used if no auth is specified, so you don't
     /// need to call this function, except if you want to override previous auth.**
     pub fn auth_offline_hostname(&mut self) -> &mut Self {
-        self.auth_offline_uuid(Uuid::new_v5(&UUID_NAMESPACE, gethostname::gethostname().as_encoded_bytes()))
+        self.auth_offline_uuid(Uuid::new_v5(&standard::UUID_NAMESPACE, gethostname::gethostname().as_encoded_bytes()))
     }
 
     /// Use offline session with the given username (initially truncated to 16 chars), 
     /// the UUID is then derived from this username using a PMC-specific derivation of 
     /// the username and the PMC namespace with SHA-1 (UUID v5).
+    /// 
+    /// Note that the produced UUID will not be used when playing on multiplayer servers
+    /// (the server must also be in offline-mode), in this case the server gives you an
+    /// arbitrary UUID that is not the one your game has been launched with. Most servers
+    /// uses the UUID derivation embedded in Mojang's authlib, deriving the UUID from the
+    /// username, if you want the UUID to be coherent with this derivation, you can use
+    /// [`Self::auth_offline_username_authlib`] instead.
     pub fn auth_offline_username(&mut self, username: impl Into<String>) -> &mut Self {
         self.inner.auth_username = username.into();
         self.inner.auth_username.truncate(16);
-        self.inner.auth_uuid = Uuid::new_v5(&UUID_NAMESPACE, self.inner.auth_username.as_bytes());
+        self.inner.auth_uuid = Uuid::new_v5(&standard::UUID_NAMESPACE, self.inner.auth_username.as_bytes());
         self.reset_auth_online()
     }
 
@@ -239,8 +243,8 @@ impl Installer {
     /// with `OfflinePlayer:{username}` as the hashed string.
     /// 
     /// The advantage of this method is to produce the same UUID as the one that will
-    /// be produced by Mojang's authlib when the game is running, because in case of
-    /// offline session the UUID given to the game through `--uuid` is not used.
+    /// be produced by Mojang's authlib when connecting to an offline-mode multiplayer
+    /// server.
     pub fn auth_offline_username_authlib(&mut self, username: impl Into<String>) -> &mut Self {
         
         self.inner.auth_username = username.into();
@@ -399,7 +403,9 @@ impl Installer {
                 "auth_access_token" => Some(inner.auth_token.clone()),
                 "auth_xuid" => Some(inner.auth_xuid.clone()),
                 // Legacy parameter
-                "auth_session" => Some(format!("token:{}:{}", inner.auth_token, inner.auth_uuid.as_simple())),
+                "auth_session" if !inner.auth_token.is_empty() => 
+                    Some(format!("token:{}:{}", inner.auth_token, inner.auth_uuid.as_simple())),
+                "auth_session" => Some(String::new()),
                 "user_type" => Some(inner.auth_type.clone()),
                 "clientid" => Some(inner.auth_client_id.clone()),
                 _ => None

@@ -4,7 +4,6 @@ use std::fmt::{self, Write as _};
 use std::time::Instant;
 use std::io::Write;
 
-use portablemc::mojang::QuickPlay;
 use portablemc::{download, standard, mojang};
 use portablemc::msa;
 
@@ -25,10 +24,11 @@ fn main() {
     // };
 
     let res = mojang::Installer::new()
-        .root("1.16.4")
-        .quick_play(QuickPlay::Multiplayer { host: "mc.hypixel.net".to_string(), port: 25565 })
-        .resolution(900, 900)
-        .demo(true)
+        // .root("1.16.4")
+        .root("1.6.4")
+        // .quick_play(QuickPlay::Multiplayer { host: "mc.hypixel.net".to_string(), port: 25565 })
+        // .resolution(900, 900)
+        // .demo(true)
         .auth_offline_username_authlib("Mindstorm38")
         .with_standard(|i| i
             .main_dir(r".minecraft_test")
@@ -47,7 +47,7 @@ fn main() {
     };
 
     println!("game: {game:?}");
-    match game.launch(r".minecraft_test") {
+    match game.launch() {
         Ok(()) => (),
         Err(e) => {
             handler.newline();
@@ -173,7 +173,7 @@ impl standard::Handler for CliHandler {
     fn handle_standard_event(&mut self, event: standard::Event) {
         
         use standard::Event;
-
+        
         match event {
             Event::FeaturesLoaded { .. } => self,
             Event::HierarchyLoading { .. } => self,
@@ -224,7 +224,7 @@ impl standard::Handler for CliHandler {
             Event::JvmLoading { major_version } => 
                 self.state("..", format_args!("Loading JVM (preferred: {major_version:?}")),
             Event::JvmVersionRejected { file, version } =>
-                self.state("INFO", format_args!("Rejected JVM version {version:?} at {file:?}"))
+                self.state("INFO", format_args!("Rejected JVM version {version:?} at {}", file.display()))
                     .newline(),
             Event::JvmDynamicCrtUnsupported {  } => 
                 self.state("INFO", format_args!("Couldn't find a Mojang JVM because your launcher is compiled with a static C runtime"))
@@ -236,7 +236,10 @@ impl standard::Handler for CliHandler {
                 self.state("INFO", format_args!("Couldn't find a Mojang JVM because the required distribution was not found"))
                     .newline(),
             Event::JvmLoaded { file, version } => 
-                self.state("OK", format_args!("Loaded JVM version {version:?} at {file:?}"))
+                self.state("OK", format_args!("Loaded JVM version {version:?} at {}", file.display()))
+                    .newline(),
+            Event::BinariesExtracted { dir } =>
+                self.state("INFO", format_args!("Binaries extracted to {}", dir.display()))
                     .newline(),
             _ => todo!(),
         };
