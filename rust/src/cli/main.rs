@@ -1,6 +1,7 @@
 //! PortableMC CLI.
 
 use std::fmt::{self, Write as _};
+use std::process::Stdio;
 use std::time::Instant;
 use std::io::Write;
 
@@ -9,6 +10,20 @@ use portablemc::msa;
 
 // mod output;
 
+
+const VERSIONS: &[&str] = &[
+    // "1.21.1",
+    // "1.20.6",
+    // "1.19.3",
+    // "1.18.2",
+    // "1.17.1",
+    // "1.16.4",
+    // "1.15.2",
+    // "1.14.4",
+    // "1.13.2",
+    // "1.12.2",
+    "b1.7.3",
+];
 
 fn main() {
 
@@ -23,37 +38,56 @@ fn main() {
     //         .newline(),
     // };
 
-    let res = mojang::Installer::new()
-        // .root("1.16.4")
-        .root("1.6.4")
-        // .quick_play(QuickPlay::Multiplayer { host: "mc.hypixel.net".to_string(), port: 25565 })
-        // .resolution(900, 900)
-        // .demo(true)
-        .auth_offline_username_authlib("Mindstorm38")
-        .with_standard(|i| i
-            .main_dir(r".minecraft_test")
-            .strict_libraries_check(false)
-            .strict_assets_check(false)
-            .strict_jvm_check(false))
-        .install(&mut handler);
-    
-    let game = match res {
-        Ok(game) => game,
-        Err(e) => {
-            handler.newline();
-            handler.state("FAILED", format_args!("{e}"));
-            return;
-        }
-    };
+    let mut children = Vec::new();
 
-    println!("game: {game:?}");
-    match game.launch() {
-        Ok(()) => (),
-        Err(e) => {
-            handler.newline();
-            handler.state("FAILED", format_args!("{e}"));
-        }
+    for version in VERSIONS {
+
+        let res = mojang::Installer::new()
+            .root(*version)
+            // .quick_play(QuickPlay::Multiplayer { host: "mc.hypixel.net".to_string(), port: 25565 })
+            // .resolution(900, 900)
+            // .demo(true)
+            .auth_offline_username_authlib("Mindstorm38")
+            .with_standard(|i| i
+                .main_dir(r".minecraft_test")
+                .strict_libraries_check(false)
+                .strict_assets_check(false)
+                .strict_jvm_check(false))
+            .install(&mut handler);
+        
+        let game = match res {
+            Ok(game) => game,
+            Err(e) => {
+                handler.newline();
+                handler.state("FAILED", format_args!("{e}"));
+                return;
+            }
+        };
+
+        println!("game: {game:?}");
+
+        let child = game.command()
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+
+        children.push(child);
+        println!();
+
     }
+
+    for mut child in children {
+        let _status = child.wait().unwrap();
+    }
+
+    // match game.spawn_and_wait() {
+    //     Ok(_) => (),
+    //     Err(e) => {
+    //         handler.newline();
+    //         handler.state("FAILED", format_args!("{e}"));
+    //     }
+    // }
 
 }
 

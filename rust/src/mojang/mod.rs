@@ -25,6 +25,10 @@ pub(crate) const VERSION_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc
 /// An installer for supporting Mojang-provided versions. It provides support for various
 /// standard arguments such as demo mode, window resolution and quick play, it also 
 /// provides various fixes for known issues of old versions.
+/// 
+/// Notes about various versions:
+/// - 1.19.3 metadata adds no parameter to specify extract directory for LWJGL (version
+///   3.3.1-build-7), therefore natives are extracted to '/tmp/lwjgl<username>/<version>'.
 #[derive(Debug, Clone)]
 pub struct Installer {
     /// The underlying standard installer logic.

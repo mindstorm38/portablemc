@@ -2,19 +2,20 @@
 
 pub mod serde;
 
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::io::{self, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::process::Command;
 use std::fmt::Write as _;
 use std::sync::LazyLock;
+use std::time::Duration;
+use std::{env, thread};
 use std::ffi::OsStr;
-use std::env;
 
+use zip::result::ZipError;
 use sha1::{Digest, Sha1};
 use uuid::{uuid, Uuid};
-use zip::result::ZipError;
 use zip::ZipArchive;
 
 use crate::download::{self, Batch, Entry, EntrySource};
@@ -960,7 +961,7 @@ impl Installer {
             #[cfg(unix)] {
                 match fs::remove_file(&resources_dir) {
                     Ok(()) => (),
-                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => (),
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => (),
                     Err(e) => return Err(Error::new_io_file(e, resources_dir))
                 }
             }
@@ -982,24 +983,26 @@ impl Installer {
             }
             hard_link_file(&object.object_file, &virtual_file)?;
 
-            // Not on unix, we don't have symlink so we hard link each file.
-            #[cfg(not(unix))]
-            if mapping.resources {
-                let resource_file = resources_dir.join(&object.rel_file);
-                if let Some(parent) = resource_file.parent() {
-                    fs::create_dir_all(parent).map_err(Error::new_io)?;
-                }
-                hard_link_file(&object.object_file, &resource_file)?;
-            }
+            // // Not on unix, we don't have symlink so we hard link each file.
+            // #[cfg(not(unix))]
+            // if mapping.resources {
+            //     let resource_file = resources_dir.join(&object.rel_file);
+            //     if let Some(parent) = resource_file.parent() {
+            //         fs::create_dir_all(parent).map_err(Error::new_io)?;
+            //     }
+            //     hard_link_file(&object.object_file, &resource_file)?;
+            // }
 
         }
 
-        // On unix we can symlink the whole directory, should not be already existing.
-        #[cfg(unix)]
-        if mapping.resources {
-            std::os::unix::fs::symlink(&mapping.virtual_dir, &resources_dir)
-                .map_err(|e| Error::new_io_file(e, resources_dir))?;
-        }
+        // // On unix we can symlink the whole directory, should not be already existing.
+        // #[cfg(unix)]
+        // if mapping.resources {
+        //     // Canonicalize the path for it to be absolute, avoiding relative issues.
+        //     let virtual_dir = canonicalize_file(&mapping.virtual_dir)?;
+        //     std::os::unix::fs::symlink(&virtual_dir, &resources_dir)
+        //         .map_err(|e| Error::new_io_file(e, resources_dir))?;
+        // }
 
         Ok(())
 
@@ -1015,13 +1018,13 @@ impl Installer {
         let version = hierarchy.iter()
             .find_map(|version| version.metadata.java_version.as_ref());
 
-        let major_version_num = version
+        let major_version = version
             .map(|v| v.major_version)
-            .unwrap_or(8);
+            .unwrap_or(8);  // Default to Java 8 if not specified.
 
         let distribution = version
             .and_then(|v| v.component.as_deref())
-            .or_else(|| Some(match major_version_num {
+            .or_else(|| Some(match major_version {
                 8 => "jre-legacy",
                 16 => "java-runtime-alpha",
                 17 => "java-runtime-gamma",
@@ -1029,14 +1032,14 @@ impl Installer {
                 _ => return None
             }));
         
-        let major_version = if major_version_num <= 8 { 
-            format!("1.{major_version_num}.")
+        let major_version_prefix = if major_version <= 8 { 
+            format!("1.{major_version}.")
         } else {
-            format!("{major_version_num}.")
+            format!("{major_version}.")
         };
             
         handler.handle_standard_event(Event::JvmLoading { 
-            major_version: major_version_num,
+            major_version,
         });
 
         let mut jvm;
@@ -1047,13 +1050,13 @@ impl Installer {
         if let Some(distribution) = distribution {
             match self.jvm_policy {
                 JvmPolicy::Static { ref file, strict_check } => 
-                    jvm = self.load_static_jvm(handler, file.clone(), strict_check, &major_version)?,
+                    jvm = self.load_static_jvm(handler, file.clone(), strict_check, &major_version_prefix)?,
                 JvmPolicy::System => 
-                    jvm = self.load_system_jvm(handler, &major_version)?,
+                    jvm = self.load_system_jvm(handler, &major_version_prefix)?,
                 JvmPolicy::Mojang => 
                     jvm = self.load_mojang_jvm(handler, distribution, batch)?,
                 JvmPolicy::SystemThenMojang => {
-                    jvm = self.load_system_jvm(handler, &major_version)?;
+                    jvm = self.load_system_jvm(handler, &major_version_prefix)?;
                     if jvm.is_none() {
                         jvm = self.load_mojang_jvm(handler, distribution, batch)?;
                     }
@@ -1061,28 +1064,25 @@ impl Installer {
                 JvmPolicy::MojangThenSystem => {
                     jvm = self.load_mojang_jvm(handler, distribution, batch)?;
                     if jvm.is_none() {
-                        jvm = self.load_system_jvm(handler, &major_version)?;
+                        jvm = self.load_system_jvm(handler, &major_version_prefix)?;
                     }
                 }
             }
         } else {
             jvm = match self.jvm_policy {
                 JvmPolicy::Static { ref file, strict_check } => 
-                    self.load_static_jvm(handler, file.clone(), strict_check, &major_version)?,
+                    self.load_static_jvm(handler, file.clone(), strict_check, &major_version_prefix)?,
                 JvmPolicy::System | 
                 JvmPolicy::SystemThenMojang | 
                 JvmPolicy::MojangThenSystem => 
-                    self.load_system_jvm(handler, &major_version)?,
+                    self.load_system_jvm(handler, &major_version_prefix)?,
                 JvmPolicy::Mojang => None,
             };
         }
 
-        if jvm.is_none() {
-            return Err(Error::JvmNotFound { major_version: major_version_num });
-        }
-
-        // This has been checked above.
-        let jvm = jvm.unwrap();
+        let Some(jvm) = jvm else {
+            return Err(Error::JvmNotFound { major_version });
+        };
 
         handler.handle_standard_event(Event::JvmLoaded { 
             file: &jvm.file, 
@@ -1102,7 +1102,7 @@ impl Installer {
     ) -> Result<Option<Jvm>> {
 
         // If the given JVM don't work, this returns None.
-        let Some(jvm) = self.find_jvm_version(file) else {
+        let Some(jvm) = self.find_jvm_versions(Some(&*file).into_iter()).next() else {
             return Ok(None)
         };
 
@@ -1173,12 +1173,11 @@ impl Installer {
             }
         }
 
-        for jvm_file in candidates {
+        // Because we check JVM candidates in order and it takes time, so we try to put
+        // and JVM that have the major version 
+        
+        for jvm in self.find_jvm_versions(candidates.iter().map(PathBuf::as_path)) {
             
-            let Some(jvm) = self.find_jvm_version(jvm_file) else {
-                continue
-            };
-
             // If we have a major version requirement but the JVM version couldn't
             // be determined, we skip this candidate.
             let Some(jvm_version) = jvm.version.as_deref() else {
@@ -1334,33 +1333,92 @@ impl Installer {
 
     }
 
-    /// Find the version of a JVM given its path. It returns none if the JVM doesn't
-    /// work.
-    fn find_jvm_version(&self, file: PathBuf) -> Option<Jvm> {
+    /// Find the version of the given JVMs in parallel and return an iterator for each
+    /// path and the JVM, if found. Executables that produced an unexpected error are
+    /// simply ignored.
+    fn find_jvm_versions<'a, I>(&self, files: I) -> impl Iterator<Item = Jvm>
+    where
+        I: Iterator<Item = &'a Path>,
+    {
 
-        // Try to execute JVM executable to get the version, ignore any error.
-        // TODO: Timeout on command exec?
-        let output = Command::new(&file)
-            .arg("-version")
-            .output()
-            .ok()?;
+        let mut children = Vec::new();
+        let mut remaining = 0usize;
+        let mut result = Vec::new();
 
         // The standard doc says that -version outputs version on stderr. This
         // argument -version is also practical because the version is given between
         // double quotes.
-        let output = String::from_utf8(output.stderr).ok()?;
+        for file in files {
+            
+            let child = Command::new(file)
+                .arg("-version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .ok();
+            
+            if child.is_some() {
+                remaining += 1;
+            }
 
-        // Parse the Java version from its output, the first line with quotes.
-        Some(Jvm {
-            file,
-            version: output.lines()
-                .flat_map(|line| line.split_once('"'))
-                .flat_map(|(_, line)| line.split_once('"'))
-                .map(|(version, _)| version)
-                .next()
-                .map(str::to_string),
-            mojang: None,
-        })
+            children.push((file, child));
+
+        }
+
+        const TRIES_COUNT: usize = 30;  // 3 second maximum.
+        const TRIES_SLEEP: Duration = Duration::from_millis(100);
+        
+        for _ in 0..TRIES_COUNT {
+
+            for (file, child_opt) in &mut children {
+
+                let Some(child) = child_opt else { continue };
+                let Ok(status) = child.try_wait() else {
+                    // If an error happens we just forget the child: don't check it again.
+                    let _ = child.kill();
+                    *child_opt = None;
+                    remaining -= 1;
+                    continue;
+                };
+
+                // If child has terminated, we take child to not check it again.
+                let Some(status) = status else { continue };
+                let child = child_opt.take().unwrap();
+                remaining -= 1;
+                
+                // Not a success, just forget this child.
+                if !status.success() {
+                    continue;
+                }
+
+                // If successful, get the output (it should not error nor block)...
+                let output = child.wait_with_output().unwrap();
+                let Ok(output) = String::from_utf8(output.stderr) else { 
+                    continue; // Ignore if stderr is not UTF-8.
+                };
+
+                result.push(Jvm {
+                    file: file.to_path_buf(),
+                    version: output.lines()
+                        .flat_map(|line| line.split_once('"'))
+                        .flat_map(|(_, line)| line.split_once('"'))
+                        .map(|(version, _)| version)
+                        .next()
+                        .map(str::to_string),
+                    mojang: None,
+                });
+                
+            }
+
+            if remaining == 0 {
+                break;
+            }
+
+            thread::sleep(TRIES_SLEEP);
+
+        }
+
+        result.into_iter()
 
     }
 
@@ -1832,32 +1890,25 @@ pub struct Game {
 
 impl Game {
 
-    /// Launch the game, building the command line giving it to the given closure. This
-    /// closure should block until the game is terminated, because this will 
-    pub fn launch_with<F, R>(&self, func: F) -> io::Result<R>
-    where
-        F: FnOnce(Command) -> io::Result<R>,
-    {
-
+    /// Create a command to launch the process, this command can be modified if you wish.
+    pub fn command(&self) -> Command {
         let mut command = Command::new(&self.jvm_file);
         command
             .current_dir(&self.work_dir)
             .args(&self.jvm_args)
             .arg(&self.main_class)
             .args(&self.game_args);
-        
-        let ret = func(command)?;
-
-        Ok(ret)
-
+        command
     }
 
-    /// Launch the game and wait for its termination.
-    pub fn launch(&self) -> io::Result<()> {
-        self.launch_with(|mut command| {
-            command.spawn()?.wait()?;
-            Ok(())
-        })
+    /// Create a command to launch the process and directly spawn the process.
+    pub fn spawn(&self) -> io::Result<Child> {
+        self.command().spawn()
+    }
+
+    /// Spawn the process and wait for it to finish.
+    pub fn spawn_and_wait(&self) -> io::Result<ExitStatus> {
+        self.spawn()?.wait()
     }
 
 }
@@ -2034,7 +2085,8 @@ where
 
 }
 
-/// Internal shortcut to canonicalize a file and map error into an installer error.
+/// Internal shortcut to canonicalize a file or directory and map error into an 
+/// installer error.
 #[inline]
 pub(crate) fn canonicalize_file(file: &Path) -> Result<PathBuf> {
     file.canonicalize().map_err(|e| Error::new_io_file(e, file.to_path_buf()))
