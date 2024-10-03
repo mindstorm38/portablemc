@@ -358,24 +358,38 @@ impl Installer {
             ref inner,
         } = self;
 
-        // We only load the manifest if checking and fetching is enabled.
-        // FIXME: TODO: Only fetch when actually needed? So inside handler.
-        let manifest = if inner.fetch {
-            Some(request_manifest(&mut handler)?)
-        } else {
-            None
-        };
+        // Cached manifest, will only be used if fetch is enabled.
+        let mut manifest = None::<serde::MojangManifest>;
 
         // Resolve aliases such as "release" or "snapshot" if fetch is enabled.
-        let Some(id) = (match self.inner.root {
-            Root::Release => manifest.as_ref().and_then(|m| m.latest.get("release")),
-            Root::Snapshot => manifest.as_ref().and_then(|m| m.latest.get("snapshot")),
-            Root::Id(ref id) => Some(id),
-        }) else {
+        let alias = match self.inner.root {
+            Root::Release => Some("release"),
+            Root::Snapshot => Some("snapshot"),
+            _ => None,
+        };
+
+        // If we need an alias then we need to load the manifest.
+        let id;
+        if let Some(alias) = alias {
+            if inner.fetch {
+                let new_manifest = request_manifest(handler.as_download_dyn())?;
+                id = new_manifest.latest.get(alias).cloned();
+                manifest = Some(new_manifest);
+            } else {
+                id = None;
+            }
+        } else {
+            id = match self.inner.root {
+                Root::Id(ref new_id) => Some(new_id.clone()),
+                _ => unreachable!(),
+            };
+        }
+
+        let Some(id) = id else {
             return Err(Error::AliasVersionNotFound { root: self.inner.root.clone() });
         };
 
-        standard.root(id.clone());
+        standard.root(id);
         
         // Let the handler find the "leaf" version.
         let mut leaf_id = String::new();
@@ -386,7 +400,7 @@ impl Installer {
             let mut handler = InternalHandler {
                 inner: &mut handler,
                 installer: &inner,
-                manifest: manifest.as_ref(),
+                manifest: &mut manifest,
                 downloads: HashMap::new(),
                 leaf_id: &mut leaf_id,
                 error: Ok(()),
@@ -668,11 +682,11 @@ pub enum QuickPlay {
 }
 
 /// Request the Mojang versions' manifest with the currently configured cache file.
-pub fn request_manifest(mut handler: impl Handler) -> standard::Result<serde::MojangManifest> {
+pub fn request_manifest(handler: impl download::Handler) -> standard::Result<serde::MojangManifest> {
     
     let entry = Entry::new_cached(VERSION_MANIFEST_URL);
     let file = entry.file.to_path_buf();
-    entry.download(handler.as_download_dyn())?;
+    entry.download(handler)?;
 
     let reader = match File::open(&file) {
         Ok(reader) => BufReader::new(reader),
@@ -700,9 +714,9 @@ struct InternalHandler<'a, H: Handler> {
     /// Back-reference to the installer to know its configuration.
     installer: &'a InstallerInner,
     /// If fetching is enabled, then this contains the manifest to use.
-    manifest: Option<&'a serde::MojangManifest>,
+    manifest: &'a mut Option<serde::MojangManifest>,
     /// Download informations for versions that should be downloaded.
-    downloads: HashMap<String, &'a standard::serde::Download>,
+    downloads: HashMap<String, standard::serde::Download>,
     /// Id of the "leaf" version, the last version without inherited version.
     leaf_id: &'a mut String,
     /// If there is an error in the handler.
@@ -754,15 +768,21 @@ impl<H: Handler> InternalHandler<'_, H> {
                     return Ok(());
                 }
 
+                // Only ensure that the manifest is loaded after checking fetch exclude.
+                let manifest = match self.manifest {
+                    Some(manifest) => manifest,
+                    None => self.manifest.insert(request_manifest(self.inner.as_download_dyn())?)
+                };
+
                 // Unwrap because we checked the manifest in the condition.
-                let Some(dl) = self.manifest.unwrap().versions.iter()
+                let Some(dl) = manifest.versions.iter()
                     .find(|v| &v.id == id)
                     .map(|v| &v.download) else {
                         return Ok(());
                     };
 
                 // Save the download information for events "VersionNotFound".
-                self.downloads.insert(id.to_string(), dl);
+                self.downloads.insert(id.to_string(), dl.clone());
 
                 if !check_file(file, dl.size, dl.sha1.as_deref())? {
                     
@@ -782,7 +802,7 @@ impl<H: Handler> InternalHandler<'_, H> {
                 ref mut retry 
             } => {
 
-                let Some(&dl) = self.downloads.get(id) else {
+                let Some(dl) = self.downloads.get(id) else {
                     self.inner.handle_standard_event(event);
                     return Ok(());
                 };
