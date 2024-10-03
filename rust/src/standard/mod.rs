@@ -289,6 +289,10 @@ impl Installer {
         let libraries_dir = canonicalize_file(&self.libraries_dir)?;
         let assets_dir = canonicalize_file(&self.assets_dir)?;
         let jvm_file = canonicalize_file(&jvm.file)?;
+        let assets_virtual_dir = match &assets {
+            Some(Assets { mapping: Some(mapping), .. }) => Some(canonicalize_file(&mapping.virtual_dir)?),
+            _ => None,
+        };
 
         replace_strings_args(&mut jvm_args, |arg| {
             Some(match arg {
@@ -325,9 +329,8 @@ impl Installer {
                 "assets_index_name" => return assets.as_ref()
                     .map(|assets| assets.id.clone()),
                 // Legacy assets...
-                "game_assets" => return assets.as_ref()
-                    .and_then(|assets| assets.mapping.as_ref())
-                    .map(|mapping| mapping.virtual_dir.display().to_string()),
+                "game_assets" => return assets_virtual_dir.as_ref()
+                    .map(|dir| dir.display().to_string()),
                 _ => return None
             })
         });
@@ -916,6 +919,7 @@ impl Installer {
                 mapping.objects.push(AssetObject {
                     rel_file: PathBuf::from(asset_rel_file).into_boxed_path(),
                     object_file: asset_hash_file.clone().into_boxed_path(),
+                    size: asset.size,
                 });
             }
 
@@ -953,25 +957,23 @@ impl Installer {
             return Ok(());
         };
 
-        // If mapping resources, we systematically remove the links and re-link after.
-        let resources_dir = self.work_dir.join("resources");
-        if mapping.resources {
-            
-            // On unix we expect that to be a symlink, so it's a file to remove.
-            #[cfg(unix)] {
-                match fs::remove_file(&resources_dir) {
-                    Ok(()) => (),
-                    Err(e) if e.kind() == io::ErrorKind::NotFound => (),
-                    Err(e) => return Err(Error::new_io_file(e, resources_dir))
-                }
-            }
-
-            // Not on unix, we remove all the directory, which are only hard links.
-            #[cfg(not(unix))] {
-                fs::remove_dir_all(&resources_dir).map_err(Error::new_io)?;
-            }
-            
-        }
+        // Important note: pre-1.6 versions (more exactly 13w23b and before) are altering
+        // the resources directory on their own, downloading resources that don't match
+        // the metadata returned by http://s3.amazonaws.com/MinecraftResources/ (this
+        // URL no longer works, but can be fixed using proxies). This means that:
+        //
+        // - We should copy the resources again and again before each launch and let the
+        //   game modify them if needed, therefore no hard/sym link to the virtual dir.
+        //
+        // - Running the installer for a pre-1.6 version in the same work dir as another
+        //   running pre-1.6 version will overwrite the modified resources and therefore
+        //   the running version may read the wrong assets for a short time (until the
+        //   installed version is run), and if the two versions are different then both
+        //   versions will download different things. There is also a potential issue if 
+        //   the installer wants to overwrite a resource while it is also being modified
+        //   at the same time by the running instance.
+        let resources_dir = mapping.resources
+            .then(|| self.work_dir.join("resources"));
 
         // Hard link each asset into its virtual directory, note on non-unix systems we
         // also do that to the resources directory.
@@ -983,26 +985,24 @@ impl Installer {
             }
             hard_link_file(&object.object_file, &virtual_file)?;
 
-            // // Not on unix, we don't have symlink so we hard link each file.
-            // #[cfg(not(unix))]
-            // if mapping.resources {
-            //     let resource_file = resources_dir.join(&object.rel_file);
-            //     if let Some(parent) = resource_file.parent() {
-            //         fs::create_dir_all(parent).map_err(Error::new_io)?;
-            //     }
-            //     hard_link_file(&object.object_file, &resource_file)?;
-            // }
+            // We copy each resource, if not matching (size only).
+            if let Some(resources_dir) = &resources_dir {
+
+                let resource_file = resources_dir.join(&object.rel_file);
+                if !check_file(&resource_file, Some(object.size), None)? {
+                    
+                    if let Some(parent) = resource_file.parent() {
+                        fs::create_dir_all(parent).map_err(Error::new_io)?;
+                    }
+
+                    fs::copy(&object.object_file, &resource_file)
+                        .map_err(|e| Error::new_io_file(e, resource_file))?;
+
+                }
+
+            }
 
         }
-
-        // // On unix we can symlink the whole directory, should not be already existing.
-        // #[cfg(unix)]
-        // if mapping.resources {
-        //     // Canonicalize the path for it to be absolute, avoiding relative issues.
-        //     let virtual_dir = canonicalize_file(&mapping.virtual_dir)?;
-        //     std::os::unix::fs::symlink(&virtual_dir, &resources_dir)
-        //         .map_err(|e| Error::new_io_file(e, resources_dir))?;
-        // }
 
         Ok(())
 
@@ -1022,6 +1022,7 @@ impl Installer {
             .map(|v| v.major_version)
             .unwrap_or(8);  // Default to Java 8 if not specified.
 
+        // If there is not distribution we try to use a well-known one.
         let distribution = version
             .and_then(|v| v.component.as_deref())
             .or_else(|| Some(match major_version {
@@ -1102,7 +1103,7 @@ impl Installer {
     ) -> Result<Option<Jvm>> {
 
         // If the given JVM don't work, this returns None.
-        let Some(jvm) = self.find_jvm_versions(Some(&*file).into_iter()).next() else {
+        let Some(jvm) = self.find_jvm_versions(&[file]).next() else {
             return Ok(None)
         };
 
@@ -1176,7 +1177,7 @@ impl Installer {
         // Because we check JVM candidates in order and it takes time, so we try to put
         // and JVM that have the major version 
         
-        for jvm in self.find_jvm_versions(candidates.iter().map(PathBuf::as_path)) {
+        for jvm in self.find_jvm_versions(&candidates) {
             
             // If we have a major version requirement but the JVM version couldn't
             // be determined, we skip this candidate.
@@ -1336,14 +1337,19 @@ impl Installer {
     /// Find the version of the given JVMs in parallel and return an iterator for each
     /// path and the JVM, if found. Executables that produced an unexpected error are
     /// simply ignored.
-    fn find_jvm_versions<'a, I>(&self, files: I) -> impl Iterator<Item = Jvm>
-    where
-        I: Iterator<Item = &'a Path>,
-    {
+    fn find_jvm_versions(&self, files: &[PathBuf]) -> impl Iterator<Item = Jvm> {
 
+        struct ChildJvm {
+            /// The child if we are still waiting for its termination.
+            child: Option<Child>,
+            /// This is only set when child has terminated properly.
+            jvm: Option<Jvm>,
+        }
+
+        // We put the resulting JVM inside this vector so that we have the same
+        // ordering as the given exec files.
         let mut children = Vec::new();
         let mut remaining = 0usize;
-        let mut result = Vec::new();
 
         // The standard doc says that -version outputs version on stderr. This
         // argument -version is also practical because the version is given between
@@ -1361,7 +1367,7 @@ impl Installer {
                 remaining += 1;
             }
 
-            children.push((file, child));
+            children.push(ChildJvm { child, jvm: None });
 
         }
 
@@ -1370,20 +1376,20 @@ impl Installer {
         
         for _ in 0..TRIES_COUNT {
 
-            for (file, child_opt) in &mut children {
+            for (child_index, child_jvm) in &mut children.iter_mut().enumerate() {
 
-                let Some(child) = child_opt else { continue };
+                let Some(child) = &mut child_jvm.child else { continue };
                 let Ok(status) = child.try_wait() else {
                     // If an error happens we just forget the child: don't check it again.
                     let _ = child.kill();
-                    *child_opt = None;
+                    child_jvm.child = None;
                     remaining -= 1;
                     continue;
                 };
 
                 // If child has terminated, we take child to not check it again.
                 let Some(status) = status else { continue };
-                let child = child_opt.take().unwrap();
+                let child = child_jvm.child.take().unwrap();
                 remaining -= 1;
                 
                 // Not a success, just forget this child.
@@ -1397,8 +1403,8 @@ impl Installer {
                     continue; // Ignore if stderr is not UTF-8.
                 };
 
-                result.push(Jvm {
-                    file: file.to_path_buf(),
+                child_jvm.jvm = Some(Jvm {
+                    file: files[child_index].clone(),
                     version: output.lines()
                         .flat_map(|line| line.split_once('"'))
                         .flat_map(|(_, line)| line.split_once('"'))
@@ -1418,7 +1424,7 @@ impl Installer {
 
         }
 
-        result.into_iter()
+        children.into_iter().flat_map(|ChildJvm { jvm, .. }| jvm)
 
     }
 
@@ -1944,8 +1950,8 @@ struct Assets {
 /// asset object files to their virtual relative path inside the assets index's virtual
 /// directory. 
 /// 
-/// - Virtual assets has been used between 13w23b (excluded) and 13w48b (1.7.2).
-/// - Resource mapped assets has been used for versions 13w23b and before.
+/// - Virtual assets has been used between 13w23b (pre 1.6, excluded) and 13w48b (1.7.2).
+/// - Resource mapped assets has been used for versions 13w23b (pre 1.6) and before.
 #[derive(Debug)]
 struct AssetsMapping {
     /// List of objects to link to virtual dir.
@@ -1962,6 +1968,7 @@ struct AssetsMapping {
 struct AssetObject {
     rel_file: Box<Path>,
     object_file: Box<Path>,
+    size: u32,
 }
 
 /// Internal resolved JVM.
