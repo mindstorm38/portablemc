@@ -91,6 +91,7 @@ fn main() {
 
 }
 
+#[allow(unused)]
 fn test_auth() -> msa::Result<()> {
 
     let auth = msa::Auth::new("708e91b5-99f8-4a1d-80ec-e746cbb24771".to_string());

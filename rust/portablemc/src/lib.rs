@@ -10,5 +10,4 @@ pub mod download;
 pub mod msa;
 
 pub mod standard;
-// pub mod simple;
 pub mod mojang;
