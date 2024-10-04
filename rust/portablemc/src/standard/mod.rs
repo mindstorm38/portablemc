@@ -55,8 +55,8 @@ pub(crate) const LEGACY_JVM_ARGS: &[&str] = &[
 pub struct Installer {
     root_id: String,
     versions_dir: PathBuf,
-    assets_dir: PathBuf,
     libraries_dir: PathBuf,
+    assets_dir: PathBuf,
     jvm_dir: PathBuf,
     bin_dir: PathBuf,
     work_dir: PathBuf,
@@ -81,8 +81,8 @@ impl Installer {
         Self {
             root_id: root_id.into(),
             versions_dir: work_dir.join("versions"),
-            assets_dir: work_dir.join("assets"),
             libraries_dir: work_dir.join("libraries"),
+            assets_dir: work_dir.join("assets"),
             jvm_dir: work_dir.join("jvm"),
             bin_dir: work_dir.join("bin"),
             work_dir,
@@ -126,6 +126,13 @@ impl Installer {
         self
     }
 
+    /// The directory where libraries are stored, organized like a maven repository.
+    #[inline]
+    pub fn libraries_dir(&mut self, libraries_dir: impl Into<PathBuf>) -> &mut Self {
+        self.libraries_dir = libraries_dir.into();
+        self
+    }
+
     /// The directory where assets, assets index, cached skins and logs config are stored.
     /// Note that this directory stores caches player skins, so this is the only 
     /// directory where the client will need to write, and so it needs the permission
@@ -133,13 +140,6 @@ impl Installer {
     #[inline]
     pub fn assets_dir(&mut self, assets_dir: impl Into<PathBuf>) -> &mut Self {
         self.assets_dir = assets_dir.into();
-        self
-    }
-
-    /// The directory where libraries are stored, organized like a maven repository.
-    #[inline]
-    pub fn libraries_dir(&mut self, libraries_dir: impl Into<PathBuf>) -> &mut Self {
-        self.libraries_dir = libraries_dir.into();
         self
     }
 
@@ -759,7 +759,7 @@ impl Installer {
                     // Note that 'src_file' has been canonicalized and therefore we have
                     // no issue of relative linking.
                     let dst_file = bin_dir.join(file_name);
-                    link_file(&src_file, &dst_file)?;
+                    symlink_or_copy(&src_file, &dst_file)?;
 
                 }
             }
@@ -2129,6 +2129,29 @@ pub(crate) fn link_file(original: &Path, link: &Path) -> Result<()> {
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
         Err(e) => Err(Error::new_io_file(e, link.to_path_buf())),
     }
+
+}
+
+#[inline]
+pub(crate) fn symlink_or_copy(original: &Path, link: &Path) -> Result<()> {
+
+    let err;
+
+    #[cfg(unix)] {
+        // We just give the relative link with '..' which will be resolved 
+        // relative to the link's location by the filesystem.
+        err = match std::os::unix::fs::symlink(original, link) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+            Err(e) => Err(e),
+        };
+    }
+
+    #[cfg(not(unix))] {
+        err = fs::copy(original, link);
+    }
+
+    err.map_err(|e| Error::new_io_file(e, link.to_path_buf()))
 
 }
 

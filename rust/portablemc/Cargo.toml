@@ -1,6 +1,6 @@
 [package]
 name = "portablemc"
-description = "Developer-oriented crate for launching Minecraft quickly and reliably with included support for Mojang versions and popular modloaders. See portablemc-cli for the reference implementation."
+description = "Developer-oriented crate for launching Minecraft quickly and reliably with included support for Mojang versions and popular mod loaders. See portablemc-cli for the reference implementation."
 categories = ["games"]
 edition.workspace = true
 version.workspace = true

@@ -1,9 +1,13 @@
 //! PortableMC CLI.
 
+mod parse;
+
 use std::fmt::{self, Write as _};
 use std::process::Stdio;
 use std::time::Instant;
 use std::io::Write;
+
+use clap::Parser;
 
 use portablemc::{download, standard, mojang};
 use portablemc::msa;
@@ -27,59 +31,62 @@ const VERSIONS: &[&str] = &[
 
 fn main() {
 
-    let mut handler = CliHandler::default();
+    let args = parse::Cli::parse();
+    println!("{args:?}");
+
+    // let mut handler = CliHandler::default();
     
-    // match test_auth() {
-    //     Ok(()) => handler
-    //         .state("OK", format_args!("Authenticated"))
-    //         .newline(),
-    //     Err(e) => handler
-    //         .state("FAILED", format_args!("Error: {e}"))
-    //         .newline(),
-    // };
+    // // match test_auth() {
+    // //     Ok(()) => handler
+    // //         .state("OK", format_args!("Authenticated"))
+    // //         .newline(),
+    // //     Err(e) => handler
+    // //         .state("FAILED", format_args!("Error: {e}"))
+    // //         .newline(),
+    // // };
 
-    let mut children = Vec::new();
+    // let mut children = Vec::new();
 
-    for version in VERSIONS {
+    // for version in VERSIONS {
 
-        let res = mojang::Installer::new()
-            .root(*version)
-            // .quick_play(QuickPlay::Multiplayer { host: "mc.hypixel.net".to_string(), port: 25565 })
-            // .resolution(900, 900)
-            // .demo(true)
-            .auth_offline_username_authlib("Mindstorm38")
-            .with_standard(|i| i
-                .main_dir(r".minecraft_test")
-                .strict_libraries_check(false)
-                .strict_assets_check(false)
-                .strict_jvm_check(false))
-            .install(&mut handler);
+    //     let res = mojang::Installer::new()
+    //         .root(*version)
+    //         // .quick_play(QuickPlay::Multiplayer { host: "mc.hypixel.net".to_string(), port: 25565 })
+    //         // .resolution(900, 900)
+    //         // .demo(true)
+    //         .auth_offline_username_authlib("Mindstorm38")
+    //         .with_standard(|i| i
+    //             .main_dir(r".minecraft_test")
+    //             .strict_libraries_check(false)
+    //             .strict_assets_check(false)
+    //             .strict_jvm_check(false))
+    //         .install(&mut handler);
         
-        let game = match res {
-            Ok(game) => game,
-            Err(e) => {
-                handler.newline();
-                handler.state("FAILED", format_args!("{e}"));
-                return;
-            }
-        };
+    //     let game = match res {
+    //         Ok(game) => game,
+    //         Err(e) => {
+    //             handler.newline();
+    //             handler.state("FAILED", format_args!("{e}"));
+    //             return;
+    //         }
+    //     };
 
-        println!("game: {game:?}");
+    //     println!("game: {game:?}");
 
-        let child = game.command()
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .unwrap();
+    //     let child = game.command()
+    //         .stdout(Stdio::inherit())
+    //         .stderr(Stdio::inherit())
+    //         .spawn()
+    //         .unwrap();
 
-        children.push(child);
-        println!();
+    //     children.push(child);
+    //     println!();
 
-    }
+    // }
 
-    for mut child in children {
-        let _status = child.wait().unwrap();
-    }
+    // for mut child in children {
+    //     let _status = child.wait().unwrap();
+    // }
 
     // match game.spawn_and_wait() {
     //     Ok(_) => (),

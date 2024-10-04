@@ -764,7 +764,7 @@ impl<H: Handler> InternalHandler<'_, H> {
                 self.inner.handle_standard_event(event);
 
                 // Ignore the version if excluded.
-                if self.installer.fetch_exclude.iter().any(|id| id == id) {
+                if !self.installer.fetch || self.installer.fetch_exclude.iter().any(|id| id == id) {
                     return Ok(());
                 }
 
