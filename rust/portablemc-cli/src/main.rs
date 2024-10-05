@@ -124,6 +124,8 @@ fn cmd_start(cli_args: &CliArgs, args: &StartArgs) {
         Some(CliOutput::Machine) => Handler::Machine(MachineHandler::new()),
     };
 
+    let game;
+
     match &args.version {
         StartVersion::Mojang { 
             root,
@@ -132,7 +134,7 @@ fn cmd_start(cli_args: &CliArgs, args: &StartArgs) {
             let mut inst = mojang::Installer::new();
             apply_mojang_args(&mut inst, cli_args, args);
             inst.root(root.clone());
-            inst.install(&mut handler).unwrap();
+            game = inst.install(&mut handler).unwrap();
 
         }
         StartVersion::Loader {
@@ -143,6 +145,12 @@ fn cmd_start(cli_args: &CliArgs, args: &StartArgs) {
             todo!("start loader");
         }
     }
+
+    if args.dry {
+        return;
+    }
+    
+    let _ = game;
 
     todo!()
 

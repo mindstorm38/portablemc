@@ -6,16 +6,6 @@ use portablemc::{download, mojang, standard};
 use super::DownloadTracker;
 
 
-/// Find the SI unit of a given number and return the number scaled down to that unit.
-pub fn number_si_unit(num: f32) -> (f32, char) {
-    match num {
-        ..=999.0 => (num, ' '),
-        ..=999_999.0 => (num / 1_000.0, 'k'),
-        ..=999_999_999.0 => (num / 1_000_000.0, 'M'),
-        _ => (num / 1_000_000_000.0, 'G'),
-    }
-}
-
 /// A utility output for printing state
 #[derive(Debug)]
 pub struct Output {
@@ -23,6 +13,8 @@ pub struct Output {
     color: bool,
     /// The buffer containing the whole rendered line.
     line_buf: String,
+    /// Current terminal width of the line.
+    line_term_width: usize,
     /// The buffer containing the full rendered suffix.
     suffix_buf: String,
 }
@@ -40,6 +32,7 @@ impl Output {
         Self {
             color,
             line_buf: String::new(),
+            line_term_width: 0,
             suffix_buf: String::new(),
         }
     }
@@ -54,19 +47,26 @@ impl Output {
         self.suffix_buf.len()
     }
 
-    /// Update the current line.
-    pub fn line(&mut self, message: fmt::Arguments) -> &mut Self {
+    /// Update the printed line after the buffer has been updated.
+    fn print_line(&mut self) -> &mut Self {
 
-        let last_line_len = self.line_buf.len();
-        self.line_buf.clear();
-        write!(self.line_buf, "{}{}", message, self.suffix_buf).unwrap();
+        let term_width = terminal_width(&self.line_buf);
+        let padding_width = self.line_term_width.saturating_sub(term_width);
+        self.line_term_width = term_width;
         
         let mut stdout = std::io::stdout().lock();
-        let _ = write!(stdout, "\r{:last_line_len$}", self.line_buf);
+        let _ = write!(stdout, "\r{}{:padding_width$}", self.line_buf, "");
         let _ = stdout.flush();
 
         self
-        
+
+    }
+
+    /// Update the current line.
+    pub fn line(&mut self, message: fmt::Arguments) -> &mut Self {
+        self.line_buf.clear();
+        write!(self.line_buf, "{}{}", message, self.suffix_buf).unwrap();
+        self.print_line()
     }
 
     /// Set the suffix to be displayed systematically after the line.
@@ -79,12 +79,8 @@ impl Output {
         let last_line_len = self.line_buf.len();
         self.line_buf.truncate(last_line_len - last_suffix_len);
         self.line_buf.push_str(&self.suffix_buf);
-
-        let mut stdout = std::io::stdout().lock();
-        let _ = write!(stdout, "\r{:last_line_len$}", self.line_buf);
-        let _ = stdout.flush();
-
-        self
+        
+        self.print_line()
 
     }
 
@@ -283,4 +279,71 @@ impl mojang::Handler for HumanHandler {
         };
 
     }
+}
+
+/// Find the SI unit of a given number and return the number scaled down to that unit.
+pub fn number_si_unit(num: f32) -> (f32, char) {
+    match num {
+        ..=999.0 => (num, ' '),
+        ..=999_999.0 => (num / 1_000.0, 'k'),
+        ..=999_999_999.0 => (num / 1_000_000.0, 'M'),
+        _ => (num / 1_000_000_000.0, 'G'),
+    }
+}
+
+/// Compute terminal display length of a given string.
+pub fn terminal_width(s: &str) -> usize {
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Control {
+        None,
+        Escape,
+        Csi,
+    }
+
+    let mut len = 0;
+    let mut control = Control::None;
+
+    for ch in s.chars() {
+        match (control, ch) {
+            (Control::None, '\x1b') => {
+                control = Control::Escape;
+            }
+            (Control::None, c) if !c.is_control() => {
+                len += 1;
+            }
+            (Control::Escape, '[') => {
+                control = Control::Csi;
+            }
+            (Control::Escape, _) => {
+                control = Control::None;
+            }
+            (Control::Csi, c) if c.is_alphabetic() => {
+                // After a CSI control any alphabetic char is terminating the sequence.
+                control = Control::None;
+            }
+            _ => {}
+        }
+    }
+
+    len
+
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn check_terminal_width() {
+        assert_eq!(terminal_width(""), 0);
+        assert_eq!(terminal_width("\x1b"), 0);
+        assert_eq!(terminal_width("\x1b[92m"), 0);
+        assert_eq!(terminal_width("\x1b[92mOK"), 2);
+        assert_eq!(terminal_width("[  \x1b[92mOK"), 5);
+        assert_eq!(terminal_width("[  \x1b[92mOK  ]"), 8);
+        assert_eq!(terminal_width("[  \x1b[92mOK  \x1b[0m]"), 8);
+    }
+
 }
