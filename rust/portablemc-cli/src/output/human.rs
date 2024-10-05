@@ -1,5 +1,6 @@
+use std::{env, io};
 use std::fmt::{self, Write as _};
-use std::io::Write as _;
+use std::io::{IsTerminal, Write as _};
 
 use portablemc::{download, mojang, standard};
 
@@ -278,6 +279,21 @@ impl mojang::Handler for HumanHandler {
             _ => todo!("{event:?}")
         };
 
+    }
+}
+
+/// Return true if color can be printed to stdout.
+/// 
+/// Supporting `NO_COLOR` env: https://no-color.org/.
+pub fn has_stdout_color() -> bool {
+    if !io::stdout().is_terminal() {
+        false
+    } else if cfg!(unix) && env::var_os("TERM").map(|term| term == "dumb").unwrap_or_default() {
+        false
+    } else if env::var_os("NO_COLOR").map(|s| !s.is_empty()).unwrap_or_default() {
+        false
+    } else {
+        true
     }
 }
 

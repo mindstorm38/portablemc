@@ -5,12 +5,12 @@ pub mod output;
 
 use clap::Parser;
 
-use output::human::HumanHandler;
-use output::machine::MachineHandler;
 use portablemc::{download, standard, mojang};
 use portablemc::msa;
 
 use parse::{CliArgs, CliCmd, CliOutput, LoginArgs, LogoutArgs, SearchArgs, ShowArgs, StartArgs, StartResolution, StartVersion};
+use output::human::{has_stdout_color, HumanHandler};
+use output::machine::MachineHandler;
 
 
 fn main() {
@@ -118,10 +118,8 @@ fn cmd_start(cli_args: &CliArgs, args: &StartArgs) {
     }
 
     let mut handler = match cli_args.output {
-        None | 
-        Some(CliOutput::HumanColor) => Handler::Human(HumanHandler::new(true)),
-        Some(CliOutput::Human) => Handler::Human(HumanHandler::new(false)),
-        Some(CliOutput::Machine) => Handler::Machine(MachineHandler::new()),
+        CliOutput::Human => Handler::Human(HumanHandler::new(has_stdout_color())),
+        CliOutput::Machine => Handler::Machine(MachineHandler::new()),
     };
 
     let game;

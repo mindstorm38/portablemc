@@ -30,6 +30,8 @@ impl DownloadTracker {
     /// Handle progress of a download, returning some metrics if computable.
     pub fn handle(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) -> Option<DownloadMetrics> {
 
+        let _ = total_size;
+        
         if self.download_start.is_none() {
             self.download_start = Some(Instant::now());
         }
