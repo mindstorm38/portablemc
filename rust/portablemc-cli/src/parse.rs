@@ -112,7 +112,8 @@ pub enum CliOutput {
 #[derive(Debug, Args)]
 pub struct SearchArgs {
     /// The search query string.
-    pub query: Option<String>,
+    #[arg(default_value = "")]
+    pub query: String,
     /// Select the target of the search query.
     #[arg(short, default_value = "mojang")]
     pub kind: SearchKind,
