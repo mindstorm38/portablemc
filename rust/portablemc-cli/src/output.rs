@@ -1,8 +1,8 @@
 //! Various utilities to ease outputting human or machine readable text.
 
-use std::io::{IsTerminal, StdoutLock, Write};
+use std::fmt::{Display, Write as _};
 use std::time::{Duration, Instant};
-use std::fmt::Display;
+use std::io::{IsTerminal, Write};
 use std::{env, io};
 
 
@@ -12,8 +12,10 @@ use std::{env, io};
 pub struct Output {
     /// Mode-specific data.
     mode: OutputMode,
-    /// Is color enabled or disabled.
-    color: bool,
+    /// Are cursor escape code supported on stdout.
+    escape_cursor_cap: bool,
+    /// Are color escape code supported on stdout.
+    escape_color_cap: bool,
 }
 
 #[derive(Debug)]
@@ -35,16 +37,28 @@ impl Output {
     }
 
     fn new(mode: OutputMode) -> Self {
+
+        let term_dumb = !io::stdout().is_terminal() || (cfg!(unix) && env::var_os("TERM").map(|term| term == "dumb").unwrap_or_default());
+        let no_color = env::var_os("NO_COLOR").map(|s| !s.is_empty()).unwrap_or_default();
+
         Self {
             mode,
-            color: has_stdout_color(),
+            escape_cursor_cap: !term_dumb,
+            escape_color_cap: !term_dumb && !no_color,
         }
     }
 
     /// Enter log mode, this is exclusive with other modes.
     pub fn log(&mut self) -> LogOutput {
+
+        // Save the initial cursor position for the first line to be written.
+        if self.escape_cursor_cap {
+            print!("\x1b[s");
+        }
+
         LogOutput {
             output: self,
+            shared: LogShared::default(),
         }
     }
 
@@ -61,25 +75,39 @@ impl Output {
 pub struct LogOutput<'a> {
     /// Exclusive access to output.
     output: &'a mut Output,
+    /// Buffer storing the current background log message.
+    shared: LogShared,
+}
+
+/// Internal buffer for the current line.
+#[derive(Debug, Default)]
+struct LogShared {
+    /// Line buffer that will be printed when the log is dropped.
+    line: String,
+    /// For human-readable only, storing the rendered background log.
+    background: String
 }
 
 impl<'o> LogOutput<'o> {
 
-    /// Log an information with a simple code referencing it.
-    pub fn log(&mut self, code: &str) -> Log<'_, false> {
-
-        let mut writer = io::stdout().lock();
+    fn _log<const BG: bool>(&mut self, code: &str) -> Log<'_, BG> {
 
         if let OutputMode::TabSeparated {  } = self.output.mode {
-            write!(writer, "{code}").unwrap();
+            debug_assert!(self.shared.line.is_empty());
+            self.shared.line.push_str(code);
         }
 
         Log {
             output: &mut self.output,
-            writer,
-            has_message: false,
+            shared: &mut self.shared,
         }
 
+    }
+
+    /// Log an information with a simple code referencing it.
+    #[inline]
+    pub fn log(&mut self, code: &str) -> Log<'_, false> {
+        self._log(code)
     }
 
     /// A special log type that is interpreted as a background task, on machine readable
@@ -87,19 +115,7 @@ impl<'o> LogOutput<'o> {
     /// displayed at the end of the current line.
     #[inline]
     pub fn background_log(&mut self, code: &str) -> Log<'_, true> {
-
-        let mut writer = io::stdout().lock();
-
-        if let OutputMode::TabSeparated {  } = self.output.mode {
-            write!(writer, "{code}").unwrap();
-        }
-
-        Log {
-            output: &mut self.output,
-            writer,
-            has_message: false,
-        }
-
+        self._log(code)
     }
 
 }
@@ -109,18 +125,21 @@ impl<'o> LogOutput<'o> {
 pub struct Log<'a, const BG: bool> {
     /// Exclusive access to output.
     output: &'a mut Output,
-    /// Locked writer.
-    writer: StdoutLock<'static>,
-    /// Set to true after the first human-readable message was written.
-    has_message: bool,
+    /// Internal buffer.
+    shared: &'a mut LogShared,
 }
 
 impl<const BG: bool> Log<'_, BG> {
 
+    // Reminder:
+    // \x1b[s  save current cursor position
+    // \x1b[u  restore saved cursor position
+    // \x1b[K  clear the whole line
+
     /// Append an argument for machine-readable output.
     pub fn arg<D: Display>(&mut self, arg: D) -> &mut Self {
         if let OutputMode::TabSeparated {  } = self.output.mode {
-            write!(self.writer, "\t{arg}").unwrap();
+            write!(self.shared.line, "\t{arg}").unwrap();
         }
         self
     }
@@ -133,10 +152,43 @@ impl<const BG: bool> Log<'_, BG> {
     {
         if let OutputMode::TabSeparated {  } = self.output.mode {
             for arg in args {
-                write!(self.writer, "\t{arg}").unwrap();
+                write!(self.shared.line, "\t{arg}").unwrap();
             }
         }
         self
+    }
+
+    /// Internal function to flush the line and background buffers (only relevant in 
+    /// human-readable mode)
+    fn flush_line_background(&mut self, newline: bool) {
+
+        let mut lock = io::stdout().lock();
+        
+        if self.output.escape_cursor_cap {
+            // If supporting cursor escape code, we don't use carriage return but instead
+            // we use cursor save/restore position in order to easily support wrapping.
+            lock.write_all(b"\x1b[u\x1b[K").unwrap();
+        } else {
+            lock.write_all(b"\r").unwrap();
+        }
+
+        lock.write_all(self.shared.line.as_bytes()).unwrap();
+        lock.write_all(self.shared.background.as_bytes()).unwrap();
+
+        if newline {
+
+            self.shared.line.clear();
+            self.shared.background.clear();
+
+            lock.write_all(b"\n").unwrap();
+            if self.output.escape_cursor_cap {
+                lock.write_all(b"\x1b[s").unwrap();
+            }
+
+        }
+
+        lock.flush().unwrap();
+
     }
 
 }
@@ -160,20 +212,14 @@ impl Log<'_, false> {
                     LogLevel::Error => ("FAILED", "\x1b[31m"),
                 };
 
-                // \r      got to line start
-                // \x1b[K  clear the whole line
-                if !self.output.color || color.is_empty() {
-                    write!(self.writer, "\r\x1b[K[{name:^6}] {message}").unwrap();
+                self.shared.line.clear();
+                if !self.output.escape_color_cap || color.is_empty() {
+                    write!(self.shared.line, "[{name:^6}] {message}").unwrap();
                 } else {
-                    write!(self.writer, "\r\x1b[K[{color}{name:^6}\x1b[0m] {message}").unwrap();
+                    write!(self.shared.line, "[{color}{name:^6}\x1b[0m] {message}").unwrap();
                 }
 
-                // If not a progress level, do a line return.
-                if level != LogLevel::Progress {
-                    self.writer.write_all(b"\n").unwrap();
-                }
-
-                self.has_message = true;
+                self.flush_line_background(level != LogLevel::Progress);
 
             }
         }
@@ -213,8 +259,12 @@ impl Log<'_, true> {
     /// overwrite any background message currently written on the current log line.
     pub fn message<D: Display>(&mut self, message: D) -> &mut Self {
         if let OutputMode::Human { .. } = self.output.mode {
-            // \x1b[u: restore saved cursor position
-            write!(self.writer, "\x1b[u{message}").unwrap();
+            
+            self.shared.background.clear();
+            write!(self.shared.background, "{message}").unwrap();
+
+            self.flush_line_background(false);
+
         }
         self
     }
@@ -229,16 +279,16 @@ impl<const BACKGROUND: bool> Drop for Log<'_, BACKGROUND> {
         // Save the position of the cursor at the end of the line, this is used to
         // easily rewrite the background task.
         if let OutputMode::Human { .. } = self.output.mode {
-            if !BACKGROUND && self.has_message {
-                // \x1b[s  save current cursor position
-                self.writer.write_all(b"\x1b[s").unwrap();
-            }
+            // Do nothing in human mode because the message is always immediately
+            // flushed to stdout, the buffers may not be empty because if we don't
+            // add a newline then the buffer is kept for being rewritten on next log.
         } else {
-            // Not in human-readable mode, line return anyway.
-            self.writer.write_all(b"\n").unwrap();
+            // Not in human-readable mode, the buffer has not already been flushed.
+            let mut lock = io::stdout().lock();
+            lock.write_all(self.shared.line.as_bytes()).unwrap();
+            lock.write_all(b"\n").unwrap();
+            lock.flush().unwrap();
         }
-
-        self.writer.flush().unwrap();
 
     }
 }
@@ -314,31 +364,6 @@ impl DownloadTracker {
 
 }
 
-
-/// Return true if color should be used on terminal.
-/// 
-/// Supporting `NO_COLOR` (https://no-color.org/) and `TERM=dumb`.
-fn has_color() -> bool {
-    if cfg!(unix) && env::var_os("TERM").map(|term| term == "dumb").unwrap_or_default() {
-        false
-    } else if env::var_os("NO_COLOR").map(|s| !s.is_empty()).unwrap_or_default() {
-        false
-    } else {
-        true
-    }
-}
-
-/// Return true if color can be printed to stdout.
-/// 
-/// See [`has_color()`].
-fn has_stdout_color() -> bool {
-    if !io::stdout().is_terminal() {
-        false
-    } else {
-        has_color()
-    }
-}
-
 /// Find the SI unit of a given number and return the number scaled down to that unit.
 pub fn number_si_unit(num: f32) -> (f32, char) {
     match num {
@@ -347,62 +372,4 @@ pub fn number_si_unit(num: f32) -> (f32, char) {
         ..=999_999_999.0 => (num / 1_000_000.0, 'M'),
         _ => (num / 1_000_000_000.0, 'G'),
     }
-}
-
-// /// Compute terminal display length of a given string.
-// fn terminal_width(s: &str) -> usize {
-
-//     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-//     enum Control {
-//         None,
-//         Escape,
-//         Csi,
-//     }
-
-//     let mut width = 0;
-//     let mut control = Control::None;
-
-//     for ch in s.chars() {
-//         match (control, ch) {
-//             (Control::None, '\x1b') => {
-//                 control = Control::Escape;
-//             }
-//             (Control::None, c) if !c.is_control() => {
-//                 width += 1;
-//             }
-//             (Control::Escape, '[') => {
-//                 control = Control::Csi;
-//             }
-//             (Control::Escape, _) => {
-//                 control = Control::None;
-//             }
-//             (Control::Csi, c) if c.is_alphabetic() => {
-//                 // After a CSI control any alphabetic char is terminating the sequence.
-//                 control = Control::None;
-//             }
-//             _ => {}
-//         }
-//     }
-
-//     width
-
-// }
-
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn check_terminal_width() {
-        assert_eq!(terminal_width(""), 0);
-        assert_eq!(terminal_width("\x1b"), 0);
-        assert_eq!(terminal_width("\x1b[92m"), 0);
-        assert_eq!(terminal_width("\x1b[92mOK"), 2);
-        assert_eq!(terminal_width("[  \x1b[92mOK"), 5);
-        assert_eq!(terminal_width("[  \x1b[92mOK  ]"), 8);
-        assert_eq!(terminal_width("[  \x1b[92mOK  \x1b[0m]"), 8);
-    }
-
 }
