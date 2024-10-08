@@ -59,15 +59,22 @@ fn cmd_search_mojang(out: &mut Output, _query: &str) {
     let manifest = mojang::request_manifest(()).unwrap();
 
     let mut table = out.table(3);
-    table.cell("id").format("Identifier");
-    table.cell("type").format("Type");
-    table.cell("release_date").format("Release date");
+
+    {
+        let mut row = table.row();
+        row.cell("id").format("Identifier");
+        row.cell("type").format("Type");
+        row.cell("release_date").format("Release date");
+    }
+    
+    table.sep();
 
     let today = Utc::now();
 
     for version in &manifest.versions {
         
-        table.cell(&version.id);
+        let mut row = table.row();
+        row.cell(&version.id);
         
         let is_latest = manifest.latest.get(&version.r#type)
             .map(|id| id == &version.id)
@@ -81,12 +88,12 @@ fn cmd_search_mojang(out: &mut Output, _query: &str) {
         };
         
         if is_latest {
-            table.cell(format_args!("{type_id}*")).format(format_args!("{type_fmt}*"));
+            row.cell(format_args!("{type_id}*")).format(format_args!("{type_fmt}*"));
         } else {
-            table.cell(format_args!("{type_id}")).format(format_args!("{type_fmt}"));
+            row.cell(format_args!("{type_id}")).format(format_args!("{type_fmt}"));
         }
 
-        let mut cell = table.cell(&version.release_time.to_rfc3339());
+        let mut cell = row.cell(&version.release_time.to_rfc3339());
         let local_release_date = version.release_time.with_timezone(&Local);
         let local_release_data_fmt: _ = version.release_time.format("%a %b %e %T %Y");
 
