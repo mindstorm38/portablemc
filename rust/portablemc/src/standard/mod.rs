@@ -2173,7 +2173,7 @@ pub(crate) fn symlink_or_copy_file(original: &Path, link: &Path) -> Result<()> {
     }
 
     #[cfg(not(unix))] {
-        err = fs::copy(original, link);
+        err = fs::copy(original, link).map(|_| ());
     }
 
     err.map_err(|e| Error::new_io_file(e, link.to_path_buf()))
