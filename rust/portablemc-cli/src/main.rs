@@ -3,6 +3,7 @@
 pub mod parse;
 pub mod output;
 
+use std::process::ExitCode;
 use std::time::Instant;
 
 use chrono::{Local, TimeDelta, Utc};
@@ -14,7 +15,8 @@ use parse::{CliArgs, CliCmd, CliOutput, LoginArgs, LogoutArgs, SearchArgs, Searc
 use output::{Output, LogOutput, LogLevel, TimeDeltaDisplay};
 
 
-fn main() {
+/// Entry point.
+fn main() -> ExitCode {
     
     let args = CliArgs::parse();
     let mut out = match args.output {
@@ -25,11 +27,12 @@ fn main() {
         CliOutput::Machine => Output::tab_separated(),
     };
 
-    cmd_cli(&mut out, &args);
+    cmd_cli(&mut out, &args)
 
 }
 
-fn cmd_cli(out: &mut Output, args: &CliArgs) {
+/// Router for main commands.
+fn cmd_cli(out: &mut Output, args: &CliArgs) -> ExitCode {
     match &args.cmd {
         CliCmd::Search(search_args) => cmd_search(out, args, search_args),
         CliCmd::Start(start_args) => cmd_start(out, args, start_args),
@@ -39,7 +42,8 @@ fn cmd_cli(out: &mut Output, args: &CliArgs) {
     }
 }
 
-fn cmd_search(out: &mut Output, cli_args: &CliArgs, args: &SearchArgs) {
+/// Search command.
+fn cmd_search(out: &mut Output, cli_args: &CliArgs, args: &SearchArgs) -> ExitCode {
     
     let _ = cli_args;
 
@@ -54,9 +58,69 @@ fn cmd_search(out: &mut Output, cli_args: &CliArgs, args: &SearchArgs) {
 
 }
 
-fn cmd_search_mojang(out: &mut Output, _query: &str) {
+/// Search implementation for mojang search kind.
+fn cmd_search_mojang(out: &mut Output, query: &[String]) -> ExitCode {
 
+    let mut log = out.log();
+
+    // Initial requests...
     let manifest = mojang::request_manifest(()).unwrap();
+    let today = Utc::now();
+
+    // Parse the query.
+    let mut filter_strings = Vec::new(); 
+    let mut filter_type = Vec::new();
+    for part in query {
+        if let Some((param, value)) = part.split_once(":") {
+            match param {
+                "type" => {
+                    filter_type.push(match value {
+                        "release" => standard::serde::VersionType::Release,
+                        "snapshot" => standard::serde::VersionType::Snapshot,
+                        "beta" => standard::serde::VersionType::OldBeta,
+                        "alpha" => standard::serde::VersionType::OldAlpha,
+                        _ => {
+                            log.log("invalid_type_param")
+                                .arg(value)
+                                .error(format_args!("Unknown type: {value}"));
+                            return ExitCode::FAILURE;
+                        }
+                    });
+                }
+                "release" => {
+                    if !value.is_empty() {
+                        log.log("invalid_release_param")
+                            .error("Param 'release' don't expect value");
+                        return ExitCode::FAILURE;
+                    } else if let Some(id) = manifest.latest.get(&standard::serde::VersionType::Release) {
+                        filter_strings = vec![id.as_str()];
+                        filter_type = vec![standard::serde::VersionType::Release];
+                        break;
+                    }
+                }
+                "snapshot" => {
+                    if !value.is_empty() {
+                        log.log("invalid_snapshot_param")
+                            .error("Param 'snapshot' don't expect value");
+                        return ExitCode::FAILURE;
+                    } else if let Some(id) = manifest.latest.get(&standard::serde::VersionType::Snapshot) {
+                        filter_strings = vec![id.as_str()];
+                        filter_type = vec![standard::serde::VersionType::Snapshot];
+                        break;
+                    }
+                }
+                _ => {
+                    log.log("unknown_param")
+                        .arg(param)
+                        .arg(value)
+                        .error(format_args!("Unknown param: {part}"));
+                    return ExitCode::FAILURE;
+                }
+            }
+        } else {
+            filter_strings.push(part.as_str());
+        }
+    }
 
     let mut table = out.table(3);
 
@@ -69,9 +133,19 @@ fn cmd_search_mojang(out: &mut Output, _query: &str) {
     
     table.sep();
 
-    let today = Utc::now();
-
     for version in &manifest.versions {
+
+        if !filter_strings.is_empty() {
+            if !filter_strings.iter().any(|s| version.id.contains(s)) {
+                continue;
+            }
+        }
+
+        if !filter_type.is_empty() {
+            if !filter_type.contains(&version.r#type) {
+                continue;
+            }
+        }
         
         let mut row = table.row();
         row.cell(&version.id);
@@ -83,8 +157,8 @@ fn cmd_search_mojang(out: &mut Output, _query: &str) {
         let (type_id, type_fmt) = match version.r#type {
             standard::serde::VersionType::Release => ("release", "Release"),
             standard::serde::VersionType::Snapshot => ("snapshot", "Snapshot"),
-            standard::serde::VersionType::OldBeta => ("old_beta", "Beta"),
-            standard::serde::VersionType::OldAlpha => ("old_alpha", "Alpha"),
+            standard::serde::VersionType::OldBeta => ("beta", "Beta"),
+            standard::serde::VersionType::OldAlpha => ("alpha", "Alpha"),
         };
         
         if is_latest {
@@ -106,9 +180,12 @@ fn cmd_search_mojang(out: &mut Output, _query: &str) {
 
     }
 
+    ExitCode::SUCCESS
+
 }
 
-fn cmd_start(out: &mut Output, cli_args: &CliArgs, args: &StartArgs) {
+/// Start command.
+fn cmd_start(out: &mut Output, cli_args: &CliArgs, args: &StartArgs) -> ExitCode {
     
     // Internal function to apply args to the standard installer.
     fn apply_standard_args<'a>(
@@ -218,7 +295,7 @@ fn cmd_start(out: &mut Output, cli_args: &CliArgs, args: &StartArgs) {
     }
 
     if args.dry {
-        return;
+        return ExitCode::SUCCESS;
     }
     
     let _ = game;
@@ -227,16 +304,19 @@ fn cmd_start(out: &mut Output, cli_args: &CliArgs, args: &StartArgs) {
 
 }
 
-fn cmd_login(out: &mut Output, cli_args: &CliArgs, args: &LoginArgs) {
+fn cmd_login(out: &mut Output, cli_args: &CliArgs, args: &LoginArgs) -> ExitCode {
     let _ = (out, cli_args, args);
+    todo!()
 }
 
-fn cmd_logout(out: &mut Output, cli_args: &CliArgs, args: &LogoutArgs) {
+fn cmd_logout(out: &mut Output, cli_args: &CliArgs, args: &LogoutArgs) -> ExitCode {
     let _ = (out, cli_args, args);
+    todo!()
 }
 
-fn cmd_show(out: &mut Output, cli_args: &CliArgs, args: &ShowArgs) {
+fn cmd_show(out: &mut Output, cli_args: &CliArgs, args: &ShowArgs) -> ExitCode {
     let _ = (out, cli_args, args);
+    todo!()
 }
 
 

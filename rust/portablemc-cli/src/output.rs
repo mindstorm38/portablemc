@@ -415,24 +415,22 @@ impl Drop for TableOutput<'_> {
             }
 
             // Small closure just to write a separator.
-            let write_separator: _ = |writer: &mut io::StdoutLock<'_>| {
-                write!(writer, "├─").unwrap();
+            let write_separator: _ = |writer: &mut io::StdoutLock<'_>, join: &str| {
                 for (col, width) in columns_width.iter().copied().enumerate() {
                     if col != 0 {
-                        write!(writer, "─┼─").unwrap();
+                        writer.write_all(join.as_bytes()).unwrap();
                     }
                     write!(writer, "{:─<width$}", "").unwrap();
                 }
-                write!(writer, "─┤\n").unwrap();
             };
 
             let mut separators: _ = self.shared.separators.iter().copied().peekable();
             let mut writer = io::stdout().lock();
 
             // Write top segment.
-            // write!(writer, "┌─").unwrap();
-            write_separator(&mut writer);
-            // write!(writer, "─┐\n").unwrap();
+            write!(writer, "┌─").unwrap();
+            write_separator(&mut writer, "─┬─");
+            write!(writer, "─┐\n").unwrap();
 
             // Reset and restart again to print.
             let mut row = 0usize;
@@ -445,7 +443,9 @@ impl Drop for TableOutput<'_> {
                 } else {
 
                     if separators.next_if_eq(&row).is_some() {
-                        write_separator(&mut writer);
+                        write!(writer, "├─").unwrap();
+                        write_separator(&mut writer, "─┼─");
+                        write!(writer, "─┤\n").unwrap();
                     }
 
                     write!(writer, "│ ").unwrap();
@@ -467,10 +467,17 @@ impl Drop for TableOutput<'_> {
 
             }
 
+            // It's a really special case that will never happen, add last separator.
+            if separators.next_if_eq(&row).is_some() {
+                write!(writer, "├─").unwrap();
+                write_separator(&mut writer, "─┼─");
+                write!(writer, "─┤\n").unwrap();
+            }
+
             // Write bottom segment.
-            // write!(writer, "└─").unwrap();
-            write_separator(&mut writer);
-            // write!(writer, "─┘\n").unwrap();
+            write!(writer, "└─").unwrap();
+            write_separator(&mut writer, "─┴─");
+            write!(writer, "─┘\n").unwrap();
 
         }
 
