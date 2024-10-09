@@ -392,9 +392,23 @@ impl standard::Handler for InstallHandler<'_> {
         match event {
             Event::FeaturesFilter { .. } => {}
             Event::FeaturesLoaded { features } => {
+
+                let mut buffer = String::new();
+                for version in features.iter() {
+                    if !buffer.is_empty() {
+                        buffer.push_str(", ");
+                    } else {
+                        buffer.push_str(&version);
+                    }
+                }
+
+                if buffer.is_empty() {
+                    buffer.push_str("{}");
+                }
+
                 out.log("features_loaded")
                     .args(features.iter())
-                    .info(format_args!("Features loaded: {features:?}"));
+                    .info(format_args!("Features loaded: {buffer}"));
             }
             Event::HierarchyLoading { root_id } => {
                 out.log("hierarchy_loading")
@@ -403,9 +417,20 @@ impl standard::Handler for InstallHandler<'_> {
             }
             Event::HierarchyFilter { .. } => {}
             Event::HierarchyLoaded { hierarchy } => {
+
+                let mut buffer = String::new();
+                for version in hierarchy {
+                    if !buffer.is_empty() {
+                        buffer.push_str(", ");
+                    } else {
+                        buffer.push_str(&version.id);
+                    }
+                }
+
                 out.log("hierarchy_loaded")
                     .args(hierarchy.iter().map(|v| &*v.id))
-                    .info(format_args!("Hierarchy loaded: {hierarchy:?}"));
+                    .info(format_args!("Hierarchy loaded: {buffer}"));
+
             }
             Event::VersionLoading { id, .. } => {
                 out.log("version_loading")
@@ -502,10 +527,17 @@ impl standard::Handler for InstallHandler<'_> {
                     .progress(format_args!("Loading JVM (preferred: {major_version:?}"));
             }
             Event::JvmVersionRejected { file, version } => {
-                out.log("jvm_version_rejected")
-                    .arg(file.display())
-                    .args(version.into_iter())
-                    .info(format_args!("Rejected JVM version {version:?} at {}", file.display()));
+                
+                let mut log = out.log("jvm_version_rejected");
+                log.arg(file.display());
+                log.args(version.into_iter());
+
+                if let Some(version) = version {
+                    log.info(format_args!("Rejected JVM (version {version}) at {}", file.display()));
+                } else {
+                    log.info(format_args!("Rejected JVM at {}", file.display()));
+                }
+                
             }
             Event::JvmDynamicCrtUnsupported {  } => {
                 out.log("jvm_dynamic_crt_unsupported")
@@ -520,10 +552,19 @@ impl standard::Handler for InstallHandler<'_> {
                     .info("Couldn't find a Mojang JVM because the required distribution was not found");
             }
             Event::JvmLoaded { file, version } => {
-                out.log("jvm_loaded")
-                    .arg(file.display())
-                    .args(version.into_iter())
-                    .success(format_args!("Loaded JVM version {version:?} at {}", file.display()));
+                
+                let mut log = out.log("jvm_loaded");
+                log.arg(file.display());
+                log.args(version.into_iter());
+                
+                if let Some(version) = version {
+                    log.success(format_args!("Loaded JVM ({version})"));
+                } else {
+                    log.success(format_args!("Loaded JVM"));
+                }
+
+                log.info(format_args!("Loaded JVM at {}", file.display()));
+
             }
             Event::BinariesExtracted { dir } => {
                 out.log("binaries_extracted")
