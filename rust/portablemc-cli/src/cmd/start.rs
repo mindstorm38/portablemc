@@ -23,11 +23,11 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             apply_mojang_args(&mut inst, &cli, args);
             inst.root(root.clone());
 
-            let mut handler = CommonHandler::new(cli.out.logger());
+            let mut handler = CommonHandler::new(&mut cli.out);
             game = match inst.install(handler.as_mojang_dyn()) {
                 Ok(game) => game,
                 Err(e) => {
-                    log_mojang_error(&mut handler.logger, e);
+                    log_mojang_error(&mut cli.out, e);
                     return ExitCode::FAILURE;
                 }
             };

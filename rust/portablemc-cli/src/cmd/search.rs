@@ -3,14 +3,14 @@
 use std::process::ExitCode;
 use std::fs;
 
-use chrono::{Local, TimeDelta, Utc};
+use chrono::{DateTime, Local, TimeDelta, Utc};
 use portablemc::download::Handler;
 use portablemc::{mojang, standard};
 
 use crate::parse::{SearchArgs, SearchKind};
 use crate::format::TimeDeltaDisplay;
 
-use super::{Cli, CommonHandler, log_standard_error};
+use super::{Cli, CommonHandler, log_standard_error, log_io_error};
 
 
 pub fn main(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
@@ -29,11 +29,11 @@ pub fn main(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
 fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
 
     // Initial requests...
-    let mut handler = CommonHandler::new(cli.out.logger());
+    let mut handler = CommonHandler::new(&mut cli.out);
     let manifest = match mojang::request_manifest(handler.as_download_dyn()) {
         Ok(manifest) => manifest,
         Err(e) => {
-            log_standard_error(&mut handler.logger, e);
+            log_standard_error(&mut cli.out, e);
             return ExitCode::FAILURE;
         }
     };
@@ -41,7 +41,6 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
     let today = Utc::now();
 
     // Parse the query.
-    let mut logger = cli.out.logger();
     let mut filter_strings = Vec::new(); 
     let mut filter_type = Vec::new();
     for part in query {
@@ -54,7 +53,7 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
                         "beta" => standard::serde::VersionType::OldBeta,
                         "alpha" => standard::serde::VersionType::OldAlpha,
                         _ => {
-                            logger.log("error_invalid_type_param")
+                            cli.out.log("error_invalid_type_param")
                                 .arg(value)
                                 .error(format_args!("Unknown type: {value}"));
                             return ExitCode::FAILURE;
@@ -63,7 +62,7 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
                 }
                 "release" => {
                     if !value.is_empty() {
-                        logger.log("error_invalid_release_param")
+                        cli.out.log("error_invalid_release_param")
                             .error("Param 'release' don't expect value");
                         return ExitCode::FAILURE;
                     } else if let Some(id) = manifest.latest.get(&standard::serde::VersionType::Release) {
@@ -74,7 +73,7 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
                 }
                 "snapshot" => {
                     if !value.is_empty() {
-                        logger.log("error_invalid_snapshot_param")
+                        cli.out.log("error_invalid_snapshot_param")
                             .error("Param 'snapshot' don't expect value");
                         return ExitCode::FAILURE;
                     } else if let Some(id) = manifest.latest.get(&standard::serde::VersionType::Snapshot) {
@@ -84,7 +83,7 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
                     }
                 }
                 _ => {
-                    logger.log("error_unknown_param")
+                    cli.out.log("error_unknown_param")
                         .arg(param)
                         .arg(value)
                         .error(format_args!("Unknown param: {part}"));
@@ -164,12 +163,43 @@ fn search_local(cli: &mut Cli, query: &[String]) -> ExitCode {
     let reader = match fs::read_dir(&cli.versions_dir) {
         Ok(reader) => reader,
         Err(e) => {
+            log_io_error(&mut cli.out, e, Some(&cli.versions_dir));
             return ExitCode::FAILURE;
         }
     };
 
+    let mut table = cli.out.table(2);
+
+    {
+        let mut row = table.row();
+        row.cell("id").format("Identifier");
+        row.cell("last_modified_date").format("Last modified date");
+    }
+    
+    table.sep();
+
     for entry in reader {
         
+        let Ok(entry) = entry else { continue };
+        let Ok(entry_type) = entry.file_type() else { continue };
+        if !entry_type.is_dir() { continue };
+
+        let mut version_dir = entry.path();
+        let Some(version_id) = version_dir.file_name().unwrap().to_str() else { continue };
+        let version_id = version_id.to_string();
+
+        version_dir.push(&version_id);
+        version_dir.as_mut_os_string().push(".json");
+
+        let Ok(version_metadata) = version_dir.metadata() else { continue };
+        let Ok(version_last_modified) = version_metadata.modified() else { continue };
+        let version_last_modified = DateTime::<Local>::from(version_last_modified);
+        
+        let mut row = table.row();
+        row.cell(&version_id);
+        row.cell(&version_last_modified.to_rfc3339())
+            .format(version_last_modified.format("%a %b %e %T %Y"));
+
     }
 
     ExitCode::SUCCESS
