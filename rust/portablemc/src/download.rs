@@ -199,8 +199,12 @@ impl Entry {
 /// The error type containing one error for each failed entry in a download batch.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// This error happens when the initialization of the HTTP client fails, before 
+    /// downloading any entry.
     #[error("reqwest: {0}")]
     Reqwest(#[from] reqwest::Error),
+    /// This error happens once the HTTP client has been fully initialize, and contains
+    /// possibly many failed entries.
     #[error("entries: {0:?}")]
     Entries(Vec<(Entry, EntryError)>),
 }
@@ -208,14 +212,21 @@ pub enum Error {
 /// An error for a single entry.
 #[derive(thiserror::Error, Debug)]
 pub enum EntryError {
+    /// HTTP error while downloading the entry.
     #[error("reqwest: {0}")]
     Reqwest(#[from] reqwest::Error),
+    /// System I/O error while writing the downloaded entry.
     #[error("io: {0}")]
     Io(#[from] io::Error),
+    /// Invalid HTTP status code while requesting the entry.
     #[error("invalid status: {0}")]
     InvalidStatus(u16),
+    /// Invalid size of the fully downloaded entry compared to the expected size.
+    /// Implies that [`EntrySource::size`] is not none.
     #[error("invalid size")]
     InvalidSize,
+    /// Invalid SHA-1 of the fully downloaded entry compared to the expected SHA-1.
+    /// Implies that [`EntrySource::sha1`] is not none.
     #[error("invalid sha1")]
     InvalidSha1,
 }

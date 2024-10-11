@@ -70,14 +70,16 @@ pub struct Installer {
 
 impl Installer {
 
-    /// Create a new installer with default configuration, using defaults directories and
-    /// the given root version to load and then install. The given version can be later
-    /// changed if needed, using [`Self::root`].
-    pub fn new(root_id: impl Into<String>) -> Self {
+    /// Create a new installer with default configuration and the given main directory.
+    /// The given root version and directories can be later changed if needed, 
+    /// using [`Self::root`].
+    /// 
+    /// If you're confident a default main directory is available on your system, you
+    /// can use [`Self::new_with_default`].
+    pub fn new(root_id: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
+
+        let work_dir = main_dir.into();
         
-        // TODO: Maybe change the main dir to something more standard under Linux.
-        let work_dir = default_main_dir().unwrap();
-                
         Self {
             root_id: root_id.into(),
             versions_dir: work_dir.join("versions"),
@@ -94,6 +96,13 @@ impl Installer {
             launcher_version: None,
         }
 
+    }
+
+    /// Same as [`Self::new`] but using the default main directory in your system,
+    /// returning none if there is no default main directory on your system.
+    #[inline]
+    pub fn new_with_default(root_id: impl Into<String>) -> Option<Self> {
+        Some(Self::new(root_id, default_main_dir()?))
     }
 
     /// Change the root version id to load and install, this overrides the root version
@@ -384,7 +393,7 @@ impl Installer {
     ) -> Result<Version> {
 
         if id.is_empty() {
-            return Err(Error::VersionNotFound { id });
+            return Err(Error::VersionNotFound { id: String::new() });
         }
 
         let dir = self.versions_dir.join(&id);
@@ -2193,6 +2202,7 @@ pub(crate) fn hard_link_file(original: &Path, link: &Path) -> Result<()> {
 
 /// Return the default main directory for Minecraft, so called ".minecraft".
 pub fn default_main_dir() -> Option<PathBuf> {
+    // TODO: Maybe change the main dir to something more standard under Linux.
     if cfg!(target_os = "windows") {
         dirs::data_dir().map(|dir| dir.joined(".minecraft"))
     } else if cfg!(target_os = "macos") {
