@@ -4,8 +4,8 @@ use std::process::ExitCode;
 use std::fs;
 
 use chrono::{DateTime, Local, TimeDelta, Utc};
-use portablemc::download::Handler;
 use portablemc::{mojang, standard};
+use portablemc::download::Handler;
 
 use crate::parse::{SearchArgs, SearchKind};
 use crate::format::TimeDeltaDisplay;
@@ -43,6 +43,7 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
     // Parse the query.
     let mut filter_strings = Vec::new(); 
     let mut filter_type = Vec::new();
+    let mut only_one = None;
     for part in query {
         if let Some((param, value)) = part.split_once(":") {
             match param {
@@ -66,9 +67,7 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
                             .error("Param 'release' don't expect value");
                         return ExitCode::FAILURE;
                     } else if let Some(id) = manifest.latest.get(&standard::serde::VersionType::Release) {
-                        filter_strings = vec![id.as_str()];
-                        filter_type = vec![standard::serde::VersionType::Release];
-                        break;
+                        only_one = Some(id.clone());
                     }
                 }
                 "snapshot" => {
@@ -77,16 +76,14 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
                             .error("Param 'snapshot' don't expect value");
                         return ExitCode::FAILURE;
                     } else if let Some(id) = manifest.latest.get(&standard::serde::VersionType::Snapshot) {
-                        filter_strings = vec![id.as_str()];
-                        filter_type = vec![standard::serde::VersionType::Snapshot];
-                        break;
+                        only_one = Some(id.clone());
                     }
                 }
                 _ => {
                     cli.out.log("error_unknown_param")
                         .arg(param)
                         .arg(value)
-                        .error(format_args!("Unknown param: {part}"));
+                        .error(format_args!("Unknown param: '{part}'"));
                     return ExitCode::FAILURE;
                 }
             }
@@ -109,15 +106,21 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
 
     for version in &manifest.versions {
 
-        if !filter_strings.is_empty() {
-            if !filter_strings.iter().any(|s| version.id.contains(s)) {
+        if let Some(only_one) = only_one.as_deref() {
+            if version.id != only_one {
                 continue;
             }
-        }
+        } else {
+            if !filter_strings.is_empty() {
+                if !filter_strings.iter().any(|s| version.id.contains(s)) {
+                    continue;
+                }
+            }
 
-        if !filter_type.is_empty() {
-            if !filter_type.contains(&version.r#type) {
-                continue;
+            if !filter_type.is_empty() {
+                if !filter_type.contains(&version.r#type) {
+                    continue;
+                }
             }
         }
         
@@ -168,6 +171,25 @@ fn search_local(cli: &mut Cli, query: &[String]) -> ExitCode {
         }
     };
 
+    // Parse the query.
+    let mut filter_strings = Vec::new(); 
+    for part in query {
+        if let Some((param, value)) = part.split_once(":") {
+            match param {
+                _ => {
+                    cli.out.log("error_unknown_param")
+                        .arg(param)
+                        .arg(value)
+                        .error(format_args!("Unknown param: '{part}'"));
+                    return ExitCode::FAILURE;
+                }
+            }
+        } else {
+            filter_strings.push(part.as_str());
+        }
+    }
+    
+    // Construct the table.
     let mut table = cli.out.table(2);
 
     {
@@ -194,6 +216,12 @@ fn search_local(cli: &mut Cli, query: &[String]) -> ExitCode {
         let Ok(version_metadata) = version_dir.metadata() else { continue };
         let Ok(version_last_modified) = version_metadata.modified() else { continue };
         let version_last_modified = DateTime::<Local>::from(version_last_modified);
+
+        if !filter_strings.is_empty() {
+            if !filter_strings.iter().any(|s| version_id.contains(s)) {
+                continue;
+            }
+        }
         
         let mut row = table.row();
         row.cell(&version_id);
