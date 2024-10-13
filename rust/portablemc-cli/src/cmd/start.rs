@@ -1,13 +1,12 @@
 //! Implementation of the 'start' command.
 
-use std::process::{ExitCode, Stdio};
+use std::process::{Command, ExitCode, Stdio};
 use std::io::{self, BufRead, BufReader};
-use std::thread;
 
 use chrono::{DateTime, Local, Utc};
 
 use portablemc::mojang::{self, Handler as _};
-use portablemc::standard::{self, Game};
+use portablemc::standard;
 
 use crate::parse::{StartArgs, StartResolution, StartVersion};
 use crate::format::TIME_FORMAT;
@@ -49,23 +48,22 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
         }
     }
 
-    cli.out.log("main_class")
-        .arg(&game.main_class)
-        .info(format_args!("Main class: {}", game.main_class));
-    
-    cli.out.log("jvm_args")
-        .args(game.jvm_args.iter())
-        .info(format_args!("JVM arguments: {:?}", game.jvm_args));
-    
-    cli.out.log("game_args")
-        .args(game.game_args.iter())
-        .info(format_args!("Game arguments: {:?}", game.game_args));
+    // Build the command here so that we can debug it's arguments without launching.
+    let command = game.command();
+    {
+        let mut log = cli.out.log("jvm_args");
+        log.args(command.get_args().filter_map(|a| a.to_str()));
+        log.info("Arguments:");
+        for arg in command.get_args().filter_map(|a| a.to_str()) {
+            log.additional(arg);
+        }
+    }
 
     if args.dry {
         return ExitCode::SUCCESS;
     }
 
-    match run_game(cli, game) {
+    match run_game(cli, command) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             log_io_error(&mut cli.out, e, None);
@@ -139,12 +137,11 @@ pub fn apply_mojang_args<'a>(
 }
 
 /// Internal function to run the game, separated in order to catch I/O errors.
-fn run_game(cli: &mut Cli, game: Game) -> io::Result<()> {
+fn run_game(cli: &mut Cli, mut command: Command) -> io::Result<()> {
 
     cli.out.log("launching")
         .pending("Launching...");
 
-    let mut command = game.command();
     command.stdout(Stdio::piped());
     command.stderr(Stdio::inherit());
 
@@ -193,8 +190,8 @@ fn run_game(cli: &mut Cli, game: Game) -> io::Result<()> {
                         XmlLogLevel::Fatal => ("fatal", "FATAL", LogLevel::RawFatal),
                     };
 
-                    cli.out.log("log_xml")
-                        .arg(level_code)
+                    let mut log = cli.out.log("log_xml");
+                    log .arg(level_code)
                         .arg(xml_log_time.to_rfc3339())
                         .arg(&xml_log.logger)
                         .arg(&xml_log.thread)
@@ -204,6 +201,10 @@ fn run_game(cli: &mut Cli, game: Game) -> io::Result<()> {
                             xml_log.thread,
                             level_name,
                             xml_log.message));
+                    
+                    if let Some(throwable) = &xml_log.throwable {
+                        log.line(LogLevel::RawError, format_args!("    {throwable}"));
+                    }
     
                 }
 
@@ -240,7 +241,10 @@ fn run_game(cli: &mut Cli, game: Game) -> io::Result<()> {
     }
 
     let status = child.wait()?;
-    println!("status: {status:?}");
+    cli.out.log("terminated")
+        .arg(status.code().unwrap_or_default())
+        .info(format_args!("Terminated: {}", status.code().unwrap_or_default()));
+
     Ok(())
 
 }
@@ -272,7 +276,7 @@ struct XmlLog {
     level: XmlLogLevel,
     thread: String,
     message: String,
-    throwable: String,
+    throwable: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
