@@ -7,8 +7,8 @@ use chrono::{DateTime, Local, TimeDelta, Utc};
 use portablemc::{mojang, standard};
 use portablemc::download::Handler;
 
+use crate::format::{TimeDeltaDisplay, DATE_FORMAT};
 use crate::parse::{SearchArgs, SearchKind};
-use crate::format::TimeDeltaDisplay;
 
 use super::{Cli, CommonHandler, log_standard_error, log_io_error};
 
@@ -144,10 +144,10 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
             row.cell(format_args!("{type_id}")).format(format_args!("{type_fmt}"));
         }
 
+        // Raw output is RFC3339 of FixedOffset time, format is local time.
         let mut cell = row.cell(&version.release_time.to_rfc3339());
         let local_release_date = version.release_time.with_timezone(&Local);
-        let local_release_data_fmt: _ = version.release_time.format("%a %b %e %T %Y");
-
+        let local_release_data_fmt: _ = version.release_time.format(DATE_FORMAT);
         let delta = today.signed_duration_since(&local_release_date);
         if is_latest || delta <= TimeDelta::weeks(4) {
             cell.format(format_args!("{} ({})", local_release_data_fmt, TimeDeltaDisplay(delta)));
@@ -223,10 +223,11 @@ fn search_local(cli: &mut Cli, query: &[String]) -> ExitCode {
             }
         }
         
+        // We use the local timezone for both raw and format cells.
         let mut row = table.row();
         row.cell(&version_id);
         row.cell(&version_last_modified.to_rfc3339())
-            .format(version_last_modified.format("%a %b %e %T %Y"));
+            .format(version_last_modified.format(DATE_FORMAT));
 
     }
 

@@ -21,32 +21,61 @@ pub struct Output {
     escape_cursor_cap: bool,
     /// Are color escape code supported on stdout.
     escape_color_cap: bool,
-    /// Set to true when the current line the cursor should be on is a new one (empty).
-    /// This is only relevant in human-readable mode because machine-readable formats
-    /// always go on a newline.
-    newline: bool,
-    /// Line buffer that will be printed when the log is dropped.
-    line: String,
-    /// For human-readable only, storing the rendered background log.
-    background: String,
 }
 
 #[derive(Debug)]
 enum OutputMode {
-    Human {
-        log_level: LogLevel,
-    },
-    TabSeparated {  },
+    Human(OutputHuman),
+    TabSep(OutputTabSep),
+}
+
+#[derive(Debug)]
+struct OutputHuman {
+    /// All log lines below this level are discarded.
+    log_level: LogLevel,
+    /// Set to true when the current line the cursor should be on is a new one (empty).
+    log_newline: bool,
+    /// Set to true when the previous log line has been successfully displayed (regarding
+    /// the log level).
+    log_last_level: LogLevel,
+    /// Line buffer that will be printed for each line.
+    log_line: String,
+    /// Storing the rendered background log.
+    log_background: String,
+    /// This buffer contains all rendered cells for human-readable.
+    table_buffer: String,
+    /// For each cell, ordered by column and then by row, containing the index where the
+    /// cell's content ends in the shared buffer.
+    table_cells: Vec<usize>,
+    /// Stores for each separator the index of the row it's placed before.
+    table_separators: Vec<usize>,
+}
+
+#[derive(Debug)]
+struct OutputTabSep {
+    /// Line buffer that will be printed when the log is dropped.
+    buffer: String,
 }
 
 impl Output {
 
     pub fn human(log_level: LogLevel) -> Self {
-        Self::new(OutputMode::Human { log_level })
+        Self::new(OutputMode::Human(OutputHuman {
+            log_level,
+            log_newline: true,
+            log_last_level: LogLevel::Info,
+            log_line: String::new(),
+            log_background: String::new(),
+            table_buffer: String::new(),
+            table_cells: Vec::new(),
+            table_separators: Vec::new(),
+        }))
     }
 
     pub fn tab_separated() -> Self {
-        Self::new(OutputMode::TabSeparated {  })
+        Self::new(OutputMode::TabSep(OutputTabSep {
+            buffer: String::new(),
+        }))
     }
 
     fn new(mode: OutputMode) -> Self {
@@ -58,10 +87,8 @@ impl Output {
             mode,
             escape_cursor_cap: !term_dumb,
             escape_color_cap: !term_dumb && !no_color,
-            newline: true,
-            line: String::new(),
-            background: String::new(),
         }
+
     }
 
     /// Log an information with a simple code referencing it, the given code is the 
@@ -83,13 +110,16 @@ impl Output {
     #[inline]
     fn _log<const BG: bool>(&mut self, code: impl Display) -> Log<'_, BG> {
 
-        if let OutputMode::TabSeparated {  } = self.mode {
-            debug_assert!(self.line.is_empty());
-            write!(self.line, "{code}").unwrap();
-        } else if let OutputMode::Human { .. } = self.mode {
-            // Save the cursor at the beginning of the new line.
-            if self.newline {
-                print!("\x1b[s");
+        match &mut self.mode {
+            OutputMode::Human(mode) => {
+                // Save the cursor at the beginning of the new line.
+                if mode.log_newline {
+                    print!("\x1b[s");
+                }
+            }
+            OutputMode::TabSep(mode) => {
+                debug_assert!(mode.buffer.is_empty());
+                write!(mode.buffer, "{code}").unwrap();
             }
         }
 
@@ -104,19 +134,30 @@ impl Output {
         
         assert_ne!(columns, 0);
 
-        if !self.newline {
-            println!();
-            self.newline = true;
-            self.line.clear();
-            self.background.clear();
-        }
+        match &mut self.mode {
+            OutputMode::Human(mode) => {
+                
+                if mode.log_newline {
+                    println!();
+                    mode.log_newline = true;
+                    mode.log_line.clear();
+                    mode.log_background.clear();
+    
+                }
+
+                debug_assert!(mode.table_buffer.is_empty());
+                debug_assert!(mode.table_cells.is_empty());
+                debug_assert!(mode.table_separators.is_empty());
+
+            }
+            OutputMode::TabSep(mode) => {
+                debug_assert!(mode.buffer.is_empty());
+            }
+        };
 
         TableOutput {
             output: self,
-            shared: TableShared {
-                columns,
-                ..TableShared::default()
-            },
+            columns,
         }
 
     }
@@ -139,8 +180,8 @@ impl<const BG: bool> Log<'_, BG> {
 
     /// Append an argument for machine-readable output.
     pub fn arg(&mut self, arg: impl Display) -> &mut Self {
-        if let OutputMode::TabSeparated {  } = self.output.mode {
-            write!(self.output.line, "\t{arg}").unwrap();
+        if let OutputMode::TabSep(mode) = &mut self.output.mode {
+            write!(mode.buffer, "\t{arg}").unwrap();
         }
         self
     }
@@ -151,19 +192,19 @@ impl<const BG: bool> Log<'_, BG> {
         I: Iterator<Item = D>,
         D: Display,
     {
-        if let OutputMode::TabSeparated {  } = self.output.mode {
+        if let OutputMode::TabSep(mode) = &mut self.output.mode {
             for arg in args {
-                write!(self.output.line, "\t{arg}").unwrap();
+                write!(mode.buffer, "\t{arg}").unwrap();
             }
         }
         self
     }
 
-    /// Internal function to flush the line and background buffers (only relevant in 
-    /// human-readable mode)
+    /// Internal function to flush the line and background buffers, should only be
+    /// called in human readable mode.
     fn flush_human_line(&mut self, newline: bool) {
 
-        debug_assert!(matches!(self.output.mode, OutputMode::Human { .. }));
+        let OutputMode::Human(mode) = &mut self.output.mode else { panic!() };
 
         let mut lock = io::stdout().lock();
         
@@ -175,22 +216,22 @@ impl<const BG: bool> Log<'_, BG> {
             lock.write_all(b"\r").unwrap();
         }
 
-        lock.write_all(self.output.line.as_bytes()).unwrap();
-        if !self.output.line.is_empty() && !self.output.background.is_empty() {
+        lock.write_all(mode.log_line.as_bytes()).unwrap();
+        if !mode.log_line.is_empty() && !mode.log_background.is_empty() {
             lock.write_all(b" -- ").unwrap();
         }
-        lock.write_all(self.output.background.as_bytes()).unwrap();
+        lock.write_all(mode.log_background.as_bytes()).unwrap();
 
         if newline {
 
-            self.output.line.clear();
-            self.output.background.clear();
-            self.output.newline = true;
+            mode.log_line.clear();
+            mode.log_background.clear();
+            mode.log_newline = true;
 
             lock.write_all(b"\n").unwrap();
 
         } else {
-            self.output.newline = false;
+            mode.log_newline = false;
         }
 
         lock.flush().unwrap();
@@ -201,31 +242,50 @@ impl<const BG: bool> Log<'_, BG> {
 
 impl Log<'_, false> {
 
-    /// Associate a human-readable message to this with an associated level, level is
+    /// Append a human-readable message to this log with an associated level, level is
     /// only relevant here because machine-readable outputs are always verbose.
     pub fn line(&mut self, level: LogLevel, message: impl Display) -> &mut Self {
-        if let OutputMode::Human { log_level } = self.output.mode {
-            if level >= log_level {
+        if let OutputMode::Human(mode) = &mut self.output.mode {
+            let last_level = std::mem::replace(&mut mode.log_last_level, level);
+            if level >= mode.log_level {
 
                 let (name, color) = match level {
                     LogLevel::Info => ("INFO", "\x1b[34m"),
-                    LogLevel::Progress => ("..", ""),
+                    LogLevel::Pending => ("..", ""),
                     LogLevel::Success => ("OK", "\x1b[92m"),
-                    LogLevel::Warning => ("WARN", "\x1b[33m"),
-                    LogLevel::Error => ("FAILED", "\x1b[31m"),
-                    LogLevel::Additional => ("", ""),
+                    LogLevel::Warn => ("WARN", "\x1b[33m"),
+                    LogLevel::Error => ("ERRO", "\x1b[31m"),
+                    LogLevel::Additional => {
+                        if last_level < mode.log_level {
+                            return self;
+                        } else {
+                            ("a", "")
+                        }
+                    }
+                    LogLevel::Raw => ("r", ""), 
+                    LogLevel::RawWarn => ("r", "\x1b[33m"), 
+                    LogLevel::RawError => ("r", "\x1b[31m"), 
+                    LogLevel::RawFatal => ("r", "\x1b[1;31m"), 
                 };
 
-                self.output.line.clear();
-                if name.is_empty() {
-                    write!(self.output.line, "         {message}").unwrap();
-                } else if !self.output.escape_color_cap || color.is_empty() {
-                    write!(self.output.line, "[{name:^6}] {message}").unwrap();
+                mode.log_line.clear();
+                if name == "a" {
+                    write!(mode.log_line, "         {message}").unwrap();
+                } else if name == "r" {
+                    if !self.output.escape_color_cap || color.is_empty() {
+                        write!(mode.log_line, "{message}").unwrap();
+                    } else {
+                        write!(mode.log_line, "{color}{message}\x1b[0m").unwrap();
+                    }
                 } else {
-                    write!(self.output.line, "[{color}{name:^6}\x1b[0m] {message}").unwrap();
+                    if !self.output.escape_color_cap || color.is_empty() {
+                        write!(mode.log_line, "[{name:^6}] {message}").unwrap();
+                    } else {
+                        write!(mode.log_line, "[{color}{name:^6}\x1b[0m] {message}").unwrap();
+                    }
                 }
 
-                self.flush_human_line(level != LogLevel::Progress);
+                self.flush_human_line(level != LogLevel::Pending);
 
             }
         }
@@ -238,8 +298,8 @@ impl Log<'_, false> {
     }
 
     #[inline]
-    pub fn progress(&mut self, message: impl Display) -> &mut Self {
-        self.line(LogLevel::Progress, message)
+    pub fn pending(&mut self, message: impl Display) -> &mut Self {
+        self.line(LogLevel::Pending, message)
     }
 
     #[inline]
@@ -249,7 +309,7 @@ impl Log<'_, false> {
 
     #[inline]
     pub fn warning(&mut self, message: impl Display) -> &mut Self {
-        self.line(LogLevel::Warning, message)
+        self.line(LogLevel::Warn, message)
     }
 
     #[inline]
@@ -269,10 +329,10 @@ impl Log<'_, true> {
     /// Set the human-readable message of this background log. Note that this will 
     /// overwrite any background message currently written on the current log line.
     pub fn message(&mut self, message: impl Display) -> &mut Self {
-        if let OutputMode::Human { .. } = self.output.mode {
+        if let OutputMode::Human(mode) = &mut self.output.mode {
             
-            self.output.background.clear();
-            write!(self.output.background, "{message}").unwrap();
+            mode.log_background.clear();
+            write!(mode.log_background, "{message}").unwrap();
 
             self.flush_human_line(false);
 
@@ -282,24 +342,22 @@ impl Log<'_, true> {
 
 }
 
-/// Drop implementation to automatically flush the line, and optionally rewrite the 
-/// suffix.
 impl<const BACKGROUND: bool> Drop for Log<'_, BACKGROUND> {
     fn drop(&mut self) {
-
-        // Save the position of the cursor at the end of the line, this is used to
-        // easily rewrite the background task.
-        if let OutputMode::Human { .. } = self.output.mode {
-            // Do nothing in human mode because the message is always immediately
-            // flushed to stdout, the buffers may not be empty because if we don't
-            // add a newline then the buffer is kept for being rewritten on next log.
-        } else {
-            // Not in human-readable mode, the buffer has not already been flushed.
-            let mut lock = io::stdout().lock();
-            lock.write_all(self.output.line.as_bytes()).unwrap();
-            self.output.line.clear();
-            lock.write_all(b"\n").unwrap();
-            lock.flush().unwrap();
+        match &mut self.output.mode {
+            OutputMode::Human(_) => {
+                // Do nothing in human mode because the message is always immediately
+                // flushed to stdout, the buffers may not be empty because if we don't
+                // add a newline then the buffer is kept for being rewritten on next log.
+            }
+            OutputMode::TabSep(mode) => {
+                // Not in human-readable mode, the buffer has not already been flushed.
+                let mut lock = io::stdout().lock();
+                lock.write_all(mode.buffer.as_bytes()).unwrap();
+                mode.buffer.clear();
+                lock.write_all(b"\n").unwrap();
+                lock.flush().unwrap();
+            }
         }
 
     }
@@ -309,18 +367,29 @@ impl<const BACKGROUND: bool> Drop for Log<'_, BACKGROUND> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
     /// This log is something indicative, discarded when not in verbose mode.
-    Info,
+    Info = 0,
     /// This log indicate something is in progress and the definitive state is unknown.
-    Progress,
+    /// If the next log is another pending or a success, it will overwrite this log, if
+    /// not the next log will be printed on the next line.
+    Pending = 1,
     /// This log indicate a success.
-    Success,
+    Success = 2,
     /// This log is a warning.
-    Warning,
+    Warn = 3,
     /// This log is an error.
-    Error,
-    /// This log is an additional log related to the previous one, this is used to have
-    /// a pretty line return instead of terminal's line wrapping.
-    Additional,
+    Error = 4,
+    /// An additional log, related to the previous one. This will only be displayed if
+    /// the previous log has been displayed, its level will be the same as the previous
+    /// log (discarded by the level or not), but without the header.
+    Additional = 100,
+    /// A raw log line to be displayed without the header.
+    Raw = 200,
+    /// Same as [`Self::Raw`] but warning-colored if supported by the terminal.
+    RawWarn = 201,
+    /// Same as [`Self::Raw`] but error-colored if supported by the terminal.
+    RawError = 202,
+    /// Same as [`Self::Raw`] but fatal-colored if supported by the terminal.
+    RawFatal = 203,
 }
 
 /// The output table mode, used to build a table.
@@ -328,24 +397,8 @@ pub enum LogLevel {
 pub struct TableOutput<'a> {
     /// Exclusive access to output.
     output: &'a mut Output,
-    /// Data shared with row and cell handles.
-    shared: TableShared,
-}
-
-#[derive(Debug, Default)]
-struct TableShared {
     /// Number of columns.
     columns: usize,
-    /// This buffer contains all rendered cells for human-readable, for machine readable
-    /// it's used to store the current rendered row.
-    buffer: String,
-    /// For each cell, ordered by column and then by row, containing the index where the
-    /// cell's content ends in the shared buffer.
-    /// For human-readable only.
-    cells: Vec<usize>,
-    /// Stores for each separator the index of the row it's placed before.
-    /// For human-readable only.
-    separators: Vec<usize>,
 }
 
 impl<'a> TableOutput<'a> {
@@ -353,17 +406,20 @@ impl<'a> TableOutput<'a> {
     /// Create a new row, returning a handle for writing its cells.
     pub fn row(&mut self) -> Row<'_> {
 
-        debug_assert!(self.shared.cells.len().checked_rem(self.shared.columns).unwrap_or(0) == 0);
-        
-        if let OutputMode::TabSeparated {  } = self.output.mode {
-            debug_assert!(self.shared.buffer.is_empty());
-            write!(self.shared.buffer, "row").unwrap();
+        match &mut self.output.mode {
+            OutputMode::Human(mode) => {
+                // Just to ensure that cells count is padded when 'Row' is dropped.
+                debug_assert!(mode.table_cells.len().checked_rem(self.columns).unwrap_or(0) == 0);
+            }
+            OutputMode::TabSep(mode) => {
+                debug_assert!(mode.buffer.is_empty());
+                write!(mode.buffer, "row").unwrap();
+            }
         }
 
         Row {
             output: &mut self.output,
-            shared: &mut self.shared,
-            column: 0,
+            column_remaining: self.columns,
         }
 
     }
@@ -374,14 +430,13 @@ impl<'a> TableOutput<'a> {
     /// rest of the data.
     pub fn sep(&mut self) {
         
-        debug_assert!(self.shared.cells.len().checked_rem(self.shared.columns).unwrap_or(0) == 0);
-        
-        match self.output.mode {
-            OutputMode::Human { .. } => {
-                let index = self.shared.cells.len().checked_div(self.shared.columns).unwrap_or(0);
-                self.shared.separators.push(index);
+        match &mut self.output.mode {
+            OutputMode::Human(mode) => {
+                // Just to ensure that cells count is padded when 'Row' is dropped.
+                debug_assert!(mode.table_cells.len().checked_rem(self.columns).unwrap_or(0) == 0);
             }
-            OutputMode::TabSeparated {  } => {
+            OutputMode::TabSep(mode) => {
+                debug_assert!(mode.buffer.is_empty());
                 println!("sep");
             }
         }
@@ -393,21 +448,20 @@ impl<'a> TableOutput<'a> {
 impl Drop for TableOutput<'_> {
     fn drop(&mut self) {
         
-        if let OutputMode::Human { .. } = self.output.mode {
+        if let OutputMode::Human(mode) = &mut self.output.mode {
 
-
-            let mut columns_width = vec![0usize; self.shared.columns];
+            let mut columns_width = vec![0usize; self.columns];
 
             // Initially compute maximum width of each column.
             let mut column = 0usize;
             let mut last_idx = 0usize;
-            for idx in self.shared.cells.iter().copied() {
+            for idx in mode.table_cells.iter().copied() {
 
                 columns_width[column] = columns_width[column].max(idx - last_idx);
                 last_idx = idx;
                 
                 column += 1;
-                if column == self.shared.columns {
+                if column == self.columns {
                     column = 0;
                 }
 
@@ -423,7 +477,7 @@ impl Drop for TableOutput<'_> {
                 }
             };
 
-            let mut separators: _ = self.shared.separators.iter().copied().peekable();
+            let mut separators: _ = mode.table_separators.iter().copied().peekable();
             let mut writer = io::stdout().lock();
 
             // Write top segment.
@@ -435,7 +489,7 @@ impl Drop for TableOutput<'_> {
             let mut row = 0usize;
             let mut column = 0usize;
             let mut last_idx = 0usize;
-            for idx in self.shared.cells.iter().copied() {
+            for idx in mode.table_cells.iter().copied() {
 
                 if column != 0 {
                     write!(writer, " │ ").unwrap();
@@ -451,14 +505,14 @@ impl Drop for TableOutput<'_> {
 
                 }
 
-                let content = &self.shared.buffer[last_idx..idx];
+                let content = &mode.table_buffer[last_idx..idx];
                 last_idx = idx;
 
                 let width = columns_width[column];
                 write!(writer, "{content:width$}").unwrap();
 
                 column += 1;
-                if column == self.shared.columns {
+                if column == self.columns {
                     row += 1;
                     column = 0;
                     write!(writer, " │\n").unwrap();
@@ -487,8 +541,7 @@ impl Drop for TableOutput<'_> {
 #[derive(Debug)]
 pub struct Row<'a> {
     output: &'a mut Output,
-    shared: &'a mut TableShared,
-    column: usize,
+    column_remaining: usize,
 }
 
 impl Row<'_> {
@@ -498,25 +551,24 @@ impl Row<'_> {
     #[track_caller]
     pub fn cell(&mut self, content: impl Display) -> Cell<'_> {
         
-        if self.column == self.shared.columns {
-            panic!("too much cells in this row");
+        if self.column_remaining == 0 {
+            panic!("no remaining column");
         }
 
-        match self.output.mode {
-            OutputMode::Human { .. } => {
-                write!(self.shared.buffer, "{content}").unwrap();
-                self.shared.cells.push(self.shared.buffer.len());
+        match &mut self.output.mode {
+            OutputMode::Human(mode) => {
+                write!(mode.table_buffer, "{content}").unwrap();
+                mode.table_cells.push(mode.table_buffer.len());
             }
-            OutputMode::TabSeparated {  } => {
-                write!(self.shared.buffer, "\t{content}").unwrap();
+            OutputMode::TabSep(mode) => {
+                write!(mode.buffer, "\t{content}").unwrap();
             }
         }
 
-        self.column += 1;
+        self.column_remaining -= 1;
 
         Cell {
             output: &mut self.output,
-            shared: &mut self.shared,
         }
 
     }
@@ -525,26 +577,20 @@ impl Row<'_> {
 
 impl Drop for Row<'_> {
     fn drop(&mut self) {
-
-        // Add missing columns' cells.
-        match self.output.mode {
-            OutputMode::Human { .. } => {
-                for _ in self.column..self.shared.columns {
-                    self.shared.cells.push(self.shared.buffer.len());
+        match &mut self.output.mode {
+            OutputMode::Human(mode) => {
+                for _ in 0..self.column_remaining {
+                    mode.table_cells.push(mode.table_buffer.len());
                 }
             }
-            OutputMode::TabSeparated {  } => {
-                for _ in self.column..self.shared.columns {
-                    self.shared.buffer.push('\t');
+            OutputMode::TabSep(mode) => {
+                for _ in 0..self.column_remaining {
+                    mode.buffer.push('\t');
                 }
+                println!("{}", mode.buffer);
+                mode.buffer.clear();
             }
         }
-
-        if let OutputMode::TabSeparated {  } = self.output.mode {
-            println!("{}", self.shared.buffer);
-            self.shared.buffer.clear();
-        }
-
     }
 }
 
@@ -552,7 +598,6 @@ impl Drop for Row<'_> {
 #[derive(Debug)]
 pub struct Cell<'a> {
     output: &'a mut Output,
-    shared: &'a mut TableShared,
 }
 
 impl Cell<'_> {
@@ -561,14 +606,14 @@ impl Cell<'_> {
     /// Calling this twice will overwrite the first format.
     pub fn format<D: Display>(&mut self, message: D) -> &mut Self {
         
-        if let OutputMode::Human { .. } = self.output.mode {
+        if let OutputMode::Human(mode) = &mut self.output.mode {
             // We pop the last cell because it can, and should only be this one.
-            self.shared.cells.pop().unwrap();
+            mode.table_cells.pop().unwrap();
             // Truncate the old cell's content.
-            self.shared.buffer.truncate(self.shared.cells.last().copied().unwrap_or(0));
+            mode.table_buffer.truncate(mode.table_cells.last().copied().unwrap_or(0));
             // Rewrite the content.
-            write!(self.shared.buffer, "{message}").unwrap();
-            self.shared.cells.push(self.shared.buffer.len());
+            write!(mode.table_buffer, "{message}").unwrap();
+            mode.table_cells.push(mode.table_buffer.len());
         }
 
         self
