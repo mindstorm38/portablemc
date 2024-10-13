@@ -498,7 +498,7 @@ impl Installer {
                 let mut lib_gav = lib.name.clone();
 
                 if let Some(lib_natives) = &lib.natives {
-
+                    
                     // Same reason as below.
                     let (Some(os_name), Some(os_bits)) = (os_name(), os_bits()) else {
                         continue;
@@ -514,7 +514,7 @@ impl Installer {
                     // If we find a arch replacement pattern, we must replace it with
                     // the target architecture bit-ness (32, 64).
                     const ARCH_REPLACEMENT_PATTERN: &str = "${arch}";
-                    if let Some(pattern_idx) = lib_gav.classifier().find(ARCH_REPLACEMENT_PATTERN) {
+                    if let Some(pattern_idx) = classifier.find(ARCH_REPLACEMENT_PATTERN) {
                         let mut classifier = classifier.clone();
                         classifier.replace_range(pattern_idx..pattern_idx + ARCH_REPLACEMENT_PATTERN.len(), os_bits);
                         lib_gav.set_classifier(Some(&classifier));
