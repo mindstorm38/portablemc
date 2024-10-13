@@ -1,0 +1,22 @@
+[package]
+name = "portablemc-cli"
+description = "Command line utility for launching Minecraft quickly and reliably with included support for Mojang versions and popular mod loaders."
+categories = ["games", "command-line-utilities"]
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+portablemc.workspace = true
+
+clap = { version = "4.5", features = ["derive", "wrap_help", "env"] }
+uuid = { version = "1.10", features = [] }
+xmlparser = "0.13"  # No deps
+chrono = "0.4"
+ctrlc = "3.4"
+
+[[bin]]
+name = "portablemc"
+path = "src/main.rs"

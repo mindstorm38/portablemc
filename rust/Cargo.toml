@@ -1,0 +1,13 @@
+[workspace]
+members = ["portablemc", "portablemc-cli"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "5.0.0-beta.0"
+authors = ["Théo Rozier <contact@theorozier.fr>"]
+homepage = "https://github.com/mindstorm38/portablemc"
+repository = "https://github.com/mindstorm38/portablemc"
+
+[workspace.dependencies]
+portablemc = { path = "portablemc", version = "=5.0.0-beta.0" }
