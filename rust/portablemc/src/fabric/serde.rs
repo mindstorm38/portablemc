@@ -15,18 +15,18 @@ pub struct Loader {
     pub build: u32,
     pub maven: Gav,
     pub version: String,
-    pub stable: bool,
+    pub stable: Option<bool>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct Intermediary {
     pub maven: Gav,
     pub version: String,
-    pub stable: bool,
+    pub stable: Option<bool>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-pub struct VersionLoader {
+pub struct GameLoader {
     pub loader: Loader,
     pub intermediary: Intermediary,
     // missing: launcherMeta,

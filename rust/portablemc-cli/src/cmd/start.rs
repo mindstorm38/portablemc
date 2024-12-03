@@ -7,13 +7,14 @@ use std::sync::Mutex;
 use chrono::{DateTime, Local, Utc};
 
 use portablemc::mojang::{self, Handler as _};
+use portablemc::fabric::{self, Handler as _};
 use portablemc::standard;
 
-use crate::parse::{StartArgs, StartResolution, StartVersion};
+use crate::parse::{StartArgs, StartVersion, StartFabricLoader, StartResolution};
 use crate::format::TIME_FORMAT;
 use crate::output::LogLevel;
 
-use super::{Cli, CommonHandler, log_mojang_error, log_io_error};
+use super::{Cli, CommonHandler, log_io_error, log_mojang_error, log_fabric_error};
 
 
 /// The child is shared in order to be properly killed when the launcher exits, because
@@ -26,16 +27,16 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
     let game;
 
     match &args.version {
-        StartVersion::Raw { root } => {
+        StartVersion::Raw { root: _ } => {
             todo!()
         }
         StartVersion::Mojang { 
-            root,
+            root_version,
         } => {
             
             let mut inst = mojang::Installer::new(cli.main_dir.clone());
             apply_mojang_args(&mut inst, &cli, args);
-            inst.root(root.clone());
+            inst.root_version(root_version.clone());
 
             let mut handler = CommonHandler::new(&mut cli.out);
             game = match inst.install(handler.as_mojang_dyn()) {
@@ -47,13 +48,38 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             };
 
         }
-        StartVersion::Loader {
-            root, 
-            loader, 
+        StartVersion::Fabric { 
+            game_version, 
+            loader_version, 
             kind,
         } => {
-            let _ = (root, loader, kind);
-            todo!("start loader");
+
+            let mut inst = fabric::Installer::new(cli.main_dir.clone(), match kind {
+                StartFabricLoader::Fabric => &fabric::FABRIC_API,
+                StartFabricLoader::Quilt => &fabric::QUILT_API,
+                StartFabricLoader::LegacyFabric => &fabric::LEGACY_FABRIC_API,
+                StartFabricLoader::Babric => &fabric::BABRIC_API,
+            });
+
+            inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
+            inst.game_version(game_version.clone());
+            inst.loader_version(loader_version.clone());
+
+            let mut handler = CommonHandler::new(&mut cli.out);
+            game = match inst.install(handler.as_fabric_dyn()) {
+                Ok(game) => game,
+                Err(e) => {
+                    log_fabric_error(&mut cli.out, e);
+                    return ExitCode::FAILURE;
+                }
+            };
+
+        },
+        StartVersion::Forge {
+            kind,
+        } => {
+            let _ = (kind,);
+            todo!("start forge loader");
         }
     }
 
@@ -103,7 +129,7 @@ pub fn apply_mojang_args<'a>(
     args: &StartArgs,
 ) -> &'a mut mojang::Installer {
 
-    installer.with_standard(|i| apply_standard_args(i, cli));
+    installer.with_standard(|inst| apply_standard_args(inst, cli));
     installer.disable_multiplayer(args.disable_multiplayer);
     installer.disable_chat(args.disable_chat);
     installer.demo(args.demo);
@@ -178,63 +204,52 @@ fn run_game(cli: &mut Cli, mut command: Command) -> io::Result<()> {
     // output will be UTF-8 compliant, so we store raw bytes in the buffer.
     while pipe.read_until(b'\n', &mut buffer)? != 0 {
 
-        // We keep the buffer trim in case of XML, to avoid a useless text event.
-        let buffer_trim = buffer.trim_ascii();
-        let Ok(buffer_str) = std::str::from_utf8(buffer_trim) else { 
+        let Ok(buffer_str) = std::str::from_utf8(&buffer) else { 
             buffer.clear();
             continue
         };
 
-        if xml.is_none() && buffer_str.starts_with("<log4j:") {
+        if xml.is_none() && buffer_str.trim_ascii_start().starts_with("<log4j:") {
             xml = Some(XmlLogParser::default());
         }
 
         // In case of XML we try to decode it, if it's successful.
-        let mut xml_valid = false;
         if let Some(parser) = &mut xml {
-            if let Some(logs) = parser.feed(buffer_str) {
+            for xml_log in parser.feed(buffer_str) {
+        
+                let xml_log_time = xml_log.time.with_timezone(&Local);
+                
+                let (level_code, level_name, log_level) = match xml_log.level {
+                    XmlLogLevel::Trace => ("trace", "TRACE", LogLevel::Raw),
+                    XmlLogLevel::Debug => ("debug", "DEBUG", LogLevel::Raw),
+                    XmlLogLevel::Info => ("info", "INFO", LogLevel::Raw),
+                    XmlLogLevel::Warn => ("warn", "WARN", LogLevel::RawWarn),
+                    XmlLogLevel::Error => ("error", "ERROR", LogLevel::RawError),
+                    XmlLogLevel::Fatal => ("fatal", "FATAL", LogLevel::RawFatal),
+                };
 
-                xml_valid = true;
-
-                for xml_log in logs {
-            
-                    let xml_log_time = xml_log.time.with_timezone(&Local);
-                    
-                    let (level_code, level_name, log_level) = match xml_log.level {
-                        XmlLogLevel::Trace => ("trace", "TRACE", LogLevel::Raw),
-                        XmlLogLevel::Debug => ("debug", "DEBUG", LogLevel::Raw),
-                        XmlLogLevel::Info => ("info", "INFO", LogLevel::Raw),
-                        XmlLogLevel::Warn => ("warn", "WARN", LogLevel::RawWarn),
-                        XmlLogLevel::Error => ("error", "ERROR", LogLevel::RawError),
-                        XmlLogLevel::Fatal => ("fatal", "FATAL", LogLevel::RawFatal),
-                    };
-
-                    let mut log = cli.out.log("log_xml");
-                    log .arg(level_code)
-                        .arg(xml_log_time.to_rfc3339())
-                        .arg(&xml_log.logger)
-                        .arg(&xml_log.thread)
-                        .arg(&xml_log.message)
-                        .line(log_level, format_args!("[{}] [{}] [{}] {}", 
-                            xml_log_time.format(TIME_FORMAT),
-                            xml_log.thread,
-                            level_name,
-                            xml_log.message));
-                    
-                    if let Some(throwable) = &xml_log.throwable {
-                        log.line(LogLevel::RawError, format_args!("    {throwable}"));
-                    }
-    
+                let mut log = cli.out.log("log_xml");
+                log .arg(level_code)
+                    .arg(xml_log_time.to_rfc3339())
+                    .arg(&xml_log.logger)
+                    .arg(&xml_log.thread)
+                    .arg(&xml_log.message)
+                    .line(log_level, format_args!("[{}] [{}] [{}] {}", 
+                        xml_log_time.format(TIME_FORMAT),
+                        xml_log.thread,
+                        level_name,
+                        xml_log.message));
+                
+                if let Some(throwable) = &xml_log.throwable {
+                    log.line(LogLevel::RawError, format_args!("    {throwable}"));
                 }
 
             }
         }
 
-        if !xml_valid {
-            xml = None;
-        }
-
         if xml.is_none() {
+
+            let buffer_str = buffer_str.trim_ascii();
 
             let mut log_level = LogLevel::Raw;
             if buffer_str.contains("WARN") {
@@ -290,12 +305,12 @@ fn run_game(cli: &mut Cli, mut command: Command) -> io::Result<()> {
 
 #[derive(Debug, Default)]
 struct XmlLogParser {
+    /// The buffer used to stack buffers while we have a parsing error at the end of it.
+    buffer: String,
     /// Queue of logs returned when fully parsed.
     logs: Vec<XmlLog>,
     /// The current state, or tag, we are decoding.
     state: XmlLogState,
-    /// True when the current state is still decoding its attributes.
-    state_attributes: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -332,21 +347,49 @@ impl XmlLogParser {
 
     /// Feed the given buffer of tokens into the parser, any parsed log will be returned
     /// by the iterator. No iterator is returned if the parsing fails.
-    pub fn feed(&mut self, buffer: &str) -> Option<impl Iterator<Item = XmlLog> + '_> {
+    pub fn feed(&mut self, buffer: &str) -> impl Iterator<Item = XmlLog> + '_ {
 
         use xmlparser::{Tokenizer, Token, ElementEnd};
 
-        for token in Tokenizer::from_fragment(buffer, 0..buffer.len()) {
+        // Use the buffer instead of the input if required.
+        let full_buffer = if !self.buffer.is_empty() {
+            self.buffer.push_str(buffer);
+            &*self.buffer
+        } else {
+            buffer
+        };
+
+        let mut tokenizer = Tokenizer::from_fragment(full_buffer, 0..full_buffer.len());
+        let mut error = false;
+        let mut last_pos = 0;
+
+        for token in &mut tokenizer {
             
-            let Ok(token) = token else { return None };
+            let token = match token {
+                Ok(token) => token,
+                Err(_) => {
+
+                    if self.buffer.is_empty() {
+                        // If we are not yet using the buffer, initialize it.
+                        self.buffer.push_str(&buffer[last_pos..]);
+                    } else {
+                        // If we did use the buffer, we need to cut all successful token.
+                        self.buffer.drain(..last_pos);
+                    }
+
+                    error = true;
+                    break;
+
+                }
+            };
+
+            // Save the last position the tokenizer was successful, so we cut everything
+            // up to this part in case of error.
+            last_pos = token.span().start() + token.span().len();
 
             match token {
                 Token::ElementStart { prefix, local, .. } => {
                     
-                    if self.state_attributes {
-                        return None;
-                    }
-
                     match (self.state, &*prefix, &*local) {
                         (XmlLogState::None, "log4j", "Event") => {
                             // While we are not in None state, then we are operating on
@@ -363,44 +406,32 @@ impl XmlLogParser {
                         _ => continue,
                     }
 
-                    self.state_attributes = true;
-
                 }
                 Token::ElementEnd { end: ElementEnd::Close(prefix, local), .. } => {
-
-                    if self.state_attributes {
-                        return None;
-                    }
 
                     match (self.state, &*prefix, &*local) {
                         (XmlLogState::Event, "log4j", "Event") => {
                             self.state = XmlLogState::None;
                         }
-                        (XmlLogState::Event, _, _) => return None,
+                        (XmlLogState::Event, _, _) => continue,
                         (XmlLogState::Message, "log4j", "Message") => {
                             self.state = XmlLogState::Event;
                         }
-                        (XmlLogState::Message, _, _) => return None,
+                        (XmlLogState::Message, _, _) => continue,
                         (XmlLogState::Throwable, "log4j", "Throwable") => {
                             self.state = XmlLogState::Event;
                         }
-                        (XmlLogState::Throwable, _, _) => return None,
+                        (XmlLogState::Throwable, _, _) => continue,
                         _ => continue,
                     }
 
                 }
-                Token::ElementEnd { .. } => {
-                    if !self.state_attributes {
-                        return None;
-                    }
-                    self.state_attributes = false;
-                    
+                Token::ElementEnd { .. } => { // For '>' or '/>'
+                    continue;
                 }
                 Token::Attribute { local, prefix, value, .. } => {
 
-                    if !self.state_attributes {
-                        return None;
-                    } else if self.state != XmlLogState::Event {
+                    if self.state != XmlLogState::Event {
                         continue;
                     }
 
@@ -423,7 +454,7 @@ impl XmlLogParser {
                                 "WARN" => XmlLogLevel::Warn,
                                 "ERROR" => XmlLogLevel::Error,
                                 "FATAL" => XmlLogLevel::Fatal,
-                                _ => return None,
+                                _ => continue,
                             };
                         }
                         ("", "thread") => {
@@ -435,14 +466,13 @@ impl XmlLogParser {
                 }
                 Token::Text { text } |
                 Token::Cdata { text, .. } => {
-
-                    if self.state_attributes {
-                        return None;
-                    } else if self.state == XmlLogState::None {
+                    
+                    if self.state == XmlLogState::None {
                         continue;
                     }
                     
                     let log = self.logs.last_mut().unwrap();
+                    let text = text.trim_ascii();
 
                     match self.state {
                         XmlLogState::Message => log.message = text.to_string(),
@@ -456,10 +486,15 @@ impl XmlLogParser {
 
         }
 
+        if !error {
+            // Clear the internal buffer, in case it was used and parsing was successful.
+            self.buffer.clear();
+        }
+
         if self.state != XmlLogState::None {
-            Some(self.logs.drain(..self.logs.len() - 1))
+            self.logs.drain(..self.logs.len() - 1)
         } else {
-            Some(self.logs.drain(..))
+            self.logs.drain(..)
         }
         
     }

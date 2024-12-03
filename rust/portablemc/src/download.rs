@@ -73,7 +73,7 @@ impl Single {
     /// this function will just panic if launched inside another runtime!
     #[must_use]
     pub fn download(&mut self, mut handler: impl Handler) -> reqwest::Result<Result<EntrySuccess, EntryError>> {
-        let client = crate::http::builder().build()?;
+        let client = crate::http::client()?;
         Ok(crate::tokio::sync(download_single(client, handler.as_download_dyn(), &self.0)))
     }
 
@@ -140,7 +140,7 @@ impl Batch {
     /// this function will just panic if launched inside another runtime!
     #[must_use]
     pub fn download(&mut self, mut handler: impl Handler) -> reqwest::Result<BatchResult> {
-        let client = crate::http::builder().build()?;
+        let client = crate::http::client()?;
         let entries = mem::take(&mut self.entries);
         Ok(crate::tokio::sync(download_many(client, handler.as_download_dyn(), 40, entries)))
     }

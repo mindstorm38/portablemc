@@ -41,7 +41,7 @@ pub struct Installer {
 /// Internal installer data.
 #[derive(Debug, Clone)]
 struct InstallerInner {
-    root: Root,
+    root: RootVersion,
     fetch_exclude: Option<Vec<String>>,  // None when fetch is disabled.
     demo: bool,
     quick_play: Option<QuickPlay>,
@@ -71,7 +71,7 @@ impl Installer {
         Self {
             standard: standard::Installer::new(String::new(), main_dir),
             inner: InstallerInner {
-                root: Root::Release,
+                root: RootVersion::Release,
                 fetch_exclude: Some(Vec::new()),  // Enabled by default
                 demo: false,
                 quick_play: None,
@@ -120,7 +120,7 @@ impl Installer {
     /// (which is an issue on Mojang's side) then a [`Error::RootAliasNotFound`] is 
     /// returned.
     #[inline]
-    pub fn root(&mut self, root: impl Into<Root>) -> &mut Self {
+    pub fn root_version(&mut self, root: impl Into<RootVersion>) -> &mut Self {
         self.inner.root = root.into();
         self
     }
@@ -387,8 +387,8 @@ impl Installer {
 
         // Resolve aliases such as "release" or "snapshot" if fetch is enabled.
         let alias = match self.inner.root {
-            Root::Release => Some(standard::serde::VersionType::Release),
-            Root::Snapshot => Some(standard::serde::VersionType::Snapshot),
+            RootVersion::Release => Some(standard::serde::VersionType::Release),
+            RootVersion::Snapshot => Some(standard::serde::VersionType::Snapshot),
             _ => None,
         };
 
@@ -397,15 +397,15 @@ impl Installer {
             manifest.insert(request_manifest(handler.as_download_dyn())?)
                 .latest.get(&alias)
                 .cloned()
-                .ok_or_else(|| Error::RootAliasNotFound { root: self.inner.root.clone() })?
+                .ok_or_else(|| Error::AliasRootVersionNotFound { root_version: self.inner.root.clone() })?
         } else {
             match self.inner.root {
-                Root::Id(ref new_id) => new_id.clone(),
+                RootVersion::Id(ref id) => id.clone(),
                 _ => unreachable!(),
             }
         };
 
-        standard.root(id);
+        standard.root_version(id);
         
         // Let the handler find the "leaf" version.
         let mut leaf_id = String::new();
@@ -416,10 +416,10 @@ impl Installer {
             let mut handler = InternalHandler {
                 inner: &mut handler,
                 installer: &inner,
+                error: Ok(()),
                 manifest: &mut manifest,
                 downloads: HashMap::new(),
                 leaf_id: &mut leaf_id,
-                error: Ok(()),
             };
     
             // Same as above, we are giving a &mut dyn ref to avoid huge monomorphization.
@@ -599,15 +599,15 @@ pub enum Event<'a> {
     /// When the required Mojang version is being loaded (VersionLoading) but the file
     /// has an invalid size or SHA-1 and has been removed in order to download an 
     /// up-to-date version from the manifest.
-    MojangVersionInvalidated {
+    VersionInvalidated {
         id: &'a str,
     },
     /// The required Mojang version metadata is missing and so will be fetched.
-    MojangVersionFetching {
+    VersionFetching {
         id: &'a str,
     },
     /// The mojang version has been fetched.
-    MojangVersionFetched {
+    VersionFetched {
         id: &'a str,
     },
     /// Quick play has been fixed 
@@ -638,11 +638,11 @@ pub enum Error {
     /// Error from the standard installer.
     #[error("standard: {0}")]
     Standard(#[source] standard::Error),
-    /// A root alias version, `Release` or `Snapshot` has not been found because the alias
-    /// is missing from the Mojang's version manifest.
-    #[error("root alias not found: {root:?}")]
-    RootAliasNotFound {
-        root: Root,
+    /// An alias root version, `Release` or `Snapshot` has not been found because the 
+    /// alias is missing from the Mojang's version manifest.
+    #[error("alias root version not found: {root_version:?}")]
+    AliasRootVersionNotFound {
+        root_version: RootVersion,
     },
     /// The LWJGL fix is enabled with a version that is not supported, maybe because
     /// it is too old (< 3.2.3) or because of your system not being supported.
@@ -663,7 +663,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Specify the root version to start with Mojang.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Root {
+pub enum RootVersion {
     /// Resolve the latest release version.
     Release,
     /// Resolve the latest snapshot version.
@@ -673,7 +673,7 @@ pub enum Root {
 }
 
 /// An impl so that we can give string-like objects to the builder.
-impl<T: Into<String>> From<T> for Root {
+impl<T: Into<String>> From<T> for RootVersion {
     fn from(value: T) -> Self {
         Self::Id(value.into())
     }
@@ -731,14 +731,14 @@ struct InternalHandler<'a, H: Handler> {
     inner: &'a mut H,
     /// Back-reference to the installer to know its configuration.
     installer: &'a InstallerInner,
+    /// If there is an error in the handler.
+    error: Result<()>,
     /// If fetching is enabled, then this contains the manifest to use.
     manifest: &'a mut Option<serde::MojangManifest>,
     /// Download informations for versions that should be downloaded.
     downloads: HashMap<String, standard::serde::Download>,
     /// Id of the "leaf" version, the last version without inherited version.
     leaf_id: &'a mut String,
-    /// If there is an error in the handler.
-    error: Result<()>,
 }
 
 impl<H: Handler> download::Handler for InternalHandler<'_, H> {
@@ -758,7 +758,7 @@ impl<H: Handler> InternalHandler<'_, H> {
     fn handle_standard_event_inner(&mut self, mut event: standard::Event) -> Result<()> {
 
         match event {
-            standard::Event::HierarchyFilter { 
+            standard::Event::HierarchyLoaded { 
                 ref hierarchy,
             } => {
                 // Unwrap because hierarchy can't be empty.
@@ -811,7 +811,7 @@ impl<H: Handler> InternalHandler<'_, H> {
                     fs::remove_file(file)
                         .map_err(|e| standard::Error::new_io_file(e, file.to_path_buf()))?;
                     
-                    self.inner.handle_mojang_event(Event::MojangVersionInvalidated { id });
+                    self.inner.handle_mojang_event(Event::VersionInvalidated { id });
                 
                 }
                 
@@ -829,14 +829,14 @@ impl<H: Handler> InternalHandler<'_, H> {
                     return Ok(());
                 };
                 
-                self.inner.handle_mojang_event(Event::MojangVersionFetching { id });
+                self.inner.handle_mojang_event(Event::VersionFetching { id });
                 
                 download::single(dl.url.clone(), file.to_path_buf())
                     .set_expect_size(dl.size)
                     .set_expect_sha1(dl.sha1.as_deref().copied())
                     .download(self.inner.as_download_dyn())??;
 
-                self.inner.handle_mojang_event(Event::MojangVersionFetched { id });
+                self.inner.handle_mojang_event(Event::VersionFetched { id });
 
                 // Retry only if no preceding error.
                 **retry = true;

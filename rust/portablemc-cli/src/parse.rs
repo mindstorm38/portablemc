@@ -6,7 +6,7 @@ use std::str::FromStr;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
-use portablemc::mojang::Root;
+use portablemc::{mojang, fabric};
 
 
 // ================= //
@@ -97,13 +97,14 @@ pub enum CliOutput {
     /// 'tabular' output for example. With this format, the verbosity is used to
     /// show more informative data.
     Human,
-    /// Machine output mode to allow parsing by other programs, using tab separated 
-    /// values where the first value defines which kind of data to follow, so that the
-    /// program reading this output will be able to properly interpret the following
-    /// values, a line return is use to split every line. This mode is always verbose,
-    /// and verbose will not have any effect on it. If the launcher exit with a failure
-    /// code, you should expect finding a log message prefixed with `error_`, describing
-    /// the error(s) causing the exit.
+    /// Machine output mode to allow parsing by other programs, using tab ('\t', 0x09) 
+    /// separated values where the first value defines which kind of data to follow on 
+    /// the line, a line return ('\n', 0x0A) is used to split every line. If any line 
+    /// return or tab is encoded into a value within the line, it is escaped with the 
+    /// two characters '\n' (for line return) or '\t' (for tab), these are the only two
+    /// escapes used. This mode is always verbose, and verbosity will not have any effect 
+    /// on it. If the launcher exit with a failure code, you should expect finding a log 
+    /// message prefixed with `error_`, describing the error(s) causing the exit.
     Machine,
 }
 
@@ -141,28 +142,28 @@ pub struct StartArgs {
     /// version manifest is only accessed for resolving 'release', 'snapshot' or a
     /// non-excluded version, if it's not yet cached this will require internet.
     /// 
-    /// - fabric:[<mojang-version>[:[<loader-version>]]] => install and launch a given 
+    /// - fabric:[<game-version>[:[<loader-version>]]] => install and launch a given 
     /// mojang version with the Fabric mod loader. Both versions can be omitted (empty) 
-    /// to use the latest versions available, for Mojang version you can use 'release' 
-    /// or 'snapshot' like the 'mojang'. If the version is not yet installed, it will
-    /// requires internet to access the Fabric API. See https://fabricmc.net/.
+    /// to use the latest stable versions available, but you can also manually specify 
+    /// 'stable' or 'unstable', which are equivalent as Mojang's release and snapshot
+    /// but at the discretion of the Fabric API. If the version is not yet installed, 
+    /// it will requires internet to access the Fabric API. See https://fabricmc.net/.
     /// 
-    /// - quilt:[<mojang-version>[:[<loader-version>]]] => same as 'fabric' installer, 
-    /// but using the Quilt API for missing versions.
+    /// - quilt:[<game-version>[:[<loader-version>]]] => same as 'fabric' installer, 
+    /// but using the Quilt API for missing versions. See https://quiltmc.org/.
     /// 
-    /// - legacyfabric:[<mojang-version>[:[<loader-version>]]] => same as 'fabric',
+    /// - legacyfabric:[<game-version>[:[<loader-version>]]] => same as 'fabric',
     /// but using the LegacyFabric API for missing versions. This installer can be
-    /// used for using the Fabric mod loader on Mojang versions prior to 1.14, therefore
-    /// it will treat 'release' and 'snapshot' as the latest Mojang release or snapshot
-    /// supported by LegacyFabric. See https://legacyfabric.net/.
+    /// used for using the Fabric mod loader on Mojang versions prior to 1.14. 
+    /// See https://legacyfabric.net/.
     /// 
     /// - babric:[:[<loader-version>]] => same as 'fabric', but using the Babric API 
     /// for missing versions. This mod loader is specifically made to support Fabric
-    /// only on Mojang's b1.7.3, so it's useless to specify the Mojang version like 
-    /// other Fabric-like loaders, the 'release' and 'snapshot' would be equivalent 
+    /// only on Mojang's b1.7.3, so it's useless to specify the game version like 
+    /// other Fabric-like loaders, both 'stable' and 'unstable' would be equivalent 
     /// to 'b1.7.3'. See https://babric.github.io/.
     /// 
-    /// - raw:<version>
+    /// - raw:<version> => TODO
     #[arg(default_value = "release")]
     pub version: StartVersion,
     /// Only ensures that the game is installed but don't launch the game.
@@ -267,21 +268,30 @@ pub enum StartVersion {
         root: String,
     },
     Mojang {
-        root: Root,
+        root_version: mojang::RootVersion,
     },
-    Loader {
-        root: Root,
-        loader: Option<String>,
-        kind: StartLoaderKind,
+    Fabric {
+        game_version: fabric::GameVersion,
+        loader_version: fabric::LoaderVersion,
+        kind: StartFabricLoader,
     },
+    Forge {
+        // TODO:
+        kind: StartForgeLoader,
+    }
 }
 
 #[derive(Debug, Clone)]
-pub enum StartLoaderKind {
+pub enum StartFabricLoader {
     Fabric,
     Quilt,
     LegacyFabric,
     Babric,
+}
+
+#[derive(Debug, Clone)]
+pub enum StartForgeLoader {
+
     Forge,
     NeoForge,
 }
@@ -320,26 +330,46 @@ impl FromStr for StartVersion {
 
         // Most versions use the first part as the Mojang's version, and there is always
         // at least one part.
-        let root = match parts[0] {
-            "" | 
-            "release" => Root::Release,
-            "snapshot" => Root::Snapshot,
-            id => Root::Id(id.to_string()),
-        };
+        
 
         let version = match kind {
-            "mojang" => Self::Mojang { root },
-            "fabric" | "quilt" | "legacyfabric" | "babric" | "forge" | "neoforge" => {
-                Self::Loader { 
-                    root, 
-                    loader: parts.get(1).copied().map(str::to_string).filter(|s| !s.is_empty()),
+            "mojang" => {
+                Self::Mojang { 
+                    root_version: match parts[0] {
+                        "" | 
+                        "release" => mojang::RootVersion::Release,
+                        "snapshot" => mojang::RootVersion::Snapshot,
+                        id => mojang::RootVersion::Id(id.to_string()),
+                    },
+                }
+            }
+            "fabric" | "quilt" | "legacyfabric" | "babric" => {
+                Self::Fabric { 
+                    game_version: match parts[0] {
+                        "" |
+                        "stable" => fabric::GameVersion::Stable,
+                        "unstable" => fabric::GameVersion::Unstable,
+                        id => fabric::GameVersion::Id(id.to_string()),
+                    },
+                    loader_version: match parts.get(1).copied() {
+                        None | Some("" | "stable") => fabric::LoaderVersion::Stable,
+                        Some("unstable") => fabric::LoaderVersion::Unstable,
+                        Some(id) => fabric::LoaderVersion::Id(id.to_string()),
+                    },
                     kind: match kind {
-                        "fabric" => StartLoaderKind::Fabric,
-                        "quilt" => StartLoaderKind::Quilt,
-                        "legacyfabric" => StartLoaderKind::LegacyFabric,
-                        "babric" => StartLoaderKind::Babric,
-                        "forge" => StartLoaderKind::Forge,
-                        "neoforge" => StartLoaderKind::NeoForge,
+                        "fabric" => StartFabricLoader::Fabric,
+                        "quilt" => StartFabricLoader::Quilt,
+                        "legacyfabric" => StartFabricLoader::LegacyFabric,
+                        "babric" => StartFabricLoader::Babric,
+                        _ => unreachable!(),
+                    },
+                }
+            }
+            "forge" | "neoforge" => {
+                Self::Forge { 
+                    kind: match kind {
+                        "forge" => StartForgeLoader::Forge,
+                        "neoforge" => StartForgeLoader::NeoForge,
                         _ => unreachable!(),
                     },
                 }
