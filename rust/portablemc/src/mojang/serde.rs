@@ -2,16 +2,16 @@
 
 use std::collections::HashMap;
 
+use chrono::{DateTime, FixedOffset};
+
 use crate::standard;
 
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct MojangManifest {
-    /// A map associated the latest versions, usually for 'release' and 'snapshot', 
-    /// but we keep this a map because we don't really know if more types can be 
-    /// added in the future.
-    pub latest: HashMap<String, String>,
+    /// A map associated the latest versions.
+    pub latest: HashMap<standard::serde::VersionType, String>,
     /// List of all versions.
     pub versions: Vec<MojangManifestVersion>,
 }
@@ -21,8 +21,8 @@ pub struct MojangManifest {
 pub struct MojangManifestVersion {
     pub id: String,
     pub r#type: standard::serde::VersionType,
-    pub time: String,
-    pub release_time: String,
+    pub time: DateTime<FixedOffset>,
+    pub release_time: DateTime<FixedOffset>,
     #[serde(flatten)]
     pub download: standard::serde::Download,
     /// Unknown, used by official launcher.

@@ -363,8 +363,8 @@ impl Installer {
 
         // Resolve aliases such as "release" or "snapshot" if fetch is enabled.
         let alias = match self.inner.root {
-            Root::Release => Some("release"),
-            Root::Snapshot => Some("snapshot"),
+            Root::Release => Some(standard::serde::VersionType::Release),
+            Root::Snapshot => Some(standard::serde::VersionType::Snapshot),
             _ => None,
         };
 
@@ -373,7 +373,7 @@ impl Installer {
         if let Some(alias) = alias {
             if inner.fetch {
                 let new_manifest = request_manifest(handler.as_download_dyn())?;
-                id = new_manifest.latest.get(alias).cloned();
+                id = new_manifest.latest.get(&alias).cloned();
                 manifest = Some(new_manifest);
             } else {
                 id = None;

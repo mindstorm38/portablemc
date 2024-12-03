@@ -5,12 +5,13 @@ pub mod output;
 
 use std::time::Instant;
 
+use chrono::{Local, TimeDelta, Utc};
 use clap::Parser;
 
 use portablemc::{download, standard, mojang};
 
 use parse::{CliArgs, CliCmd, CliOutput, LoginArgs, LogoutArgs, SearchArgs, SearchKind, ShowArgs, StartArgs, StartResolution, StartVersion};
-use output::{Output, LogOutput, LogLevel};
+use output::{Output, LogOutput, LogLevel, TimeDeltaDisplay};
 
 
 fn main() {
@@ -24,7 +25,6 @@ fn main() {
         CliOutput::Machine => Output::tab_separated(),
     };
 
-    println!("{args:?}");
     cmd_cli(&mut out, &args);
 
 }
@@ -41,10 +41,10 @@ fn cmd_cli(out: &mut Output, args: &CliArgs) {
 
 fn cmd_search(out: &mut Output, cli_args: &CliArgs, args: &SearchArgs) {
     
-    let _ = (out, cli_args);
+    let _ = cli_args;
 
     match args.kind {
-        SearchKind::Mojang => cmd_search_mojang(&args.query),
+        SearchKind::Mojang => cmd_search_mojang(&mut *out, &args.query),
         SearchKind::Local => todo!(),
         SearchKind::Forge => todo!(),
         SearchKind::Fabric => todo!(),
@@ -54,8 +54,51 @@ fn cmd_search(out: &mut Output, cli_args: &CliArgs, args: &SearchArgs) {
 
 }
 
-fn cmd_search_mojang(_query: &str) {
-    mojang::request_manifest(()).unwrap();
+fn cmd_search_mojang(out: &mut Output, _query: &str) {
+
+    let manifest = mojang::request_manifest(()).unwrap();
+
+    let mut table = out.table(3);
+    table.cell("id").format("Identifier");
+    table.cell("type").format("Type");
+    table.cell("release_date").format("Release date");
+
+    let today = Utc::now();
+
+    for version in &manifest.versions {
+        
+        table.cell(&version.id);
+        
+        let is_latest = manifest.latest.get(&version.r#type)
+            .map(|id| id == &version.id)
+            .unwrap_or(false);
+
+        let (type_id, type_fmt) = match version.r#type {
+            standard::serde::VersionType::Release => ("release", "Release"),
+            standard::serde::VersionType::Snapshot => ("snapshot", "Snapshot"),
+            standard::serde::VersionType::OldBeta => ("old_beta", "Beta"),
+            standard::serde::VersionType::OldAlpha => ("old_alpha", "Alpha"),
+        };
+        
+        if is_latest {
+            table.cell(format_args!("{type_id}*")).format(format_args!("{type_fmt}*"));
+        } else {
+            table.cell(format_args!("{type_id}")).format(format_args!("{type_fmt}"));
+        }
+
+        let mut cell = table.cell(&version.release_time.to_rfc3339());
+        let local_release_date = version.release_time.with_timezone(&Local);
+        let local_release_data_fmt: _ = version.release_time.format("%a %b %e %T %Y");
+
+        let delta = today.signed_duration_since(&local_release_date);
+        if is_latest || delta <= TimeDelta::weeks(4) {
+            cell.format(format_args!("{} ({})", local_release_data_fmt, TimeDeltaDisplay(delta)));
+        } else {
+            cell.format(format_args!("{}", local_release_data_fmt));
+        }
+
+    }
+
 }
 
 fn cmd_start(out: &mut Output, cli_args: &CliArgs, args: &StartArgs) {
