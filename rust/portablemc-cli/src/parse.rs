@@ -25,8 +25,8 @@ pub struct CliArgs {
     #[arg(short, action = clap::ArgAction::Count)]
     pub verbose: u8,
     /// Change the default output format of the launcher.
-    #[arg(long)]
-    pub output: Option<CliOutput>,
+    #[arg(long, default_value = "human")]
+    pub output: CliOutput,
     /// Set the directory where versions, libraries, assets, JVM and where the game is run.
     /// 
     /// This argument is equivalent to calling: 
@@ -86,12 +86,16 @@ pub enum CliCmd {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CliOutput {
-    /// Human-readable output with color to improve readability, it's the default if 
-    /// stdout is detected as a terminal.
-    HumanColor,
-    /// Human-readable output, it's the default if stdout is not detected as a terminal.
+    /// Human readable output, it depends on the actual command being used and is not
+    /// guaranteed to be stable across releases, for that you should prefer using
+    /// 'tabular' output for example. With this format, the verbosity is used to
+    /// show more informative data.
     Human,
-    /// Machine output mode to allow parsing by other programs.
+    /// Machine output mode to allow parsing by other programs, using tab separated 
+    /// values where the first value defines which kind of data to follow, so that the
+    /// program reading this output will be able to properly interpret the following
+    /// values, a line return is use to split every line. This mode is always verbose,
+    /// and verbose will not have any effect on it.
     Machine,
 }
 
