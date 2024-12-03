@@ -1,13 +1,12 @@
 //! Standard installer.
 
-use std::fmt::Write;
 use std::result::Result as StdResult;
-use std::path::{Path, PathBuf};
-use std::collections::{BTreeMap, HashMap};
-use std::num::NonZeroU16;
-use std::fs::File;
 use std::io::{self, Seek, SeekFrom};
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::num::NonZeroU16;
+use std::fmt::Write;
+use std::fs::File;
 
 use sha1::{Digest, Sha1};
 use serde_json::Value;
@@ -96,22 +95,18 @@ impl Installer {
     /// and is ready to be launched, the returned environment is returned if successful.
     /// 
     /// This function in itself doesn't fetch missing versions, for that the caller need
-    /// to pass in a handler that will cover this case (TODO: Example with Mojang).
+    /// to pass in a handler that will cover such case (for example with Mojang version),
+    /// the handler also provides the download method, so handler predefined structures
+    /// are made to be wrapped into other ones, each being specific.
     pub fn install(&self, version: &str, handler: &mut dyn Handler) -> Result<()> {
 
-        // Start by resolving the version hierarchy, with requests if needed.
-        let mut hierarchy = self.resolve_hierarchy(version, handler)?;
-        handler.filter_hierarchy(self, &mut hierarchy)?;
-
-        // Merge the full metadata, because we can only interpret a single metadata.
-        let mut metadata = Object::new();
-        for version in &hierarchy {
-            merge_json_metadata(&mut metadata, &version.metadata);
-        }
-        handler.filter_metadata(self, &mut metadata)?;
-
-        // Downloads list to the end.
+        // All downloads to start at the end of resolution before launching.
         let mut downloads = Vec::new();
+
+        // Start by resolving the version hierarchy, with requests if needed.
+        let hierarchy = self.resolve_hierarchy(version, handler)?;
+        // Merge the full metadata, because we can only interpret a single metadata.
+        let metadata = self.resolve_metadata(&hierarchy, handler)?;
 
         // Build the features list, used when applying metadata rules.
         let mut features = HashMap::new();
@@ -119,13 +114,11 @@ impl Installer {
 
         // Assets may be absent and unspecified in metadata for some custom versions.
         let assets = self.resolve_assets(&metadata, &mut downloads, handler)?;
-        handler.filter_assets(self, assets.as_ref());
 
-        self.resolve_libraries(&metadata, &mut downloads, handler)?;
+        let libraries = self.resolve_libraries(&hierarchy, &mut downloads, handler)?;
 
         // Now we want to resolve the main version JAR file.
-        let jar_file = self.version_file(version, "jar");
-        self.resolve_jar(&metadata, &mut downloads, &jar_file, handler)?;
+        let jar_file = self.resolve_jar(&metadata, &hierarchy, &mut downloads, handler)?;
 
         // Finally download all required files.
         handler.download(&downloads)?;
@@ -157,6 +150,9 @@ impl Installer {
 
         }
 
+        debug_assert!(!hierarchy.is_empty(), "hierarchy should never be empty before filtering");
+        handler.filter_hierarchy(self, &mut hierarchy)?;
+        assert!(!hierarchy.is_empty(), "hierarchy is empty after filtering");
         Ok(hierarchy)
 
     }
@@ -182,6 +178,19 @@ impl Installer {
         };
 
         handler.fetch_version(self, version)
+
+    }
+
+    /// Resolve the full merged metadata from the given loaded version hierarchy.
+    fn resolve_metadata(&self, hierarchy: &[Version], handler: &mut dyn Handler) -> Result<Object> {
+        
+        let mut metadata = Object::new();
+        for version in hierarchy {
+            merge_json_metadata(&mut metadata, &version.metadata);
+        }
+        
+        handler.filter_metadata(self, &mut metadata)?;
+        Ok(metadata)
 
     }
 
@@ -225,10 +234,10 @@ impl Installer {
         let assets_index_file = assets_indexes_dir.join_with_extension(assets_index_version, "json");
 
         // The assets index info can be parsed as a download entry at this point.
-        let assets_index_download = parse_json_download(assets_index_info, &assets_index_file)
+        let assets_index_download = parse_json_download(assets_index_info)
             .map_err(|err| Error::JsonSchema(format!("metadata: /assetIndex{err}")))?;
 
-        let assets_index_reader = self.read_with_download(assets_index_download, handler)?;
+        let assets_index_reader = self.check_and_read_download(&assets_index_file, assets_index_download, handler)?;
         let assets_index: Object = serde_json::from_reader(assets_index_reader)?;
         
         // For version <= 13w23b (1.6.1)
@@ -295,7 +304,7 @@ impl Installer {
         let mut asset_file = assets_dir.join("objects");
         let mut asset_file_name = String::new();
 
-        for (asset_path, asset) in assets.objects {
+        for asset in assets.objects.values() {
 
             for byte in asset.sha1 {
                 write!(asset_file_name, "{byte:02x}").unwrap();
@@ -303,18 +312,12 @@ impl Installer {
 
             let asset_hash_name = &asset_file_name[0..2];
             asset_file.push(asset_hash_name);
-            asset_file.push(asset_file_name);
+            asset_file.push(&asset_file_name);
 
-            let must_download = match asset_file.metadata() {
-                Ok(metadata) => metadata.len() != asset.size as u64,
-                Err(e) if e.kind() == io::ErrorKind::NotFound => true,
-                Err(e) => return Err(e.into()),
-            };
-
-            if must_download {
+            if self.check_file(&asset_file, Some(asset.size), None)? {
                 downloads.push(Download {
                     url: format!("{RESOURCES_URL}{asset_hash_name}/{asset_file_name}"),
-                    file: asset_file,
+                    file: asset_file.clone(),
                     size: Some(asset.size),
                     sha1: Some(asset.sha1),
                     executable: false,
@@ -336,28 +339,32 @@ impl Installer {
     /// download if relevant, if not it will use the already present JAR file. If
     /// no JAR file exists, an [`Error::JarNotFound`] error is returned.
     fn resolve_jar(&self, 
-        metadata: &Object, 
+        metadata: &Object,
+        hierarchy: &[Version],
         downloads: &mut Vec<Download>, 
-        jar_file: &Path, 
         handler: &mut dyn Handler
-    ) -> Result<()> {
+    ) -> Result<PathBuf> {
 
-        if let Some(downloads) = metadata.get("downloads") {
+        let jar_file = self.version_file(&hierarchy[0].name, "jar");
 
-            let Value::Object(downloads) = downloads else {
+        if let Some(downloads_info) = metadata.get("downloads") {
+
+            let Value::Object(downloads_info) = downloads_info else {
                 return Err(Error::JsonSchema(format!("metadata: /downloads must be an object")));
             };
 
-            if let Some(downloads_client) = downloads.get("client") {
+            if let Some(downloads_client) = downloads_info.get("client") {
 
                 let Value::Object(downloads_client) = downloads_client else {
                     return Err(Error::JsonSchema(format!("metadata: /downloads/client must be an object")));
                 };
 
-                let download = parse_json_download(downloads_client, jar_file)
+                let download = parse_json_download(downloads_client)
                     .map_err(|err| Error::JsonSchema(format!("metadata: /downloads/client{err}")))?;
 
-                downloads.push(download);
+                if self.check_file(&jar_file, download.size, download.sha1)? {
+                    downloads.push(download.to_owned(jar_file.to_owned(), false));
+                }
 
             }
 
@@ -368,62 +375,121 @@ impl Installer {
             return Err(Error::JarNotFound);
         }
         
-        handler.filter_jar(self, jar_file)
+        handler.filter_jar(self, &jar_file)?;
+        Ok(jar_file)
 
     }
 
     /// Resolve all game libraries.
+    /// 
+    /// **Note that this is the most critical step and libraries resolving is really 
+    /// important for running the game correctly.**
+    /// 
+    /// *This step has to support both older format where native libraries were given
+    /// appart from regular class path libraries, all of this should also support 
+    /// automatic downloading both from an explicit artifact URL, or with a maven repo
+    /// URL.*
     fn resolve_libraries(&self, 
-        metadata: &Object, 
+        hierarchy: &[Version],
         downloads: &mut Vec<Download>, 
         handler: &mut dyn Handler
     ) -> Result<()> {
+
+        // Recursion order is important for libraries resolving, because the class path
+        // order is important (for some corner cases with mod loaders). The root version's
+        // libraries should be placed at the beginning of the hierarchy. Also, a library
+        // defined in parent metadata should not override higher versions in hierarchy.
+        for version in hierarchy {
+
+            // Used for error formatting...
+            let version_name = version.name.as_str();
+
+            // Libraries object may be missing.
+            let Some(libs) = version.metadata.get("libraries") else {
+                continue;
+            };
+
+            let Value::Array(libs) = libs else {
+                return Err(Error::JsonSchema(format!("metadata({version_name}): /libraries must be a list")));
+            };
+
+            for (lib_idx, lib) in libs.iter().enumerate() {
+
+                let Value::Object(lib) = lib else {
+                    return Err(Error::JsonSchema(format!("metadata({version_name}): /libraries/{lib_idx} must be an object")));
+                };
+                
+                let lib_spec_err = || Error::JsonSchema(format!("metadata({version_name}): /libraries/{lib_idx}/name must be a string (library specifier)"));
+
+                let Some(Value::String(lib_spec)) = lib.get("name") else {
+                    return Err(lib_spec_err());
+                };
+
+                let lib_spec = LibrarySpecifier::from_str(lib_spec.clone())
+                    .ok_or_else(lib_spec_err)?;
+
+                // Start by applying rules before the actual parsing.
+                // TODO: Continue parsing after that just to check syntax?
+                if let Some(lib_rules) = lib.get("rules") {
+
+                    let Value::Array(lib_rules) = lib_rules else {
+                        return Err(Error::JsonSchema(format!("metadata({version_name}): /libraries/{lib_idx}/rules must be a list")));
+                    };
+
+                    // TODO: Interpret rules...
+
+                }
+
+                // Old metadata files provides a 'natives' mapping from OS to the classifier
+                // specific for this OS, this kind of libs are "native libs", we need to
+                // extract their dynamic libs into the "bin" directory before running.
+                if let Some(lib_natives) = lib.get("natives") {
+
+                    let Value::Object(lib_natives) = lib_natives else {
+                        return Err(Error::JsonSchema(format!("metadata({version_name}): /libraries/{lib_idx}/natives must be an object")));
+                    };
+
+                    
+
+                }
+
+            }
+
+        }
+
         Err(Error::UnsupportedOperation("resolve_libraries"))
+
+    }
+
+    fn check_and_read_download(&self,
+        file: &Path,
+        download: JsonDownload<'_>,
+        handler: &mut dyn Handler,
+    ) -> Result<File> {
+        self.check_and_read_file(file, download.size, download.sha1, download.url, handler)
     }
 
     /// Ensure that a file exists from its download entry, checking that the file has the
     /// right size and SHA-1, if relevant. This will push the download to the handler and
     /// immediately flush the handler.
-    fn read_with_download(&self, 
-        download: Download, 
-        handler: &mut dyn Handler
+    fn check_and_read_file(&self, 
+        file: &Path,
+        size: Option<u32>,
+        sha1: Option<Sha1Hash>,
+        url: &str,
+        handler: &mut dyn Handler,
     ) -> Result<File> {
 
-        let file = download.file.as_path();
-
-        // The loop is just used here to break early.
-        loop {
-            match File::open(file) {
-                Ok(mut reader) => {
-
-                    // Start by checking the actual size of the file.
-                    if let Some(size) = download.size {
-                        let actual_size = reader.seek(SeekFrom::End(0))?;
-                        if size as u64 != actual_size {
-                            break;
-                        }
-                        reader.seek(SeekFrom::Start(0))?;
-                    }
-                    
-                    if let Some(sha1) = &download.sha1 {
-                        let mut digest = Sha1::new();
-                        io::copy(&mut reader, &mut digest)?;
-                        if digest.finalize().as_slice() != sha1 {
-                            break;
-                        }
-                        reader.seek(SeekFrom::Start(0))?;
-                    }
-                    
-                    return Ok(reader);
-
-                }
-                Err(e) if e.kind() == io::ErrorKind::NotFound => break,
-                Err(e) => return Err(e.into()),
-            }
+        // If the file need to be (re)downloaded...
+        if self.check_file(file, size, sha1)? {
+            handler.download(&[Download {
+                url: url.to_string(),
+                file: file.to_path_buf(),
+                size,
+                sha1,
+                executable: false,
+            }])?;
         }
-
-        // Push and directory flush the download.
-        handler.download(std::slice::from_ref(&download));
 
         // The handler should have checked it and it should be existing.
         match File::open(file) {
@@ -433,6 +499,55 @@ impl Installer {
             Err(e) => return Err(e.into()),
         }
         
+    }
+
+    /// Check if a file at a given path should be downloaded by checking the given 
+    /// properties, this also returns true if the file doesn't exists.
+    fn check_file(&self,
+        file: &Path,
+        size: Option<u32>,
+        sha1: Option<Sha1Hash>,
+    ) -> Result<bool> {
+
+        if let Some(sha1) = sha1 {
+            // If we want to check SHA-1 we need to open the file and compute it...
+            match File::open(file) {
+                Ok(mut reader) => {
+
+                    // If relevant, start by checking the actual size of the file.
+                    if let Some(size) = size {
+                        let actual_size = reader.seek(SeekFrom::End(0))?;
+                        if size as u64 != actual_size {
+                            return Ok(true);
+                        }
+                        reader.seek(SeekFrom::Start(0))?;
+                    }
+                    
+                    // Only after we compute hash...
+                    let mut digest = Sha1::new();
+                    io::copy(&mut reader, &mut digest)?;
+                    if digest.finalize().as_slice() != sha1 {
+                        return Ok(true);
+                    }
+                    reader.seek(SeekFrom::Start(0))?;
+                    
+                    Ok(false)
+
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
+                Err(e) => Err(e.into()),
+            }
+        } else {
+            match (file.metadata(), size) {
+                // File is existing and we want to check size...
+                (Ok(metadata), Some(size)) => Ok(metadata.len() != size as u64),
+                // File is existing but we don't have size to check, no need to download.
+                (Ok(_metadata), None) => Ok(false),
+                (Err(e), _) if e.kind() == io::ErrorKind::NotFound => Ok(true),
+                (Err(e), _) => Err(e.into()),
+            }
+        }
+
     }
 
 }
@@ -509,7 +624,7 @@ pub trait Handler {
 }
 
 /// Default implementation that doesn't override the default method implementations,
-/// useful if you don't need a particular handler.
+/// useful to terminate generic handler wrappers.
 impl Handler for () { }
 
 /// Represent a single version in the versions hierarchy. This contains the loaded version
@@ -588,7 +703,10 @@ pub struct LibrarySpecifier {
 impl LibrarySpecifier {
 
     /// Parse the given library specifier and return it if successful.
-    pub fn new(raw: String) -> Option<Self> {
+    /// TODO: Move to FromStr trait.
+    pub fn from_str(raw: String) -> Option<Self> {
+
+        // FIXME: Remove "as"
 
         let mut split = raw.split('@');
         let raw0 = split.next()?;
@@ -622,6 +740,31 @@ impl LibrarySpecifier {
             classifier_len,
             extension_len,
         })
+
+    }
+
+    pub fn new(group: &str, artifact: &str, version: &str, classifier: Option<&str>, extension: Option<&str>) -> Self {
+        
+        let mut raw = format!("{group}:{artifact}:{version}");
+        
+        if let Some(classifier) = classifier {
+            raw.push(':');
+            raw.push_str(classifier);
+        }
+
+        if let Some(extension) = extension {
+            raw.push('@');
+            raw.push_str(extension);
+        }
+
+        Self {
+            raw,
+            group_len: NonZeroU16::new(group.len().try_into().expect("group too long")).expect("group empty"),
+            artifact_len: NonZeroU16::new(artifact.len().try_into().expect("artifact too long")).expect("artifact empty"),
+            version_len: NonZeroU16::new(version.len().try_into().expect("version too long")).expect("version empty"),
+            classifier_len: classifier.map(|classifier| NonZeroU16::new(classifier.len().try_into().expect("classifier too long")).expect("classifier empty")),
+            extension_len: extension.map(|extension| NonZeroU16::new(extension.len().try_into().expect("extension too long")).expect("extension empty")),
+        }
 
     }
 
@@ -751,23 +894,41 @@ fn merge_json_metadata(dst: &mut Object, src: &Object) {
     }
 }
 
+/// Parse the given hex bytes string into the given destination slice, returning none if 
+/// the input string cannot be parsed, is too short or too long.
+fn parse_hex_bytes<const LEN: usize>(mut string: &str) -> Option<[u8; LEN]> {
+    
+    let mut dst = [0; LEN];
+    for dst in &mut dst {
+        if string.is_char_boundary(2) {
+
+            let (num, rem) = string.split_at(2);
+            string = rem;
+
+            *dst = u8::from_str_radix(num, 16).ok()?;
+
+        } else {
+            return None;
+        }
+    }
+
+    // Only successful if no string remains.
+    string.is_empty().then_some(dst)
+
+}
+
 /// Parse a download file from its JSON value, expected to be an object that contains a
 /// `url` string, and optionally a number `size` and a string`sha1`. 
-fn parse_json_download<'obj, 'file>(
-    object: &'obj Object, 
-    file: &'file Path
-) -> StdResult<Download, String> {
+fn parse_json_download<'json>(object: &'json Object) -> StdResult<JsonDownload<'json>, String> {
 
     let Some(Value::String(url)) = object.get("url") else {
         return Err(format!("/url must be a string"));
     };
 
-    let mut download = Download {
+    let mut download = JsonDownload {
         url: url.as_str(),
-        file,
         size: None,
         sha1: None,
-        executable: false,
     };
 
     if let Some(size) = object.get("size") {
@@ -805,25 +966,24 @@ fn parse_json_download<'obj, 'file>(
 
 }
 
-/// Parse the given hex bytes string into the given destination slice, returning none if 
-/// the input string cannot be parsed, is too short or too long.
-fn parse_hex_bytes<const LEN: usize>(mut string: &str) -> Option<[u8; LEN]> {
-    
-    let mut dst = [0; LEN];
-    for dst in &mut dst {
-        if string.is_char_boundary(2) {
+/// Internal structure to parse a JSON download entry.
+#[derive(Debug)]
+struct JsonDownload<'json> {
+    url: &'json str,
+    size: Option<u32>,
+    sha1: Option<Sha1Hash>,
+}
 
-            let (num, rem) = string.split_at(2);
-            string = rem;
+impl<'json> JsonDownload<'json> {
 
-            *dst = u8::from_str_radix(num, 16).ok()?;
-
-        } else {
-            return None;
+    pub fn to_owned(&self, file: PathBuf, executable: bool) -> Download {
+        Download {
+            url: self.url.to_string(),
+            file,
+            size: self.size,
+            sha1: self.sha1,
+            executable,
         }
     }
-
-    // Only successful if no string remains.
-    string.is_empty().then_some(dst)
 
 }
