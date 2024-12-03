@@ -1,0 +1,32 @@
+[package]
+name = "portablemc"
+version = "5.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_path_to_error = "0.1"
+serde_json = "1.0"
+
+uuid = { version = "1.10", features = ["v4", "v5", "serde"] }
+regex = "1.10"
+
+thiserror = "1.0"
+
+gethostname = "0.5"
+os_info = "3"
+dirs = "5.0"
+
+sha1 = "0.10"
+md5 = "0.7"
+
+zip = "2.2"
+
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "=1.37", features = ["rt", "rt-multi-thread", "fs", "time", "net", "macros"] }
+
+[[bin]]
+name = "portablemc"
+path = "src/cli/main.rs"
