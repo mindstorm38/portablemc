@@ -111,11 +111,11 @@ impl Output {
     fn _log<const BG: bool>(&mut self, code: impl Display) -> Log<'_, BG> {
 
         match &mut self.mode {
-            OutputMode::Human(mode) => {
-                // Save the cursor at the beginning of the new line.
-                if self.escape_cursor_cap && mode.log_newline {
-                    print!("\x1b[s");
-                }
+            OutputMode::Human(_mode) => {
+                // // Save the cursor at the beginning of the new line.
+                // if self.escape_cursor_cap && mode.log_newline {
+                //     print!("\x1b[s");
+                // }
             }
             OutputMode::TabSep(mode) => {
                 debug_assert!(mode.buffer.is_empty());
@@ -210,7 +210,13 @@ impl<const BG: bool> Log<'_, BG> {
         if self.output.escape_cursor_cap {
             // If supporting cursor escape code, we don't use carriage return but instead
             // we use cursor save/restore position in order to easily support wrapping.
-            lock.write_all(b"\x1b[u\x1b[K").unwrap();
+            if mode.log_newline {
+                // If the line is currently empty, save the cursor position!
+                print!("\x1b[s");
+            } else {
+                // If the line is not empty, restore saved cursor position and clear line.
+                lock.write_all(b"\x1b[u\x1b[K").unwrap();
+            }
         } else {
             lock.write_all(b"\r").unwrap();
         }
