@@ -19,6 +19,7 @@ pub struct VersionMetadata {
     /// The version id, should be the same as the directory the metadata is in.
     pub id: String,
     /// The version type, such as 'release' or 'snapshot'.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub r#type: Option<VersionType>,
     /// The last time this version has been updated.
     pub time: DateTime<FixedOffset>,
@@ -26,36 +27,48 @@ pub struct VersionMetadata {
     pub release_time: DateTime<FixedOffset>,
     /// If present, this is the name of another version to resolve after this one and
     /// where fallback values will be taken.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub inherits_from: Option<String>,
     /// Used by official launcher, optional.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub minimum_launcher_version: Option<u32>,
     /// Describe the Java version to use, optional.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub java_version: Option<VersionJavaVersion>,
     /// The asset index to use when launching the game, it also has download information.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub asset_index: Option<VersionAssetIndex>,
     /// Legacy asset index id without download information.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub assets: Option<String>,
     /// Unknown, used by official launcher.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub compliance_level: Option<u32>,
     /// A mapping of downloads for entry point JAR files, such as for client or for 
     /// server. This sometime also defines a server executable for old versions.
     #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub downloads: HashMap<String, Download>,
     /// The sequence of JAR libraries to include in the class path when running the
     /// version, the order of libraries should be respected in the class path (for
     /// some corner cases with mod loaders). When a library is defined, it can't be
     /// overridden by inherited versions.
     #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub libraries: Vec<VersionLibrary>,
     /// The full class name to run as the main JVM class.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub main_class: Option<String>,
     /// Legacy arguments command line.
     #[serde(rename = "minecraftArguments")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub legacy_arguments: Option<String>,
     /// Modern arguments for game and/or jvm.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub arguments: Option<VersionArguments>,
     /// Logging configuration.
     #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub logging: HashMap<String, VersionLogging>,
 }
 
@@ -104,18 +117,30 @@ pub struct VersionAssetIndex {
 pub struct VersionLibrary {
     pub name: Gav,
     #[serde(default)]
+    #[serde(skip_serializing_if = "VersionLibraryDownloads::is_empty")]
     pub downloads: VersionLibraryDownloads,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub natives: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rules: Option<Vec<Rule>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionLibraryDownloads {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub artifact: Option<VersionLibraryDownload>,
     #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub classifiers: HashMap<String, VersionLibraryDownload>,
+}
+
+impl VersionLibraryDownloads {
+    fn is_empty(&self) -> bool {
+        self.artifact.is_none() && self.classifiers.is_empty()
+    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
@@ -130,8 +155,10 @@ pub struct VersionLibraryDownload {
 #[serde(rename_all = "camelCase")]
 pub struct VersionArguments {
     #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub game: Vec<VersionArgument>,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub jvm: Vec<VersionArgument>,
 }
 
@@ -298,26 +325,6 @@ pub struct Download {
     pub size: Option<u32>,
     pub sha1: Option<Sha1HashString>,
 }
-
-// impl From<Download> for EntrySource {
-//     fn from(value: Download) -> Self {
-//         Self {
-//             url: value.url.into_boxed_str(),
-//             size: value.size,
-//             sha1: value.sha1.as_deref().copied(),
-//         }
-//     }
-// }
-
-// impl<'a> From<&'a Download> for EntrySource {
-//     fn from(value: &'a Download) -> Self {
-//         Self {
-//             url: value.url.clone().into_boxed_str(),
-//             size: value.size,
-//             sha1: value.sha1.as_deref().copied(),
-//         }
-//     }
-// }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(untagged)]

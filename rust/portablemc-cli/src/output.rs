@@ -1,6 +1,6 @@
 //! Various utilities to ease outputting human or machine readable text.
 
-use std::fmt::{Display, Write as _};
+use std::fmt::{self, Display, Write as _};
 use std::io::{IsTerminal, Write};
 use std::{env, io};
 
@@ -113,7 +113,7 @@ impl Output {
         match &mut self.mode {
             OutputMode::Human(mode) => {
                 // Save the cursor at the beginning of the new line.
-                if mode.log_newline {
+                if self.escape_cursor_cap && mode.log_newline {
                     print!("\x1b[s");
                 }
             }
@@ -137,12 +137,11 @@ impl Output {
         match &mut self.mode {
             OutputMode::Human(mode) => {
                 
-                if mode.log_newline {
+                if !mode.log_newline {
                     println!();
                     mode.log_newline = true;
                     mode.log_line.clear();
                     mode.log_background.clear();
-    
                 }
 
                 debug_assert!(mode.table_buffer.is_empty());
@@ -181,7 +180,7 @@ impl<const BG: bool> Log<'_, BG> {
     /// Append an argument for machine-readable output.
     pub fn arg(&mut self, arg: impl Display) -> &mut Self {
         if let OutputMode::TabSep(mode) = &mut self.output.mode {
-            write!(mode.buffer, "\t{arg}").unwrap();
+            write!(mode.buffer, "\t{}", EscapeTabSeparatedValue(arg)).unwrap();
         }
         self
     }
@@ -194,7 +193,7 @@ impl<const BG: bool> Log<'_, BG> {
     {
         if let OutputMode::TabSep(mode) = &mut self.output.mode {
             for arg in args {
-                write!(mode.buffer, "\t{arg}").unwrap();
+                write!(mode.buffer, "\t{}", EscapeTabSeparatedValue(arg)).unwrap();
             }
         }
         self
@@ -241,6 +240,20 @@ impl<const BG: bool> Log<'_, BG> {
 }
 
 impl Log<'_, false> {
+
+    /// Only relevant for human-readable messages, it forces a newline to be added if the
+    /// current line's level is "pending" without overwriting is 
+    pub fn newline(&mut self) -> &mut Self {
+        if let OutputMode::Human(mode) = &mut self.output.mode {
+            if !mode.log_newline {
+                println!();
+                mode.log_line.clear();
+                mode.log_background.clear();
+                mode.log_newline = true;
+            }
+        }
+        self
+    }
 
     /// Append a human-readable message to this log with an associated level, level is
     /// only relevant here because machine-readable outputs are always verbose.
@@ -621,4 +634,56 @@ impl Cell<'_> {
 
     }
 
+}
+
+/// Internal display wrapper to escape any newline character '\n' by a literal escape 
+/// "\\n", this is used for tab-separated output to avoid early line return before end
+/// of the line.
+struct EscapeTabSeparatedValue<T>(T);
+
+impl<T: Display> fmt::Display for EscapeTabSeparatedValue<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        
+        struct Wrapper<'a, 'b> {
+            f: &'a mut fmt::Formatter<'b>,
+        }
+
+        impl fmt::Write for Wrapper<'_, '_> {
+
+            fn write_str(&mut self, mut s: &str) -> fmt::Result {
+                'out: loop {
+                    for (i, ch) in s.char_indices() {
+
+                        let repl = match ch {
+                            '\n' => "\\n",
+                            '\t' => "\\t",
+                            _ => continue,
+                        };
+
+                        self.f.write_str(&s[..i])?;
+                        self.f.write_str(repl)?;
+                        s = &s[i + 1..];
+                        continue 'out;
+
+                    }
+                    break;  // In case no more escapable character...
+                }
+                self.f.write_str(s)?;
+                Ok(())
+            }
+
+            fn write_char(&mut self, c: char) -> fmt::Result {
+                match c {
+                    '\n' => self.f.write_str("\\n"),
+                    '\t' => self.f.write_str("\\t"),
+                    _ => self.f.write_char(c)
+                }
+            }
+
+        }
+
+        let mut wrapper = Wrapper { f };
+        write!(wrapper, "{}", self.0)
+
+    }
 }

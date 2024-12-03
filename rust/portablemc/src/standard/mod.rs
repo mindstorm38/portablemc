@@ -53,7 +53,7 @@ pub(crate) const LEGACY_JVM_ARGS: &[&str] = &[
 /// implement the unspecified standard of Mojang. 
 #[derive(Debug, Clone)]
 pub struct Installer {
-    root_id: String,
+    root_version_id: String,
     versions_dir: PathBuf,
     libraries_dir: PathBuf,
     assets_dir: PathBuf,
@@ -76,12 +76,12 @@ impl Installer {
     /// 
     /// If you're confident a default main directory is available on your system, you
     /// can use [`Self::new_with_default`].
-    pub fn new(root_id: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(root_version_id: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
 
         let mc_dir = main_dir.into();
         
         Self {
-            root_id: root_id.into(),
+            root_version_id: root_version_id.into(),
             versions_dir: mc_dir.join("versions"),
             libraries_dir: mc_dir.join("libraries"),
             assets_dir: mc_dir.join("assets"),
@@ -108,8 +108,8 @@ impl Installer {
     /// Change the root version id to load and install, this overrides the root version
     /// given when constructing this installer.
     #[inline]
-    pub fn root(&mut self, root_id: impl Into<String>) -> &mut Self {
-        self.root_id = root_id.into();
+    pub fn root_version(&mut self, root_version_id: impl Into<String>) -> &mut Self {
+        self.root_version_id = root_version_id.into();
         self
     }
 
@@ -242,7 +242,7 @@ impl Installer {
         
         // Then we have a sequence of steps that may add entries to the download batch.
         let mut batch = Batch::new();
-        let hierarchy = self.load_hierarchy(&mut handler, &self.root_id)?;
+        let hierarchy = self.load_hierarchy(&mut handler, &self.root_version_id)?;
         let mut lib_files = self.load_libraries(&mut handler, &hierarchy, &features, &mut batch)?;
         let logger_config = self.load_logger(&mut handler, &hierarchy, &mut batch)?;
         let assets = self.load_assets(&mut handler, &hierarchy, &mut batch)?;
@@ -697,7 +697,7 @@ impl Installer {
         let bin_dir = {
             // We place the root id as prefix for clarity, even if we can theoretically
             // have multiple bin dir for the same version, if libraries change.
-            let mut buf = self.bin_dir.join(&self.root_id);
+            let mut buf = self.bin_dir.join(&self.root_version_id);
             buf.as_mut_os_string().push(&format!("-{}", bin_uuid.hyphenated()));
             buf
         };

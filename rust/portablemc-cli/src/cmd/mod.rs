@@ -9,7 +9,7 @@ use std::time::Instant;
 use std::error::Error;
 use std::io;
 
-use portablemc::{download, mojang, standard};
+use portablemc::{download, standard, mojang, fabric};
 
 use crate::parse::{CliArgs, CliCmd, CliOutput};
 use crate::output::{Output, LogLevel};
@@ -184,10 +184,9 @@ impl standard::Handler for CommonHandler<'_> {
                 let mut buffer = String::new();
                 for version in hierarchy {
                     if !buffer.is_empty() {
-                        buffer.push_str(", ");
-                    } else {
-                        buffer.push_str(&version.id);
+                        buffer.push_str(" -> ");
                     }
+                    buffer.push_str(&version.id);
                 }
 
                 out.log("hierarchy_loaded")
@@ -344,17 +343,17 @@ impl mojang::Handler for CommonHandler<'_> {
         let out = &mut *self.out;
 
         match event {
-            Event::MojangVersionInvalidated { id } => {
+            Event::VersionInvalidated { id } => {
                 out.log("mojang_version_invalidated")
                     .arg(id)
                     .info(format_args!("Mojang version {id} invalidated"));
             }
-            Event::MojangVersionFetching { id } => {
+            Event::VersionFetching { id } => {
                 out.log("mojang_version_fetching")
                     .arg(id)
                     .pending(format_args!("Fetching Mojang version {id}"));
             }
-            Event::MojangVersionFetched { id } => {
+            Event::VersionFetched { id } => {
                 out.log("mojang_version_fetched")
                     .arg(id)
                     .success(format_args!("Fetched Mojang version {id}"));
@@ -391,6 +390,34 @@ impl mojang::Handler for CommonHandler<'_> {
             }
             _ => todo!("{event:?}")
         };
+
+    }
+}
+
+impl fabric::Handler for CommonHandler<'_> {
+    fn handle_fabric_event(&mut self, event: fabric::Event) {
+        
+        use fabric::Event;
+
+        let out = &mut *self.out;
+
+        match event {
+            Event::VersionFetching { api, game_version, loader_version } => {
+                let (api_id, api_name) = fabric_api_id_name(api);
+                out.log(format_args!("{api_id}_version_fetching"))
+                    .arg(game_version)
+                    .arg(loader_version)
+                    .pending(format_args!("Fetching {api_name} loader {loader_version} for {game_version}"));
+            }
+            Event::VersionFetched { api, game_version, loader_version } => {
+                let (api_id, api_name) = fabric_api_id_name(api);
+                out.log(format_args!("{api_id}_version_fetched"))
+                    .arg(game_version)
+                    .arg(loader_version)
+                    .info(format_args!("Fetched {api_name} loader {loader_version} for {game_version}"));
+            }
+            _ => todo!("{event:?}")
+        }
 
     }
 }
@@ -435,6 +462,7 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
                 .arg(file.display())
                 .arg(error.path())
                 .arg(error.inner())
+                .newline()
                 .error(format_args!("JSON error: {error}"))
                 .additional(format_args!("Related to {}", file.display()));
         }
@@ -442,12 +470,14 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
             out.log("error_zip")
                 .arg(file.display())
                 .arg(&error)
+                .newline()
                 .error(format_args!("ZIP error: {error}"))
                 .additional(format_args!("Related to {}", file.display()));
         }
         Error::Reqwest { error } => {
             let mut log = out.log("error_reqwest");
             log.args(error.url().into_iter());
+            log.newline();
             log.error("Reqwest error: {error}");
             if let Some(source) = error.source() {
                 log.additional(format_args!("Source: {source}"));
@@ -464,31 +494,100 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
 /// Log a mojang error on the given logger output.
 pub fn log_mojang_error(out: &mut Output, error: mojang::Error) {
 
-    use mojang::{Error, Root};
+    use mojang::{Error, RootVersion};
 
     match error {
         Error::Standard(error) => log_standard_error(out, error),
-        Error::RootAliasNotFound { root } => {
+        Error::AliasRootVersionNotFound { root_version } => {
             
-            let root_code = match &root {
-                Root::Release => "release",
-                Root::Snapshot => "snapshot",
-                Root::Id(_) => panic!()
+            let alias_str = match &root_version {
+                RootVersion::Release => "release",
+                RootVersion::Snapshot => "snapshot",
+                RootVersion::Id(_) => panic!()
             };
 
-            out.log("error_alias_version_not_found")
-                .arg(root_code)
-                .error(format_args!("Failed to resolve root version '{root_code}'"))
+            out.log("error_mojang_alias_root_version_not_found")
+                .arg(alias_str)
+                .error(format_args!("Failed to resolve Mojang root version '{alias_str}'"))
                 .additional("The alias might be missing from manifest, likely an issue on Mojang's side");
 
         }
         Error::LwjglFixNotFound { version } => {
-
             out.log("error_lwjgl_fix_not_found")
                 .arg(&version)
                 .error(format_args!("Failed to fix LWJGL to version '{version}' as requested with --lwjgl argument"))
                 .additional("The version might be too old (< 3.2.3)")
                 .additional("Your platform might not be supported for this version");
+        }
+        _ => todo!(),
+    }
+
+}
+
+pub fn log_fabric_error(out: &mut Output, error: fabric::Error) {
+
+    use fabric::{Error, GameVersion, LoaderVersion};
+
+    match error {
+        Error::Mojang(error) => log_mojang_error(out, error),
+        Error::AliasGameVersionNotFound { api, game_version } => {
+
+            let (api_id, api_name) = fabric_api_id_name(api);
+            let alias_str = match game_version {
+                GameVersion::Stable => "stable",
+                GameVersion::Unstable => "unstable",
+                GameVersion::Id(_) => panic!()
+            };
+
+            let mut log = out.log(format_args!("error_{api_id}_alias_game_version_not_found"));
+            log.arg(alias_str);
+            log.error(format_args!("Failed to resolve {api_name} game version '{alias_str}'"));
+
+            match game_version {
+                GameVersion::Stable => log.additional("{api_name} might not yet support any stable game version"),
+                GameVersion::Unstable => log.additional("{api_name} have zero game version supported, likely an issue on their side"),
+                GameVersion::Id(_) => unreachable!()
+            };
+
+        }
+        Error::AliasLoaderVersionNotFound { api, game_version_id, loader_version } => {
+
+            let (api_id, api_name) = fabric_api_id_name(api);
+            let alias_str = match loader_version {
+                LoaderVersion::Stable => "stable",
+                LoaderVersion::Unstable => "unstable",
+                LoaderVersion::Id(_) => panic!()
+            };
+
+            let mut log = out.log(format_args!("error_{api_id}_alias_loader_version_not_found"));
+            log.arg(&game_version_id);
+            log.arg(alias_str);
+            log.error(format_args!("Failed to resolve {api_name} loader version '{alias_str}' for game version {game_version_id}"));
+
+            match loader_version {
+                LoaderVersion::Stable => log.additional("{api_name} might not yet support any stable loader version for this game version"),
+                LoaderVersion::Unstable => log.additional("{api_name} have zero loader version supported for this game version, likely an issue on their side"),
+                LoaderVersion::Id(_) => unreachable!()
+            };
+
+        }
+        Error::GameVersionNotFound { api, game_version_id } => {
+
+            let (api_id, api_name) = fabric_api_id_name(api);
+
+            out.log(format_args!("error_{api_id}_game_version_not_found"))
+                .arg(&game_version_id)
+                .error(format_args!("{api_name} loader has not support for {game_version_id} game version"));
+
+        }
+        Error::LoaderVersionNotFound { api, game_version_id, loader_version_id } => {
+            
+            let (api_id, api_name) = fabric_api_id_name(api);
+
+            out.log(format_args!("error_{api_id}_loader_version_not_found"))
+                .arg(&game_version_id)
+                .arg(&loader_version_id)
+                .error(format_args!("{api_name} loader has no version {loader_version_id} for game version {game_version_id}"));
 
         }
         _ => todo!(),
@@ -509,6 +608,7 @@ pub fn log_download_error(out: &mut Output, batch: download::BatchResult) {
     out.log("error_download")
         .arg(batch.errors_count())
         .arg(batch.len())
+        .newline()
         .error(format_args!("Failed to download {} out of {} entries...", batch.errors_count(), batch.len()));
 
     // error_download_entry <url> <dest> <error> [error_data...]
@@ -570,7 +670,8 @@ pub fn log_io_error(out: &mut Output, error: io::Error, file: Option<&Path>) {
         log.arg(format_args!("unknown:{error}"));
     }
 
-    log.error(format_args!("I/O error: {error}"));
+    // Newline because I/O errors are unexpected and we want to keep any previous context.
+    log.newline().error(format_args!("I/O error: {error}"));
 
     if let Some(file) = file {
         log.arg(file.display());
@@ -603,4 +704,18 @@ fn io_error_kind_code(error: &io::Error) -> Option<&'static str> {
         ErrorKind::OutOfMemory => "out_of_memory",
         _ => return None,
     })
+}
+
+fn fabric_api_id_name(api: &fabric::Api) -> (&'static str, &'static str) {
+    if std::ptr::eq(api, &fabric::FABRIC_API) {
+        ("fabric", "Fabric")
+    } else if std::ptr::eq(api, &fabric::QUILT_API) {
+        ("quilt", "Quilt")
+    } else if std::ptr::eq(api, &fabric::LEGACY_FABRIC_API) {
+        ("legacy_fabric", "LegacyFabric")
+    } else if std::ptr::eq(api, &fabric::BABRIC_API) {
+        ("babric", "Babric")
+    } else {
+        panic!("unexpected fabric api: {api:?}");
+    }
 }

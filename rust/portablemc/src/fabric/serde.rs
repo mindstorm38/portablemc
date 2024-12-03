@@ -26,7 +26,7 @@ pub struct Intermediary {
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-pub struct VersionLoader {
+pub struct GameLoader {
     pub loader: Loader,
     pub intermediary: Intermediary,
     // missing: launcherMeta,

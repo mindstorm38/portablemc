@@ -236,6 +236,7 @@ impl Gav {
             file_name.push('-');
             file_name.push_str(classifier);
         }
+        file_name.push('.');
         file_name.push_str(self.extension());
 
         self.group().split('.')
