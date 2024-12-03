@@ -1,4 +1,4 @@
-//! Parallel download implementation.
+//! Parallel batch download implementation.
 //! 
 //! Partially inspired by: https://patshaughnessy.net/2020/1/20/downloading-100000-files-using-async-rust
 
@@ -20,53 +20,133 @@ use tokio::fs::File;
 
 /// A list of pending download that can be all downloaded at once.
 #[derive(Debug)]
-pub struct DownloadList {
-    inner: Vec<Download>,
+pub struct Batch {
+    inner: Vec<Entry>,
 }
 
+impl Batch {
 
-/// Bulk download blocking entrypoint.
-pub fn download_many_blocking(
-    installer: &Installer, 
-    handler: &mut dyn Handler, 
-    downloads: Vec<Download>
-) -> Result<()> {
+    /// Create a new empty download list.
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            inner: Vec::new(),
+        }
+    }
 
-    // let cpu = std::thread::available_parallelism()
-    //     .unwrap()
-    //     .get();
+    /// Push a single download entry to the batch.
+    #[inline]
+    pub fn push(&mut self, entry: Entry) {
+        self.inner.push(entry);
+    }
 
-    // let worker_threads = cpu * 2;
+    /// Asynchronously download all files in the batch.
+    pub async fn download(self, mut handler: impl Handler) -> Result<()> {
+        download_impl(&mut handler, 40, self.inner).await
+    }
 
-    // let rt = Builder::new_multi_thread()
-    //     .worker_threads(worker_threads)
-    //     .enable_time()
-    //     .enable_io()
-    //     .build()
-    //     .unwrap();
+    pub fn download_blocking(self, handler: impl Handler) -> Result<()> {
+        
+        let rt = Builder::new_current_thread()
+            .enable_time()
+            .enable_io()
+            .build()
+            .unwrap();
 
-    let rt = Builder::new_current_thread()
-        .enable_time()
-        .enable_io()
-        .build()
-        .unwrap();
-
-    rt.block_on(download_many(installer, handler, 40, downloads))
+        rt.block_on(self.download(handler))
+        
+    }
 
 }
+
+/// A handle for watching a batch download progress.
+pub trait Handler {
+    
+    /// Notification of a download progress. This function should return true to continue
+    /// the downloading.
+    fn handle_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32);
+
+}
+
+/// Blanket implementation it no handler is needed.
+impl Handler for () {
+    fn handle_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        let _ = (count, total_count, size, total_size);
+    }
+}
+
+/// A download entry to be added to a batch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    /// Source of the download.
+    pub source: EntrySource,
+    /// Path to the file to ultimately download.
+    pub file: Box<Path>,
+    /// True if the file should be made executable on systems where its relevant to 
+    /// later execute a binary.
+    pub executable: bool,
+}
+
+/// A download source, with the URL, expected size (optional) and hash (optional),
+/// it doesn't contain any information about the destination.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntrySource {
+    /// Url of the file to download.
+    pub url: Box<str>,
+    /// Expected size of the file, checked after downloading.
+    pub size: Option<u32>,
+    /// Expected SHA-1 of the file, checked after downloading.
+    pub sha1: Option<[u8; 20]>,
+}
+
+// impl<'a> From<&'a serde::Download> for DownloadSource {
+
+//     fn from(serde: &'a serde::Download) -> Self {
+//         Self {
+//             url: serde.url.clone().into(),
+//             size: serde.size,
+//             sha1: serde.sha1.as_deref().copied(),
+//         }
+//     }
+
+// }
+
+/// The error type containing one error for each failed entry.
+#[derive(thiserror::Error, Debug)]
+#[error("errors: {errors:?}")]
+pub struct Error {
+    pub errors: Vec<(Entry, EntryError)>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum EntryError {
+    #[error("reqwest: {0}")]
+    Reqwest(#[from] reqwest::Error),
+    #[error("io: {0}")]
+    Io(#[from] io::Error),
+    #[error("invalid size")]
+    InvalidSize,
+    #[error("invalid sha1")]
+    InvalidSha1,
+    #[error("aborted")]
+    Aborted,
+}
+
+/// Type alias for a result of batch download.
+pub type Result<T> = std::result::Result<T, Error>;
+
 
 /// Bulk download async entrypoint.
-pub async fn download_many(
-    installer: &Installer, 
+async fn download_impl(
     handler: &mut dyn Handler,
     concurrent_count: usize,
-    mut downloads: Vec<Download>
+    mut entries: Vec<Entry>
 ) -> Result<()> {
 
     // Sort our entries in order to download big files first, this is allows better
     // parallelization at start and avoid too much blocking at the end.
     // Not sorting entries without size.
-    downloads.sort_by(|a, b| {
+    entries.sort_by(|a, b| {
         match (a.source.size, b.source.size) {
             (Some(a), Some(b)) => Ord::cmp(&b, &a),
             _ => Ordering::Equal,
@@ -75,16 +155,11 @@ pub async fn download_many(
 
     // Current downloaded size and total size.
     let mut size = 0;
-    let mut total_size = downloads.iter()
+    let mut total_size = entries.iter()
         .map(|dl| dl.source.size.unwrap_or(0))
         .sum::<u32>();
 
-    handler.handle(installer, Event::DownloadProgress { 
-        count: 0, 
-        total_count: downloads.len() as u32, 
-        size, 
-        total_size,
-    })?;
+    handler.handle_progress(0, entries.len() as u32, size, total_size);
 
     // Initialize the HTTP(S) client.
     let client = crate::http::builder()
@@ -92,14 +167,16 @@ pub async fn download_many(
         .unwrap(); // FIXME:
 
     // Downloads are now immutable un order to be efficiently shared.
-    let downloads = Arc::<[Download]>::from(downloads.into_boxed_slice());
+    // Note that we are intentionally not creating a arc of slice, because it is then
+    // impossible to transform back to a vector, to we keep this double indirection.
+    let entries = Arc::new(entries);
     let client = Arc::new(client);
 
     let mut index = 0;
     let mut completed = 0;
 
     let mut futures = JoinSet::new();
-    let mut trackers = vec![DownloadTracker::default(); downloads.len()];
+    let mut trackers = vec![EntryTracker::default(); entries.len()];
 
     let (tx, mut rx) = mpsc::channel(concurrent_count * 2);
 
@@ -112,12 +189,12 @@ pub async fn download_many(
 
     // If we have theoretically completed all downloads, we still wait for joining all
     // remaining futures in the join set.
-    while completed < downloads.len() || !futures.is_empty() {
+    while completed < entries.len() || !futures.is_empty() {
         
-        while futures.len() < concurrent_count && index < downloads.len() {
+        while futures.len() < concurrent_count && index < entries.len() {
             futures.spawn(download_wrapper(
                 Arc::clone(&client), 
-                Arc::clone(&downloads),
+                Arc::clone(&entries),
                 index, 
                 tx.clone()));
             index += 1;
@@ -128,12 +205,12 @@ pub async fn download_many(
             event = rx.recv() => event.expect("channel should never close"),
         };
 
-        let download = &downloads[event.index];
+        let download = &entries[event.index];
         let tracker = &mut trackers[event.index];
         let mut force_progress = false;
         
         match event.kind {
-            DownloadEventKind::Progress(current_size) => {
+            EntryEventKind::Progress(current_size) => {
 
                 let diff = current_size - tracker.size;
                 tracker.size = current_size;
@@ -147,33 +224,32 @@ pub async fn download_many(
                 }
 
             }
-            DownloadEventKind::Failed(e) => {
+            EntryEventKind::Failed(e) => {
                 errors.push((download.clone(), e));
                 completed += 1;
                 force_progress = true;
             }
-            DownloadEventKind::Success => {
+            EntryEventKind::Success => {
                 completed += 1;
                 force_progress = true;
             }
         }
         
         if force_progress || size - last_size >= progress_size_interval {
-            handler.handle(installer, Event::DownloadProgress { 
-                count: completed as u32, 
-                total_count: downloads.len() as u32, 
-                size, 
-                total_size,
-            })?;
+            handler.handle_progress(completed as u32, entries.len() as u32, size, total_size);
             last_size = size;
         }
 
     }
 
+    // Ensure that all tasks are aborted, this allows us to take back ownership of the 
+    // underlying vector of entries.
+    assert!(futures.is_empty());
+
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(Error::Download { errors })
+        Err(Error { errors })
     }
 
 }
@@ -182,19 +258,19 @@ pub async fn download_many(
 /// function in order to easily catch any error and send it as event.
 async fn download_wrapper(
     client: Arc<Client>, 
-    downloads: Arc<[Download]>,
+    entries: Arc<Vec<Entry>>,
     index: usize,
-    mut tx: mpsc::Sender<DownloadEvent>,
+    mut tx: mpsc::Sender<EntryEvent>,
 ) {
-    if let Err(e) = download_core(&client, &downloads, index, &mut tx).await {
-        tx.send(DownloadEvent {
+    if let Err(e) = download_core(&client, &entries, index, &mut tx).await {
+        tx.send(EntryEvent {
             index,
-            kind: DownloadEventKind::Failed(e),
+            kind: EntryEventKind::Failed(e),
         }).await.unwrap();
     } else {
-        tx.send(DownloadEvent {
+        tx.send(EntryEvent {
             index,
-            kind: DownloadEventKind::Success,
+            kind: EntryEventKind::Success,
         }).await.unwrap();
     }
 }
@@ -202,12 +278,12 @@ async fn download_wrapper(
 /// Internal function to download a single download entry.
 async fn download_core(
     client: &Client, 
-    downloads: &[Download],
+    entries: &[Entry],
     index: usize,
-    tx: &mut mpsc::Sender<DownloadEvent>,
-) -> std::result::Result<(), DownloadError> {
+    tx: &mut mpsc::Sender<EntryEvent>,
+) -> std::result::Result<(), EntryError> {
 
-    let download = &downloads[index];
+    let download = &entries[index];
     let mut res = client.get(&*download.source.url).send().await?;
     
     if let Some(parent) = download.file.parent() {
@@ -233,22 +309,22 @@ async fn download_core(
             Write::write_all(digest, &chunk)?;
         }
 
-        tx.send(DownloadEvent {
+        tx.send(EntryEvent {
             index,
-            kind: DownloadEventKind::Progress(size),
+            kind: EntryEventKind::Progress(size),
         }).await.unwrap();
 
     }
 
     if let Some(expected_size) = download.source.size {
         if expected_size as usize != size {
-            return Err(DownloadError::InvalidSize);
+            return Err(EntryError::InvalidSize);
         }
     }
 
     if let Some(expected_sha1) = &download.source.sha1 {
         if sha1.unwrap().finalize().as_slice() != expected_sha1 {
-            return Err(DownloadError::InvalidSha1);
+            return Err(EntryError::InvalidSha1);
         }
     }
 
@@ -256,90 +332,24 @@ async fn download_core(
 
 }
 
-pub trait DownloadWatcher {
-    
-}
-
-/// A download entry that can be delayed until a call to [`Handler::flush_download`].
-/// This download object borrows the URL and file path.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Download {
-    /// Source of the download.
-    pub source: DownloadSource,
-    /// Path to the file to ultimately download.
-    pub file: Box<Path>,
-    /// True if the file should be made executable on systems where its relevant to 
-    /// later execute a binary.
-    pub executable: bool,
-}
-
-/// A download source, with the URL, expected size (optional) and hash (optional),
-/// it doesn't contain any information about the destination.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DownloadSource {
-    /// Url of the file to download.
-    pub url: Box<str>,
-    /// Expected size of the file, checked after downloading.
-    pub size: Option<u32>,
-    /// Expected SHA-1 of the file, checked after downloading.
-    pub sha1: Option<[u8; 20]>,
-}
-
-impl DownloadSource {
-
-    #[inline]
-    pub fn into_full(self, file: Box<Path>, executable: bool) -> Download {
-        Download {
-            source: self,
-            file,
-            executable,
-        }
-    }
-
-}
-
-// impl<'a> From<&'a serde::Download> for DownloadSource {
-
-//     fn from(serde: &'a serde::Download) -> Self {
-//         Self {
-//             url: serde.url.clone().into(),
-//             size: serde.size,
-//             sha1: serde.sha1.as_deref().copied(),
-//         }
-//     }
-
-// }
-
-#[derive(thiserror::Error, Debug)]
-pub enum DownloadError {
-    #[error("reqwest: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("io: {0}")]
-    Io(#[from] io::Error),
-    #[error("invalid size")]
-    InvalidSize,
-    #[error("invalid sha1")]
-    InvalidSha1,
-}
-
 #[derive(Debug)]
-struct DownloadEvent {
+struct EntryEvent {
     index: usize,
-    kind: DownloadEventKind,
+    kind: EntryEventKind,
 }
 
 #[derive(Debug)]
-enum DownloadEventKind {
+enum EntryEventKind {
     /// Progress of the download, total downloaded size is given.
     Progress(usize),
     /// The download has been completed with an error.
-    Failed(DownloadError),
+    Failed(EntryError),
     /// The download has been completed successfully.
     Success,
 }
 
 #[derive(Debug, Default, Clone)]
-struct DownloadTracker {
+struct EntryTracker {
     /// Current downloaded size for this download.
     size: usize,
 }

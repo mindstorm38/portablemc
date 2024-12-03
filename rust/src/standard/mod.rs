@@ -10,6 +10,7 @@ use std::fs::File;
 
 use sha1::{Digest, Sha1};
 
+use crate::download as dl;
 use crate::path::PathExt;
 use crate::gav::Gav;
 
@@ -85,16 +86,16 @@ impl Installer {
     /// Ensure that a the given version, from its id, is properly installed.
     pub fn install(&self, handler: &mut dyn Handler, id: &str) -> Result<()> {
         
-        let mut downloads = Vec::new();
+        let mut batch = dl::Batch::new();
         let features = HashSet::new();
 
         let hierarchy = self.load_hierarchy(handler, id)?;
-        let _client_file = self.load_client(handler, &hierarchy, &mut downloads)?;
-        let _lib_files = self.load_libraries(handler, &hierarchy, &features, &mut downloads)?;
-        let _logger_config = self.load_logger(handler, &hierarchy, &mut downloads)?;
-        let _assets = self.load_assets(handler, &hierarchy, &mut downloads)?;
+        let _client_file = self.load_client(handler, &hierarchy, &mut batch)?;
+        let _lib_files = self.load_libraries(handler, &hierarchy, &features, &mut batch)?;
+        let _logger_config = self.load_logger(handler, &hierarchy, &mut batch)?;
+        let _assets = self.load_assets(handler, &hierarchy, &mut batch)?;
 
-        self.download_many(handler, downloads)?;
+        self.download_many(handler, batch)?;
 
         Ok(())
 
@@ -633,20 +634,6 @@ impl Installer {
 
     }
 
-    /// Bulk download a sequence of entries, events will be sent to the handler. After
-    /// this method returns successfully, all downloaded files are guaranteed to have
-    /// been downloaded at their location.
-    pub fn download_many(&self, handler: &mut dyn Handler, downloads: Vec<Download>) -> Result<()> {
-        download::download_many_blocking(self, handler, downloads)
-    }
-
-    /// Shortcut for calling [`Self::download_many`] with a single download, check it
-    /// for more information.
-    #[inline]
-    pub fn download(&self, handler: &mut dyn Handler, download: Download) -> Result<()> {
-        self.download_many(handler, vec![download])
-    }
-
 }
 
 /// Handler for events happening when installing.
@@ -785,19 +772,11 @@ pub enum Error {
     LibraryNotFound {
         gav: Gav,
     },
-    /// A special error that is returned by the handler to request a retry for a specific
-    /// phase, if this error is returned by the global installation process, it means that
-    /// the retry was not possible. The retry-ability of a phase is described on events.
-    #[error("retry")]
-    Retry,
-    /// A special error than can be used by the handler to halt the installation process
-    /// when an event is produced.
-    #[error("halt")]
-    Halt,
     /// Download error, associating its failed download entry to the download error.
-    #[error("download: {errors:?}")]
+    #[error("download: {error}")]
     Download {
-        errors: Vec<(Download, DownloadError)>,
+        #[from]
+        error: dl::Error,
     },
     /// A developer-oriented error that cannot be handled with other errors, it has an
     /// origin that could be a file or any other raw string, attached to the actual error.
@@ -876,8 +855,8 @@ pub struct Library {
     /// The path to install the library at, relative to the libraries directory, by 
     /// default it will be derived from the library specifier.
     pub path: Option<PathBuf>,
-    /// An optional download source for this library if it is missing.
-    pub source: Option<DownloadSource>,
+    /// An optional download entry source for this library if it is missing.
+    pub source: Option<dl::EntrySource>,
     /// True if this contains natives that should be extracted into the binaries 
     /// directory before launching the game, instead of being in the class path.
     pub natives: bool,
