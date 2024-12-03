@@ -63,6 +63,11 @@ pub trait Handler {
     /// download.
     fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32);
 
+    fn as_download_dyn(&mut self) -> &mut dyn Handler
+    where Self: Sized {
+        self
+    }
+    
 }
 
 /// Blanket implementation it no handler is needed.
@@ -72,13 +77,7 @@ impl Handler for () {
     }
 }
 
-impl<H: Handler> Handler for &'_ mut H {
-    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
-        (*self).handle_download_progress(count, total_count, size, total_size)
-    }
-}
-
-impl Handler for &'_ mut (dyn Handler + '_) {
+impl<H: Handler + ?Sized> Handler for &'_ mut H {
     fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
         (*self).handle_download_progress(count, total_count, size, total_size)
     }
