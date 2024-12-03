@@ -34,20 +34,29 @@ impl MojangManifest {
 
     pub fn get(&mut self) -> io::Result<&serde::MojangManifest> {
 
-        if let Some(data) = &self.data {
-            return Ok(data);
+        // Doing so to avoid borrowing issues.
+        if self.data.is_some() {
+            return Ok(self.data.as_ref().unwrap());
         }
 
         if let Some(cache_file) = self.cache_file.as_deref() {
 
-            let cache_reader = match File::open(cache_file) {
-                Ok(reader) => BufReader::new(reader),
-                Err(e) if e.kind() == io::ErrorKind::NotFound 
+            // Using a loop for using early breaks.
+            loop {
+
+                let cache_reader = match File::open(cache_file) {
+                    Ok(reader) => BufReader::new(reader),
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => break,
+                    Err(e) => return Err(e),
+                };
+                
+                // Silently ignoring any parsing error.
+                self.data = serde_json::from_reader(cache_reader).ok();
+                break;
+
             }
-            
-            self.datamatch serde_json::from_reader(BufReader::new(File::open(cache_file)?)) {
-                Ok(obj) => obj
-            }
+
+            // Return if some
 
         }
 
