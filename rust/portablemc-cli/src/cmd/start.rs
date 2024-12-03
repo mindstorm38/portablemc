@@ -89,7 +89,7 @@ pub fn apply_standard_args<'a>(
     installer.assets_dir(cli.assets_dir.clone());
     installer.jvm_dir(cli.jvm_dir.clone());
     installer.bin_dir(cli.bin_dir.clone());
-    installer.work_dir(cli.work_dir.clone());
+    installer.mc_dir(cli.mc_dir.clone());
     installer
 }
 
@@ -115,7 +115,7 @@ pub fn apply_mojang_args<'a>(
 
     for exclude_id in &args.exclude_fetch {
         if exclude_id == "*" {
-            installer.fetch(false);
+            installer.fetch_exclude_all();
         } else {
             installer.fetch_exclude(exclude_id.clone());
         }

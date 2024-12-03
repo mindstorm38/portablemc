@@ -10,7 +10,7 @@ use portablemc::download::Handler;
 use crate::format::{TimeDeltaDisplay, DATE_FORMAT};
 use crate::parse::{SearchArgs, SearchKind};
 
-use super::{Cli, CommonHandler, log_standard_error, log_io_error};
+use super::{Cli, CommonHandler, log_mojang_error, log_io_error};
 
 
 pub fn main(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
@@ -33,7 +33,7 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
     let manifest = match mojang::request_manifest(handler.as_download_dyn()) {
         Ok(manifest) => manifest,
         Err(e) => {
-            log_standard_error(&mut cli.out, e);
+            log_mojang_error(&mut cli.out, e);
             return ExitCode::FAILURE;
         }
     };

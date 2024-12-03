@@ -6,17 +6,18 @@ pub mod serde;
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Write as _, BufReader};
-use std::fs::{self, File};
 use std::path::PathBuf;
 use std::env;
+use std::fs;
 
-use crate::standard::{self, LIBRARIES_URL, Handler as _, Library, check_file, replace_strings_args};
-use crate::download::{self, Entry, EntrySource};
+use uuid::Uuid;
+
+use crate::standard::{self, LIBRARIES_URL, check_file, replace_strings_args, Handler as _, Library, LibraryDownload};
+use crate::download;
 use crate::gav::Gav;
 use crate::msa;
 
 pub use standard::Game;
-use uuid::Uuid;
 
 
 /// Static URL to the version manifest provided by Mojang.
@@ -41,8 +42,7 @@ pub struct Installer {
 #[derive(Debug, Clone)]
 struct InstallerInner {
     root: Root,
-    fetch: bool,
-    fetch_exclude: Vec<String>,
+    fetch_exclude: Option<Vec<String>>,  // None when fetch is disabled.
     demo: bool,
     quick_play: Option<QuickPlay>,
     resolution: Option<(u16, u16)>,
@@ -64,16 +64,15 @@ struct InstallerInner {
 
 impl Installer {
 
-    /// Create a new installer with default configuration, using defaults directories and
-    /// the given root version to load and then install. This Mojang installer has all 
-    /// fixes enabled except LWJGL and missing version fetching is enabled.
+    /// Create a new installer with default configuration, using defaults directories. 
+    /// This Mojang installer has all fixes enabled except LWJGL and missing version 
+    /// fetching is enabled.
     pub fn new(main_dir: impl Into<PathBuf>) -> Self {
         Self {
             standard: standard::Installer::new(String::new(), main_dir),
             inner: InstallerInner {
                 root: Root::Release,
-                fetch: true,
-                fetch_exclude: Vec::new(),
+                fetch_exclude: Some(Vec::new()),  // Enabled by default
                 demo: false,
                 quick_play: None,
                 resolution: None,
@@ -102,6 +101,8 @@ impl Installer {
     }
 
     /// Execute some callback to alter the standard installer.
+    /// 
+    /// *Note that the `root` property will be overwritten when installing.*
     #[inline]
     pub fn with_standard<F>(&mut self, func: F) -> &mut Self
     where
@@ -112,30 +113,46 @@ impl Installer {
     }
 
     /// By default, this Mojang installer targets the latest release version, use this
-    /// function to change the version to install.
-    #[inline]
-    pub fn root(&mut self, id: impl Into<Root>) -> &mut Self {
-        self.inner.root = id.into();
-        self
-    }
-
-    /// Set to true if this installer should use the online versions manifest to check
-    /// already installed version and fetch them if outdated or not installed. This will
-    /// do that for every version in the hierarchy of loaded version, but versions can
-    /// be excluded from this fetching using [`Self::fetch_exclude`].
+    /// function to change the version to install. 
     /// 
-    /// This is enabled by default.
+    /// If this root version is an alias (`Release` the default, or `Snapshot`), it will 
+    /// require the online version manifest, if the alias is not found in the manifest 
+    /// (which is an issue on Mojang's side) then a [`Error::RootAliasNotFound`] is 
+    /// returned.
     #[inline]
-    pub fn fetch(&mut self, fetch: bool) -> &mut Self {
-        self.inner.fetch = fetch;
+    pub fn root(&mut self, root: impl Into<Root>) -> &mut Self {
+        self.inner.root = root.into();
         self
     }
 
-    /// Exclude the given version id from versions that should be fetched, this is 
-    /// not used if fetching is fully disabled.
+    /// Clear all versions from being fetch excluded.See [`Self::fetch_exclude`] and 
+    /// [`Self::fetch_exclude_all`]. **This is the default state when constructed.**
+    #[inline]
+    pub fn fetch_exclude_clear(&mut self) -> &mut Self {
+        self.inner.fetch_exclude = Some(Vec::new());
+        self
+    }
+
+    /// Exclude all version from being fetched from the online versions manifest. This
+    /// online version manifest is used to verify and install if needed each version in
+    /// the hierarchy, by default, so this argument can be used to disable that.
+    /// 
+    /// **To don't use online manifest at all, you must also ensure that the root version
+    /// is not an alias (`Release` or `Snapshot`).**
+    #[inline]
+    pub fn fetch_exclude_all(&mut self) -> &mut Self {
+        self.inner.fetch_exclude = None;
+        self
+    }
+
+    /// Exclude the given version id from versions that should be fetched, this has no
+    /// effect if [`Self::fetch_exclude_all`] has already been called and not cancelled
+    /// by a [`Self::fetch_exclude_clear`].
     #[inline]
     pub fn fetch_exclude(&mut self, id: impl Into<String>) -> &mut Self {
-        self.inner.fetch_exclude.push(id.into());
+        if let Some(v) = &mut self.inner.fetch_exclude {
+            v.push(id.into());
+        }
         self
     }
 
@@ -376,24 +393,16 @@ impl Installer {
         };
 
         // If we need an alias then we need to load the manifest.
-        let id;
-        if let Some(alias) = alias {
-            if inner.fetch {
-                let new_manifest = request_manifest(handler.as_download_dyn())?;
-                id = new_manifest.latest.get(&alias).cloned();
-                manifest = Some(new_manifest);
-            } else {
-                id = None;
-            }
+        let id = if let Some(alias) = alias {
+            manifest.insert(request_manifest(handler.as_download_dyn())?)
+                .latest.get(&alias)
+                .cloned()
+                .ok_or_else(|| Error::RootAliasNotFound { root: self.inner.root.clone() })?
         } else {
-            id = match self.inner.root {
-                Root::Id(ref new_id) => Some(new_id.clone()),
+            match self.inner.root {
+                Root::Id(ref new_id) => new_id.clone(),
                 _ => unreachable!(),
-            };
-        }
-
-        let Some(id) = id else {
-            return Err(Error::AliasVersionNotFound { root: self.inner.root.clone() });
+            }
         };
 
         standard.root(id);
@@ -629,10 +638,10 @@ pub enum Error {
     /// Error from the standard installer.
     #[error("standard: {0}")]
     Standard(#[from] standard::Error),
-    /// A root alias version, `Release` or `Snapshot` has not been found because fetching
-    /// is disabled, or if the alias is missing from the Mojang's version manifest.
-    #[error("root version not found: {root:?}")]
-    AliasVersionNotFound {
+    /// A root alias version, `Release` or `Snapshot` has not been found because the alias
+    /// is missing from the Mojang's version manifest.
+    #[error("root alias not found: {root:?}")]
+    RootAliasNotFound {
         root: Root,
     },
     /// The LWJGL fix is enabled with a version that is not supported, maybe because
@@ -641,6 +650,24 @@ pub enum Error {
     LwjglFixNotFound {
         version: String,
     },
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(value: reqwest::Error) -> Self {
+        Self::Standard(standard::Error::from(value))
+    }
+}
+
+impl From<download::BatchResult> for Error {
+    fn from(value: download::BatchResult) -> Self {
+        Self::Standard(standard::Error::from(value))
+    }
+}
+
+impl From<download::EntryError> for Error {
+    fn from(value: download::EntryError) -> Self {
+        Self::Standard(standard::Error::from(value))
+    }
 }
 
 /// Type alias for a result with the standard error type.
@@ -660,7 +687,7 @@ pub enum Root {
 /// An impl so that we can give string-like objects to the builder.
 impl<T: Into<String>> From<T> for Root {
     fn from(value: T) -> Self {
-        Root::Id(value.into())
+        Self::Id(value.into())
     }
 }
 
@@ -692,22 +719,16 @@ pub enum QuickPlay {
 /// Request the Mojang versions' manifest with the currently configured cache file.
 pub fn request_manifest(handler: impl download::Handler) -> standard::Result<serde::MojangManifest> {
     
-    let entry = Entry::new_cached(VERSION_MANIFEST_URL);
-    let file = entry.file.to_path_buf();
-    entry.download(handler)?;
+    let mut entry = download::single_cached(VERSION_MANIFEST_URL)
+        .set_keep_open()
+        .download(handler)??;
 
-    let reader = match File::open(&file) {
-        Ok(reader) => BufReader::new(reader),
-        Err(e) => return Err(standard::Error::new_io_file(e, file)),
-    };
-
+    let reader = BufReader::new(entry.take_handle().unwrap());
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
-    let manifest: serde::MojangManifest = match serde_path_to_error::deserialize(&mut deserializer) {
-        Ok(obj) => obj,
-        Err(e) => return Err(standard::Error::new_json_file(e, file))
-    };
-
-    Ok(manifest)
+    match serde_path_to_error::deserialize::<_, serde::MojangManifest>(&mut deserializer) {
+        Ok(obj) => Ok(obj),
+        Err(e) => Err(standard::Error::new_json_file(e, entry.file()))
+    }
 
 }
 
@@ -772,7 +793,11 @@ impl<H: Handler> InternalHandler<'_, H> {
                 self.inner.handle_standard_event(event);
 
                 // Ignore the version if excluded.
-                if !self.installer.fetch || self.installer.fetch_exclude.iter().any(|id| id == id) {
+                let Some(exclude) = &self.installer.fetch_exclude else {
+                    return Ok(());
+                };
+
+                if exclude.iter().any(|id| id == id) {
                     return Ok(());
                 }
 
@@ -817,10 +842,10 @@ impl<H: Handler> InternalHandler<'_, H> {
                 
                 self.inner.handle_mojang_event(Event::MojangVersionFetching { id });
                 
-                EntrySource::from(dl)
-                    .with_file(file.to_path_buf())
-                    .download(&mut self.inner)
-                    .map_err(standard::Error::Download)?;
+                download::single(dl.url.clone(), file.to_path_buf())
+                    .set_expect_size(dl.size)
+                    .set_expect_sha1(dl.sha1.as_deref().copied())
+                    .download(self.inner.as_download_dyn())??;
 
                 self.inner.handle_mojang_event(Event::MojangVersionFetched { id });
 
@@ -888,8 +913,8 @@ impl<H: Handler> InternalHandler<'_, H> {
 
             libraries[pos].path = None;  // Ensure that the path is recomputed.
             libraries[pos].gav.set_version("2.2.30");
-            libraries[pos].source = Some(EntrySource {
-                url: format!("{LIBRARIES_URL}com/mojang/authlib/2.2.30/authlib-2.2.30.jar").into_boxed_str(),
+            libraries[pos].download = Some(LibraryDownload {
+                url: format!("{LIBRARIES_URL}com/mojang/authlib/2.2.30/authlib-2.2.30.jar"),
                 size: Some(87497),
                 sha1: Some([0xd6, 0xe6, 0x77, 0x19, 0x9a, 0xa6, 0xb1, 0x9c, 0x4a, 0x9a, 0x2e, 0x72, 0x50, 0x34, 0x14, 0x9e, 0xb3, 0xe7, 0x46, 0xf8]),
             });
@@ -930,7 +955,7 @@ impl<H: Handler> InternalHandler<'_, H> {
             if let ("org.lwjgl", "jar") = (lib.gav.group(), lib.gav.extension()) {
                 if lib.gav.classifier().is_empty() {
                     lib.path = None;
-                    lib.source = None;  // Will be updated afterward.
+                    lib.download = None;  // Will be updated afterward.
                     lib.gav.set_version(version);
                     lwjgl_libs.push(lib.gav.clone());
                     true
@@ -949,7 +974,7 @@ impl<H: Handler> InternalHandler<'_, H> {
             Library {
                 gav,
                 path: None,
-                source: None, // Will be set in the loop just after.
+                download: None, // Will be set in the loop just after.
                 natives: false,
             }
         }));
@@ -962,7 +987,7 @@ impl<H: Handler> InternalHandler<'_, H> {
                     url.push('/');
                     url.push_str(&component);
                 }
-                lib.source = Some(EntrySource::new(url));
+                lib.download = Some(LibraryDownload { url, size: None, sha1: None });
             }
         }
 

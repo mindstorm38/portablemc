@@ -35,7 +35,7 @@ pub struct CliArgs {
     /// --assets-dir <main>/assets
     /// --jvm-dir <main>/jvm
     /// --bin-dir <main>/bin
-    /// --work-dir <main>
+    /// --mc-dir <main>
     /// 
     /// If left unspecified, this argument defaults to the standard Minecraft directory
     /// for your system: in '%USERPROFILE%/AppData/Roaming' on Windows, 
@@ -76,8 +76,8 @@ pub struct CliArgs {
     /// other user related stuff.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long, env = "PMC_WORK_DIR", value_name = "PATH")]
-    pub work_dir: Option<PathBuf>,
+    #[arg(long, env = "PMC_MC_DIR", value_name = "PATH")]
+    pub mc_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
