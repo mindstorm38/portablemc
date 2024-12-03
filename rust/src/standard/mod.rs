@@ -6,6 +6,7 @@ mod specifier;
 // mod metadata;
 
 use std::collections::{HashMap, HashSet};
+use std::result::Result as StdResult;
 use std::io::{self, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::fs::File;
@@ -24,9 +25,11 @@ const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
 const LIBRARIES_URL: &str = "https://libraries.minecraft.net/";
 
 
-/// Represent the installation context that can be shared between multiple installers.
+/// Standard installer handle to install versions, this object is just the configuration
+/// of the installer when a version will be installed, such as directories to install 
+/// into, the installation will not mutate this object.
 #[derive(Debug)]
-pub struct Context {
+pub struct Installer {
     /// The main directory contains all static resources that will not be modified during
     /// runtime, this includes versions, libraries and assets.
     pub main_dir: PathBuf,
@@ -46,26 +49,147 @@ pub struct Context {
     pub meta_os_bits: String,
 }
 
-impl Context {
+impl Installer {
 
-    /// Construct path to the versions directory.
-    pub fn versions_dir(&self) -> PathBuf {
-        self.main_dir.join("versions")
+    pub fn install(&self, handler: &mut dyn Handler, version: &str) -> Result<()> {
+        
+        let hierarchy = self.load_hierarchy(handler, version)?;
+
+        Ok(())
+
     }
 
-    /// Construct path to a particular version directory.
-    pub fn version_dir(&self, version: &str) -> PathBuf {
-        let mut buf = self.versions_dir();
-        buf.push(version);
-        buf
+    /// Internal function that loads the version hierarchy from their JSON metadata files.
+    fn load_hierarchy(&self, handler: &mut dyn Handler, root_id: &str) -> Result<Vec<Version>> {
+
+        handler.handle(self, Event::HierarchyLoading { root_id })?;
+
+        let mut hierarchy = Vec::new();
+        let mut current_id = Some(root_id.to_string());
+
+        let versions_dir = self.main_dir.join("versions");
+
+        while let Some(load_id) = current_id.take() {
+            let version = self.load_version(handler, &versions_dir, load_id)?;
+            if let Some(next_id) = &version.metadata.inherits_from {
+                current_id = Some(next_id.clone());
+            }
+            hierarchy.push(version);
+        }
+
+        handler.handle(self, Event::HierarchyLoaded {  })?;
+
+        Ok(hierarchy)
+
     }
 
-    /// Construct path to a particular version file inside the version directory.
-    pub fn version_file(&self, version: &str, extension: &str) -> PathBuf {
-        let mut buf = self.version_dir(version);
-        buf.push(version);
-        buf.with_extension(extension);
-        buf
+    /// Internal function that loads a version from its JSON metadata file.
+    fn load_version(&self, handler: &mut dyn Handler, versions_dir: &Path, id: String) -> Result<Version> {
+
+        let dir = versions_dir.join(&id);
+        let file = dir.join_with_extension(&id, "json");
+
+        handler.handle(self, Event::VersionLoading { id: &id, file: &file })?;
+
+        loop {
+
+            let reader = match File::open(&file) {
+                Ok(reader) => reader,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+
+                    // If not retried, we return a version not found error.
+                    match handler.handle(self, Event::VersionNotFound { id: &id, file: &file, error: None }) {
+                        Ok(()) => return Err(Error::VersionNotFound { id: id.into_boxed_str() }),
+                        Err(Error::Retry) => continue,
+                        Err(e) => return Err(e),
+                    }
+
+                }
+                Err(e) => return Err(Error::new_file_io(file, e))
+            };
+
+            let mut deserializer = serde_json::Deserializer::from_reader(reader);
+            let mut metadata: serde::VersionMetadata = match serde_path_to_error::deserialize(&mut deserializer) {
+                Ok(obj) => obj,
+                Err(e) => {
+
+                    // Force drop deserializer here to close the file reader.
+                    drop(deserializer);
+                    
+                    // If not retried, we return a version not found error.
+                    match handler.handle(self, Event::VersionNotFound { id: &id, file: &file, error: Some(e) }) {
+                        Ok(()) => return Err(Error::VersionNotFound { id: id.into_boxed_str() }),
+                        Err(Error::Retry) => continue,
+                        Err(e) => return Err(e),
+                    }
+
+                }
+            };
+
+            handler.handle(self, Event::VersionLoaded { id: &id, file: &file, metadata: &mut metadata })?;
+
+            break Ok(Version {
+                id,
+                metadata,
+            });
+
+        }
+
+    }
+
+    fn load_assets(&self, handler: &mut dyn Handler, hierarchy: &[Version]) -> Result<()> {
+
+        /// Internal description of asset information first found in hierarchy.
+        #[derive(Debug)]
+        struct AssetIndexInfo<'a> {
+            download: Option<&'a serde::Download>,
+            id: &'a str,
+        }
+
+        // We search the first version that provides asset informations, we also support
+        // the legacy 'assets' that doesn't have download information.
+        let asset_index_info = hierarchy.iter()
+            .find_map(|version| {
+                if let Some(asset_index) = &version.metadata.asset_index {
+                    Some(AssetIndexInfo {
+                        download: Some(&asset_index.download),
+                        id: &asset_index.id,
+                    })
+                } else if let Some(asset_id) = &version.metadata.assets {
+                    Some(AssetIndexInfo {
+                        download: None,
+                        id: &asset_id,
+                    })
+                } else {
+                    None
+                }
+            });
+
+        let Some(asset_index_info) = asset_index_info else {
+            handler.handle(self, Event::AssetsLoading { id: None })?;
+            return Ok(());
+        };
+
+        // Resolve all used directories and files...
+        let asset_dir = self.context.main_dir.join("assets");
+        let asset_indexes_dir = asset_dir.join("indexes");
+        let asset_index_file = asset_indexes_dir.join_with_extension(asset_index_info.id, "json");
+
+        if let Some(dl) = asset_index_info.download {
+            match check_file(&asset_index_file, dl.size, dl.sha1.as_deref().copied()) {
+                Ok(true) => {}
+                Ok(false) => {
+
+                }
+                Err(error) => {
+                    
+                }
+            }
+            if !check_file(&asset_index_file, dl.size, dl.sha1.as_deref().copied()) {
+                todo!("download file...");
+            }
+        }
+
     }
 
     /// Resolve the given JSON array as rules and return true if allowed.
@@ -153,12 +277,221 @@ impl Context {
 
 }
 
+/// Handler for events happening when installing.
+pub trait Handler {
 
+    /// Handle an even from the installer.
+    fn handle(&mut self, installer: &Installer, event: Event) -> Result<()>;
+
+}
+
+/// Blanket implementation that does nothing.
+impl Handler for () {
+    
+    fn handle(&mut self, installer: &Installer, event: Event) -> Result<()> {
+        let _ = (installer, event);
+        Ok(())
+    }
+
+}
+
+/// An event produced by the installer that can be handled by the install handler.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Event<'a> {
+    /// The version hierarchy will be loaded.
+    HierarchyLoading {
+        root_id: &'a str,
+    },
+    /// A version will be loaded.
+    VersionLoading {
+        id: &'a str,
+        file: &'a Path,
+    },
+    /// A version file has not been found but is needed. An optional parsing error can
+    /// be attached if the file exists but is invalid.
+    /// 
+    /// **Retry**: this will retry to open and load the version file. If not retried, the
+    /// installation halts with a version not found error.
+    VersionNotFound {
+        id: &'a str,
+        file: &'a Path,
+        error: Option<serde_path_to_error::Error<serde_json::Error>>,
+    },
+    /// A version file has been loaded successfully.
+    VersionLoaded {
+        id: &'a str,
+        file: &'a Path,
+        metadata: &'a mut serde::VersionMetadata,
+    },
+    /// The version hierarchy has been loaded successfully.
+    HierarchyLoaded {},
+    /// Assets will be loaded, or not if no assets are defined by the version.
+    AssetsLoading {
+        id: Option<&'a str>,
+    },
+}
+
+/// The standard installer could not proceed to the installation of a version.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Error {
+    /// The given version is not found when trying to fetch it.
+    VersionNotFound {
+        id: Box<str>,
+    },
+    /// The version JAR file that is required has no download information and is not 
+    /// already existing, is is mandatory to build the class path.
+    JarNotFound,
+    /// A special error that is returned by the handler to request a retry for a specific
+    /// phase, if this error is returned by the global installation process, it means that
+    /// the retry was not possible. The retry-ability of a phase is described on events.
+    Retry,
+    /// A special error than can be used by the handler to halt the installation process
+    /// when an event is produced.
+    Halt,
+    /// A developer-oriented error that cannot be handled with other errors, it has an
+    /// origin that could be a file or any other raw string, attached to the actual error.
+    /// This includes filesystem, network, JSON parsing and schema errors.
+    Other {
+        /// The origin of the error, can be a file path.
+        origin: ErrorOrigin,
+        /// The error error kind from the origin.
+        kind: ErrorKind,
+    },
+}
+
+/// Origin of an uncategorized error.
+#[derive(Debug, Default)]
+pub enum ErrorOrigin {
+    /// Unknown origin for the error.
+    #[default]
+    Unknown,
+    /// The error is related to a specific file.
+    File(Box<Path>),
+    /// The origin of the error is explained in this raw message.
+    Raw(Box<str>),
+}
+
+/// Kind of an uncategorized error.
+#[derive(Debug)]
+pub enum ErrorKind {
+    Io(io::Error),
+    Json(serde_path_to_error::Error<serde_json::Error>),
+}
+
+/// Type alias for a result with the standard error type.
+pub type Result<T> = std::result::Result<T, Error>;
+
+impl Error {
+    
+    #[inline]
+    pub fn new_file_io(file: impl Into<Box<Path>>, e: io::Error) -> Self {
+        Self::Other { origin: ErrorOrigin::File(file.into()), kind: ErrorKind::Io(e) }
+    }
+
+}
+
+#[derive(Debug)]
+struct Version {
+    id: String,
+    metadata: serde::VersionMetadata,
+}
+ 
+/// Ensure that a file exists from its download entry, checking that the file has the
+/// right size and SHA-1, if relevant. This will push the download to the handler and
+/// immediately flush the handler.
+fn check_and_read_file(
+    file: &Path,
+    size: Option<u32>,
+    sha1: Option<[u8; 20]>,
+    url: &str,
+) -> io::Result<File> {
+
+    // If the file need to be (re)downloaded...
+    if !check_file(file, size, sha1)? {
+        // TODO: Download file...
+        // handler.download(&[Download {
+        //     source: DownloadSource {
+        //         url: url.into(),
+        //         size,
+        //         sha1,
+        //     },
+        //     file: file.into(),
+        //     executable: false,
+        // }])?;
+    }
+
+    // The handler should have checked it and it should be existing.
+    match File::open(file) {
+        Ok(reader) => Ok(reader),
+        Err(e) if e.kind() == io::ErrorKind::NotFound =>
+            unreachable!("handler returned no error but downloaded file is absent"),
+        Err(e) => return Err(e),
+    }
+    
+}
+
+/// Check if a file at a given path has the corresponding properties (size and/or SHA-1), 
+/// returning true if it is valid, so false is returned anyway if the file doesn't exists.
+fn check_file(
+    file: &Path,
+    size: Option<u32>,
+    sha1: Option<[u8; 20]>,
+) -> io::Result<bool> {
+
+    if let Some(sha1) = sha1 {
+        // If we want to check SHA-1 we need to open the file and compute it...
+        match File::open(file) {
+            Ok(mut reader) => {
+
+                // If relevant, start by checking the actual size of the file.
+                if let Some(size) = size {
+                    let actual_size = reader.seek(SeekFrom::End(0))?;
+                    if size as u64 != actual_size {
+                        return Ok(false);
+                    }
+                    reader.seek(SeekFrom::Start(0))?;
+                }
+                
+                // Only after we compute hash...
+                let mut digest = Sha1::new();
+                io::copy(&mut reader, &mut digest)?;
+                if digest.finalize().as_slice() != sha1 {
+                    return Ok(false);
+                }
+                
+                Ok(true)
+
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
+            Err(e) => return Err(e),
+        }
+    } else {
+        match (file.metadata(), size) {
+            // File is existing and we want to check size...
+            (Ok(metadata), Some(size)) => Ok(metadata.len() != size as u64),
+            // File is existing but we don't have size to check, no need to download.
+            (Ok(_metadata), None) => Ok(true),
+            (Err(e), _) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            (Err(e), _) => return Err(e),
+        }
+    }
+
+}
+
+
+
+
+
+
+
+/*
 /// A state machine standard version installer.
 #[derive(Debug)]
-pub struct Installer<'ctx> {
+pub struct InstallerOld<'ctx> {
     /// The installer context, directories and configurations for the installation.
-    context: &'ctx Context,
+    context: &'ctx Installer,
     /// Current state of the installer with its specific data.
     state: State,
     /// Data associated to the current state.
@@ -171,9 +504,9 @@ pub struct Installer<'ctx> {
     assets: Option<Assets>,
 }
 
-impl<'ctx> Installer<'ctx> {
+impl<'ctx> InstallerOld<'ctx> {
 
-    pub fn new(context: &'ctx Context, id: String) -> Self {
+    pub fn new(context: &'ctx Installer, id: String) -> Self {
         Self {
             context,
             state: State::VersionPreLoading,
@@ -506,91 +839,7 @@ pub enum Event<'a> {
 pub enum EventError {
     Io(io::Error),
     Json(serde_path_to_error::Error<serde_json::Error>),
-}
-
-/// Ensure that a file exists from its download entry, checking that the file has the
-/// right size and SHA-1, if relevant. This will push the download to the handler and
-/// immediately flush the handler.
-fn check_and_read_file(
-    file: &Path,
-    size: Option<u32>,
-    sha1: Option<[u8; 20]>,
-    url: &str,
-) -> io::Result<File> {
-
-    // If the file need to be (re)downloaded...
-    if !check_file(file, size, sha1)? {
-        // TODO: Download file...
-        // handler.download(&[Download {
-        //     source: DownloadSource {
-        //         url: url.into(),
-        //         size,
-        //         sha1,
-        //     },
-        //     file: file.into(),
-        //     executable: false,
-        // }])?;
-    }
-
-    // The handler should have checked it and it should be existing.
-    match File::open(file) {
-        Ok(reader) => Ok(reader),
-        Err(e) if e.kind() == io::ErrorKind::NotFound =>
-            unreachable!("handler returned no error but downloaded file is absent"),
-        Err(e) => return Err(e),
-    }
-    
-}
-
-/// Check if a file at a given path has the corresponding properties (size and/or SHA-1), 
-/// returning true if it is valid, so false is returned anyway if the file doesn't exists.
-fn check_file(
-    file: &Path,
-    size: Option<u32>,
-    sha1: Option<[u8; 20]>,
-) -> io::Result<bool> {
-
-    if let Some(sha1) = sha1 {
-        // If we want to check SHA-1 we need to open the file and compute it...
-        match File::open(file) {
-            Ok(mut reader) => {
-
-                // If relevant, start by checking the actual size of the file.
-                if let Some(size) = size {
-                    let actual_size = reader.seek(SeekFrom::End(0))?;
-                    if size as u64 != actual_size {
-                        return Ok(false);
-                    }
-                    reader.seek(SeekFrom::Start(0))?;
-                }
-                
-                // Only after we compute hash...
-                let mut digest = Sha1::new();
-                io::copy(&mut reader, &mut digest)?;
-                if digest.finalize().as_slice() != sha1 {
-                    return Ok(false);
-                }
-                
-                Ok(true)
-
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
-            Err(e) => return Err(e),
-        }
-    } else {
-        match (file.metadata(), size) {
-            // File is existing and we want to check size...
-            (Ok(metadata), Some(size)) => Ok(metadata.len() != size as u64),
-            // File is existing but we don't have size to check, no need to download.
-            (Ok(_metadata), None) => Ok(true),
-            (Err(e), _) if e.kind() == io::ErrorKind::NotFound => Ok(false),
-            (Err(e), _) => return Err(e),
-        }
-    }
-
-}
-
-
+}*/
 
 
 
@@ -1384,6 +1633,7 @@ impl DownloadSource {
     }
 
 }
+
 
 /// Return the default main directory for Minecraft, so called ".minecraft".
 fn default_main_dir() -> Option<PathBuf> {

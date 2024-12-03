@@ -7,7 +7,8 @@ use std::ops::Range;
 use std::fmt;
 
 
-/// A maven-style library specifier with an optimized memory footprint.
+/// A maven-style library specifier with an optimized memory footprint. This is also
+/// known as "GAV" in maven terminology (Group Artifact Version).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LibrarySpecifier {
     /// Internal buffer containing the whole specifier. This should follows the pattern 
