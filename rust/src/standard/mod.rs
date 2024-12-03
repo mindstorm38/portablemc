@@ -9,9 +9,13 @@ use std::fs::{self, File};
 use std::process::Command;
 use std::fmt::Write as _;
 use std::sync::LazyLock;
+use std::ffi::OsStr;
 use std::env;
 
 use sha1::{Digest, Sha1};
+use uuid::{uuid, Uuid};
+use zip::result::ZipError;
+use zip::ZipArchive;
 
 use crate::download::{self, Batch, Entry, EntrySource};
 use crate::path::{PathExt, PathBufExt};
@@ -27,6 +31,18 @@ pub(crate) const JVM_META_MANIFEST_URL: &str = "https://piston-meta.mojang.com/v
 /// Base URL for libraries.
 pub(crate) const LIBRARIES_URL: &str = "https://libraries.minecraft.net/";
 
+/// The UUID namespace of PMC, used in various places.
+pub(crate) const UUID_NAMESPACE: Uuid = uuid!("8df5a464-38de-11ec-aa66-3fd636ee2ed7");
+
+/// The default JVM arguments used if no one are presents, such as for old versions.
+pub(crate) const LEGACY_JVM_ARGS: &[&str] = &[
+    "-Djava.library.path=${natives_directory}",
+    "-Dminecraft.launcher.brand=${launcher_name}",
+    "-Dminecraft.launcher.version=${launcher_version}",
+    "-cp",
+    "${classpath}",
+];
+
 /// Standard installer handle to install versions, this object is just the configuration
 /// of the installer when a version will be installed, such as directories to install 
 /// into, the installation will not mutate this object.
@@ -41,6 +57,8 @@ pub struct Installer {
     assets_dir: PathBuf,
     libraries_dir: PathBuf,
     jvm_dir: PathBuf,
+    bin_dir: PathBuf,
+    work_dir: PathBuf,
     strict_assets_check: bool,
     strict_libraries_check: bool,
     strict_jvm_check: bool,
@@ -56,15 +74,17 @@ impl Installer {
     /// changed if needed, using [`Self::root`].
     pub fn new(root_id: impl Into<String>) -> Self {
         
-        // FIXME: Maybe change the main dir to something more standard under Linux.
-        let main_dir = default_main_dir().unwrap();
+        // TODO: Maybe change the main dir to something more standard under Linux.
+        let work_dir = default_main_dir().unwrap();
                 
         Self {
             root_id: root_id.into(),
-            versions_dir: main_dir.join("versions"),
-            assets_dir: main_dir.join("assets"),
-            libraries_dir: main_dir.join("libraries"),
-            jvm_dir: main_dir.join("jvm"),
+            versions_dir: work_dir.join("versions"),
+            assets_dir: work_dir.join("assets"),
+            libraries_dir: work_dir.join("libraries"),
+            jvm_dir: work_dir.join("jvm"),
+            bin_dir: work_dir.join("bin"),
+            work_dir,
             strict_assets_check: false,
             strict_libraries_check: false,
             strict_jvm_check: false,
@@ -88,11 +108,13 @@ impl Installer {
     /// are defined.
     #[inline]
     pub fn main_dir(&mut self, main_dir: impl Into<PathBuf>) -> &mut Self {
-        let main_dir: PathBuf = main_dir.into();
-        self.versions_dir = main_dir.join("versions");
-        self.assets_dir = main_dir.join("assets");
-        self.libraries_dir = main_dir.join("libraries");
-        self.jvm_dir = main_dir.join("jvm");
+        let work_dir = main_dir.into();
+        self.versions_dir = work_dir.join("versions");
+        self.assets_dir = work_dir.join("assets");
+        self.libraries_dir = work_dir.join("libraries");
+        self.jvm_dir = work_dir.join("jvm");
+        self.bin_dir = work_dir.join("bin");
+        self.work_dir = work_dir;
         self
     }
 
@@ -124,6 +146,30 @@ impl Installer {
     #[inline]
     pub fn jvm_dir(&mut self, jvm_dir: impl Into<PathBuf>) -> &mut Self {
         self.jvm_dir = jvm_dir.into();
+        self
+    }
+
+    /// The directory used to extract natives into (.dll, .so) before startup, in modern
+    /// versions the launcher no longer extract natives itself, instead LWJGL is auto
+    /// extracting its own needed natives into that directory. The user launching the
+    /// game should have read/write permissions to this directory.
+    /// 
+    /// Note that a sub-directory will be created with a name that is kind of a hash of
+    /// class files and natives files paths. This directory is considered temporary, not
+    /// really heavy and so can be removed after all instances of the game have been 
+    /// terminated, it can also be set to something like `/tmp/pmc` on Linux for example.
+    #[inline]
+    pub fn bin_dir(&mut self, bin_dir: impl Into<PathBuf>) -> &mut Self {
+        self.bin_dir = bin_dir.into();
+        self
+    }
+
+    /// The directory where the process' working directory is set and all user stuff is
+    /// saved (saves, resource packs, options and more). The user launching the
+    /// game should have read/write permissions to this directory.
+    #[inline]
+    pub fn work_dir(&mut self, work_dir: impl Into<PathBuf>) -> &mut Self {
+        self.work_dir = work_dir.into();
         self
     }
 
@@ -183,7 +229,7 @@ impl Installer {
         // Then we have a sequence of steps that may add entries to the download batch.
         let mut batch = Batch::new();
         let hierarchy = self.load_hierarchy(&mut handler, &self.root_id)?;
-        let lib_files = self.load_libraries(&mut handler, &hierarchy, &features, &mut batch)?;
+        let mut lib_files = self.load_libraries(&mut handler, &hierarchy, &features, &mut batch)?;
         let logger_config = self.load_logger(&mut handler, &hierarchy, &mut batch)?;
         let assets = self.load_assets(&mut handler, &hierarchy, &mut batch)?;
         let jvm = self.load_jvm(&mut handler, &hierarchy, &mut batch)?;
@@ -202,6 +248,9 @@ impl Installer {
             batch.download(handler.as_download_dyn())?;
             handler.handle_standard_event(Event::ResourcesDownloaded {  });
         }
+
+        // Finalization of libraries to create a unique bin dir and extract them into.
+        let bin_dir = self.finalize_libraries(&mut handler, &mut lib_files)?;
 
         // Final installation step is to finalize assets if virtual or resource mapping.
         if let Some(assets) = &assets {
@@ -222,29 +271,33 @@ impl Installer {
                 self.check_args(&mut game_args, &version_args.game, &features, None);
                 // modern_args = true;
             } else if let Some(version_legacy_args) = &version.metadata.legacy_arguments {
+                jvm_args.extend(LEGACY_JVM_ARGS.iter().copied().map(str::to_string));
                 game_args.extend(version_legacy_args.split_whitespace().map(str::to_string));
             }
         }
 
         // The logger configuration is an additional JVM argument.
         if let Some(logger_config) = &logger_config {
-            
-            let logger_file = logger_config.file.canonicalize()
-                    .map_err(Error::new_io)?;
-
+            let logger_file = canonicalize_file(&logger_config.file)?;
             jvm_args.push(logger_config.argument.replace("${path}", &logger_file.to_string_lossy()));
-
         }
+
+        // We also canonicalize paths that will probably be used by args replacements...
+        let bin_dir = canonicalize_file(&bin_dir)?;
+        let work_dir = canonicalize_file(&self.work_dir)?;
+        let libraries_dir = canonicalize_file(&self.libraries_dir)?;
+        let assets_dir = canonicalize_file(&self.assets_dir)?;
+        let jvm_file = canonicalize_file(&jvm.file)?;
 
         replace_strings_args(&mut jvm_args, |arg| {
             Some(match arg {
                 #[cfg(windows)]      "classpath_separator" => ";".to_string(),
                 #[cfg(not(windows))] "classpath_separator" => ":".to_string(),
-                "classpath" => std::env::join_paths(lib_files.class_files.iter()
-                        .map(|file| file.canonicalize().unwrap()))
+                "classpath" => std::env::join_paths(lib_files.class_files.iter())
                     .unwrap()
                     .to_string_lossy()
                     .into_owned(),
+                "natives_directory" => bin_dir.display().to_string(),
                 "launcher_name" => self.launcher_name.as_deref()
                     .unwrap_or(env!("CARGO_PKG_NAME"))
                     .to_string(),
@@ -262,10 +315,12 @@ impl Installer {
                     .filter_map(|v| v.metadata.r#type.as_ref())
                     .map(|t| t.as_str().to_string())
                     .next(),
+                // Same as the work dir for simplification of the abstraction.
+                "game_directory" => work_dir.display().to_string(),
                 // Has been observed in some custom versions...
-                "library_directory" => self.libraries_dir.display().to_string(),
+                "library_directory" => libraries_dir.display().to_string(),
                 // Modern objects-based assets...
-                "assets_root" => self.assets_dir.display().to_string(),
+                "assets_root" => assets_dir.display().to_string(),
                 "assets_index_name" => return assets.as_ref()
                     .map(|assets| assets.id.clone()),
                 // Legacy assets...
@@ -276,18 +331,12 @@ impl Installer {
             })
         });
 
-        Ok(Game { 
-            jvm_file: jvm.file.clone(), 
+        Ok(Game {
+            work_dir,
+            jvm_file, 
             main_class, 
             jvm_args, 
             game_args,
-            natives_files: lib_files.natives_files, 
-            assets_mapping: assets
-                .and_then(|assets| assets.mapping)
-                .map(|mapping| GameAssetsMapping {
-                    virtual_dir: mapping.virtual_dir.into_path_buf(),
-                    resources: mapping.resources,
-                }),
         })
 
     }
@@ -589,6 +638,136 @@ impl Installer {
 
     }
 
+    /// Finalize libraries after download by making every path canonicalized, then 
+    /// computing the unique UUID of all the lib files (just by hashing their file 
+    /// names) in order to construct a bin (natives) directory unique to these files.
+    /// All natives files are then extracted or copied into this binary directory
+    /// and it is returned by this function.
+    fn finalize_libraries(&self,
+        handler: &mut impl Handler,
+        lib_files: &mut LibraryFiles
+    ) -> Result<PathBuf> {
+
+        let mut hash_buf = Vec::new();
+
+        // We know that everything has been downloaded and so we canonicalize in place.
+        for file in &mut lib_files.class_files {
+            *file = canonicalize_file(file)?;
+            hash_buf.extend_from_slice(file.as_os_str().as_encoded_bytes());
+        }
+        
+        for file in &mut lib_files.natives_files {
+            *file = canonicalize_file(file)?;
+            hash_buf.extend_from_slice(file.as_os_str().as_encoded_bytes());
+        }
+
+        let bin_uuid = Uuid::new_v5(&UUID_NAMESPACE, &hash_buf);
+        let bin_dir = {
+            // We place the root id as prefix for clarity, even if we can theoretically
+            // have multiple bin dir for the same version, if libraries change.
+            let mut buf = self.bin_dir.join(&self.root_id);
+            buf.as_mut_os_string().push(&format!("-{}", bin_uuid.hyphenated()));
+            buf
+        };
+
+        // Create the directory and then canonicalize it.
+        fs::create_dir_all(&bin_dir)
+            .map_err(|e| Error::new_io_file(e, bin_dir.clone()))?;
+
+        // Now we extract all binaries.
+        for src_file in &lib_files.natives_files {
+            
+            let ext = src_file.extension()
+                .map(OsStr::as_encoded_bytes)
+                .unwrap_or_default();
+
+            match ext {
+                b"zip" | b"jar" => {
+
+                    let src_reader = File::open(&src_file)
+                        .map_err(|e| Error::new_io_file(e, src_file.clone()))
+                        .map(BufReader::new)?;
+
+                    let mut archive = ZipArchive::new(src_reader)
+                        .map_err(|e| Error::new_zip_file(e, src_file.clone()))?;
+                    
+                    for i in 0..archive.len() {
+                        
+                        let mut file = archive.by_index(i).unwrap();
+                        let Some(file_path) = file.enclosed_name() else {
+                            continue;
+                        };
+                        let Some(file_ext) = file_path.extension() else {
+                            continue;
+                        };
+
+                        if !matches!(file_ext.as_encoded_bytes(), b"so" | b"dll" | b"dylib") {
+                            continue;
+                        }
+
+                        // Unwrapping because file should have a name if it has extension.
+                        let file_name = file_path.file_name().unwrap();
+                        let dst_file = bin_dir.join(file_name);
+
+                        let mut dst_writer = File::create(&dst_file)
+                            .map_err(|e| Error::new_io_file(e, dst_file.clone()))?;
+
+                        io::copy(&mut file, &mut dst_writer)
+                            .map_err(Error::new_io)?;
+
+                    }
+
+                }
+                _ => {
+
+                    // Here we just copy the file, if it happens to be a .so file we 
+                    // elide the version number (.so.1.2.3).
+
+                    let Some(mut file_name) = src_file.file_name() else {
+                        continue;
+                    };
+
+                    // Right find a 'so' extension...
+                    let file_name_bytes = file_name.as_encoded_bytes();
+                    let mut file_name_new_len = file_name_bytes.len();
+                    for part in file_name_bytes.rsplit(|&n| n == b'.') {
+                        
+                        // The remaining length can't be zero initially.
+                        debug_assert_ne!(file_name_new_len, 0);
+                        file_name_new_len -= part.len();
+                        if file_name_new_len == 0 {
+                            continue;  // This is equivalent to break.
+                        }
+
+                        if part == b"so" {
+                            // SAFETY: We matched an ASCII extension 'so' after the dot, 
+                            // so it's a valid bound where we can cut off the OS string.
+                            file_name = unsafe { 
+                                OsStr::from_encoded_bytes_unchecked(&file_name_bytes[..file_name_new_len + 2])
+                            };
+                            break;
+                        }
+
+                        file_name_new_len -= 1;  // For the dot.
+
+                    }
+
+                    // Note that 'src_file' has been canonicalized and therefore we have
+                    // no issue of relative linking.
+                    let dst_file = bin_dir.join(file_name);
+                    link_file(&src_file, &dst_file)?;
+
+                }
+            }
+            
+        }
+
+        handler.handle_standard_event(Event::BinariesExtracted { dir: &bin_dir });
+
+        Ok(bin_dir)
+
+    }
+
     /// Load libraries required to run the game.
     fn load_logger(&self,
         handler: &mut impl Handler,
@@ -773,9 +952,53 @@ impl Installer {
             return Ok(());
         };
 
+        // If mapping resources, we systematically remove the links and re-link after.
+        let resources_dir = self.work_dir.join("resources");
+        if mapping.resources {
+            
+            // On unix we expect that to be a symlink, so it's a file to remove.
+            #[cfg(unix)] {
+                match fs::remove_file(&resources_dir) {
+                    Ok(()) => (),
+                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => (),
+                    Err(e) => return Err(Error::new_io_file(e, resources_dir))
+                }
+            }
+
+            // Not on unix, we remove all the directory, which are only hard links.
+            #[cfg(not(unix))] {
+                fs::remove_dir_all(&resources_dir).map_err(Error::new_io)?;
+            }
+            
+        }
+
+        // Hard link each asset into its virtual directory, note on non-unix systems we
+        // also do that to the resources directory.
         for object in &mapping.objects {
+            
             let virtual_file = mapping.virtual_dir.join(&object.rel_file);
-            fs::hard_link(&object.object_file, virtual_file).map_err(Error::new_io)?;
+            if let Some(parent) = virtual_file.parent() {
+                fs::create_dir_all(parent).map_err(Error::new_io)?;
+            }
+            hard_link_file(&object.object_file, &virtual_file)?;
+
+            // Not on unix, we don't have symlink so we hard link each file.
+            #[cfg(not(unix))]
+            if mapping.resources {
+                let resource_file = resources_dir.join(&object.rel_file);
+                if let Some(parent) = resource_file.parent() {
+                    fs::create_dir_all(parent).map_err(Error::new_io)?;
+                }
+                hard_link_file(&object.object_file, &resource_file)?;
+            }
+
+        }
+
+        // On unix we can symlink the whole directory, should not be already existing.
+        #[cfg(unix)]
+        if mapping.resources {
+            std::os::unix::fs::symlink(&mapping.virtual_dir, &resources_dir)
+                .map_err(|e| Error::new_io_file(e, resources_dir))?;
         }
 
         Ok(())
@@ -792,35 +1015,45 @@ impl Installer {
         let version = hierarchy.iter()
             .find_map(|version| version.metadata.java_version.as_ref());
 
+        let major_version_num = version
+            .map(|v| v.major_version)
+            .unwrap_or(8);
+
+        let distribution = version
+            .and_then(|v| v.component.as_deref())
+            .or_else(|| Some(match major_version_num {
+                8 => "jre-legacy",
+                16 => "java-runtime-alpha",
+                17 => "java-runtime-gamma",
+                21 => "java-runtime-delta",
+                _ => return None
+            }));
+        
+        let major_version = if major_version_num <= 8 { 
+            format!("1.{major_version_num}.")
+        } else {
+            format!("{major_version_num}.")
+        };
+            
+        handler.handle_standard_event(Event::JvmLoading { 
+            major_version: major_version_num,
+        });
+
         let mut jvm;
         
         // We simplify the code with this condition and duplicated match, because in the
         // 'else' case we can simplify any policy that contains Mojang and System to
         // System, because we don't have instructions for finding Mojang version.
-        if let Some(version) = version {
-            
-            let major_version_num = version.major_version;
-            let major_version = if major_version_num <= 8 { 
-                format!("1.{major_version_num}.")
-            } else {
-                format!("{major_version_num}.")
-            };
-
-            let distribution = version.component.as_deref().unwrap_or("jre-legacy");
-
-            handler.handle_standard_event(Event::JvmLoading { 
-                major_version: Some(major_version_num),
-            });
-
+        if let Some(distribution) = distribution {
             match self.jvm_policy {
                 JvmPolicy::Static { ref file, strict_check } => 
-                    jvm = self.load_static_jvm(handler, file.clone(), strict_check, Some(&major_version))?,
+                    jvm = self.load_static_jvm(handler, file.clone(), strict_check, &major_version)?,
                 JvmPolicy::System => 
-                    jvm = self.load_system_jvm(handler, Some(&major_version))?,
+                    jvm = self.load_system_jvm(handler, &major_version)?,
                 JvmPolicy::Mojang => 
                     jvm = self.load_mojang_jvm(handler, distribution, batch)?,
                 JvmPolicy::SystemThenMojang => {
-                    jvm = self.load_system_jvm(handler, Some(&major_version))?;
+                    jvm = self.load_system_jvm(handler, &major_version)?;
                     if jvm.is_none() {
                         jvm = self.load_mojang_jvm(handler, distribution, batch)?;
                     }
@@ -828,35 +1061,24 @@ impl Installer {
                 JvmPolicy::MojangThenSystem => {
                     jvm = self.load_mojang_jvm(handler, distribution, batch)?;
                     if jvm.is_none() {
-                        jvm = self.load_system_jvm(handler, Some(&major_version))?;
+                        jvm = self.load_system_jvm(handler, &major_version)?;
                     }
                 }
             }
-            
-            if jvm.is_none() {
-                return Err(Error::JvmNotFound { major_version: Some(major_version_num) });
-            }
-
         } else {
-
-            handler.handle_standard_event(Event::JvmLoading { 
-                major_version: None,
-            });
-
             jvm = match self.jvm_policy {
                 JvmPolicy::Static { ref file, strict_check } => 
-                    self.load_static_jvm(handler, file.clone(), strict_check, None)?,
+                    self.load_static_jvm(handler, file.clone(), strict_check, &major_version)?,
                 JvmPolicy::System | 
                 JvmPolicy::SystemThenMojang | 
                 JvmPolicy::MojangThenSystem => 
-                    self.load_system_jvm(handler, None)?,
+                    self.load_system_jvm(handler, &major_version)?,
                 JvmPolicy::Mojang => None,
             };
+        }
 
-            if jvm.is_none() {
-                return Err(Error::JvmNotFound { major_version: None });
-            }
-
+        if jvm.is_none() {
+            return Err(Error::JvmNotFound { major_version: major_version_num });
         }
 
         // This has been checked above.
@@ -876,7 +1098,7 @@ impl Installer {
         handler: &mut impl Handler,
         file: PathBuf,
         strict_check: bool,
-        major_version: Option<&str>,
+        major_version: &str,
     ) -> Result<Option<Jvm>> {
 
         // If the given JVM don't work, this returns None.
@@ -885,34 +1107,32 @@ impl Installer {
         };
 
         // Only check if both major version is required and JVM version has been checked.
-        if let Some(major_version) = major_version {
-            if let Some(jvm_version) = jvm.version.as_deref() {
-                if !jvm_version.starts_with(major_version) {
-                    
-                    handler.handle_standard_event(Event::JvmVersionRejected { 
-                        file: &jvm.file,
-                        version: Some(jvm_version),
-                    });
-                    
-                    // Only return no JVM is strict checking is enabled.
-                    if strict_check {
-                        return Ok(None);
-                    }
-
-                }
-            } else if strict_check {
-
-                // If the JVM version was not found by running the JVM but strict 
-                // checking is enabled we reject this JVM because we can't guarantee
-                // the JVM version.
+        if let Some(jvm_version) = jvm.version.as_deref() {
+            if !jvm_version.starts_with(major_version) {
+                
                 handler.handle_standard_event(Event::JvmVersionRejected { 
                     file: &jvm.file,
-                    version: None,
+                    version: Some(jvm_version),
                 });
-
-                return Ok(None);
+                
+                // Only return no JVM is strict checking is enabled.
+                if strict_check {
+                    return Ok(None);
+                }
 
             }
+        } else if strict_check {
+
+            // If the JVM version was not found by running the JVM but strict 
+            // checking is enabled we reject this JVM because we can't guarantee
+            // the JVM version.
+            handler.handle_standard_event(Event::JvmVersionRejected { 
+                file: &jvm.file,
+                version: None,
+            });
+
+            return Ok(None);
+
         }
 
         Ok(Some(jvm))
@@ -922,7 +1142,7 @@ impl Installer {
     /// Try to find a JVM executable installed on the system in standard paths.
     fn load_system_jvm(&self,
         handler: &mut impl Handler,
-        major_version: Option<&str>,
+        major_version: &str,
     ) -> Result<Option<Jvm>> {
 
         let mut candidates = Vec::new();
@@ -959,26 +1179,22 @@ impl Installer {
                 continue
             };
 
-            if let Some(major_version) = major_version.as_deref() {
-                
-                // If we have a major version requirement but the JVM version couldn't
-                // be determined, we skip this candidate.
-                let Some(jvm_version) = jvm.version.as_deref() else {
-                    handler.handle_standard_event(Event::JvmVersionRejected { 
-                        file: &jvm.file, 
-                        version: None,
-                    });
-                    continue
-                };
+            // If we have a major version requirement but the JVM version couldn't
+            // be determined, we skip this candidate.
+            let Some(jvm_version) = jvm.version.as_deref() else {
+                handler.handle_standard_event(Event::JvmVersionRejected { 
+                    file: &jvm.file, 
+                    version: None,
+                });
+                continue
+            };
 
-                if !jvm_version.starts_with(major_version) {
-                    handler.handle_standard_event(Event::JvmVersionRejected { 
-                        file: &jvm.file, 
-                        version: Some(jvm_version),
-                    });
-                    continue;
-                }
-
+            if !jvm_version.starts_with(major_version) {
+                handler.handle_standard_event(Event::JvmVersionRejected { 
+                    file: &jvm.file, 
+                    version: Some(jvm_version),
+                });
+                continue;
             }
 
             return Ok(Some(jvm));
@@ -1181,32 +1397,7 @@ impl Installer {
         // On Unix we simply use a symlink, on other systems (Windows) we hard link,
         // this act like a copy but is way cheaper.
         for link in &mojang_jvm.links {
-            
-            #[cfg(unix)]
-            {
-                // We just give the relative link with '..' which will be resolved 
-                // relative to the link's location by the filesystem.
-
-                match std::os::unix::fs::symlink(&link.target_file, &link.file) {
-                    Ok(()) => (),
-                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => (),
-                    Err(e) => return Err(Error::new_io_file(e, link.file.clone())),
-                }
-
-            }
-
-            #[cfg(not(unix))]
-            {
-
-                // We unwrap because we are sure that this is a file, and in worse case
-                // the parent file will be "".
-                let parent_dir = link.file.parent().unwrap();
-                let file = parent_dir.join(&link.target_file);
-                
-                fs::hard_link(&link.target_file, &file)
-                    .map_err(|e| Error::new_io_file(e, file))?;
-            }
-
+            link_file(&link.target_file, &link.file)?;
         }
 
         Ok(())
@@ -1407,7 +1598,9 @@ pub enum Event<'a> {
         libraries: &'a mut Vec<Library>,
     },
     /// Libraries have been verified, the class files includes the client JAR file as 
-    /// first path in the vector.
+    /// first path in the vector. Note that all paths will be canonicalized, relatively
+    /// to the current process' working dir, before being added to the command line, 
+    /// so the files must exists.
     LibrariesVerified {
         class_files: &'a mut Vec<PathBuf>,
         natives_files: &'a mut Vec<PathBuf>,
@@ -1442,7 +1635,7 @@ pub enum Event<'a> {
     /// The JVM will be loaded, depending on the policy configured in the installer. An
     /// optional major version may be required by the version.
     JvmLoading {
-        major_version: Option<u32>,
+        major_version: u32,
     },
     /// A JVM has been rejected because its version is invalid or if the version has 
     /// not been detected but it's required in that context. 
@@ -1470,6 +1663,10 @@ pub enum Event<'a> {
     ResourcesDownloading {},
     /// Resources have been successfully downloaded.
     ResourcesDownloaded {},
+    /// All binaries has been successfully extracted to the given binary directory.
+    BinariesExtracted {
+        dir: &'a Path,
+    },
 }
 
 /// The standard installer could not proceed to the installation of a version.
@@ -1498,7 +1695,7 @@ pub enum Error {
     /// No JVM was found when installing the version, this depends on installer policy.
     #[error("jvm not found")]
     JvmNotFound {
-        major_version: Option<u32>,
+        major_version: u32,
     },
     #[error("main class not found")]
     MainClassNotFound {  },
@@ -1514,6 +1711,13 @@ pub enum Error {
     Json {
         #[source]
         error: serde_path_to_error::Error<serde_json::Error>,
+        file: Box<Path>,
+    },
+    /// A Zip error with a file source, this can happen when extracting natives.
+    #[error("zip: {error} @ {file}")]
+    Zip {
+        #[source]
+        error: ZipError,
         file: Box<Path>,
     },
     /// Download error, associating its failed download entry to the download error.
@@ -1539,6 +1743,11 @@ impl Error {
     #[inline]
     pub fn new_json_file(error: serde_path_to_error::Error<serde_json::Error>, file: impl Into<Box<Path>>) -> Self {
         Self::Json { error, file: file.into() }
+    }
+
+    #[inline]
+    pub fn new_zip_file(error: ZipError, file: impl Into<Box<Path>>) -> Self {
+        Self::Zip { error, file: file.into() }
     }
 
 }
@@ -1591,8 +1800,8 @@ pub struct Version {
 pub struct Library {
     /// GAV for this library.
     pub gav: Gav,
-    /// The path to install the library at, relative to the libraries directory, by 
-    /// default it will be derived from the library specifier.
+    /// The path to install the library at, relative to the libraries directory, if not
+    /// specified, it will be derived from the library specifier.
     pub path: Option<PathBuf>,
     /// An optional download entry source for this library if it is missing.
     pub source: Option<download::EntrySource>,
@@ -1609,6 +1818,8 @@ pub struct Library {
 /// configured in the installer, they are all made absolute before launching the game. 
 #[derive(Debug, Clone)]
 pub struct Game {
+    /// Working directory where the JVM process should be running.
+    work_dir: PathBuf,
     /// Path to the JVM executable file.
     pub jvm_file: PathBuf,
     /// The main class that contains the JVM entrypoint.
@@ -1617,38 +1828,20 @@ pub struct Game {
     pub jvm_args: Vec<String>,
     /// List of game arguments (after the main class in the command line).
     pub game_args: Vec<String>,
-    /// List of native files to be linked (or copied) to bin directory, or extracted to.
-    pub natives_files: Vec<PathBuf>,
-    /// Assets mapping information if any.
-    pub assets_mapping: Option<GameAssetsMapping>,
-}
-
-/// This contains informations on how to map assets if the version needs it.
-#[derive(Debug, Clone)]
-pub struct GameAssetsMapping {
-    /// Path to the virtual directory containing the resources, this is used for
-    /// versions after 13w23b up to 13w48b (1.7.2).
-    pub virtual_dir: PathBuf,
-    /// True if the virtual directory should be mapped to the working directory 
-    /// resources directory, this is used for 13w23b and before.
-    pub resources: bool,
 }
 
 impl Game {
 
     /// Launch the game, building the command line giving it to the given closure. This
     /// closure should block until the game is terminated, because this will 
-    pub fn launch_with<P, F, R>(&self, bin_dir: P, func: F) -> io::Result<R>
+    pub fn launch_with<F, R>(&self, func: F) -> io::Result<R>
     where
-        P: AsRef<Path>,
         F: FnOnce(Command) -> io::Result<R>,
     {
 
-        let bin_dir = bin_dir.as_ref();
-
         let mut command = Command::new(&self.jvm_file);
         command
-            .current_dir(bin_dir)
+            .current_dir(&self.work_dir)
             .args(&self.jvm_args)
             .arg(&self.main_class)
             .args(&self.game_args);
@@ -1660,8 +1853,8 @@ impl Game {
     }
 
     /// Launch the game and wait for its termination.
-    pub fn launch<P: AsRef<Path>>(&self, bin_dir: P) -> io::Result<()> {
-        self.launch_with(bin_dir, |mut command| {
+    pub fn launch(&self) -> io::Result<()> {
+        self.launch_with(|mut command| {
             command.spawn()?.wait()?;
             Ok(())
         })
@@ -1839,6 +2032,56 @@ where
 
     }
 
+}
+
+/// Internal shortcut to canonicalize a file and map error into an installer error.
+#[inline]
+pub(crate) fn canonicalize_file(file: &Path) -> Result<PathBuf> {
+    file.canonicalize().map_err(|e| Error::new_io_file(e, file.to_path_buf()))
+}
+
+/// Internal shortcut to creating a link file that points to another one, this function
+/// tries to create a symlink on unix systems and make a hard link on other systems.
+/// **Not made for directories linking!**
+/// 
+/// This function accepts relative path, in case of relative path is refers to the 
+/// directory the link resides in, no security check is performed.
+/// 
+/// This function ignores if the links already exists.
+#[inline]
+pub(crate) fn link_file(original: &Path, link: &Path) -> Result<()> {
+
+    let err;
+
+    #[cfg(unix)] {
+        // We just give the relative link with '..' which will be resolved 
+        // relative to the link's location by the filesystem.
+        err = std::os::unix::fs::symlink(original, link);
+    }
+
+    #[cfg(not(unix))] {
+        let parent_dir = link.parent().unwrap();
+        let file = parent_dir.join(&original);
+        err = fs::hard_link(original, &file);
+    }
+
+    match err {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(Error::new_io_file(e, link.to_path_buf())),
+    }
+
+}
+
+/// Internal shortcut to hard link files, this can also be used for hard linking
+/// directories, if the link already exists the error is ignored.
+#[inline]
+pub(crate) fn hard_link_file(original: &Path, link: &Path) -> Result<()> {
+    match fs::hard_link(original, link) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(Error::new_io_file(e, link.to_path_buf())),
+    }
 }
 
 /// Return the default main directory for Minecraft, so called ".minecraft".
