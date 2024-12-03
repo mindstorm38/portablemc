@@ -21,6 +21,14 @@ pub struct Output {
     escape_cursor_cap: bool,
     /// Are color escape code supported on stdout.
     escape_color_cap: bool,
+    /// Set to true when the current line the cursor should be on is a new one (empty).
+    /// This is only relevant in human-readable mode because machine-readable formats
+    /// always go on a newline.
+    newline: bool,
+    /// Line buffer that will be printed when the log is dropped.
+    line: String,
+    /// For human-readable only, storing the rendered background log.
+    background: String,
 }
 
 #[derive(Debug)]
@@ -50,72 +58,10 @@ impl Output {
             mode,
             escape_cursor_cap: !term_dumb,
             escape_color_cap: !term_dumb && !no_color,
+            newline: true,
+            line: String::new(),
+            background: String::new(),
         }
-    }
-
-    /// Enter log mode, this is exclusive with other modes.
-    pub fn logger(&mut self) -> LoggerOutput<'_> {
-
-        // Save the initial cursor position for the first line to be written.
-        if self.escape_cursor_cap {
-            print!("\x1b[s");
-        }
-
-        LoggerOutput {
-            output: self,
-            shared: LoggerShared::default(),
-        }
-    }
-
-    /// Enter table mode, this is exclusive with other modes.
-    pub fn table(&mut self, columns: usize) -> TableOutput<'_> {
-        assert_ne!(columns, 0);
-        TableOutput {
-            output: self,
-            shared: TableShared {
-                columns,
-                ..TableShared::default()
-            },
-        }
-    }
-
-}
-
-/// The output log mode, used to log events and various other messages, with an optional
-/// state associated and possibly re-writable line for human readable output.
-#[derive(Debug)]
-pub struct LoggerOutput<'a> {
-    /// Exclusive access to output.
-    output: &'a mut Output,
-    /// Buffer storing the current background log message.
-    shared: LoggerShared,
-}
-
-/// Internal buffer for the current line.
-#[derive(Debug, Default)]
-struct LoggerShared {
-    /// Line buffer that will be printed when the log is dropped.
-    line: String,
-    /// For human-readable only, storing the rendered background log.
-    background: String
-}
-
-impl LoggerOutput<'_> {
-
-    /// Internal implementation detail used to be generic over being background.
-    #[inline]
-    fn _log<const BG: bool>(&mut self, code: impl Display) -> Log<'_, BG> {
-
-        if let OutputMode::TabSeparated {  } = self.output.mode {
-            debug_assert!(self.shared.line.is_empty());
-            write!(self.shared.line, "{code}").unwrap();
-        }
-
-        Log {
-            output: &mut self.output,
-            shared: &mut self.shared,
-        }
-
     }
 
     /// Log an information with a simple code referencing it, the given code is the 
@@ -129,8 +75,50 @@ impl LoggerOutput<'_> {
     /// outputs it acts as a regular log, but on human-readable outputs it will be 
     /// displayed at the end of the current line.
     #[inline]
-    pub fn background_log(&mut self, code: impl Display) -> Log<'_, true> {
+    pub fn log_background(&mut self, code: impl Display) -> Log<'_, true> {
         self._log(code)
+    }
+
+    /// Internal implementation detail used to be generic over being background.
+    #[inline]
+    fn _log<const BG: bool>(&mut self, code: impl Display) -> Log<'_, BG> {
+
+        if let OutputMode::TabSeparated {  } = self.mode {
+            debug_assert!(self.line.is_empty());
+            write!(self.line, "{code}").unwrap();
+        } else if let OutputMode::Human { .. } = self.mode {
+            // Save the cursor at the beginning of the new line.
+            if self.newline {
+                print!("\x1b[s");
+            }
+        }
+
+        Log {
+            output: self,
+        }
+
+    }
+
+    /// Enter table mode, this is exclusive with other modes.
+    pub fn table(&mut self, columns: usize) -> TableOutput<'_> {
+        
+        assert_ne!(columns, 0);
+
+        if !self.newline {
+            println!();
+            self.newline = true;
+            self.line.clear();
+            self.background.clear();
+        }
+
+        TableOutput {
+            output: self,
+            shared: TableShared {
+                columns,
+                ..TableShared::default()
+            },
+        }
+
     }
 
 }
@@ -140,8 +128,6 @@ impl LoggerOutput<'_> {
 pub struct Log<'a, const BG: bool> {
     /// Exclusive access to output.
     output: &'a mut Output,
-    /// Internal buffer.
-    shared: &'a mut LoggerShared,
 }
 
 impl<const BG: bool> Log<'_, BG> {
@@ -154,7 +140,7 @@ impl<const BG: bool> Log<'_, BG> {
     /// Append an argument for machine-readable output.
     pub fn arg(&mut self, arg: impl Display) -> &mut Self {
         if let OutputMode::TabSeparated {  } = self.output.mode {
-            write!(self.shared.line, "\t{arg}").unwrap();
+            write!(self.output.line, "\t{arg}").unwrap();
         }
         self
     }
@@ -167,7 +153,7 @@ impl<const BG: bool> Log<'_, BG> {
     {
         if let OutputMode::TabSeparated {  } = self.output.mode {
             for arg in args {
-                write!(self.shared.line, "\t{arg}").unwrap();
+                write!(self.output.line, "\t{arg}").unwrap();
             }
         }
         self
@@ -175,7 +161,7 @@ impl<const BG: bool> Log<'_, BG> {
 
     /// Internal function to flush the line and background buffers (only relevant in 
     /// human-readable mode)
-    fn flush_line_background(&mut self, newline: bool) {
+    fn flush_human_line(&mut self, newline: bool) {
 
         debug_assert!(matches!(self.output.mode, OutputMode::Human { .. }));
 
@@ -189,22 +175,22 @@ impl<const BG: bool> Log<'_, BG> {
             lock.write_all(b"\r").unwrap();
         }
 
-        lock.write_all(self.shared.line.as_bytes()).unwrap();
-        if !self.shared.line.is_empty() && !self.shared.background.is_empty() {
+        lock.write_all(self.output.line.as_bytes()).unwrap();
+        if !self.output.line.is_empty() && !self.output.background.is_empty() {
             lock.write_all(b" -- ").unwrap();
         }
-        lock.write_all(self.shared.background.as_bytes()).unwrap();
+        lock.write_all(self.output.background.as_bytes()).unwrap();
 
         if newline {
 
-            self.shared.line.clear();
-            self.shared.background.clear();
+            self.output.line.clear();
+            self.output.background.clear();
+            self.output.newline = true;
 
             lock.write_all(b"\n").unwrap();
-            if self.output.escape_cursor_cap {
-                lock.write_all(b"\x1b[s").unwrap();
-            }
 
+        } else {
+            self.output.newline = false;
         }
 
         lock.flush().unwrap();
@@ -230,16 +216,16 @@ impl Log<'_, false> {
                     LogLevel::Additional => ("", ""),
                 };
 
-                self.shared.line.clear();
+                self.output.line.clear();
                 if name.is_empty() {
-                    write!(self.shared.line, "         {message}").unwrap();
+                    write!(self.output.line, "         {message}").unwrap();
                 } else if !self.output.escape_color_cap || color.is_empty() {
-                    write!(self.shared.line, "[{name:^6}] {message}").unwrap();
+                    write!(self.output.line, "[{name:^6}] {message}").unwrap();
                 } else {
-                    write!(self.shared.line, "[{color}{name:^6}\x1b[0m] {message}").unwrap();
+                    write!(self.output.line, "[{color}{name:^6}\x1b[0m] {message}").unwrap();
                 }
 
-                self.flush_line_background(level != LogLevel::Progress);
+                self.flush_human_line(level != LogLevel::Progress);
 
             }
         }
@@ -285,10 +271,10 @@ impl Log<'_, true> {
     pub fn message(&mut self, message: impl Display) -> &mut Self {
         if let OutputMode::Human { .. } = self.output.mode {
             
-            self.shared.background.clear();
-            write!(self.shared.background, "{message}").unwrap();
+            self.output.background.clear();
+            write!(self.output.background, "{message}").unwrap();
 
-            self.flush_line_background(false);
+            self.flush_human_line(false);
 
         }
         self
@@ -310,8 +296,8 @@ impl<const BACKGROUND: bool> Drop for Log<'_, BACKGROUND> {
         } else {
             // Not in human-readable mode, the buffer has not already been flushed.
             let mut lock = io::stdout().lock();
-            lock.write_all(self.shared.line.as_bytes()).unwrap();
-            self.shared.line.clear();
+            lock.write_all(self.output.line.as_bytes()).unwrap();
+            self.output.line.clear();
             lock.write_all(b"\n").unwrap();
             lock.flush().unwrap();
         }

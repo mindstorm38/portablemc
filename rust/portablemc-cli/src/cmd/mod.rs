@@ -11,8 +11,8 @@ use std::io;
 
 use portablemc::{download, mojang, standard};
 
-use crate::output::{LogLevel, LoggerOutput, Output};
 use crate::parse::{CliArgs, CliCmd, CliOutput};
+use crate::output::{Output, LogLevel};
 use crate::format;
 
 
@@ -28,8 +28,7 @@ pub fn main(args: CliArgs) -> ExitCode {
 
     let Some(main_dir) = args.main_dir.or_else(standard::default_main_dir) else {
         
-        out.logger()
-            .log("error_missing_main_dir")
+        out.log("error_missing_main_dir")
             .error("There is no default main directory for your platform, please specify it using --main-dir.");
         
         return ExitCode::FAILURE;
@@ -77,16 +76,16 @@ pub struct Cli {
 #[derive(Debug)]
 pub struct CommonHandler<'a> {
     /// Handle to the output.
-    pub logger: LoggerOutput<'a>,
+    out: &'a mut Output,
     /// If a download is running, this contains the instant it started, for speed calc.
     download_start: Option<Instant>,
 }
 
 impl<'a> CommonHandler<'a> {
 
-    pub fn new(logger: LoggerOutput<'a>) -> Self {
+    pub fn new(out: &'a mut Output) -> Self {
         Self {
-            logger,
+            out,
             download_start: None,
         }
     }
@@ -120,7 +119,7 @@ impl download::Handler for CommonHandler<'_> {
         let (speed_fmt, speed_suffix) = format::number_si_unit(speed);
         let (size_fmt, size_suffix) = format::number_si_unit(size as f32);
 
-        let mut log = self.logger.background_log("download");
+        let mut log = self.out.log_background("download");
         if count == total_count {
             log.message(format_args!("{speed_fmt:.1} {speed_suffix}B/s {size_fmt:.0} {size_suffix}B ({count})"));
         } else {
@@ -140,7 +139,7 @@ impl standard::Handler for CommonHandler<'_> {
         
         use standard::Event;
 
-        let out = &mut self.logger;
+        let out = &mut *self.out;
         
         match event {
             Event::FeaturesFilter { .. } => {}
@@ -331,7 +330,7 @@ impl mojang::Handler for CommonHandler<'_> {
         
         use mojang::Event;
 
-        let out = &mut self.logger;
+        let out = &mut *self.out;
 
         match event {
             Event::MojangVersionInvalidated { id } => {
@@ -386,7 +385,7 @@ impl mojang::Handler for CommonHandler<'_> {
 }
 
 /// Log a standard error on the given logger output.
-pub fn log_standard_error(out: &mut LoggerOutput<'_>, error: standard::Error) {
+pub fn log_standard_error(out: &mut Output, error: standard::Error) {
     
     use standard::Error;
 
@@ -444,7 +443,7 @@ pub fn log_standard_error(out: &mut LoggerOutput<'_>, error: standard::Error) {
 }
 
 /// Log a mojang error on the given logger output.
-pub fn log_mojang_error(out: &mut LoggerOutput<'_>, error: mojang::Error) {
+pub fn log_mojang_error(out: &mut Output, error: mojang::Error) {
 
     use mojang::{Error, Root};
 
@@ -480,7 +479,7 @@ pub fn log_mojang_error(out: &mut LoggerOutput<'_>, error: mojang::Error) {
 }
 
 /// Common function to log a download error.
-pub fn log_download_error(out: &mut LoggerOutput<'_>, error: download::Error) {
+pub fn log_download_error(out: &mut Output, error: download::Error) {
 
     use download::{Error, EntryError, EntryMode};
 
@@ -559,7 +558,7 @@ pub fn log_download_error(out: &mut LoggerOutput<'_>, error: download::Error) {
 }
 
 /// Common function to log an I/O error to the user.
-pub fn log_io_error(out: &mut LoggerOutput<'_>, error: io::Error, file: Option<&Path>) {
+pub fn log_io_error(out: &mut Output, error: io::Error, file: Option<&Path>) {
 
     let mut log = out.log("error_io");
 
