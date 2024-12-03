@@ -1,6 +1,5 @@
 //! Microsoft Account authentication for Minecraft accounts.
 
-use std::future::Future;
 use std::time::Duration;
 use std::fmt::Debug;
 
@@ -42,7 +41,7 @@ impl Auth {
     /// produce the desired username, UUID and its auth token(s).
     pub fn request_device_code(self) -> Result<DeviceCodeAuth> {
 
-        sync(async move {
+        crate::tokio::sync(async move {
 
             let req = MsDeviceAuthRequest {
                 client_id: &self.client_id,
@@ -97,7 +96,7 @@ impl DeviceCodeAuth {
     /// possible.
     pub fn wait(self) -> Result<Account> {
 
-        sync(async move {
+        crate::tokio::sync(async move {
 
             let req = MsTokenRequest::DeviceCode {
                 client_id: &self.client_id,
@@ -177,7 +176,7 @@ impl Account {
     /// It's not required to run that on newly authenticated or refreshed accounts.
     pub fn request_profile(&mut self) -> Result<()> {
         let client = crate::http::builder().build()?;
-        let profile = sync(request_minecraft_profile(&client, &self.access_token))?;
+        let profile = crate::tokio::sync(request_minecraft_profile(&client, &self.access_token))?;
         self.username = profile.name;
         Ok(())
     }
@@ -186,7 +185,7 @@ impl Account {
     /// this will also update the username, uuid and access token.
     pub fn request_refresh(&mut self) -> Result<()> {
 
-        sync(async move {
+        crate::tokio::sync(async move {
 
             let client = crate::http::builder().build()?;
             let req = MsTokenRequest::RefreshToken { 
@@ -559,16 +558,4 @@ struct MinecraftProfileCape {
     state: String,
     url: String,
     alias: String,
-}
-
-fn sync<F: Future>(future: F) -> F::Output {
-    
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_time()
-        .enable_io()
-        .build()
-        .unwrap();
-
-    rt.block_on(future)
-    
 }

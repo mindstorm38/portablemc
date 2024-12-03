@@ -637,7 +637,7 @@ pub enum Event<'a> {
 pub enum Error {
     /// Error from the standard installer.
     #[error("standard: {0}")]
-    Standard(#[from] standard::Error),
+    Standard(#[source] standard::Error),
     /// A root alias version, `Release` or `Snapshot` has not been found because the alias
     /// is missing from the Mojang's version manifest.
     #[error("root alias not found: {root:?}")]
@@ -652,21 +652,9 @@ pub enum Error {
     },
 }
 
-impl From<reqwest::Error> for Error {
-    fn from(value: reqwest::Error) -> Self {
-        Self::Standard(standard::Error::from(value))
-    }
-}
-
-impl From<download::BatchResult> for Error {
-    fn from(value: download::BatchResult) -> Self {
-        Self::Standard(standard::Error::from(value))
-    }
-}
-
-impl From<download::EntryError> for Error {
-    fn from(value: download::EntryError) -> Self {
-        Self::Standard(standard::Error::from(value))
+impl<T: Into<standard::Error>> From<T> for Error {
+    fn from(value: T) -> Self {
+        Error::Standard(value.into())
     }
 }
 
@@ -716,8 +704,9 @@ pub enum QuickPlay {
     },
 }
 
-/// Request the Mojang versions' manifest with the currently configured cache file.
-pub fn request_manifest(handler: impl download::Handler) -> standard::Result<serde::MojangManifest> {
+/// Request the Mojang versions' manifest. It takes a download handler because this it
+/// will download it in cache and reuse any previous one that is still valid.
+pub fn request_manifest(handler: impl download::Handler) -> Result<serde::MojangManifest> {
     
     let mut entry = download::single_cached(VERSION_MANIFEST_URL)
         .set_keep_open()
@@ -727,7 +716,7 @@ pub fn request_manifest(handler: impl download::Handler) -> standard::Result<ser
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
     match serde_path_to_error::deserialize::<_, serde::MojangManifest>(&mut deserializer) {
         Ok(obj) => Ok(obj),
-        Err(e) => Err(standard::Error::new_json_file(e, entry.file()))
+        Err(e) => Err(standard::Error::new_json_file(e, entry.file()).into())
     }
 
 }

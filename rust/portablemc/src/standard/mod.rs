@@ -1842,12 +1842,13 @@ pub enum Error {
         error: ZipError,
         file: Box<Path>,
     },
-    /// A standalone reqwest error.
+    /// A standalone reqwest error, usually on initialization but can be used.
     #[error("reqwest: {error}")]
     Reqwest {
         #[from]
         error: reqwest::Error,
     },
+    /// There are some errors in the given download batch.
     #[error("download")]
     Download {
         batch: download::BatchResult,
