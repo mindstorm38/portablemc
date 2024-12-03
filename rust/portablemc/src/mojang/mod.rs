@@ -215,6 +215,7 @@ impl Installer {
     /// Use offline session with the given UUID, the username is derived from the first
     /// 8 characters of the rendered UUID.
     pub fn auth_offline_uuid(&mut self, uuid: Uuid) -> &mut Self {
+        self.inner.auth_uuid = uuid;
         self.inner.auth_username = uuid.to_string();
         self.inner.auth_username.truncate(8);
         self.reset_auth_online()

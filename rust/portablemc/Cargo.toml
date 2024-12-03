@@ -20,6 +20,7 @@ regex = "1.10"          # No particular dep
 thiserror = "1.0"       # No dep
 
 gethostname = "0.5"
+dunce = "1.0"           # No dep
 os_info = "3"           # Small dep: log,serde
 dirs = "5.0"            # No dep
 

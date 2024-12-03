@@ -5,6 +5,11 @@ use std::fmt;
 use chrono::TimeDelta;
 
 
+/// Common human-readable date format.
+pub const DATE_FORMAT: &str = "%a %b %e %T %Y";
+/// Common human-readable time format (for logs).
+pub const TIME_FORMAT: &str = "%T";
+
 /// Find the SI unit of a given number and return the number scaled down to that unit.
 pub fn number_si_unit(num: f32) -> (f32, char) {
     match num {

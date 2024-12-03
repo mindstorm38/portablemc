@@ -1,13 +1,19 @@
 //! Implementation of the 'start' command.
 
-use std::process::ExitCode;
+use std::process::{ExitCode, Stdio};
+use std::io::{self, BufRead, BufReader};
+use std::thread;
 
-use portablemc::mojang::Handler as _;
-use portablemc::{mojang, standard};
+use chrono::{DateTime, Local, Utc};
+
+use portablemc::mojang::{self, Handler as _};
+use portablemc::standard::{self, Game};
 
 use crate::parse::{StartArgs, StartResolution, StartVersion};
+use crate::format::TIME_FORMAT;
+use crate::output::LogLevel;
 
-use super::{Cli, CommonHandler, log_mojang_error};
+use super::{Cli, CommonHandler, log_mojang_error, log_io_error};
 
 
 pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
@@ -43,16 +49,31 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
         }
     }
 
+    cli.out.log("main_class")
+        .arg(&game.main_class)
+        .info(format_args!("Main class: {}", game.main_class));
+    
+    cli.out.log("jvm_args")
+        .args(game.jvm_args.iter())
+        .info(format_args!("JVM arguments: {:?}", game.jvm_args));
+    
+    cli.out.log("game_args")
+        .args(game.game_args.iter())
+        .info(format_args!("Game arguments: {:?}", game.game_args));
+
     if args.dry {
         return ExitCode::SUCCESS;
     }
-    
-    let _ = game;
 
-    todo!()
+    match run_game(cli, game) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            log_io_error(&mut cli.out, e, None);
+            ExitCode::FAILURE
+        }
+    }
 
 }
-
 
 // Internal function to apply args to the standard installer.
 pub fn apply_standard_args<'a>(
@@ -114,5 +135,291 @@ pub fn apply_mojang_args<'a>(
     }
     
     installer
+
+}
+
+/// Internal function to run the game, separated in order to catch I/O errors.
+fn run_game(cli: &mut Cli, game: Game) -> io::Result<()> {
+
+    cli.out.log("launching")
+        .pending("Launching...");
+
+    let mut command = game.command();
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::inherit());
+
+    let mut child = command.spawn()?;
+
+    cli.out.log("launched")
+        .arg(child.id())
+        .success("Launched");
+
+    let mut pipe = BufReader::new(child.stdout.take().unwrap());
+    let mut buffer = Vec::new();
+    let mut xml = None::<XmlLogParser>;
+
+    // Read line by line, but not into a string because we don't really know if the 
+    // output will be UTF-8 compliant, so we store raw bytes in the buffer.
+    while pipe.read_until(b'\n', &mut buffer)? != 0 {
+
+        // We keep the buffer trim in case of XML, to avoid a useless text event.
+        let buffer_trim = buffer.trim_ascii();
+        let Ok(buffer_str) = std::str::from_utf8(buffer_trim) else { 
+            buffer.clear();
+            continue
+        };
+
+        if xml.is_none() && buffer_str.starts_with("<log4j:") {
+            xml = Some(XmlLogParser::default());
+        }
+
+        // In case of XML we try to decode it, if it's successful.
+        let mut xml_valid = false;
+        if let Some(parser) = &mut xml {
+            if let Some(logs) = parser.feed(buffer_str) {
+
+                xml_valid = true;
+
+                for xml_log in logs {
+            
+                    let xml_log_time = xml_log.time.with_timezone(&Local);
+                    
+                    let (level_code, level_name, log_level) = match xml_log.level {
+                        XmlLogLevel::Trace => ("trace", "TRACE", LogLevel::Raw),
+                        XmlLogLevel::Debug => ("debug", "DEBUG", LogLevel::Raw),
+                        XmlLogLevel::Info => ("info", "INFO", LogLevel::Raw),
+                        XmlLogLevel::Warn => ("warn", "WARN", LogLevel::RawWarn),
+                        XmlLogLevel::Error => ("error", "ERROR", LogLevel::RawError),
+                        XmlLogLevel::Fatal => ("fatal", "FATAL", LogLevel::RawFatal),
+                    };
+
+                    cli.out.log("log_xml")
+                        .arg(level_code)
+                        .arg(xml_log_time.to_rfc3339())
+                        .arg(&xml_log.logger)
+                        .arg(&xml_log.thread)
+                        .arg(&xml_log.message)
+                        .line(log_level, format_args!("[{}] [{}] [{}] {}", 
+                            xml_log_time.format(TIME_FORMAT),
+                            xml_log.thread,
+                            level_name,
+                            xml_log.message));
+    
+                }
+
+            }
+        }
+
+        if !xml_valid {
+            xml = None;
+        }
+
+        if xml.is_none() {
+
+            let mut log_level = LogLevel::Raw;
+            if buffer_str.contains("WARN") {
+                log_level = LogLevel::RawWarn;
+            } else if buffer_str.contains("ERROR") {
+                log_level = LogLevel::RawError;
+            } else if buffer_str.contains("SEVERE") || buffer_str.contains("FATAL") {
+                log_level = LogLevel::RawFatal;
+            }
+
+            cli.out.log("log_raw")
+                .arg(&buffer_str)
+                .line(log_level, &buffer_str);
+            
+        }
+
+        buffer.clear();
+
+        if let Some(_status) = child.try_wait()? {
+            return Ok(());  // Take error status into account.
+        }
+        
+    }
+
+    let status = child.wait()?;
+    println!("status: {status:?}");
+    Ok(())
+
+}
+
+
+#[derive(Debug, Default)]
+struct XmlLogParser {
+    /// Queue of logs returned when fully parsed.
+    logs: Vec<XmlLog>,
+    /// The current state, or tag, we are decoding.
+    state: XmlLogState,
+    /// True when the current state is still decoding its attributes.
+    state_attributes: bool,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum XmlLogState {
+    #[default]
+    None,
+    Event,
+    Message,
+    Throwable,
+}
+
+#[derive(Debug, Default)]
+struct XmlLog {
+    logger: String,
+    time: DateTime<Utc>,
+    level: XmlLogLevel,
+    thread: String,
+    message: String,
+    throwable: String,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum XmlLogLevel {
+    Trace,
+    Debug,
+    #[default]
+    Info,
+    Warn,
+    Error,
+    Fatal,
+}
+
+impl XmlLogParser {
+
+    /// Feed the given buffer of tokens into the parser, any parsed log will be returned
+    /// by the iterator. No iterator is returned if the parsing fails.
+    pub fn feed(&mut self, buffer: &str) -> Option<impl Iterator<Item = XmlLog> + '_> {
+
+        use xmlparser::{Tokenizer, Token, ElementEnd};
+
+        for token in Tokenizer::from_fragment(buffer, 0..buffer.len()) {
+            
+            let Ok(token) = token else { return None };
+
+            match token {
+                Token::ElementStart { prefix, local, .. } => {
+                    
+                    if self.state_attributes {
+                        return None;
+                    }
+
+                    match (self.state, &*prefix, &*local) {
+                        (XmlLogState::None, "log4j", "Event") => {
+                            // While we are not in None state, then we are operating on
+                            // the last log of that vector.
+                            self.logs.push(XmlLog::default());
+                            self.state = XmlLogState::Event;
+                        }
+                        (XmlLogState::Event, "log4j", "Message") => {
+                            self.state = XmlLogState::Message;
+                        }
+                        (XmlLogState::Event, "log4j", "Throwable") => {
+                            self.state = XmlLogState::Throwable;
+                        }
+                        _ => continue,
+                    }
+
+                    self.state_attributes = true;
+
+                }
+                Token::ElementEnd { end: ElementEnd::Close(prefix, local), .. } => {
+
+                    if self.state_attributes {
+                        return None;
+                    }
+
+                    match (self.state, &*prefix, &*local) {
+                        (XmlLogState::Event, "log4j", "Event") => {
+                            self.state = XmlLogState::None;
+                        }
+                        (XmlLogState::Event, _, _) => return None,
+                        (XmlLogState::Message, "log4j", "Message") => {
+                            self.state = XmlLogState::Event;
+                        }
+                        (XmlLogState::Message, _, _) => return None,
+                        (XmlLogState::Throwable, "log4j", "Throwable") => {
+                            self.state = XmlLogState::Event;
+                        }
+                        (XmlLogState::Throwable, _, _) => return None,
+                        _ => continue,
+                    }
+
+                }
+                Token::ElementEnd { .. } => {
+                    if !self.state_attributes {
+                        return None;
+                    }
+                    self.state_attributes = false;
+                    
+                }
+                Token::Attribute { local, prefix, value, .. } => {
+
+                    if !self.state_attributes {
+                        return None;
+                    } else if self.state != XmlLogState::Event {
+                        continue;
+                    }
+
+                    // Valid because we are in event state, so the last log is built.
+                    let log = self.logs.last_mut().unwrap();
+
+                    match (&*prefix, &*local) {
+                        ("", "logger") => {
+                            log.logger = value.to_string();
+                        }
+                        ("", "timestamp") => {
+                            let timestamp = value.parse::<i64>().unwrap_or(0);
+                            log.time = DateTime::<Utc>::from_timestamp_millis(timestamp).unwrap();
+                        }
+                        ("", "level") => {
+                            log.level = match &*value {
+                                "TRACE" => XmlLogLevel::Trace,
+                                "DEBUG" => XmlLogLevel::Debug,
+                                "INFO" => XmlLogLevel::Info,
+                                "WARN" => XmlLogLevel::Warn,
+                                "ERROR" => XmlLogLevel::Error,
+                                "FATAL" => XmlLogLevel::Fatal,
+                                _ => return None,
+                            };
+                        }
+                        ("", "thread") => {
+                            log.thread = value.to_string();
+                        }
+                        _ => continue,
+                    }
+
+                }
+                Token::Text { text } |
+                Token::Cdata { text, .. } => {
+
+                    if self.state_attributes {
+                        return None;
+                    } else if self.state == XmlLogState::None {
+                        continue;
+                    }
+                    
+                    let log = self.logs.last_mut().unwrap();
+
+                    match self.state {
+                        XmlLogState::Message => log.message = text.to_string(),
+                        XmlLogState::Throwable => log.message = text.to_string(),
+                        _ => continue,
+                    }
+
+                }
+                _ => continue,
+            }
+
+        }
+
+        if self.state != XmlLogState::None {
+            Some(self.logs.drain(..self.logs.len() - 1))
+        } else {
+            Some(self.logs.drain(..))
+        }
+        
+    }
 
 }

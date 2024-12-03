@@ -20,7 +20,7 @@ pub fn main(args: CliArgs) -> ExitCode {
 
     let mut out = match args.output {
         CliOutput::Human => Output::human(match args.verbose {
-            0 => LogLevel::Progress,
+            0 => LogLevel::Pending,
             1.. => LogLevel::Info,
         }),
         CliOutput::Machine => Output::tab_separated(),
@@ -187,7 +187,7 @@ impl standard::Handler for CommonHandler<'_> {
             Event::VersionLoading { id, .. } => {
                 out.log("version_loading")
                     .arg(id)
-                    .progress(format_args!("Loading version {id}"));
+                    .pending(format_args!("Loading version {id}"));
             }
             Event::VersionNotFound { .. } => {}
             Event::VersionLoaded { id, .. } => {
@@ -197,7 +197,7 @@ impl standard::Handler for CommonHandler<'_> {
             }
             Event::ClientLoading {  } => {
                 out.log("client_loading")
-                    .progress("Loading client");
+                    .pending("Loading client");
             }
             Event::ClientLoaded { file } => {
                 out.log("client_loaded")
@@ -206,13 +206,13 @@ impl standard::Handler for CommonHandler<'_> {
             }
             Event::LibrariesLoading {  } => {
                 out.log("libraries_loading")
-                    .progress("Loading libraries");
+                    .pending("Loading libraries");
             }
             Event::LibrariesFilter { .. } => {}
             Event::LibrariesLoaded { libraries } => {
                 out.log("libraries_loaded")
                     .args(libraries.iter().map(|lib| &lib.gav))
-                    .progress(format_args!("Loaded {} libraries", libraries.len()));
+                    .pending(format_args!("Loaded {} libraries", libraries.len()));
             }
             Event::LibrariesFilesFilter { .. } => {}
             Event::LibrariesFilesLoaded { class_files, natives_files } => {
@@ -233,7 +233,7 @@ impl standard::Handler for CommonHandler<'_> {
             Event::LoggerLoading { id } => {
                 out.log("logger_loading")
                     .arg(id)
-                    .progress(format_args!("Loading logger {id}"));
+                    .pending(format_args!("Loading logger {id}"));
             }
             Event::LoggerLoaded { id } => {
                 out.log("logger_loaded")
@@ -247,13 +247,13 @@ impl standard::Handler for CommonHandler<'_> {
             Event::AssetsLoading { id } => {
                 out.log("assets_loading")
                     .arg(id)
-                    .progress(format_args!("Loading assets {id}"));
+                    .pending(format_args!("Loading assets {id}"));
             }
             Event::AssetsLoaded { id, index } => {
                 out.log("assets_loaded")
                     .arg(id)
                     .arg(index.objects.len())
-                    .progress(format_args!("Loaded {} assets {id}", index.objects.len()));
+                    .pending(format_args!("Loaded {} assets {id}", index.objects.len()));
             }
             Event::AssetsVerified { id, index } => {
                 out.log("assets_verified")
@@ -263,7 +263,7 @@ impl standard::Handler for CommonHandler<'_> {
             }
             Event::ResourcesDownloading {  } => {
                 out.log("resources_downloading")
-                    .progress("Downloading");
+                    .pending("Downloading");
             }
             Event::ResourcesDownloaded {  } => {
                 out.log("resources_downloaded")
@@ -272,7 +272,7 @@ impl standard::Handler for CommonHandler<'_> {
             Event::JvmLoading { major_version } => {
                 out.log("jvm_loading")
                     .arg(major_version)
-                    .progress(format_args!("Loading JVM (preferred: {major_version:?})"));
+                    .pending(format_args!("Loading JVM (preferred: {major_version:?})"));
             }
             Event::JvmVersionRejected { file, version } => {
                 
@@ -341,7 +341,7 @@ impl mojang::Handler for CommonHandler<'_> {
             Event::MojangVersionFetching { id } => {
                 out.log("mojang_version_fetching")
                     .arg(id)
-                    .progress(format_args!("Fetching Mojang version {id}"));
+                    .pending(format_args!("Fetching Mojang version {id}"));
             }
             Event::MojangVersionFetched { id } => {
                 out.log("mojang_version_fetched")

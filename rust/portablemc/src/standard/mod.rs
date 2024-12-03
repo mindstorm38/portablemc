@@ -116,6 +116,9 @@ impl Installer {
     /// Shortcut for defining the various main directories of the game, by deriving
     /// the given path, the directories `versions`, `assets`, `libraries` and `jvm`
     /// are defined.
+    /// 
+    /// **Note that on Windows**, long NT UNC paths are very likely to be unsupported and
+    /// you'll get unsound errors with the JVM or the game itself.
     #[inline]
     pub fn main_dir(&mut self, main_dir: impl Into<PathBuf>) -> &mut Self {
         let work_dir = main_dir.into();
@@ -1917,7 +1920,7 @@ pub struct Library {
 #[derive(Debug, Clone)]
 pub struct Game {
     /// Working directory where the JVM process should be running.
-    work_dir: PathBuf,
+    pub work_dir: PathBuf,
     /// Path to the JVM executable file.
     pub jvm_file: PathBuf,
     /// The main class that contains the JVM entrypoint.
@@ -2130,7 +2133,7 @@ where
 /// installer error.
 #[inline]
 pub(crate) fn canonicalize_file(file: &Path) -> Result<PathBuf> {
-    file.canonicalize().map_err(|e| Error::new_io_file(e, file.to_path_buf()))
+    dunce::canonicalize(file).map_err(|e| Error::new_io_file(e, file.to_path_buf()))
 }
 
 /// Internal shortcut to creating a link file that points to another one, this function
