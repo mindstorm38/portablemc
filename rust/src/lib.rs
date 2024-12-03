@@ -10,4 +10,5 @@ pub mod download;
 pub mod auth;
 
 pub mod standard;
+// pub mod simple;
 pub mod mojang;

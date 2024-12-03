@@ -3,12 +3,12 @@
 pub mod serde;
 
 use std::io::{self, BufReader, Seek, SeekFrom};
-use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::process::Command;
 use std::fmt::Write as _;
-use std::{env, os};
+use std::env;
 
 use sha1::{Digest, Sha1};
 
@@ -18,15 +18,21 @@ use crate::gav::Gav;
 
 
 /// Base URL for downloading game's assets.
-const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
+pub(crate) const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
 
 /// The URL to meta manifest for Mojang-provided JVMs. 
-const JVM_META_MANIFEST_URL: &str = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
+pub(crate) const JVM_META_MANIFEST_URL: &str = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
+/// Base URL for libraries.
+pub(crate) const LIBRARIES_URL: &str = "https://libraries.minecraft.net/";
 
 /// Standard installer handle to install versions, this object is just the configuration
 /// of the installer when a version will be installed, such as directories to install 
 /// into, the installation will not mutate this object.
+/// 
+/// Note that this installer doesn't provide any fetching of missing versions, enables
+/// no feature by default and provides not fixes for legacy things. This installer just
+/// implement the unspecified standard of Mojang. 
 #[derive(Debug)]
 pub struct Installer {
     /// The directory where versions are stored.
@@ -36,10 +42,10 @@ pub struct Installer {
     /// directory where the client will need to write, and so it needs the permission
     /// to do so.
     pub assets_dir: PathBuf,
-    /// The directory where Mojang-provided JVM has been installed.
-    pub jvm_dir: PathBuf,
     /// The directory where libraries are stored, organized like a maven repository.
     pub libraries_dir: PathBuf,
+    /// The directory where Mojang-provided JVM has been installed.
+    pub jvm_dir: PathBuf,
     /// When enabled, all assets are strictly checked against their expected SHA-1,
     /// this is disabled by default because it's heavy on CPU.
     pub strict_assets_check: bool,
@@ -68,6 +74,7 @@ impl Installer {
     /// Create a new installer with default configuration and pointing to defaults
     /// directories.
     pub fn new() -> Self {
+        // FIXME: Maybe change the main dir to something more standard under Linux.
         let dir = default_main_dir().unwrap();
         Self::with_dir(dir)
     }
@@ -92,13 +99,15 @@ impl Installer {
         }
     }
 
-    /// Ensure that a the given version, from its id, is properly installed.
-    pub fn install(&self, mut handler: impl Handler, id: &str) -> Result<Installed> {
+    /// Ensure that a the given version, from its id, is fully installed.
+    pub fn install(&self, mut handler: impl Handler, id: &str) -> Result<Game> {
         
-        let mut batch = Batch::new();
+        // Start by setting up features.
         let mut features = HashSet::new();
         handler.handle_standard_event(Event::FeaturesLoaded { features: &mut features });
-
+        
+        // Then we have a sequence of steps that may add entries to the download batch.
+        let mut batch = Batch::new();
         let hierarchy = self.load_hierarchy(&mut handler, id)?;
         let client_file = self.load_client(&mut handler, &hierarchy, &mut batch)?;
         let lib_files = self.load_libraries(&mut handler, &hierarchy, &features, &mut batch)?;
@@ -106,12 +115,23 @@ impl Installer {
         let assets = self.load_assets(&mut handler, &hierarchy, &mut batch)?;
         let jvm = self.load_jvm(&mut handler, &hierarchy, &mut batch)?;
 
+        // If we don't find the main class it is impossible to launch.
+        let main_class = hierarchy.iter()
+            .find_map(|v| v.metadata.main_class.as_ref())
+            .cloned()
+            .ok_or(Error::MainClassNotFound {  })?;
+
+        // Only trigger download events if the batch is not empty. Note that in this
+        // module and generally in this crate we transform handlers to a dynamic download
+        // handler '&mut dyn download::Handler' to avoid large polymorphism duplications.
         if !batch.is_empty() {
             handler.handle_standard_event(Event::ResourcesDownloading {  });
             batch.download(handler.as_download_dyn())?;
             handler.handle_standard_event(Event::ResourcesDownloaded {  });
         }
 
+        // Final installation step is to finalize assets if virtual or resource mapping
+        // is needed, and JVM for any executable and link files.
         if let Some(assets) = &assets {
             self.finalize_assets(assets)?;
         }
@@ -135,21 +155,64 @@ impl Installer {
         if let Some(logger_config) = &logger_config {
             
             let logger_file = logger_config.file.canonicalize()
-                .map_err(Error::new_io)?;
+                    .map_err(Error::new_io)?;
 
             jvm_args.push(logger_config.argument.replace("${path}", &logger_file.to_string_lossy()));
 
         }
 
-        Ok(Installed {
-            hierarchy,
-            client_file,
-            class_files: lib_files.class_files,
-            natives_files: lib_files.natives_files,
-            assets_virtual_dir: None,
-            jvm_args,
-            game_args,
-        })
+        replace_strings_args(&mut jvm_args, |arg| {
+            Some(match arg {
+                "classpath_separator" if cfg!(windows) => ";".to_string(),
+                "classpath_separator" if cfg!(not(windows)) => ":".to_string(),
+                "classpath" => {
+                    std::env::join_paths(&lib_files.class_files).unwrap()
+                        .to_string_lossy()
+                        .into_owned()
+                }
+                "launcher_name" => env!("CARGO_PKG_NAME").to_string(),
+                "launcher_version" => env!("CARGO_PKG_VERSION").to_string(),                
+                _ => return None
+            })
+        });
+
+        replace_strings_args(&mut game_args, |arg| {
+            Some(match arg {
+                "version_name" => hierarchy[0].id.clone(),
+                "version_type" => return hierarchy.iter()
+                    .filter_map(|v| v.metadata.r#type.as_ref())
+                    .map(|t| t.as_str().to_string())
+                    .next(),
+                // Has been observed in some custom versions...
+                "library_directory" => self.libraries_dir.display().to_string(),
+                // Modern objects-based assets...
+                "assets_root" => self.assets_dir.display().to_string(),
+                "assets_index_name" => return assets.as_ref()
+                    .map(|assets| assets.id.clone()),
+                // Legacy assets...
+                "game_assets" => return assets.as_ref()
+                    .and_then(|assets| assets.mapping.as_ref())
+                    .map(|mapping| mapping.virtual_dir.display().to_string()),
+                _ => return None
+            })
+        });
+
+        todo!()
+        // Ok(Game {
+        //     client_file,
+        //     class_files: lib_files.class_files,
+        //     natives_files: lib_files.natives_files,
+        //     main_class,
+        //     jvm_args,
+        //     game_args,
+        //     jvm_file: jvm.file,
+        //     assets_mapping: assets
+        //         .and_then(|assets| assets.mapping)
+        //         .map(|mapping| GameAssetsMapping {
+        //             virtual_dir: mapping.virtual_dir.into_path_buf(),
+        //             resources: mapping.resources,
+        //         }),
+        // })
 
     }
 
@@ -256,7 +319,10 @@ impl Installer {
             return Err(Error::ClientNotFound);
         }
 
-        handler.handle_standard_event(Event::ClientLoaded {  });
+        handler.handle_standard_event(Event::ClientLoaded { 
+            file: &client_file,
+        });
+        
         Ok(client_file)
 
     }
@@ -388,6 +454,7 @@ impl Installer {
             let lib_file = {
                 let mut buf = self.libraries_dir.clone();
                 if let Some(lib_rel_path) = lib.path.as_deref() {
+                    // NOTE: Unsafe path joining.
                     buf.push(lib_rel_path);
                 } else {
                     for comp in lib.gav.file_components() {
@@ -423,8 +490,8 @@ impl Installer {
         }
 
         handler.handle_standard_event(Event::LibrariesVerified {
-            class_files: &lib_files.class_files,
-            natives_files: &lib_files.natives_files,
+            class_files: &mut lib_files.class_files,
+            natives_files: &mut lib_files.natives_files,
         });
 
         Ok(lib_files)
@@ -548,6 +615,7 @@ impl Installer {
             mapping: None,
         };
 
+        // If any mapping is needed we compute the virtual directory.
         if asset_index.r#virtual || asset_index.map_to_resources {
             assets.mapping = Some(AssetsMapping {
                 objects: Vec::new(),
@@ -881,6 +949,8 @@ impl Installer {
 
         let dir = self.jvm_dir.join(distribution);
         let manifest_file = self.jvm_dir.join_with_extension(distribution, "json");
+
+        // On macOS the JVM bundle structure is a bit different so different bin path.
         let bin_file = if cfg!(target_os = "macos") {
             dir.join("jre.bundle/Contents/Home/bin/java")
         } else {
@@ -945,6 +1015,7 @@ impl Installer {
                         continue
                     };
 
+                    // NOTE: Unsafe path join.
                     let target_file = rel_parent_dir.join(target);
                     
                     mojang_jvm.links.push(MojangJvmLink {
@@ -1016,11 +1087,12 @@ impl Installer {
             let mode = perm.mode();
             let new_mode = mode | ((mode & 0o444) >> 2);
             if new_mode != mode {
+                
                 perm.set_mode(new_mode);
-            }
+                fs::set_permissions(exec_file, perm)
+                    .map_err(|e| Error::new_io_file(e, exec_file.to_path_buf()))?;
 
-            fs::set_permissions(exec_file, perm)
-                .map_err(|e| Error::new_io_file(e, exec_file.to_path_buf()))?;
+            }
             
         }
 
@@ -1161,7 +1233,9 @@ impl Installer {
 pub trait Handler: download::Handler {
 
     /// Handle an even from the installer.
-    fn handle_standard_event(&mut self, event: Event);
+    fn handle_standard_event(&mut self, event: Event) { 
+        let _ = event;
+    }
 
     fn as_standard_dyn(&mut self) -> &mut dyn Handler 
     where Self: Sized {
@@ -1171,11 +1245,7 @@ pub trait Handler: download::Handler {
 }
 
 /// Blanket implementation that does nothing.
-impl Handler for () {
-    fn handle_standard_event(&mut self, event: Event) {
-        let _ = event;
-    }
-}
+impl Handler for () { }
 
 impl<H: Handler + ?Sized> Handler for  &'_ mut H {
     fn handle_standard_event(&mut self, event: Event) {
@@ -1225,18 +1295,20 @@ pub enum Event<'a> {
     /// The client JAR file will be loaded.
     ClientLoading {},
     /// The client JAR file has been loaded successfully.
-    ClientLoaded {},
+    ClientLoaded {
+        file: &'a Path,
+    },
     /// Libraries will be loaded.
     LibrariesLoading {},
     /// Libraries have been loaded, this can be altered by the event handler. After that,
-    /// the libraries will be verified and added to the downloads list.
+    /// the libraries will be verified and added to the downloads list if missing.
     LibrariesLoaded {
         libraries: &'a mut Vec<Library>,
     },
     /// Libraries have been verified.
     LibrariesVerified {
-        class_files: &'a [PathBuf],
-        natives_files: &'a [PathBuf],
+        class_files: &'a mut Vec<PathBuf>,
+        natives_files: &'a mut Vec<PathBuf>,
     },
     /// No logger configuration will be loaded because version doesn't specify any.
     LoggerAbsent {},
@@ -1278,7 +1350,7 @@ pub enum Event<'a> {
     },
     /// The system runs on Linux and has C runtime not dynamically linked (static, musl
     /// for example), suggesting that your system doesn't provide dynamic C runtime 
-    /// (glibc), but this is not provided by Mojang. 
+    /// (glibc), and such JVM are not provided by Mojang. 
     JvmDynamicCrtUnsupported { },
     /// When trying to find a Mojang JVM to install, your operating system and 
     /// architecture are not supported.
@@ -1292,7 +1364,9 @@ pub enum Event<'a> {
         file: &'a Path,
         version: Option<&'a str>,
     },
+    /// Resources will be downloaded.
     ResourcesDownloading {},
+    /// Resources have been successfully downloaded.
     ResourcesDownloaded {},
 }
 
@@ -1324,6 +1398,8 @@ pub enum Error {
     JvmNotFound {
         major_version: Option<u32>,
     },
+    #[error("main class not found")]
+    MainClassNotFound {  },
     /// A generic system's IO error with optional file source.
     #[error("io: {error} @ {file:?}")]
     Io {
@@ -1341,8 +1417,6 @@ pub enum Error {
     /// Download error, associating its failed download entry to the download error.
     #[error("download: {0}")]
     Download(#[from] download::Error),
-    // #[error("reqwest: {0}")]
-    // Reqwest(#[from] reqwest::Error),
 }
 
 /// Type alias for a result with the standard error type.
@@ -1378,7 +1452,7 @@ pub enum JvmPolicy {
     Static {
         /// Path to the executable JVM file.
         file: PathBuf,
-        /// True to error if the JVM has no version found.
+        /// True to error if the JVM version is not matching the one required (if any).
         strict_check: bool,
     },
     /// The installer will try to find a suitable JVM executable in the path, searching
@@ -1425,36 +1499,88 @@ pub struct Library {
     pub natives: bool,
 }
 
-/// Internal resolved assets associating the virtual file path to its hash file path.
-#[derive(Debug)]
-struct Assets {
-    id: String,
-    mapping: Option<AssetsMapping>,
+/// Description of the JVM executable and its arguments to run the game. The arguments 
+/// may contain replacement patterns that will be used when starting the game.
+#[derive(Debug, Clone)]
+pub struct Game {
+    /// Working directory when launching the game.
+    pub work_dir: PathBuf,
+    /// Path to the JVM executable file.
+    pub jvm_file: PathBuf,
+    /// The main class that contains the JVM entrypoint.
+    pub main_class: String,
+    /// List of JVM arguments (before the main class in the command line).
+    pub jvm_args: Vec<String>,
+    /// List of game arguments (after the main class in the command line).
+    pub game_args: Vec<String>,
 }
 
-/// In case of virtual or resources mapped assets, the launcher needs to hard link all
-/// asset object files to their virtual relative path inside the assets index's virtual
-/// directory. 
+impl Game {
+
+    
+    
+
+}
+
+/*
+/// Collection of the installation environment of a version from [`Installer::install`]
+/// function, this contains every information needed to construct the process.
 /// 
-/// - Virtual assets has been used between 13w23b (excluded) and 13w48b (1.7.2).
-/// - Resource mapped assets has been used for versions 13w23b and anterior.
-#[derive(Debug)]
-struct AssetsMapping {
-    /// List of objects to link to virtual dir.
-    objects: Vec<AssetObject>,
-    /// Path to the virtual directory for the assets id.
-    virtual_dir: Box<Path>,
-    /// True if a resources directory should link game's working directory to the
-    /// assets index' virtual directory.
-    resources: bool,
+/// **Important note:** paths in this structure are all relative to the directories
+/// configured in the installer, they are all made absolute before launching the game. 
+#[derive(Debug, Clone)]
+pub struct Game {
+    /// The path to the client JAR file, this will be added to the class path.
+    pub client_file: PathBuf,
+    /// The list of class files to join into the class-path given to JVM.
+    pub class_files: Vec<PathBuf>,
+    /// The list of natives files to integrate into the binary directory, this is mostly
+    /// unused by modern versions that use auto-extracting LWJGL natives, but older 
+    /// versions explicitly required to extract files from archive. This field also
+    /// supports shared-objects or other non-archive files to be hard linked into the
+    /// binary directory.
+    pub natives_files: Vec<PathBuf>,
+    /// The main class that contains the JVM entrypoint.
+    pub main_class: String,
+    /// List of JVM arguments (before the main class in the command line).
+    pub jvm_args: Vec<String>,
+    /// List of game arguments (after the main class in the command line).
+    pub game_args: Vec<String>,
+    /// Path to the JVM executable file.
+    pub jvm_file: PathBuf,
+    /// If assets mapping is required by the version then its description.
+    pub assets_mapping: Option<GameAssetsMapping>,
 }
 
-/// The asse
-#[derive(Debug)]
-struct AssetObject {
-    rel_file: Box<Path>,
-    object_file: Box<Path>,
+/// This contains informations on how to map assets if the version needs it.
+#[derive(Debug, Clone)]
+pub struct GameAssetsMapping {
+    /// Path to the virtual directory containing the resources, this is used for
+    /// versions between 13w23b (excluded) and 13w48b (1.7.2).
+    pub virtual_dir: PathBuf,
+    /// True if the virtual directory should be mapped to the working directory 
+    /// resources directory, this is used for 13w23b and before.
+    pub resources: bool,
 }
+
+impl Game {
+    
+    pub fn finalize(self) -> () {
+
+        replace_strings_args(&mut self.jvm_args, |arg| {
+            if arg == "classpath" {
+                // std::env::join_paths(self.class_files)
+            }
+            None
+        });
+
+    }
+
+}*/
+
+// ========================== //
+// Following code is internal //
+// ========================== //
 
 /// Internal resolved libraries file paths.
 #[derive(Debug, Default)]
@@ -1470,6 +1596,37 @@ struct LoggerConfig {
     kind: serde::VersionLoggingType,
     argument: String,
     file: PathBuf,
+}
+
+/// Internal resolved assets associating the virtual file path to its hash file path.
+#[derive(Debug)]
+struct Assets {
+    id: String,
+    mapping: Option<AssetsMapping>,
+}
+
+/// In case of virtual or resources mapped assets, the launcher needs to hard link all
+/// asset object files to their virtual relative path inside the assets index's virtual
+/// directory. 
+/// 
+/// - Virtual assets has been used between 13w23b (excluded) and 13w48b (1.7.2).
+/// - Resource mapped assets has been used for versions 13w23b and before.
+#[derive(Debug)]
+struct AssetsMapping {
+    /// List of objects to link to virtual dir.
+    objects: Vec<AssetObject>,
+    /// Path to the virtual directory for the assets id.
+    virtual_dir: Box<Path>,
+    /// True if a resources directory should link game's working directory to the
+    /// assets index' virtual directory.
+    resources: bool,
+}
+
+/// A single asset object mapping from its relative (virtual) path to the object path.
+#[derive(Debug)]
+struct AssetObject {
+    rel_file: Box<Path>,
+    object_file: Box<Path>,
 }
 
 /// Internal resolved JVM.
@@ -1494,35 +1651,6 @@ struct MojangJvm {
 struct MojangJvmLink {
     file: Box<Path>,
     target_file: Box<Path>,
-}
-
-/// Collection of the installation environment of a version, return by the install 
-/// function, this contains all informations to launch any number of instances from this
-/// installation.
-#[derive(Debug, Clone)]
-pub struct Installed {
-    /// The hierarchy of versions and their associated loaded metadata.
-    pub hierarchy: Vec<Version>,
-    /// The path to the client JAR file.
-    pub client_file: PathBuf,
-    /// The list of class files.
-    pub class_files: Vec<PathBuf>,
-    /// The list of natives files to symlink (copy if not possible) and archives to 
-    /// extract in the bin directory.
-    pub natives_files: Vec<PathBuf>,
-    /// If the assets index has been mapped into the virtual dir then we have the path
-    /// here, .
-    pub assets_virtual_dir: Option<PathBuf>,
-    /// List of JVM arguments (before the main class in the command line).
-    pub jvm_args: Vec<String>,
-    /// List of game arguments (after the main class in the command line).
-    pub game_args: Vec<String>,
-}
-
-impl Installed {
-
-    
-
 }
 
 /// Check if a file at a given path has the corresponding properties (size and/or SHA-1), 
@@ -1581,6 +1709,47 @@ fn check_file_inner(
 
 }
 
+/// Apply arguments replacement for each string, explained in [`replace_string_args`].
+pub(crate) fn replace_strings_args<F>(ss: &mut [String], mut func: F)
+where 
+    F: FnMut(&str) -> Option<String>,
+{
+    for s in ss {
+        replace_string_args(s, &mut func);
+    }
+}
+
+/// Given a string buffer, search for each argument of the form `${arg}`, give its name
+/// to the given closure and if some value is returned, replace it by this value.
+pub(crate) fn replace_string_args<F>(s: &mut String, mut func: F)
+where 
+    F: FnMut(&str) -> Option<String>,
+{
+
+    // Our cursor means that everything before this index has been already checked.
+    let mut cursor = 0;
+
+    while let Some(open_idx) = s[cursor..].find("${") {
+        
+        let open_idx = cursor + open_idx;
+        let Some(close_idx) = s[open_idx + 2..].find('}') else { break };
+        let close_idx = open_idx + 2 + close_idx + 1;
+        cursor = close_idx;
+
+        if let Some(value) = func(&s[open_idx + 2..close_idx - 1]) {
+            
+            s.replace_range(open_idx..close_idx, &value);
+            
+            let repl_len = close_idx - open_idx;
+            let repl_diff = value.len() as isize - repl_len as isize;
+            cursor = cursor.checked_add_signed(repl_diff).unwrap();
+
+        }
+
+    }
+
+}
+
 /// Return the default main directory for Minecraft, so called ".minecraft".
 fn default_main_dir() -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
@@ -1597,6 +1766,7 @@ fn default_main_dir() -> Option<PathBuf> {
 /// 
 /// This is currently not dynamic, so this will return the OS name the binary 
 /// has been compiled for.
+#[inline]
 fn default_os_name() -> Option<String> {
     Some(match env::consts::OS {
         "windows" => "windows",
@@ -1613,6 +1783,7 @@ fn default_os_name() -> Option<String> {
 /// 
 /// This is currently not dynamic, so this will return the OS architecture the binary
 /// has been compiled for.
+#[inline]
 fn default_os_arch() -> Option<String> {
     Some(match env::consts::ARCH {
         "x86" => "x86",
@@ -1624,6 +1795,7 @@ fn default_os_arch() -> Option<String> {
 }
 
 /// Return the default OS version name for rules.
+#[inline]
 fn default_os_version() -> Option<String> {
     use os_info::Version;
     match os_info::get().version() {
@@ -1633,6 +1805,7 @@ fn default_os_version() -> Option<String> {
 }
 
 /// Return the default OS version name for rules.
+#[inline]
 fn default_os_bits() -> Option<String> {
     match env::consts::ARCH {
         "x86" | "arm" => Some("32".to_string()),
@@ -1642,6 +1815,7 @@ fn default_os_bits() -> Option<String> {
 }
 
 /// Return the default JVM platform to install from Mojang-provided ones.
+#[inline]
 fn default_jvm_platform() -> Option<String> {
     Some(match (env::consts::OS, env::consts::ARCH) {
         ("macos", "x86_64") => "mac-os",
@@ -1658,8 +1832,5 @@ fn default_jvm_platform() -> Option<String> {
 /// Return the JVM exec file name. 
 #[inline]
 fn jvm_exec_name() -> &'static str {
-    match env::consts::OS {
-        "windows" => "javaw.exe",
-        _ => "java"
-    }
+    if cfg!(windows) { "javaw.exe" } else { "java" }
 }

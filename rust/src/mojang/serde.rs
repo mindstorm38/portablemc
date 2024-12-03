@@ -28,10 +28,3 @@ pub struct MojangManifestVersion {
     /// Unknown, used by official launcher.
     pub compliance_level: Option<u32>,
 }
-
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-pub(crate) struct PmcMojangManifest {
-    #[serde(flatten)]
-    pub inner: MojangManifest,
-    pub last_modified: Option<String>,
-}

@@ -18,7 +18,7 @@ fn main() {
     installer.strict_assets_check = false;
 
     let installer = mojang::Installer::from(installer);
-    let _installed = match installer.install(&mut handler, "1.21") {
+    let game = match installer.install(&mut handler, "1.21") {
         Ok(v) => v,
         Err(e) => {
             handler.newline();
@@ -26,6 +26,8 @@ fn main() {
             return;
         }
     };
+
+    let _ = game.finalize();
 
 }
 
@@ -110,36 +112,20 @@ impl download::Handler for CliHandler {
         }
 
         let elapsed = self.download_start.unwrap().elapsed();
-        let mut speed = size as f32 / elapsed.as_secs_f32();
-        let speed_unit;
-
-        match speed {
-            ..=999.0 => {
-                speed /= 1_000.0;
-                speed_unit = "B/s ";
-            }
-            ..=999_999.0 => {
-                speed /= 1_000.0;
-                speed_unit = "kB/s";
-            }
-            ..=999_999_999.0 => {
-                speed /= 1_000_000.0;
-                speed_unit = "MB/s";
-            }
-            _ => {
-                speed /= 1_000_000_000.0;
-                speed_unit = "GB/s";
-            }
-        }
-
+        let speed = size as f32 / elapsed.as_secs_f32();
         let progress = size as f32 / total_size as f32 * 100.0;
+
+        let (speed, speed_suffix) = number_si_unit(speed);
+        let (size, size_suffix) = number_si_unit(size as f32);
+
+        let sep = self.line_buf.is_empty().then_some("").unwrap_or("-- ");
         
         if count == total_count {
             self.download_start = None;
+            self.suffix(format_args!("{sep}{speed:.1} {speed_suffix}B/s {size:.0} {size_suffix}B ({count})"));
+        } else {
+            self.suffix(format_args!("{sep}{speed:.1} {speed_suffix}B/s {progress:.1}% ({count}/{total_count})"));
         }
-        
-        let sep = self.line_buf.is_empty().then_some("").unwrap_or("-- ");
-        self.suffix(format_args!("{sep}{speed:.1} {speed_unit} {progress:.1}% ({count}/{total_count})"));
         
     }
 }
@@ -217,15 +203,24 @@ impl mojang::Handler for CliHandler {
 
         match event {
             Event::MojangVersionInvalidated { id } => 
-                self.state("OK", format_args!("Version {id} invalidated"))
+                self.state("OK", format_args!("Mojang version {id} invalidated"))
                     .newline(),
             Event::MojangVersionFetching { id } => 
-                self.state("..", format_args!("Fetching version {id}")),
+                self.state("..", format_args!("Fetching Mojang version {id}")),
             Event::MojangVersionFetched { id } =>
-                self.state("OK", format_args!("Fetched version {id}"))
+                self.state("OK", format_args!("Fetched Mojang version {id}"))
                     .newline(),
             _ => todo!(),
         };
 
+    }
+}
+
+fn number_si_unit(num: f32) -> (f32, char) {
+    match num {
+        ..=999.0 => (num, ' '),
+        ..=999_999.0 => (num / 1_000.0, 'k'),
+        ..=999_999_999.0 => (num / 1_000_000.0, 'M'),
+        _ => (num / 1_000_000_000.0, 'G'),
     }
 }
