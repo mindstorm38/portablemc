@@ -1,10 +1,10 @@
 //! Standard installation procedure.
 
+mod serde;
 mod error;
 mod specifier;
 
 use std::collections::{HashMap, HashSet};
-use std::result::Result as StdResult;
 use std::io::{self, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::fmt::Write;
@@ -17,7 +17,6 @@ use crate::util::PathExt;
 
 pub use self::error::{Result, Error, ErrorKind, ErrorOrigin};
 pub use self::specifier::LibrarySpecifier;
-
 
 /// Base URL for downloading game's assets.
 const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
@@ -116,8 +115,6 @@ impl Installer {
 
         // Start by resolving the version hierarchy, with requests if needed.
         let hierarchy = self.resolve_hierarchy(version, handler)?;
-        // Merge the full metadata, because we can only interpret a single metadata.
-        let metadata = self.resolve_metadata(&hierarchy, handler)?;
 
         // Build the features list, used when applying metadata rules.
         let mut features = HashMap::new();
@@ -126,7 +123,7 @@ impl Installer {
         // Assets may be absent and unspecified in metadata for some custom versions.
         let assets = self.resolve_assets(&metadata, &mut downloads, handler)?;
 
-        let libraries = self.resolve_libraries(&hierarchy, &mut downloads, handler)?;
+        let libraries = self.resolve_libraries(&metadata, &features, &mut downloads, handler)?;
 
         // Now we want to resolve the main version JAR file.
         let jar_file = self.resolve_jar(&metadata, &hierarchy, &mut downloads, handler)?;
@@ -201,61 +198,55 @@ impl Installer {
 
     }
 
-    /// Resolve the full merged metadata from the given loaded version hierarchy.
-    fn resolve_metadata(&self, hierarchy: &[Version], handler: &mut dyn Handler) -> Result<Object> {
-        
-        let mut metadata = Object::new();
-        for version in hierarchy {
-            merge_json_metadata(&mut metadata, &version.metadata);
-        }
-        
-        handler.filter_metadata(self, &mut metadata)?;
-        Ok(metadata)
-
-    }
-
     /// Resolve the given version's merged metadata assets to use for the version. This
     /// returns a full description of what assets to use (if so) and the list. This 
     /// function push downloads for each missing asset.
     fn resolve_assets(&self, 
-        metadata: &Object, 
+        hierarchy: &[Version], 
         downloads: &mut Vec<Download>, 
         handler: &mut dyn Handler
     ) -> Result<Option<Assets>> {
 
-        let Some(assets_index_info) = metadata.get("assetIndex") else {
-            // Asset info may not be present, it's not required because some custom 
-            // versions may want to use there own internal assets.
-            return Ok(None);
-        };
+        #[derive(Debug)]
+        struct AssetInfo<'a> {
+            download: Option<&'a serde::Download>,
+            id: &'a str,
+        }
 
-        let Value::Object(assets_index_info) = assets_index_info else {
-            return Err(Error::new_raw_schema("metadata", "/assetIndex, expected object"));
-        };
+        let mut asset_info = None;
 
-        // We also keep the path used, for a more useful error message.
-        let Some((assets_index_version, schema_message)) = 
-            metadata.get("assets")
-                .map(|val| (val, "/assets, expected string"))
-                .or_else(|| assets_index_info.get("id")
-                    .map(|val| (val, "/assetIndex/id, expected string"))) 
-        else {
-            // Asset info may not be present, same as above.
-            return Ok(None);
-        };
+        // We search the first version that provides asset informations, we also support
+        // the legacy 'assets' that doesn't have download information.
+        for version in hierarchy {
+            if let Some(asset_index) = &version.metadata.asset_index {
+                asset_info = Some(AssetInfo {
+                    download: Some(&asset_index.download),
+                    id: &asset_index.id,
+                });
+                break;
+            } else if let Some(asset_id) = &version.metadata.assets {
+                asset_info = Some(AssetInfo {
+                    download: None,
+                    id: &asset_id,
+                });
+                break;
+            }
+        }
 
-        let Value::String(assets_index_version) = assets_index_version else {
-            return Err(Error::new_raw_schema("metadata", schema_message));
+        // Just ignore if no asset information is provided.
+        let Some(asset_info) = asset_info else {
+            return Ok(None)
         };
 
         // Resolve all used directories and files...
         let assets_dir = self.main_dir.join("assets");
         let assets_indexes_dir = assets_dir.join("indexes");
-        let assets_index_file = assets_indexes_dir.join_with_extension(assets_index_version, "json");
+        let assets_index_file = assets_indexes_dir.join_with_extension(asset_info.id, "json");
 
         // The assets index info can be parsed as a download entry at this point.
-        let assets_index_download = parse_json_download(assets_index_info)
-            .map_err(|err| Error::new_raw_schema("metadata", format!("/assetIndex{err}")))?;
+        let assets_index_download = self.resolve_download(assets_index_info)
+            .map_err(|e| e.map_origin(|_| ErrorOrigin::new_raw("metadata")))
+            .map_err(|e| e.map_schema(|s| format!("/assetIndex{s}")))?;
 
         let assets_index_reader = self.check_and_read_download(&assets_index_file, assets_index_download, handler)?;
         let assets_index: Object = match serde_json::from_reader(assets_index_reader) {
@@ -316,7 +307,7 @@ impl Installer {
             let asset_hash = parse_hex_bytes::<20>(asset_hash)
                 .ok_or_else(hash_make_err)?;
 
-            assets.objects.insert(PathBuf::from(asset_path), Asset {
+            assets.objects.insert(PathBuf::from(asset_path), AssetInfo {
                 sha1: asset_hash,
                 size: asset_size,
             });
@@ -365,7 +356,6 @@ impl Installer {
     /// download if relevant, if not it will use the already present JAR file. If
     /// no JAR file exists, an [`Error::JarNotFound`] error is returned.
     fn resolve_jar(&self, 
-        metadata: &Object,
         hierarchy: &[Version],
         downloads: &mut Vec<Download>, 
         handler: &mut dyn Handler
@@ -385,8 +375,9 @@ impl Installer {
                     return Err(Error::new_raw_schema("metadata", "/downloads/client, expected object"));
                 };
 
-                let download = parse_json_download(downloads_client)
-                    .map_err(|err| Error::new_raw_schema("metadata", format!("/downloads/client{err}")))?;
+                let download = self.resolve_download(downloads_client)
+                    .map_err(|e| e.map_origin(|_| ErrorOrigin::new_raw("metadata")))
+                    .map_err(|e| e.map_schema(|s| format!("/downloads/client{s}")))?;
 
                 if self.check_file(&jar_file, download.size, download.sha1)? {
                     downloads.push(download.to_owned(jar_file.to_owned(), false));
@@ -417,128 +408,136 @@ impl Installer {
     /// URL.*
     fn resolve_libraries(&self, 
         hierarchy: &[Version],
+        features: &HashMap<String, bool>,
         downloads: &mut Vec<Download>, 
         handler: &mut dyn Handler
     ) -> Result<()> {
 
-        // Recursion order is important for libraries resolving, because the class path
-        // order is important (for some corner cases with mod loaders). The root version's
-        // libraries should be placed at the beginning of the hierarchy. Also, a library
-        // defined in parent metadata should not override higher versions in hierarchy.
-        for version in hierarchy {
+        // Note that the metadata has been merged from all versions in the hierarchy,
+        // if present, the libraries array will start with libraries defined by the root
+        // version. This is important to notice because we want to define each version
+        // only once, it's important for class path ordering for some corner cases with 
+        // mod loaders.
 
-            // Used for error formatting...
-            let version_name = version.name.as_str();
-            let schema_origin = || format!("metadata({version_name})");
+        let Some(libs) = metadata.get("libraries") else {
+            return Ok(())
+        };
 
-            // Libraries object may be missing.
-            let Some(libs) = version.metadata.get("libraries") else {
-                continue;
+        let Value::Array(libs) = libs else {
+            return Err(Error::new_raw_schema("metadata", "/libraries, expected list"));
+        };
+
+        for (lib_idx, lib) in libs.iter().enumerate() {
+
+            let Value::Object(lib) = lib else {
+                return Err(Error::new_raw_schema("metadata", format!("/libraries/{lib_idx}, expected object")));
+            };
+            
+            let lib_spec_err = || 
+                Error::new_raw_schema("metadata", format!("/libraries/{lib_idx}/name, expected string (library specifier)"));
+
+            let Some(Value::String(lib_spec)) = lib.get("name") else {
+                return Err(lib_spec_err());
             };
 
-            let Value::Array(libs) = libs else {
-                return Err(Error::new_raw_schema(schema_origin(), "/libraries, expected list"));
-            };
+            let mut lib_spec = lib_spec.parse::<LibrarySpecifier>()
+                .map_err(|_| lib_spec_err())?;
 
-            for (lib_idx, lib) in libs.iter().enumerate() {
+            let mut lib_state = LibraryState::Retained;
+            let mut lib_native = false;
 
-                let Value::Object(lib) = lib else {
-                    return Err(Error::new_raw_schema(schema_origin(), format!("/libraries/{lib_idx}, expected object")));
-                };
-                
-                let lib_spec_err = || 
-                    Error::new_raw_schema(schema_origin(), format!("/libraries/{lib_idx}/name, expected string (library specifier)"));
+            // Old metadata files provides a 'natives' mapping from OS to the classifier
+            // specific for this OS, this kind of libs are "native libs", we need to
+            // extract their dynamic libs into the "bin" directory before running.
+            if let Some(lib_natives) = lib.get("natives") {
 
-                let Some(Value::String(lib_spec)) = lib.get("name") else {
-                    return Err(lib_spec_err());
+                let Value::Object(lib_natives) = lib_natives else {
+                    return Err(Error::new_raw_schema("metadata", format!("/libraries/{lib_idx}/natives, expected object")));
                 };
 
-                let mut lib_spec = lib_spec.parse::<LibrarySpecifier>()
-                    .map_err(|_| lib_spec_err())?;
+                lib_native = true;
 
-                let mut lib_state = LibraryState::Retained;
+                // If natives object is present, the classifier associated to the
+                // OS overrides the library specifier classifier. If not existing,
+                // we just skip this library because natives are missing.
+                match lib_natives.get(&self.meta_os_name) {
+                    Some(Value::String(classifier)) => {
 
-                // Old metadata files provides a 'natives' mapping from OS to the classifier
-                // specific for this OS, this kind of libs are "native libs", we need to
-                // extract their dynamic libs into the "bin" directory before running.
-                if let Some(lib_natives) = lib.get("natives") {
-
-                    let Value::Object(lib_natives) = lib_natives else {
-                        return Err(Error::new_raw_schema(schema_origin(), format!("/libraries/{lib_idx}/natives, expected object")));
-                    };
-
-                    // If natives object is present, the classifier associated to the
-                    // OS overrides the library specifier classifier. If not existing,
-                    // we just skip this library because natives are missing.
-                    match lib_natives.get(&self.meta_os_name) {
-                        Some(Value::String(classifier)) => {
+                        // If we find a arch replacement pattern, we must replace it with
+                        // the target architecture bit-ness (32, 64).
+                        const ARCH_REPLACEMENT_PATTERN: &str = "${arch}";
+                        if let Some(pattern_idx) = lib_spec.classifier().find(ARCH_REPLACEMENT_PATTERN) {
+                            let mut classifier = classifier.clone();
+                            classifier.replace_range(pattern_idx..pattern_idx + ARCH_REPLACEMENT_PATTERN.len(), &self.meta_os_bits);
+                            lib_spec.set_classifier(Some(&classifier));
+                        } else {
                             lib_spec.set_classifier(Some(&classifier));
                         }
-                        Some(_) => {
-                            return Err(Error::new_raw_schema(schema_origin(), format!("/libraries/{lib_idx}/natives/{}, expected string", self.meta_os_name)));
-                        }
-                        None => {
-                            lib_state = LibraryState::RejectedNatives;
-                        }
+
                     }
-
-                    // If we find a arch replacement pattern, we must replace it with
-                    // the target architecture bit-ness (32, 64).
-                    const ARCH_REPLACEMENT_PATTERN: &str = "${arch}";
-                    if let Some(pattern_idx) = lib_spec.classifier().find(ARCH_REPLACEMENT_PATTERN) {
-                        
+                    Some(_) => {
+                        return Err(Error::new_raw_schema("metadata", format!("/libraries/{lib_idx}/natives/{}, expected string", self.meta_os_name)));
                     }
-
-                }
-
-                // Start by applying rules before the actual parsing. Important, we do
-                // that after checking natives, so this will override the lib state if
-                // rejected, and we still benefit from classifier resolution.
-                if let Some(lib_rules) = lib.get("rules") {
-
-                    let Value::Array(lib_rules) = lib_rules else {
-                        return Err(Error::new_raw_schema(schema_origin(), format!("/libraries/{lib_idx}/rules, expected list")));
-                    };
-
-                    self.resolve_rule(lib_rules, features, all_features)
-
-                    // TODO: Interpret rules...
-                    lib_state = LibraryState::RejectedRules;
-
-                }
-
-                // Only keep retained libraries.
-                handler.notify_library(self, &lib_spec, lib_state);
-                if lib_state != LibraryState::Retained {
-                    continue;
+                    None => {
+                        lib_state = LibraryState::RejectedNatives;
+                    }
                 }
 
             }
 
+            // Start by applying rules before the actual parsing. Important, we do
+            // that after checking natives, so this will override the lib state if
+            // rejected, and we still benefit from classifier resolution.
+            if let Some(lib_rules) = lib.get("rules") {
+
+                let Value::Array(lib_rules) = lib_rules else {
+                    return Err(Error::new_raw_schema("metadata", format!("/libraries/{lib_idx}/rules, expected list")));
+                };
+
+                let allowed = self.resolve_rules(lib_rules, features, None)
+                    .map_err(|e| e.map_schema(|s| format!("/libraries/{lib_idx}/rules{s}")))?;
+
+                if !allowed {
+                    lib_state = LibraryState::RejectedRules;
+                }
+
+            }
+
+            if let Some(lib_dls) = lib.get("downloads") {
+
+                let Value::Object(lib_dls) = lib_dls else {
+                    return Err(Error::new_raw_schema("metadata", format!("/libraries/{lib_idx}/downloads, expected object")));
+                };
+
+                let mut lib_dl = None;
+
+                if lib_native {
+
+                    if let Some(lib_dls_classifiers) = lib_dls.get("classifiers") {
+                        
+                        let Value::Object(lib_dls_classifiers) = lib_dls_classifiers else {
+                            return Err(Error::new_raw_schema("metadata", format!("/libraries/{lib_idx}/downloads/classifiers, expected object")));
+                        };
+
+                    }
+
+                }
+
+            }
+
+            // Only keep retained libraries.
+            handler.notify_library(self, &lib_spec, lib_state);
+            if lib_state != LibraryState::Retained {
+                continue;
+            }
+
+            // TODO: Handle download
+
+
+
         }
 
         Err(Error::NotSupported("resolve_libraries"))
-
-    }
-
-    /// Resolve the given JSON array as rules and return true if all rules have passed.
-    fn resolve_rules(&self,
-        rules: &Array,
-        features: &HashMap<String, bool>,
-        all_features: Option<&mut HashSet<String>>,
-    ) -> Result<bool> {
-
-        let mut allowed = false;
-
-        for (rule_idx, rule) in rules.iter().enumerate() {
-
-            let Value::Object(rule) = rule else {
-                return Err(Error::new_schema(format!("/{rule_idx}, expected object")));
-            };
-
-        }
-
-        Ok(false)
 
     }
 
@@ -612,7 +611,6 @@ impl Installer {
             if digest.finalize().as_slice() != sha1 {
                 return Ok(true);
             }
-            reader.seek(SeekFrom::Start(0))?;
             
             Ok(false)
 
@@ -639,16 +637,222 @@ impl Installer {
 
     }
 
+    /// Resolve the given JSON array as rules and return true if all rules have passed.
+    fn resolve_rules(&self,
+        rules: &Array,
+        features: &HashMap<String, bool>,
+        mut all_features: Option<&mut HashSet<String>>,
+    ) -> Result<bool> {
+
+        // Initially disallowed...
+        let mut allowed = false;
+
+        for (rule_idx, rule) in rules.iter().enumerate() {
+
+            let Value::Object(rule) = rule else {
+                return Err(Error::new_schema(format!("/{rule_idx}, expected object")));
+            };
+
+            let rule_action = self.resolve_rule(rule, features, all_features.as_deref_mut())
+                .map_err(|e| e.map_schema(|s| format!("/{rule_idx}{s}")))?;
+
+            // NOTE: Diverge from what have been done in the Python module for long, we
+            // no longer early return on disallow.
+            match rule_action {
+                RuleAction::Allow => allowed = true,
+                RuleAction::Disallow => allowed = false,
+                RuleAction::Ignore => (),
+            }
+
+        }
+
+        Ok(allowed)
+
+    }
+
+    /// Resolve a single rule JSON object and return action if the rule passes. This 
+    /// function accepts a set of all features that will be filled with all features
+    /// that are checked, accepted or not.
+    /// 
+    /// This function may return unexpected schema error.
+    fn resolve_rule(&self, 
+        rule: &Object, 
+        features: &HashMap<String, bool>, 
+        mut all_features: Option<&mut HashSet<String>>
+    ) -> Result<RuleAction> {
+        
+        let mut valid = true;
+
+        if let Some(rule_os) = rule.get("os") {
+
+            let Value::Object(rule_os) = rule_os else {
+                return Err(Error::new_schema("/os, expected object"));
+            };
+
+            let os_valid = self.resolve_rule_os(rule_os)
+                .map_err(|e| e.map_schema(|s| format!("/os{s}")))?;
+
+            if !os_valid {
+                valid = false;
+            }
+
+        }
+
+        if let Some(rule_features) = rule.get("features") {
+
+            let Value::Object(rule_features) = rule_features else {
+                return Err(Error::new_schema("/features, expected object"));
+            };
+
+            for (feature, feature_expected) in rule_features {
+
+                let &Value::Bool(feature_expected) = feature_expected else {
+                    return Err(Error::new_schema(format!("/features/{feature}, expected bool")));
+                };
+
+                if let Some(all_features) = all_features.as_deref_mut() {
+                    all_features.insert(feature.clone());
+                }
+
+                // Only check if still valid...
+                if valid && features.get(feature).copied().unwrap_or_default() != feature_expected {
+                    valid = false;
+                }
+
+            }
+
+        }
+
+        let action = match rule.get("action") {
+            Some(Value::String(action)) if action == "allow" => RuleAction::Allow,
+            Some(Value::String(action)) if action == "disallow" => RuleAction::Disallow,
+            _ => return Err(Error::new_schema("/action, expected string ('allow', 'disallow')"))
+        };
+
+        Ok(if valid { action } else { RuleAction::Ignore })
+
+    }
+
+    /// Resolve OS rules JSON object and return true if the OS is matching the rule.
+    /// 
+    /// This function may return an unexpected schema error.
+    fn resolve_rule_os(&self, rule_os: &Object) -> Result<bool> {
+
+        let mut valid = true;
+
+        if let Some(name) = rule_os.get("name") {
+            match name {
+                Value::String(name) if name != &self.meta_os_name => valid = false,
+                Value::String(_) => (),
+                _ => return Err(Error::new_schema("/name, expected string"))
+            }
+        }
+
+        if let Some(arch) = rule_os.get("arch") {
+            match arch {
+                Value::String(arch) if arch != &self.meta_os_arch => valid = false,
+                Value::String(_) => (),
+                _ => return Err(Error::new_schema("/arch, expected string"))
+            }
+        }
+
+        if let Some(version) = rule_os.get("version") {
+            match version {
+                Value::String(_) => todo!("regex matching"),
+                _ => return Err(Error::new_schema("/version, expected string (regex)"))
+            }
+        }
+
+        Ok(valid)
+
+    }
+
+    /// Parse a download file from its JSON value, expected to be an object that contains a
+    /// `url` string, and optionally a number `size` and a string`sha1`. 
+    fn resolve_download<'json>(&self, object: &'json Object) -> Result<JsonDownload<'json>> {
+
+        let Some(Value::String(url)) = object.get("url") else {
+            return Err(Error::new_schema("/url, expected string"));
+        };
+
+        let mut download = JsonDownload {
+            url: url.as_str(),
+            size: None,
+            sha1: None,
+        };
+
+        if let Some(size) = object.get("size") {
+
+            let make_err = || 
+                Error::new_schema(format!("/size, expected number (32-bit unsigned)"));
+
+            let Value::Number(size) = size else {
+                return Err(make_err());
+            };
+        
+            let size = size.as_u64()
+                .and_then(|size| u32::try_from(size).ok())
+                .ok_or_else(make_err)?;
+            
+            download.size = Some(size);
+
+        }
+
+        if let Some(sha1) = object.get("sha1") {
+
+            let make_err = || 
+                Error::new_schema(format!("/sha1, expected string (40 hex characters)"));
+
+            let Value::String(sha1) = sha1 else {
+                return Err(make_err());
+            };
+
+            let sha1 = parse_hex_bytes::<20>(sha1)
+                .ok_or_else(make_err)?;
+
+            download.sha1 = Some(sha1);
+
+        }
+
+        Ok(download)
+
+    }
+
 }
 
-// /// The internal installer state.
-// struct State<'handler> {
-//     /// The reference to the handler, this is the preferred way to interact with handler.
-//     handler: &'handler mut dyn Handler,
-//     /// A sequence of downloads that must be completed at the end of the installation
-//     /// procedure, just before returning the environment.
-//     downloads: Vec<Download>,
-// }
+/// Resolved action for a rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuleAction {
+    /// The rule didn't matched, so it should be ignored.
+    Ignore,
+    /// The rule has matched and its action is to allow.
+    Allow,
+    /// The rule has matched and its action is to disallow.
+    Disallow,
+}
+
+/// Internal structure to parse a JSON download entry.
+#[derive(Debug)]
+struct JsonDownload<'json> {
+    url: &'json str,
+    size: Option<u32>,
+    sha1: Option<Sha1Hash>,
+}
+
+impl<'json> JsonDownload<'json> {
+
+    pub fn to_owned(&self, file: PathBuf, executable: bool) -> Download {
+        Download {
+            url: self.url.to_string(),
+            file,
+            size: self.size,
+            sha1: self.sha1,
+            executable,
+        }
+    }
+
+}
+
 
 /// A handler is given when installing a version and allows tracking installation progress
 /// and also provides methods to alter the installed version, such as downloading missing
@@ -674,12 +878,6 @@ pub trait Handler {
     /// empty and this function should not empty it.
     fn filter_hierarchy(&mut self, installer: &Installer, hierarchy: &mut Vec<Version>) -> Result<()> {
         let _ = (installer, hierarchy);
-        Ok(())
-    }
-
-    /// Filter the merged metadata of the version hierarchy.
-    fn filter_metadata(&mut self, installer: &Installer, metadata: &mut Object) -> Result<()> {
-        let _ = (installer, metadata);
         Ok(())
     }
 
@@ -737,8 +935,8 @@ impl Handler for () { }
 pub struct Version {
     /// The name of the version.
     pub name: String,
-    /// The JSON metadata of the version, defaults to an empty object.
-    pub metadata: Object,
+    /// The serde object describing this version.
+    pub metadata: serde::Version,
 }
 
 /// Represent all the assets used for the game.
@@ -804,7 +1002,6 @@ pub struct Environment {
 
 }
 
-
 /// Return the default main directory for Minecraft, so called ".minecraft".
 fn default_main_dir() -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
@@ -865,113 +1062,20 @@ fn default_meta_os_bits() -> Option<String> {
     }
 }
 
-/// Merge two version metadata JSON values.
-fn merge_json_metadata(dst: &mut Object, src: &Object) {
-    for (src_key, src_value) in src.iter() {
-        if let Some(dst_value) = dst.get_mut(src_key) {
-            match (dst_value, src_value) {
-                (Value::Object(dst_object), Value::Object(src_object)) => 
-                    merge_json_metadata(dst_object, src_object),
-                (Value::Array(dst), Value::Array(src)) =>
-                    dst.extend(src.iter().cloned()),
-                _ => {}  // Do nothing
-            }
-        } else {
-            dst.insert(src_key.clone(), src_value.clone());
-        }
-    }
-}
-
-/// Parse the given hex bytes string into the given destination slice, returning none if 
-/// the input string cannot be parsed, is too short or too long.
-fn parse_hex_bytes<const LEN: usize>(mut string: &str) -> Option<[u8; LEN]> {
-    
-    let mut dst = [0; LEN];
-    for dst in &mut dst {
-        if string.is_char_boundary(2) {
-
-            let (num, rem) = string.split_at(2);
-            string = rem;
-
-            *dst = u8::from_str_radix(num, 16).ok()?;
-
-        } else {
-            return None;
-        }
-    }
-
-    // Only successful if no string remains.
-    string.is_empty().then_some(dst)
-
-}
-
-/// Parse a download file from its JSON value, expected to be an object that contains a
-/// `url` string, and optionally a number `size` and a string`sha1`. 
-fn parse_json_download<'json>(object: &'json Object) -> StdResult<JsonDownload<'json>, String> {
-
-    let Some(Value::String(url)) = object.get("url") else {
-        return Err(format!("/url must be a string"));
-    };
-
-    let mut download = JsonDownload {
-        url: url.as_str(),
-        size: None,
-        sha1: None,
-    };
-
-    if let Some(size) = object.get("size") {
-
-        let make_err = || format!("/size must be a number (32-bit unsigned)");
-
-        let Value::Number(size) = size else {
-            return Err(make_err());
-        };
-    
-        let size = size.as_u64()
-            .and_then(|size| u32::try_from(size).ok())
-            .ok_or_else(make_err)?;
-        
-        download.size = Some(size);
-
-    }
-
-    if let Some(sha1) = object.get("sha1") {
-
-        let make_err = || format!("/sha1 must be a string (40 hex characters)");
-
-        let Value::String(sha1) = sha1 else {
-            return Err(make_err());
-        };
-
-        let sha1 = parse_hex_bytes::<20>(sha1)
-            .ok_or_else(make_err)?;
-
-        download.sha1 = Some(sha1);
-
-    }
-
-    Ok(download)
-
-}
-
-/// Internal structure to parse a JSON download entry.
-#[derive(Debug)]
-struct JsonDownload<'json> {
-    url: &'json str,
-    size: Option<u32>,
-    sha1: Option<Sha1Hash>,
-}
-
-impl<'json> JsonDownload<'json> {
-
-    pub fn to_owned(&self, file: PathBuf, executable: bool) -> Download {
-        Download {
-            url: self.url.to_string(),
-            file,
-            size: self.size,
-            sha1: self.sha1,
-            executable,
-        }
-    }
-
-}
+// /// Merge two version metadata JSON values. Merging object is recursive and merging 
+// /// arrays just append to the destination.
+// fn merge_json_metadata(dst: &mut Object, src: &Object) {
+//     for (src_key, src_value) in src.iter() {
+//         if let Some(dst_value) = dst.get_mut(src_key) {
+//             match (dst_value, src_value) {
+//                 (Value::Object(dst_object), Value::Object(src_object)) => 
+//                     merge_json_metadata(dst_object, src_object),
+//                 (Value::Array(dst), Value::Array(src)) =>
+//                     dst.extend(src.iter().cloned()),
+//                 _ => {}  // Do nothing, do not override destination if mismatch.
+//             }
+//         } else {
+//             dst.insert(src_key.clone(), src_value.clone());
+//         }
+//     }
+// }

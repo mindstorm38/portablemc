@@ -1,7 +1,7 @@
 //! Error type definition for standard installer.
 
-use std::{fmt, io};
 use std::path::Path;
+use std::{fmt, io};
 
 
 /// Type alias for result with the install error type.
@@ -32,14 +32,15 @@ pub enum Error {
 }
 
 /// Origin of an uncategorized error.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum ErrorOrigin {
+    /// Unknown origin for the error.
+    #[default]
+    Unknown,
     /// The error is related to a specific file.
     File(Box<Path>),
     /// The origin of the error is explained in this raw message.
     Raw(Box<str>),
-    /// Unknown origin for the error.
-    Unknown,
 }
 
 /// Kind of an uncategorized error.
@@ -50,37 +51,71 @@ pub enum ErrorKind {
     Schema(Box<str>),
 }
 
+// Note: methods are pub(crate) for now because I'm not sure of the API, it is designed 
+// to be super practical and short to create errors but these may change in the future.
+
 impl Error {
     
     #[inline]
-    pub fn new_file_schema(origin_file: impl Into<Box<Path>>, message: impl Into<Box<str>>) -> Self {
+    pub(crate) fn new_file_schema(origin_file: impl Into<Box<Path>>, message: impl Into<Box<str>>) -> Self {
         ErrorKind::Schema(message.into()).with_file_origin(origin_file)
     }
     
     #[inline]
-    pub fn new_raw_schema(origin_raw: impl Into<Box<str>>, message: impl Into<Box<str>>) -> Self {
+    pub(crate) fn new_raw_schema(origin_raw: impl Into<Box<str>>, message: impl Into<Box<str>>) -> Self {
         ErrorKind::Schema(message.into()).with_raw_origin(origin_raw)
     }
 
     #[inline]
-    pub fn new_schema(message: impl Into<Box<str>>) -> Self {
+    pub(crate) fn new_schema(message: impl Into<Box<str>>) -> Self {
         ErrorKind::Schema(message.into()).without_origin()
     }
 
     #[inline]
-    pub fn new_file_io(origin_file: impl Into<Box<Path>>, e: io::Error) -> Self {
+    pub(crate) fn new_file_io(origin_file: impl Into<Box<Path>>, e: io::Error) -> Self {
         ErrorKind::Io(e).with_file_origin(origin_file)
     }
 
     #[inline]
-    pub fn new_file_json(origin_file: impl Into<Box<Path>>, e: serde_json::Error) -> Self {
+    pub(crate) fn new_file_json(origin_file: impl Into<Box<Path>>, e: serde_json::Error) -> Self {
         ErrorKind::Json(e).with_file_origin(origin_file)
     }
 
-    /// 
     #[inline]
-    pub fn map_origin<F: FnOnce(ErrorOrigin) -> ErrorOrigin>(self, map: F) -> Self {
+    pub(crate) fn map_schema<F: FnOnce(&str) -> String>(mut self, map: F) -> Self {
         
+        if let Self::Other { kind: ErrorKind::Schema(ref mut schema), .. } = self {
+            let new_schema = map(&schema);
+            *schema = new_schema.into();
+        }
+
+        self
+
+    }
+
+    #[inline]
+    pub(crate) fn map_origin<F: FnOnce(ErrorOrigin) -> ErrorOrigin>(mut self, map: F) -> Self {
+        
+        if let Self::Other { ref mut origin, .. } = self {
+            *origin = map(std::mem::take(origin));
+        }
+
+        self
+
+    }
+
+}
+
+impl ErrorOrigin {
+
+    #[inline]
+    pub(crate) fn new_file(file: impl Into<Box<Path>>) -> Self {
+        Self::File(file.into())
+    }
+
+    #[inline]
+    pub(crate) fn new_raw(raw: impl Into<Box<str>>) -> Self {
+        Self::Raw(raw.into())
     }
 
 }
@@ -88,17 +123,17 @@ impl Error {
 impl ErrorKind {
 
     #[inline]
-    pub fn with_file_origin(self, file: impl Into<Box<Path>>) -> Error {
-        Error::Other { origin: ErrorOrigin::File(file.into()), kind: self }
+    pub(crate) fn with_file_origin(self, file: impl Into<Box<Path>>) -> Error {
+        Error::Other { origin: ErrorOrigin::new_file(file), kind: self }
     }
 
     #[inline]
-    pub fn with_raw_origin(self, raw: impl Into<Box<str>>) -> Error {
-        Error::Other { origin: ErrorOrigin::Raw(raw.into()), kind: self }
+    pub(crate) fn with_raw_origin(self, raw: impl Into<Box<str>>) -> Error {
+        Error::Other { origin: ErrorOrigin::new_raw(raw), kind: self }
     }
 
     #[inline]
-    pub fn without_origin(self) -> Error {
+    pub(crate) fn without_origin(self) -> Error {
         Error::Other { origin: ErrorOrigin::Unknown, kind: self }
     }
 

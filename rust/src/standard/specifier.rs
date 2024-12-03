@@ -1,8 +1,10 @@
 //! Definition of library specifier structure...
 
 use std::num::NonZeroU16;
-use std::ops::Range;
 use std::str::FromStr;
+use std::borrow::Cow;
+use std::ops::Range;
+use std::fmt;
 
 
 /// A maven-style library specifier.
@@ -53,7 +55,7 @@ impl LibrarySpecifier {
     }
 
     /// Internal method to parse 
-    fn _from_str(raw: &str) -> Option<Self> {
+    fn _from_str(raw: Cow<str>) -> Option<Self> {
 
         // Early check that raw string is not longer than u16 max because we cast using 
         // 'as' and we don't want the cast to overflow, checking the size of the full 
@@ -87,7 +89,7 @@ impl LibrarySpecifier {
         }
 
         Some(Self {
-            raw: raw.to_string(),
+            raw: raw.into_owned(),
             group_len,
             artifact_len,
             version_len,
@@ -225,7 +227,53 @@ impl FromStr for LibrarySpecifier {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::_from_str(s).ok_or(())
+        Self::_from_str(Cow::Borrowed(s)).ok_or(())
+    }
+
+}
+
+impl fmt::Display for LibrarySpecifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.raw)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for LibrarySpecifier {
+
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            
+            type Value = LibrarySpecifier;
+        
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                write!(formatter, "a string library specifier (group:artifact:version[:classifier][@extension])")
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error, 
+            {
+                LibrarySpecifier::_from_str(Cow::Owned(v))
+                    .ok_or_else(|| E::custom("invalid string library specifier (group:artifact:version[:classifier][@extension])"))
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error, 
+            {
+                LibrarySpecifier::_from_str(Cow::Borrowed(v))
+                    .ok_or_else(|| E::custom("invalid string library specifier (group:artifact:version[:classifier][@extension])"))
+            }
+
+        }
+
+        deserializer.deserialize_string(Visitor)
+
     }
 
 }
