@@ -1,6 +1,6 @@
 //! JSON schemas structures for serde deserialization.
 
-use crate::gav::Gav;
+use crate::maven::Gav;
 
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]

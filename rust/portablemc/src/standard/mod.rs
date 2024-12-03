@@ -20,7 +20,7 @@ use zip::ZipArchive;
 
 use crate::path::{PathExt, PathBufExt};
 use crate::download::{self, Batch};
-use crate::gav::Gav;
+use crate::maven::Gav;
 
 
 /// Base URL for downloading game's assets.
@@ -43,6 +43,11 @@ pub(crate) const LEGACY_JVM_ARGS: &[&str] = &[
     "-cp",
     "${classpath}",
 ];
+
+/// To avoid infinite recursion when fetching version if it fails. The current value is
+/// arbitrary, mostly because in general just '1' would be valid, but let's say that we
+/// want handlers to be able to recover from parsing errors, currently unused mechanic.
+const MAX_VERSION_RETRY_COUNT: u8 = 4;
 
 /// Standard installer handle to install versions, this object is just the configuration
 /// of the installer when a version will be installed, such as directories to install 
@@ -401,6 +406,7 @@ impl Installer {
 
         let dir = self.versions_dir.join(&id);
         let file = dir.join_with_extension(&id, "json");
+        let mut retry_count = 0;
 
         handler.handle_standard_event(Event::VersionLoading { id: &id, file: &file });
 
@@ -410,15 +416,17 @@ impl Installer {
                 Ok(reader) => BufReader::new(reader),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {
 
-                    let mut retry = false;
-                    handler.handle_standard_event(Event::VersionNotFound { id: &id, file: &file, error: None, retry: &mut retry });
-
-                    if retry {
-                        continue;
-                    } else {
-                        // If not retried, we return a version not found error.
-                        return Err(Error::VersionNotFound { id });
+                    if retry_count < MAX_VERSION_RETRY_COUNT {
+                        let mut retry = false;
+                        handler.handle_standard_event(Event::VersionNotFound { id: &id, file: &file, error: None, retry: &mut retry });
+                        if retry {
+                            retry_count += 1;
+                            continue;
+                        }
                     }
+
+                    // If not retried, we return a version not found error.
+                    return Err(Error::VersionNotFound { id });
 
                 }
                 Err(e) => return Err(Error::new_io_file(e, file))
@@ -744,8 +752,7 @@ impl Installer {
                         let mut dst_writer = File::create(&dst_file)
                             .map_err(|e| Error::new_io_file(e, dst_file.clone()))?;
 
-                        io::copy(&mut file, &mut dst_writer)
-                            .map_err(Error::new_io)?;
+                        io::copy(&mut file, &mut dst_writer)?;
 
                     }
 
@@ -896,18 +903,23 @@ impl Installer {
             }
         }
 
-        let reader = match File::open(&index_file) {
-            Ok(reader) => BufReader::new(reader),
-            Err(e) if !index_downloaded && e.kind() == io::ErrorKind::NotFound =>
-                return Err(Error::AssetsNotFound { id: index_info.id.to_owned() }),
-            Err(e) => 
-                return Err(Error::new_io_file(e, index_file))
-        };
+        // Scoped to release the reader.
+        let asset_index = {
 
-        let mut deserializer = serde_json::Deserializer::from_reader(reader);
-        let asset_index: serde::AssetIndex = match serde_path_to_error::deserialize(&mut deserializer) {
-            Ok(obj) => obj,
-            Err(e) => return Err(Error::new_json_file(e, index_file))
+            let reader = match File::open(&index_file) {
+                Ok(reader) => BufReader::new(reader),
+                Err(e) if !index_downloaded && e.kind() == io::ErrorKind::NotFound =>
+                    return Err(Error::AssetsNotFound { id: index_info.id.to_owned() }),
+                Err(e) => 
+                    return Err(Error::new_io_file(e, index_file))
+            };
+    
+            let mut deserializer = serde_json::Deserializer::from_reader(reader);
+            match serde_path_to_error::deserialize::<_, serde::AssetIndex>(&mut deserializer) {
+                Ok(obj) => obj,
+                Err(e) => return Err(Error::new_json_file(e, index_file))
+            }
+
         };
         
         handler.handle_standard_event(Event::AssetsLoaded { id: index_info.id, index: &asset_index });
@@ -1012,7 +1024,7 @@ impl Installer {
             
             let virtual_file = mapping.virtual_dir.join(&object.rel_file);
             if let Some(parent) = virtual_file.parent() {
-                fs::create_dir_all(parent).map_err(Error::new_io)?;
+                fs::create_dir_all(parent)?;
             }
             hard_link_file(&object.object_file, &virtual_file)?;
 
@@ -1023,7 +1035,7 @@ impl Installer {
                 if !check_file(&resource_file, Some(object.size), None)? {
                     
                     if let Some(parent) = resource_file.parent() {
-                        fs::create_dir_all(parent).map_err(Error::new_io)?;
+                        fs::create_dir_all(parent)?;
                     }
 
                     fs::copy(&object.object_file, &resource_file)
@@ -1675,7 +1687,8 @@ pub enum Event<'a> {
     HierarchyLoaded {
         hierarchy: &'a [Version],
     },
-    /// A version will be loaded.
+    /// A version will be loaded, at this point you can check the file and delete it if
+    /// it needs to be re-fetched through a subsequent [`Self::VersionNotFound`] event.
     VersionLoading {
         id: &'a str,
         file: &'a Path,
@@ -1829,11 +1842,11 @@ pub enum Error {
         file: Option<Box<Path>>,
     },
     /// A JSON deserialization error with a file source.
-    #[error("json: {error} @ {file}")]
+    #[error("json: {error} @ {file:?}")]
     Json {
         #[source]
         error: serde_path_to_error::Error<serde_json::Error>,
-        file: Box<Path>,
+        file: Option<Box<Path>>,
     },
     /// A Zip error with a file source, this can happen when extracting natives.
     #[error("zip: {error} @ {file}")]
@@ -1867,15 +1880,22 @@ impl From<download::EntryError> for Error {
     }
 }
 
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
+        Self::Io { error, file: None }
+    }
+}
+
+impl From<serde_path_to_error::Error<serde_json::Error>> for Error {
+    fn from(error: serde_path_to_error::Error<serde_json::Error>) -> Self {
+        Self::Json { error, file: None }
+    }
+}
+
 /// Type alias for a result with the standard error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
-    
-    #[inline]
-    pub fn new_io(error: io::Error) -> Self {
-        Self::Io { error, file: None }
-    }
     
     #[inline]
     pub fn new_io_file(error: io::Error, file: impl Into<Box<Path>>) -> Self {
@@ -1884,7 +1904,7 @@ impl Error {
     
     #[inline]
     pub fn new_json_file(error: serde_path_to_error::Error<serde_json::Error>, file: impl Into<Box<Path>>) -> Self {
-        Self::Json { error, file: file.into() }
+        Self::Json { error, file: Some(file.into()) }
     }
 
     #[inline]

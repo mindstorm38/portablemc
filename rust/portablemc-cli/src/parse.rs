@@ -6,7 +6,7 @@ use std::str::FromStr;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
-use portablemc::{mojang, fabric};
+use portablemc::{fabric, forge, mojang};
 
 
 // ================= //
@@ -276,7 +276,8 @@ pub enum StartVersion {
         kind: StartFabricLoader,
     },
     Forge {
-        // TODO:
+        game_version: forge::GameVersion,
+        loader_version: forge::LoaderVersion,
         kind: StartForgeLoader,
     }
 }
@@ -367,6 +368,16 @@ impl FromStr for StartVersion {
             }
             "forge" | "neoforge" => {
                 Self::Forge { 
+                    game_version: match parts[0] {
+                        "" |
+                        "release" => forge::GameVersion::Release,
+                        id => forge::GameVersion::Id(id.to_string()),
+                    },
+                    loader_version: match parts.get(1).copied() {
+                        None | Some("" | "stable") => forge::LoaderVersion::Stable,
+                        Some("unstable") => forge::LoaderVersion::Unstable,
+                        Some(id) => forge::LoaderVersion::Id(id.to_string()),
+                    },
                     kind: match kind {
                         "forge" => StartForgeLoader::Forge,
                         "neoforge" => StartForgeLoader::NeoForge,
