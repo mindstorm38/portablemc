@@ -11,12 +11,12 @@ use portablemc::{download, standard, mojang};
 
 fn main() {
     
-    let mut installer = standard::Installer::with_dirs(r"C:\Users\theor\AppData\Roaming\.minecraft_test".into(), r"C:\Users\Theo\AppData\Roaming\.minecraft_test".into());
+    let mut installer = standard::Installer::with_dir(r"C:\Users\theor\AppData\Roaming\.minecraft_test".into());
     installer.strict_libraries_checking = false;
     installer.strict_assets_checking = false;
 
     let installer = mojang::Installer::from(installer);
-    installer.install(&mut CliHandler::default(), "1.21").unwrap();
+    let installed = installer.install(&mut CliHandler::default(), "1.21").unwrap();
 
 }
 
@@ -133,6 +133,7 @@ impl standard::Handler for CliHandler {
         use standard::Event;
 
         match event {
+            Event::FeaturesLoaded { .. } => self,
             Event::HierarchyLoading { .. } => self,
             Event::HierarchyLoaded { .. } => self,
             Event::VersionLoading { id, .. } => 
@@ -178,7 +179,13 @@ impl standard::Handler for CliHandler {
             Event::ResourcesDownloaded {  } =>
                 self.state("OK", format_args!("Downloaded"))
                     .newline(),
+            Event::JvmLoading {  } => 
+                self.state("..", format_args!("Loading JVM")),
+            Event::JvmLoaded {  } => 
+                self.state("OK", format_args!("Loaded JVM"))
+                    .newline(),
             _ => todo!(),
+            
         };
 
     }

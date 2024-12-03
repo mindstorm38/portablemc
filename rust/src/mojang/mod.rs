@@ -3,16 +3,11 @@
 
 pub mod serde;
 
-use std::fs;
-use std::io::{self, BufReader, BufWriter};
-use std::path::{Path, PathBuf};
+use std::io::BufReader;
+use std::fs::{self, File};
 
-use crate::download::{self, Batch, Entry, EntrySource};
+use crate::download::{self, Entry, EntryMode, EntrySource};
 use crate::standard::{self, check_file, Handler as _};
-use crate::http;
-
-use tokio::runtime::Builder;
-use tokio::fs::File;
 
 
 /// Static URL to the version manifest provided by Mojang.
@@ -24,8 +19,6 @@ const VERSION_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/versi
 pub struct Installer {
     /// The underlying standard installer logic.
     pub installer: standard::Installer,
-    /// Underlying version manifest, behind a mutex because we may mutate it in handler.
-    pub manifest_cache_file: Option<PathBuf>,
 }
 
 impl Installer {
@@ -37,13 +30,12 @@ impl Installer {
     /// 
     /// If the given version is not found in the manifest then it's silently ignored and
     /// the version metadata must already exists.
-    pub fn install(&self, mut handler: impl Handler, id: &str) -> standard::Result<()> {
+    pub fn install(&self, mut handler: impl Handler, id: &str) -> standard::Result<standard::Installed> {
         
         // We quickly lock and ensure that the manifest is present here because it will
         // always be used, first for resolving potential alias id, and then to check an
         // existing version's metadata file's hash or to download missing version.
-        let manifest = self.request_manifest()
-            .map_err(|e| standard::Error::new_raw_io("mojang manifest", e))?;
+        let manifest = self.request_manifest(&mut handler)?;
         
         let id = match manifest.latest.get(id) {
             Some(alias_id) => alias_id.as_str(),
@@ -74,8 +66,25 @@ impl Installer {
     }
 
     /// Request the Mojang versions' manifest with the currently configured cache file.
-    pub fn request_manifest(&self) -> io::Result<serde::MojangManifest> {
-        request_manifest(self.manifest_cache_file.as_deref())
+    pub fn request_manifest(&self, mut handler: impl Handler) -> standard::Result<serde::MojangManifest> {
+        
+        let entry = Entry::new_cached(VERSION_MANIFEST_URL);
+        let file = entry.file.to_path_buf();
+        entry.download(handler.as_download_dyn())?;
+
+        let reader = match File::open(&file) {
+            Ok(reader) => BufReader::new(reader),
+            Err(e) => return Err(standard::Error::new_io_file(e, file)),
+        };
+
+        let mut deserializer = serde_json::Deserializer::from_reader(reader);
+        let manifest: serde::MojangManifest = match serde_path_to_error::deserialize(&mut deserializer) {
+            Ok(obj) => obj,
+            Err(e) => return Err(standard::Error::new_json_file(e, file))
+        };
+
+        Ok(manifest)
+
     }
 
 }
@@ -84,7 +93,6 @@ impl From<standard::Installer> for Installer {
     fn from(value: standard::Installer) -> Self {
         Self {
             installer: value,
-            manifest_cache_file: None,
         }
     }
 }
@@ -176,8 +184,8 @@ impl<H: Handler> InternalHandler<'_, H> {
                 self.inner.handle_standard_event(event);
                 
                 let dl = &self.manifest_version.download;
-                if !check_file(file, dl.size, dl.sha1.as_deref()).map_err(standard::Error::new_io)? {
-                    fs::remove_file(file).map_err(standard::Error::new_io)?;
+                if !check_file(file, dl.size, dl.sha1.as_deref())? {
+                    fs::remove_file(file).map_err(|e| standard::Error::new_io_file(e, file.to_path_buf()))?;
                     self.inner.handle_mojang_event(Event::MojangVersionInvalidated { id });
                 }
 
@@ -192,11 +200,11 @@ impl<H: Handler> InternalHandler<'_, H> {
 
                 self.inner.handle_mojang_event(Event::MojangVersionFetching { id });
                 
-                Batch::from(Entry {
+                Entry {
                     source: EntrySource::from(&self.manifest_version.download),
                     file: file.to_path_buf().into_boxed_path(),
-                    executable: false,
-                }).download(&mut self.inner)?;
+                    mode: EntryMode::Force,
+                }.download(&mut self.inner)?;
 
                 self.inner.handle_mojang_event(Event::MojangVersionFetched { id });
 
@@ -210,101 +218,5 @@ impl<H: Handler> InternalHandler<'_, H> {
         Ok(())
 
     }
-    
-}
-
-/// Request the Mojang version's manifest with optional cache file.
-pub fn request_manifest(cache_file: Option<&Path>) -> io::Result<serde::MojangManifest> {
-
-    let rt = Builder::new_current_thread()
-        .enable_time()
-        .enable_io()
-        .build()
-        .unwrap();
-
-    rt.block_on(request_manifest_impl(cache_file))
-    
-}
-
-async fn request_manifest_impl(cache_file: Option<&Path>) -> io::Result<serde::MojangManifest> {
-    
-    let mut data = None::<serde::PmcMojangManifest>;
-
-    if let Some(cache_file) = cache_file.as_deref() {
-
-        // Using a loop for using early breaks.
-        loop {
-
-            let cache_reader = match File::open(cache_file).await {
-                Ok(reader) => BufReader::new(reader.into_std().await),
-                Err(e) if e.kind() == io::ErrorKind::NotFound => break,
-                Err(e) => return Err(e),
-            };
-            
-            // Silently ignoring any parsing error.
-            data = serde_json::from_reader(cache_reader).ok();
-            break;
-
-        }
-
-    }
-
-    let client = http::builder()
-        .build()
-        .unwrap(); // FIXME:
-
-    let mut req = client.get(VERSION_MANIFEST_URL);
-
-    // If the last modified date is missing, we don't add this header so we request
-    // the data anyway.
-    if let Some(last_modified) = data.as_ref().and_then(|m| m.last_modified.as_deref()) {
-        req = req.header(reqwest::header::IF_MODIFIED_SINCE, last_modified);
-    }
-
-    let res = req.send()
-        .await
-        .unwrap();
-
-    // This status code implies that we previously set "last modified" header and so
-    // that the data is existing.
-    if res.status() == reqwest::StatusCode::NOT_MODIFIED {
-        if data.is_none() {
-            return Err(io::ErrorKind::InvalidData.into());
-        }
-        return Ok(data.unwrap().inner);
-    }
-
-    let last_modified = res.headers()
-        .get(reqwest::header::LAST_MODIFIED)
-        .and_then(|val| val.to_str().ok())
-        .map(|val| val.to_string());
-
-    let manifest = res.json::<serde::MojangManifest>()
-        .await
-        .unwrap();
-
-    let data = serde::PmcMojangManifest {
-        inner: manifest,
-        last_modified,
-    };
-
-    // If there is a last modified, write the data to the cache file. If not there
-    // is no point in writing it because this will always request again if the last
-    // modified date.
-    if data.last_modified.is_some() {
-        if let Some(cache_file) = cache_file.as_deref() {
-
-            let cache_file = File::create(cache_file)
-                .await?
-                .into_std()
-                .await;
-
-            let cache_writer = BufWriter::new(cache_file);
-            serde_json::to_writer(cache_writer, &data).unwrap(); // FIXME:
-
-        }
-    }
-
-    Ok(data.inner)
     
 }

@@ -5,18 +5,20 @@ pub mod serde;
 use std::io::{self, BufReader, Seek, SeekFrom};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::fs::{self, File};
 use std::fmt::Write as _;
-use std::fs::File;
 
 use sha1::{Digest, Sha1};
 
-use crate::download::{self, Batch, Entry, EntrySource};
+use crate::download::{self, Batch, Entry, EntryMode, EntrySource};
 use crate::path::PathExt;
 use crate::gav::Gav;
 
 
 /// Base URL for downloading game's assets.
 const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
+
+const JVM_META_URL: &str = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
 // /// Base URL for downloading game's libraries.
 // const LIBRARIES_URL: &str = "https://libraries.minecraft.net/";
@@ -30,16 +32,14 @@ pub struct Installer {
     /// The directory where versions are stored.
     pub versions_dir: PathBuf,
     /// The directory where assets, assets index, cached skins and logs config are stored.
-    /// TODO: Note on permissions for skins directory...
+    /// Note that this directory stores caches player skins, so this is the only 
+    /// directory where the client will need to write, and so it needs the permission
+    /// to do so.
     pub assets_dir: PathBuf,
+    /// The directory where Mojang-provided JVM has been installed.
+    pub jvm_dir: PathBuf,
     /// The directory where libraries are stored, organized like a maven repository.
     pub libraries_dir: PathBuf,
-    /// The working directory from where the game is run, the game stores thing like 
-    /// saves, resource packs, options and mods if relevant.
-    pub work_dir: PathBuf,
-    /// The binary directory contains temporary directories that are used only during the
-    /// game's runtime, modern versions no longer use it but it.
-    pub bin_dir: PathBuf,
     /// The OS name used when applying rules for the version metadata.
     pub meta_os_name: String,
     /// The OS system architecture name used when applying rules for version metadata.
@@ -62,18 +62,17 @@ impl Installer {
     /// directories.
     pub fn new() -> Self {
         let dir = default_main_dir().unwrap();
-        Self::with_dirs(dir.clone(), dir)
+        Self::with_dir(dir)
     }
 
     /// Create a new installer with default configuration and pointing to given 
     /// directories.
-    pub fn with_dirs(main_dir: PathBuf, work_dir: PathBuf) -> Self {
+    pub fn with_dir(main_dir: PathBuf) -> Self {
         Self {
             versions_dir: main_dir.join("versions"),
             assets_dir: main_dir.join("assets"),
             libraries_dir: main_dir.join("libraries"),
-            bin_dir: main_dir.join("bin"), // FIXME:
-            work_dir,
+            jvm_dir: main_dir.join("jvm"),
             meta_os_name: default_meta_os_name().unwrap(),
             meta_os_arch: default_meta_os_arch().unwrap(),
             meta_os_version: default_meta_os_version().unwrap(),
@@ -84,22 +83,82 @@ impl Installer {
     }
 
     /// Ensure that a the given version, from its id, is properly installed.
-    pub fn install(&self, mut handler: impl Handler, id: &str) -> Result<()> {
+    pub fn install(&self, mut handler: impl Handler, id: &str) -> Result<Installed> {
         
         let mut batch = Batch::new();
-        let features = HashSet::new();
+        let mut features = HashSet::new();
+        handler.handle_standard_event(Event::FeaturesLoaded { features: &mut features });
 
         let hierarchy = self.load_hierarchy(&mut handler, id)?;
-        let _client_file = self.load_client(&mut handler, &hierarchy, &mut batch)?;
-        let _lib_files = self.load_libraries(&mut handler, &hierarchy, &features, &mut batch)?;
-        let _logger_config = self.load_logger(&mut handler, &hierarchy, &mut batch)?;
-        let _assets = self.load_assets(&mut handler, &hierarchy, &mut batch)?;
+        let client_file = self.load_client(&mut handler, &hierarchy, &mut batch)?;
+        let lib_files = self.load_libraries(&mut handler, &hierarchy, &features, &mut batch)?;
+        let logger_config = self.load_logger(&mut handler, &hierarchy, &mut batch)?;
+        let assets = self.load_assets(&mut handler, &hierarchy, &mut batch)?;
+        self.load_jvm(&mut handler, &hierarchy)?;
 
-        handler.handle_standard_event(Event::ResourcesDownloading {  });
-        batch.download(handler.as_download_dyn())?;
-        handler.handle_standard_event(Event::ResourcesDownloaded {  });
+        if !batch.is_empty() {
+            handler.handle_standard_event(Event::ResourcesDownloading {  });
+            batch.download(handler.as_download_dyn())?;
+            handler.handle_standard_event(Event::ResourcesDownloaded {  });
+        }
 
-        Ok(())
+        // After resources downloading we can symlink/copy assets if mapping is need to
+        // resource or virtual directory.
+        let mut assets_virtual_dir = None;
+        if let Some(assets) = &assets {
+
+            // If the mapping is resource or virtual then we start by copying assets to
+            // their virtual directory.
+            if assets.mapping != AssetsMapping::None {
+                
+                let virtual_dir = assets_virtual_dir.insert({
+                    let mut buf = self.assets_dir.clone();
+                    buf.push("virtual");
+                    buf.push(&assets.id);
+                    buf
+                });
+
+                for (virtual_file, asset_file) in &assets.objects {
+                    let virtual_file = virtual_dir.join(virtual_file);
+                    fs::hard_link(asset_file, virtual_file).map_err(Error::new_io)?;
+                }
+
+            }
+
+        }
+
+        // Resolve arguments from the hierarchy of versions.
+        let mut jvm_args = Vec::new();
+        let mut game_args = Vec::new();
+        
+        for version in &hierarchy {
+            if let Some(version_args) = &version.metadata.arguments {
+                self.check_args(&mut jvm_args, &version_args.jvm, &features, None);
+                self.check_args(&mut game_args, &version_args.game, &features, None);
+            } else if let Some(version_legacy_args) = &version.metadata.legacy_arguments {
+                game_args.extend(version_legacy_args.split_whitespace().map(str::to_string));
+            }
+        }
+
+        // The logger configuration is an additional JVM argument.
+        if let Some(logger_config) = &logger_config {
+            
+            let logger_file = logger_config.file.canonicalize()
+                .map_err(Error::new_io)?;
+
+            jvm_args.push(logger_config.argument.replace("${path}", &logger_file.to_string_lossy()));
+
+        }
+
+        Ok(Installed {
+            hierarchy,
+            client_file,
+            class_files: lib_files.class_files,
+            natives_files: lib_files.natives_files,
+            assets_virtual_dir,
+            jvm_args,
+            game_args,
+        })
 
     }
 
@@ -160,13 +219,13 @@ impl Installer {
                     }
 
                 }
-                Err(e) => return Err(Error::new_file_io(file, e))
+                Err(e) => return Err(Error::new_io_file(e, file))
             };
 
             let mut deserializer = serde_json::Deserializer::from_reader(reader);
             let mut metadata: serde::VersionMetadata = match serde_path_to_error::deserialize(&mut deserializer) {
                 Ok(obj) => obj,
-                Err(e) => return Err(Error::new_file_json(file, e)),
+                Err(e) => return Err(Error::new_json_file(e, file)),
             };
 
             handler.handle_standard_event(Event::VersionLoaded { id: &id, file: &file, metadata: &mut metadata });
@@ -199,11 +258,11 @@ impl Installer {
 
         if let Some(dl) = dl {
             let check_client_sha1 = dl.sha1.as_deref().filter(|_| self.strict_libraries_checking);
-            if !check_file(&client_file, dl.size, check_client_sha1).map_err(Error::new_io)? {
+            if !check_file(&client_file, dl.size, check_client_sha1)? {
                 batch.push(Entry {
                     source: dl.into(),
                     file: client_file.clone().into_boxed_path(),
-                    executable: false,
+                    mode: EntryMode::Force,
                 });
             }
         } else if !client_file.is_file() {
@@ -361,11 +420,11 @@ impl Installer {
             if let Some(source) = lib.source {
                 // Only check SHA-1 if strict checking is enabled.
                 let check_source_sha1 = source.sha1.as_ref().filter(|_| self.strict_libraries_checking);
-                if !check_file(&lib_file, source.size, check_source_sha1).map_err(Error::new_io)? {
+                if !check_file(&lib_file, source.size, check_source_sha1)? {
                     batch.push(Entry {
                         source,
                         file: lib_file.clone().into_boxed_path(),
-                        executable: false,
+                        mode: EntryMode::Force,
                     });
                 }
             } else if !lib_file.is_file() {
@@ -413,11 +472,11 @@ impl Installer {
             buf
         };
 
-        if !check_file(&file, config.file.download.size, config.file.download.sha1.as_deref()).map_err(Error::new_io)? {
+        if !check_file(&file, config.file.download.size, config.file.download.sha1.as_deref())? {
             batch.push(Entry {
                 source: EntrySource::from(&config.file.download),
                 file: file.clone().into_boxed_path(),
-                executable: false,
+                mode: EntryMode::Force,
             });
         }
 
@@ -479,12 +538,12 @@ impl Installer {
         // index identifier, we check the file against the download information and then
         // download this single file. If the file has no download info
         if let Some(dl) = index_info.download {
-            if !check_file(&index_file, dl.size, dl.sha1.as_deref()).map_err(Error::new_io)? {
-                Batch::from(Entry {
+            if !check_file(&index_file, dl.size, dl.sha1.as_deref())? {
+                Entry {
                     source: dl.into(),
                     file: index_file.clone().into_boxed_path(),
-                    executable: false,
-                }).download(handler.as_download_dyn())?;
+                    mode: EntryMode::Force,
+                }.download(handler.as_download_dyn())?;
             }
         }
 
@@ -493,13 +552,13 @@ impl Installer {
             Err(e) if e.kind() == io::ErrorKind::NotFound =>
                 return Err(Error::AssetsNotFound { id: index_info.id.to_owned() }),
             Err(e) => 
-                return Err(Error::new_file_io(index_file, e))
+                return Err(Error::new_io_file(e, index_file))
         };
 
         let mut deserializer = serde_json::Deserializer::from_reader(reader);
         let asset_index: serde::AssetIndex = match serde_path_to_error::deserialize(&mut deserializer) {
             Ok(obj) => obj,
-            Err(e) => return Err(Error::new_file_json(index_file, e))
+            Err(e) => return Err(Error::new_json_file(e, index_file))
         };
         
         handler.handle_standard_event(Event::AssetsLoaded { id: index_info.id, index: &asset_index });
@@ -508,7 +567,18 @@ impl Installer {
         let objects_dir = self.assets_dir.join("objects");
         let mut asset_file_name = String::new();
         let mut unique_hashes = HashSet::new();
-        let mut assets = Assets::default();
+
+        let mut assets = Assets {
+            id: index_info.id.to_string(),
+            objects: HashMap::with_capacity(asset_index.objects.len()),
+            mapping: if asset_index.map_to_resources {
+                AssetsMapping::Resources
+            } else if asset_index.r#virtual {
+                AssetsMapping::Virtual
+            } else {
+                AssetsMapping::None
+            },
+        };
 
         for (asset_path, asset) in &asset_index.objects {
 
@@ -536,7 +606,7 @@ impl Installer {
 
             // Only check SHA-1 if strict checking.
             let check_asset_sha1 = self.strict_assets_checking.then_some(&*asset.hash);
-            if !check_file(&asset_hash_file, Some(asset.size), check_asset_sha1).map_err(Error::new_io)? {
+            if !check_file(&asset_hash_file, Some(asset.size), check_asset_sha1)? {
                 batch.push(Entry {
                     source: EntrySource {
                         url: format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_file_name}").into_boxed_str(),
@@ -544,7 +614,7 @@ impl Installer {
                         sha1: Some(*asset.hash),
                     },
                     file: asset_hash_file.into_boxed_path(),
-                    executable: false,
+                    mode: EntryMode::Force,
                 });
             }
 
@@ -553,6 +623,67 @@ impl Installer {
         handler.handle_standard_event(Event::AssetsVerified { id: index_info.id, index: &asset_index });
 
         Ok(Some(assets))
+
+    }
+    
+    /// Load and verify all assets of the game.
+    fn load_jvm(&self, 
+        handler: &mut impl Handler, 
+        hierarchy: &[Version], 
+    ) -> Result<()> {
+
+        handler.handle_standard_event(Event::JvmLoading {  });
+
+        let Some(java_version) = hierarchy.iter()
+            .find_map(|version| version.metadata.java_version.as_ref()) else {
+                return Ok(());
+            };
+
+        let java_component = java_version.component.as_deref().unwrap_or("jre-legacy");
+        let _jvm_dir = self.jvm_dir.join(java_component);
+        let _jvm_manifest_file = self.jvm_dir.join_with_extension(java_component, "json");
+
+        // if !check_file(&jvm_manifest_file, None, None).map_err(Error::new_io)? {
+        //     Batch::from(Entry {
+        //         source: dl.into(),
+        //         file: index_file.clone().into_boxed_path(),
+        //         executable: false,
+        //     }).download(handler.as_download_dyn())?;
+        // }
+
+        Ok(())
+
+    }
+
+    /// Resolve metadata game arguments, checking for rules when needed.
+    fn check_args(&self,
+        dest: &mut Vec<String>,
+        args: &[serde::VersionArgument],
+        features: &HashSet<String>,
+        mut all_features: Option<&mut HashSet<String>>,
+    ) {
+
+        for arg in args {
+                    
+            // If the argument is conditional then we check rule.
+            if let serde::VersionArgument::Conditional(cond) = arg {
+                if let Some(rules) = &cond.rules {
+                    if !self.check_rules(rules, features, all_features.as_deref_mut()) {
+                        continue;
+                    }
+                }
+            }
+
+            match arg {
+                serde::VersionArgument::Raw(val) => dest.push(val.clone()),
+                serde::VersionArgument::Conditional(cond) => 
+                    match &cond.value {
+                        serde::SingleOrVec::Single(val) => dest.push(val.clone()),
+                        serde::SingleOrVec::Vec(vals) => dest.extend_from_slice(&vals),
+                    },
+            }
+
+        }
 
     }
 
@@ -671,6 +802,10 @@ impl<H: Handler + ?Sized> Handler for  &'_ mut H {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Event<'a> {
+    /// Features for rules have been loaded, the handler can still modify them. 
+    FeaturesLoaded {
+        features: &'a mut HashSet<String>,
+    },
     /// The version hierarchy will be loaded.
     HierarchyLoading {
         root_id: &'a str,
@@ -745,6 +880,8 @@ pub enum Event<'a> {
         id: &'a str,
         index: &'a serde::AssetIndex,
     },
+    JvmLoading {},
+    JvmLoaded {},
     ResourcesDownloading {},
     ResourcesDownloaded {},
 }
@@ -772,41 +909,25 @@ pub enum Error {
     LibraryNotFound {
         gav: Gav,
     },
+    /// A generic system's IO error with optional file source.
+    #[error("io: {error} @ {file:?}")]
+    Io {
+        #[source]
+        error: io::Error,
+        file: Option<Box<Path>>,
+    },
+    /// A JSON deserialization error with a file source.
+    #[error("json: {error} @ {file}")]
+    Json {
+        #[source]
+        error: serde_path_to_error::Error<serde_json::Error>,
+        file: Box<Path>,
+    },
     /// Download error, associating its failed download entry to the download error.
-    #[error("download: {error}")]
-    Download {
-        #[from]
-        error: download::Error,
-    },
-    /// A developer-oriented error that cannot be handled with other errors, it has an
-    /// origin that could be a file or any other raw string, attached to the actual error.
-    /// This includes filesystem, network, JSON parsing and schema errors.
-    #[error("other: {kind:?} @ {origin:?}")]
-    Other {
-        /// The origin of the error, can be a file path.
-        origin: ErrorOrigin,
-        /// The error error kind from the origin.
-        kind: ErrorKind,
-    },
-}
-
-/// Origin of an uncategorized error.
-#[derive(Debug, Default)]
-pub enum ErrorOrigin {
-    /// Unknown origin for the error.
-    #[default]
-    Unknown,
-    /// The error is related to a specific file.
-    File(Box<Path>),
-    /// The origin of the error is explained in this raw message.
-    Raw(Box<str>),
-}
-
-/// Kind of an uncategorized error.
-#[derive(Debug)]
-pub enum ErrorKind {
-    Io(io::Error),
-    Json(serde_path_to_error::Error<serde_json::Error>),
+    #[error("download: {0}")]
+    Download(#[from] download::Error),
+    #[error("reqwest: {0}")]
+    Reqwest(#[from] reqwest::Error),
 }
 
 /// Type alias for a result with the standard error type.
@@ -815,29 +936,24 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl Error {
     
     #[inline]
-    pub fn new_io(e: io::Error) -> Self {
-        Self::Other { origin: ErrorOrigin::Unknown, kind: ErrorKind::Io(e) }
+    pub fn new_io(error: io::Error) -> Self {
+        Self::Io { error, file: None }
     }
     
     #[inline]
-    pub fn new_file_io(file: impl Into<Box<Path>>, e: io::Error) -> Self {
-        Self::Other { origin: ErrorOrigin::File(file.into()), kind: ErrorKind::Io(e) }
+    pub fn new_io_file(error: io::Error, file: impl Into<Box<Path>>) -> Self {
+        Self::Io { error, file: Some(file.into()) }
     }
     
     #[inline]
-    pub fn new_raw_io(raw: impl Into<Box<str>>, e: io::Error) -> Self {
-        Self::Other { origin: ErrorOrigin::Raw(raw.into()), kind: ErrorKind::Io(e) }
-    }
-    
-    #[inline]
-    pub fn new_file_json(file: impl Into<Box<Path>>, e: serde_path_to_error::Error<serde_json::Error>) -> Self {
-        Self::Other { origin: ErrorOrigin::File(file.into()), kind: ErrorKind::Json(e) }
+    pub fn new_json_file(error: serde_path_to_error::Error<serde_json::Error>, file: impl Into<Box<Path>>) -> Self {
+        Self::Json { error, file: file.into() }
     }
 
 }
 
 /// Represent a loaded version.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Version {
     /// Identifier of this version.
     pub id: String,
@@ -848,7 +964,7 @@ pub struct Version {
 }
 
 /// Represent a loaded library.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Library {
     /// GAV for this library.
     pub gav: Gav,
@@ -863,9 +979,24 @@ pub struct Library {
 }
 
 /// Internal resolved assets associating the virtual file path to its hash file path.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Assets {
+    id: String,
     objects: HashMap<Box<Path>, Box<Path>>,
+    mapping: AssetsMapping,
+}
+
+/// The mapping mode for assets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AssetsMapping {
+    /// The version is able to read directly from the assets objects dir.
+    None,
+    /// The version needs to have its assets copied to their real path in the virtual dir.
+    /// This has been used for versions between 13w23b (excluded) and 13w48b (1.7.2).
+    Virtual,
+    /// Same as virtual but resources should be copied in work dir resources dir.
+    /// This has been used for versions 13w23b and anterior.
+    Resources,
 }
 
 /// Internal resolved libraries file paths.
@@ -877,16 +1008,53 @@ struct LibraryFiles {
 
 /// Internal resolved logger configuration.
 #[derive(Debug)]
-#[allow(unused)]  // FIXME:
 struct LoggerConfig {
+    #[allow(unused)]
     kind: serde::VersionLoggingType,
     argument: String,
     file: PathBuf,
 }
 
+/// Collection of the installation environment of a version, return by the install 
+/// function, this contains all informations to launch any number of instances from this
+/// installation.
+#[derive(Debug, Clone)]
+pub struct Installed {
+    /// The hierarchy of versions and their associated loaded metadata.
+    pub hierarchy: Vec<Version>,
+    /// The path to the client JAR file.
+    pub client_file: PathBuf,
+    /// The list of class files.
+    pub class_files: Vec<PathBuf>,
+    /// The list of natives files to symlink (copy if not possible) and archives to 
+    /// extract in the bin directory.
+    pub natives_files: Vec<PathBuf>,
+    /// If the assets index has been mapped into the virtual dir then we have the path
+    /// here, .
+    pub assets_virtual_dir: Option<PathBuf>,
+    /// List of JVM arguments (before the main class in the command line).
+    pub jvm_args: Vec<String>,
+    /// List of game arguments (after the main class in the command line).
+    pub game_args: Vec<String>,
+}
+
+impl Installed {
+
+    
+
+}
+
 /// Check if a file at a given path has the corresponding properties (size and/or SHA-1), 
 /// returning true if it is valid, so false is returned anyway if the file doesn't exists.
 pub(crate) fn check_file(
+    file: &Path,
+    size: Option<u32>,
+    sha1: Option<&[u8; 20]>,
+) -> Result<bool> {
+    check_file_inner(file, size, sha1).map_err(|e| Error::new_io_file(e, file.to_path_buf()))
+}
+
+fn check_file_inner(
     file: &Path,
     size: Option<u32>,
     sha1: Option<&[u8; 20]>,

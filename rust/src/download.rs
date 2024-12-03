@@ -1,26 +1,28 @@
-//! Parallel batch download implementation.
+//! Parallel batch HTTP(S) download implementation.
 //! 
 //! Partially inspired by: https://patshaughnessy.net/2020/1/20/downloading-100000-files-using-async-rust
 
-use std::io::{self, Write};
+use std::io::{self, BufWriter, SeekFrom, Write};
 use std::cmp::Ordering;
 use std::path::Path;
 use std::sync::Arc;
+use std::env;
 
 use sha1::{Digest, Sha1};
 
-use reqwest::Client;
+use reqwest::{header, Client, StatusCode};
 
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::runtime::Builder;
 use tokio::task::JoinSet;
 use tokio::sync::mpsc;
-use tokio::fs::File;
+use tokio::fs::{self, File};
 
 
 /// A list of pending download that can be all downloaded at once.
 #[derive(Debug)]
 pub struct Batch {
+    /// Internal batch entries to download.
     entries: Vec<Entry>,
 }
 
@@ -38,6 +40,16 @@ impl Batch {
     #[inline]
     pub fn push(&mut self, entry: Entry) {
         self.entries.push(entry);
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
     /// Block while downloading all entries in the batch.
@@ -83,23 +95,11 @@ impl<H: Handler + ?Sized> Handler for &'_ mut H {
     }
 }
 
-/// A download entry to be added to a batch.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Entry {
-    /// Source of the download.
-    pub source: EntrySource,
-    /// Path to the file to ultimately download.
-    pub file: Box<Path>,
-    /// True if the file should be made executable on systems where its relevant to 
-    /// later execute a binary.
-    pub executable: bool,
-}
-
 /// A download source, with the URL, expected size (optional) and hash (optional),
 /// it doesn't contain any information about the destination.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntrySource {
-    /// Url of the file to download.
+    /// Url of the file to download, supporting only HTTP/HTTPS protocols.
     pub url: Box<str>,
     /// Expected size of the file, checked after downloading.
     pub size: Option<u32>,
@@ -107,19 +107,77 @@ pub struct EntrySource {
     pub sha1: Option<[u8; 20]>,
 }
 
-/// Convert this entry into a batch with this single entry in it.
-impl From<Entry> for Batch {
-    #[inline]
-    fn from(value: Entry) -> Self {
-        Batch { entries: vec![value] }
-    }
+/// Download mode for an entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EntryMode {
+    /// The entry is downloaded anyway.
+    #[default]
+    Force,
+    /// Use a file next to the entry file to keep track of the last-modified and entity
+    /// tag HTTP informations, that will be used in next downloads to actually download
+    /// the data only if needed. This means that the entry will not always be downloaded,
+    /// and its optional size and SHA-1 will be only checked when actually downloaded.
+    Cache,
 }
 
-/// The error type containing one error for each failed entry.
+/// A download entry to be downloaded later. The entry can be optionally tied to a cache
+/// metadata file 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    /// Source of the download.
+    pub source: EntrySource,
+    /// Path to the file to ultimately download.
+    pub file: Box<Path>,
+    /// Download mode for this entry.
+    pub mode: EntryMode,
+}
+
+impl Entry {
+
+    /// Create a new purely cached download entry.
+    pub fn new_cached(url: impl Into<Box<str>>) -> Self {
+
+        let url = url.into();
+        let url_digest = {
+            let mut sha1 = Sha1::new();
+            sha1.update(&*url);
+            format!("{:x}", sha1.finalize())
+        };
+
+        // Fallback to the tmp directory.
+        let mut file = dirs::cache_dir()
+            .unwrap_or(env::temp_dir());
+
+        file.push("portablemc-cache");
+        file.push(url_digest);
+
+        Self {
+            source: EntrySource {
+                url,
+                size: None,
+                sha1: None,
+            },
+            file: file.into(),
+            mode: EntryMode::Cache,
+        }
+
+
+    }
+
+    /// Block while downloading this single entry.
+    pub fn download(self, handler: impl Handler) -> Result<()> {
+        Batch { entries: vec![self] }.download(handler)
+    }
+
+}
+
+/// The error type containing one error for each failed entry in a download batch.
 #[derive(thiserror::Error, Debug)]
-#[error("errors: {errors:?}")]
-pub struct Error {
-    pub errors: Vec<(Entry, EntryError)>,
+pub enum Error {
+    #[error("reqwest: {0}")]
+    Reqwest(#[from] reqwest::Error),
+    #[error("entries: {0:?}")]
+    Entries(Vec<(Entry, EntryError)>),
 }
 
 /// An error for a single entry.
@@ -129,6 +187,8 @@ pub enum EntryError {
     Reqwest(#[from] reqwest::Error),
     #[error("io: {0}")]
     Io(#[from] io::Error),
+    #[error("invalid status: {0}")]
+    InvalidStatus(u16),
     #[error("invalid size")]
     InvalidSize,
     #[error("invalid sha1")]
@@ -165,9 +225,7 @@ async fn download_impl(
     handler.handle_download_progress(0, entries.len() as u32, size, total_size);
 
     // Initialize the HTTP(S) client.
-    let client = crate::http::builder()
-        .build()
-        .unwrap(); // FIXME:
+    let client = crate::http::builder().build()?;
 
     // Downloads are now immutable un order to be efficiently shared.
     // Note that we are intentionally not creating a arc of slice, because it is then
@@ -184,7 +242,7 @@ async fn download_impl(
     let (tx, mut rx) = mpsc::channel(concurrent_count * 2);
 
     // Send a progress update for each 1000 parts of the download.
-    let progress_size_interval = if total_size == 0 { 0 } else { total_size / 1000 };
+    let progress_size_interval = total_size / 1000;
     let mut last_size = 0u32;
 
     // The error list returned as error if at least one entry.
@@ -195,7 +253,7 @@ async fn download_impl(
     while completed < entries.len() || !futures.is_empty() {
         
         while futures.len() < concurrent_count && index < entries.len() {
-            futures.spawn(download_wrapper(
+            futures.spawn(download_entry_wrapper(
                 Arc::clone(&client), 
                 Arc::clone(&entries),
                 index, 
@@ -227,12 +285,12 @@ async fn download_impl(
                 }
 
             }
-            EntryEventKind::Failed(e) => {
+            EntryEventKind::Error(e) => {
                 errors.push((download.clone(), e));
                 completed += 1;
                 force_progress = true;
             }
-            EntryEventKind::Success => {
+            EntryEventKind::Success(_) => {
                 completed += 1;
                 force_progress = true;
             }
@@ -252,65 +310,89 @@ async fn download_impl(
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(Error { errors })
+        Err(Error::Entries(errors))
     }
 
 }
 
 /// Download entrypoint for a download, this is a wrapper around core download
-/// function in order to easily catch any error and send it as event.
-async fn download_wrapper(
+/// function in order to easily catch the result and send it as an event.
+async fn download_entry_wrapper(
     client: Arc<Client>, 
     entries: Arc<Vec<Entry>>,
     index: usize,
     mut tx: mpsc::Sender<EntryEvent>,
 ) {
-    if let Err(e) = download_core(&client, &entries, index, &mut tx).await {
-        tx.send(EntryEvent {
-            index,
-            kind: EntryEventKind::Failed(e),
-        }).await.unwrap();
-    } else {
-        tx.send(EntryEvent {
-            index,
-            kind: EntryEventKind::Success,
-        }).await.unwrap();
-    }
+    
+    let event_kind = match download_entry(&client, &entries, index, &mut tx).await {
+        Ok(()) => EntryEventKind::Success(EntrySuccess {  }),
+        Err(e) => EntryEventKind::Error(e),
+    };
+
+    tx.send(EntryEvent {
+        index,
+        kind: event_kind,
+    }).await.unwrap();
+
 }
 
-/// Internal function to download a single download entry.
-async fn download_core(
+/// Internal function to download a single download entry, returning a result.
+async fn download_entry(
     client: &Client, 
     entries: &[Entry],
     index: usize,
     tx: &mut mpsc::Sender<EntryEvent>,
 ) -> std::result::Result<(), EntryError> {
 
-    let download = &entries[index];
-    let mut res = client.get(&*download.source.url).send().await?;
+    let entry = &entries[index];
+
+    let mut req = client.get(&*entry.source.url);
     
-    if let Some(parent) = download.file.parent() {
+    // If we are in cache mode, then we derive the file name.
+    let cache_file = (entry.mode == EntryMode::Cache).then(|| {
+        let mut buf = entry.file.to_path_buf();
+        buf.as_mut_os_string().push(".cache");
+        buf
+    });
+
+    // If we are in cache mode, try open it.
+    let mut cache_header = false;
+    if let Some(cache_file) = cache_file.as_deref() {
+        if let Some(cache) = check_download_cache(&entry.file, cache_file).await? {
+            if let Some(etag) = cache.etag.as_deref() {
+                req = req.header(header::IF_NONE_MATCH, etag);
+                cache_header = true;
+            }
+            if let Some(last_modified) = cache.last_modified.as_deref() {
+                req = req.header(header::IF_MODIFIED_SINCE, last_modified);
+                cache_header = true;
+            }
+        }
+    }
+
+    let mut res = req.send().await?;
+    
+    if res.status() == StatusCode::NOT_MODIFIED && cache_header {
+        // The server answer that the file has not been modified, do nothing.
+        return Ok(());
+    } else if res.status() != StatusCode::OK {
+        return Err(EntryError::InvalidStatus(res.status().as_u16()));
+    }
+
+    if let Some(parent) = entry.file.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    let mut dst = File::create(&*download.file).await?;
+    let mut dst = File::create(&*entry.file).await?;
 
-    let mut sha1 = download.source.sha1.map(|_| Sha1::new());
     let mut size = 0usize;
+    let mut sha1 = Sha1::new();
     
     while let Some(chunk) = res.chunk().await? {
 
         size += chunk.len();
         AsyncWriteExt::write_all(&mut dst, &chunk).await?;
-
-        // // Taking ownership of digest to temporarily pass it to the blocking closure.
-        // if let Some(mut digest) = sha1.take() {
-        //     sha1 = Some(spawn_blocking(move || Write::write_all(&mut digest, &chunk).map(|()| digest)).await.unwrap()?);
-        // }
-
-        if let Some(digest) = &mut sha1 {
-            Write::write_all(digest, &chunk)?;
-        }
+        Write::write_all(&mut sha1, &chunk)?;
 
         tx.send(EntryEvent {
             index,
@@ -319,19 +401,90 @@ async fn download_core(
 
     }
 
-    if let Some(expected_size) = download.source.size {
-        if expected_size as usize != size {
+    let size = u32::try_from(size).map_err(|_| EntryError::InvalidSize)?;
+    let sha1 = sha1.finalize();
+
+    if let Some(expected_size) = entry.source.size {
+        if expected_size != size {
             return Err(EntryError::InvalidSize);
         }
     }
 
-    if let Some(expected_sha1) = &download.source.sha1 {
-        if sha1.unwrap().finalize().as_slice() != expected_sha1 {
+    if let Some(expected_sha1) = &entry.source.sha1 {
+        if expected_sha1 != sha1.as_slice() {
             return Err(EntryError::InvalidSha1);
         }
     }
 
+    // If we have a cache file, write it.
+    if let Some(cache_file) = cache_file.as_deref() {
+
+        let etag = res.headers().get(header::ETAG).and_then(|h| h.to_str().ok().map(str::to_string));
+        let last_modified = res.headers().get(header::LAST_MODIFIED).and_then(|h| h.to_str().ok().map(str::to_string));
+
+        // Only write the cache file if relevant!
+        if etag.is_some() || last_modified.is_some() {
+
+            let cache_meta_writer = File::create(cache_file).await?;
+            let cache_meta_writer = BufWriter::new(cache_meta_writer.into_std().await);
+
+            let res = serde_json::to_writer(cache_meta_writer, &serde::CacheMeta {
+                url: entry.source.url.to_string(),
+                size,
+                sha1: crate::serde::Sha1HashString(sha1.into()),
+                etag: res.headers().get(header::ETAG).and_then(|h| h.to_str().ok().map(str::to_string)),
+                last_modified: res.headers().get(header::LAST_MODIFIED).and_then(|h| h.to_str().ok().map(str::to_string)),
+            });
+
+            // Silently ignore errors by we remove the file if it happens.
+            if res.is_err() {
+                let _ = fs::remove_file(cache_file).await;
+            }
+
+        }
+
+    }
+
     Ok(())
+
+}
+
+/// Given a file and it cache file, return the cache metadata only if the file is valid
+/// (existing) and the file has not been modified (size and SHA-1).
+async fn check_download_cache(file: &Path, cache_file: &Path) -> io::Result<Option<serde::CacheMeta>> {
+
+    // Start by reading the cache metadata associated to this file.
+    let cache = match File::open(cache_file).await {
+        Ok(file) => serde_json::from_reader::<_, serde::CacheMeta>(file.into_std().await).ok(),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+
+    let Some(cache) = cache else {
+        return Ok(None);
+    };
+
+    let mut reader = match File::open(file).await {
+        Ok(reader) => reader,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+
+    // Start by checking size...
+    let actual_size = reader.seek(SeekFrom::End(0)).await?;
+    if cache.size as u64 != actual_size {
+        return Ok(None);
+    }
+    reader.seek(SeekFrom::Start(0)).await?;
+
+    // Then we check SHA-1...
+    let mut digest = Sha1::new();
+    io::copy(&mut reader.into_std().await, &mut digest)?;
+    if cache.sha1.0 != digest.finalize().as_slice() {
+        return Ok(None);
+    }
+
+    Ok(Some(cache))
 
 }
 
@@ -345,14 +498,38 @@ struct EntryEvent {
 enum EntryEventKind {
     /// Progress of the download, total downloaded size is given.
     Progress(usize),
-    /// The download has been completed with an error.
-    Failed(EntryError),
+    /// The download has been (partially) completed with an error.
+    Error(EntryError),
     /// The download has been completed successfully.
-    Success,
+    Success(EntrySuccess),
 }
+
+#[derive(Debug)]
+struct EntrySuccess { }
 
 #[derive(Debug, Default, Clone)]
 struct EntryTracker {
     /// Current downloaded size for this download.
     size: usize,
+}
+
+/// Internal module for serde of cache metadata file.
+mod serde {
+
+    use crate::serde::Sha1HashString;
+
+    #[derive(Debug, serde::Deserialize, serde::Serialize)]
+    pub struct CacheMeta {
+        /// The full URL of the cached resource, just for information.
+        pub url: String,
+        /// Size of the cached file, used to verify its validity.
+        pub size: u32,
+        /// SHA-1 hash of the cached file, used to verify its validity. 
+        pub sha1: Sha1HashString,
+        /// The ETag if present.
+        pub etag: Option<String>,
+        /// Last modified data if present.
+        pub last_modified: Option<String>,
+    }
+
 }
