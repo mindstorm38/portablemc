@@ -1,7 +1,7 @@
 //! Various utilities to ease outputting human or machine readable text.
 
-use std::io::{IsTerminal, StdoutLock, Write};
 use std::fmt::{self, Display, Write as _};
+use std::io::{IsTerminal, Write};
 use std::{env, io};
 
 use chrono::TimeDelta;
@@ -9,6 +9,12 @@ use chrono::TimeDelta;
 
 /// An abstraction for outputting to any format on stdout, the goal is to provide an
 /// interface for outputting at the same time both human readable and machine outputs.
+/// 
+/// The different supported output formats are basically split in two kins: machine 
+/// readable and human readable. All functions in this abstraction are machine-oriented,
+/// that means that by default the human representation will be the machine one (or no 
+/// representation at all), but the different handles returned can be used to customize
+/// or a add human representation.
 #[derive(Debug)]
 pub struct Output {
     /// Mode-specific data.
@@ -68,11 +74,10 @@ impl Output {
         assert_ne!(columns, 0);
         TableOutput {
             output: self,
-            writer: io::stdout().lock(),
-            columns,
-            column: 0,
-            buffer: String::new(),
-            cells: Vec::new(),
+            shared: TableShared {
+                columns,
+                ..TableShared::default()
+            },
         }
     }
 
@@ -97,13 +102,15 @@ struct LogShared {
     background: String
 }
 
-impl<'o> LogOutput<'o> {
+impl LogOutput<'_> {
 
-    fn _log<const BG: bool>(&mut self, code: &str) -> Log<'_, BG> {
+    /// Internal implementation detail used to be generic over being background.
+    #[inline]
+    fn _log<const BG: bool>(&mut self, code: impl Display) -> Log<'_, BG> {
 
         if let OutputMode::TabSeparated {  } = self.output.mode {
             debug_assert!(self.shared.line.is_empty());
-            self.shared.line.push_str(code);
+            write!(self.shared.line, "{code}").unwrap();
         }
 
         Log {
@@ -113,9 +120,10 @@ impl<'o> LogOutput<'o> {
 
     }
 
-    /// Log an information with a simple code referencing it.
+    /// Log an information with a simple code referencing it, the given code is the 
+    /// machine-readable code, to add human-readable line use the returned handle.
     #[inline]
-    pub fn log(&mut self, code: &str) -> Log<'_, false> {
+    pub fn log(&mut self, code: impl Display) -> Log<'_, false> {
         self._log(code)
     }
 
@@ -123,7 +131,7 @@ impl<'o> LogOutput<'o> {
     /// outputs it acts as a regular log, but on human-readable outputs it will be 
     /// displayed at the end of the current line.
     #[inline]
-    pub fn background_log(&mut self, code: &str) -> Log<'_, true> {
+    pub fn background_log(&mut self, code: impl Display) -> Log<'_, true> {
         self._log(code)
     }
 
@@ -146,7 +154,7 @@ impl<const BG: bool> Log<'_, BG> {
     // \x1b[K  clear the whole line
 
     /// Append an argument for machine-readable output.
-    pub fn arg<D: Display>(&mut self, arg: D) -> &mut Self {
+    pub fn arg(&mut self, arg: impl Display) -> &mut Self {
         if let OutputMode::TabSeparated {  } = self.output.mode {
             write!(self.shared.line, "\t{arg}").unwrap();
         }
@@ -170,6 +178,8 @@ impl<const BG: bool> Log<'_, BG> {
     /// Internal function to flush the line and background buffers (only relevant in 
     /// human-readable mode)
     fn flush_line_background(&mut self, newline: bool) {
+
+        debug_assert!(matches!(self.output.mode, OutputMode::Human { .. }));
 
         let mut lock = io::stdout().lock();
         
@@ -206,10 +216,7 @@ impl Log<'_, false> {
 
     /// Associate a human-readable message to this with an associated level, level is
     /// only relevant here because machine-readable outputs are always verbose.
-    /// 
-    /// If multiple message are written, only the first message will overwrite the 
-    /// current line, and the .
-    pub fn line<D: Display>(&mut self, level: LogLevel, message: D) -> &mut Self {
+    pub fn line(&mut self, level: LogLevel, message: impl Display) -> &mut Self {
         if let OutputMode::Human { log_level } = self.output.mode {
             if level >= log_level {
 
@@ -236,27 +243,27 @@ impl Log<'_, false> {
     }
 
     #[inline]
-    pub fn info<D: Display>(&mut self, message: D) -> &mut Self {
+    pub fn info(&mut self, message: impl Display) -> &mut Self {
         self.line(LogLevel::Info, message)
     }
 
     #[inline]
-    pub fn progress<D: Display>(&mut self, message: D) -> &mut Self {
+    pub fn progress(&mut self, message: impl Display) -> &mut Self {
         self.line(LogLevel::Progress, message)
     }
 
     #[inline]
-    pub fn success<D: Display>(&mut self, message: D) -> &mut Self {
+    pub fn success(&mut self, message: impl Display) -> &mut Self {
         self.line(LogLevel::Success, message)
     }
 
     #[inline]
-    pub fn warning<D: Display>(&mut self, message: D) -> &mut Self {
+    pub fn warning(&mut self, message: impl Display) -> &mut Self {
         self.line(LogLevel::Warning, message)
     }
 
     #[inline]
-    pub fn error<D: Display>(&mut self, message: D) -> &mut Self {
+    pub fn error(&mut self, message: impl Display) -> &mut Self {
         self.line(LogLevel::Error, message)
     }
 
@@ -266,7 +273,7 @@ impl Log<'_, true> {
     
     /// Set the human-readable message of this background log. Note that this will 
     /// overwrite any background message currently written on the current log line.
-    pub fn message<D: Display>(&mut self, message: D) -> &mut Self {
+    pub fn message(&mut self, message: impl Display) -> &mut Self {
         if let OutputMode::Human { .. } = self.output.mode {
             
             self.shared.background.clear();
@@ -322,77 +329,63 @@ pub enum LogLevel {
 pub struct TableOutput<'a> {
     /// Exclusive access to output.
     output: &'a mut Output,
-    /// Locked stdout.
-    writer: StdoutLock<'static>,
+    /// Data shared with row and cell handles.
+    shared: TableShared,
+}
+
+#[derive(Debug, Default)]
+struct TableShared {
     /// Number of columns.
     columns: usize,
-    /// The current column being written.
-    column: usize,
-    /// This buffer contains all rendered cells. For human-readable only.
+    /// This buffer contains all rendered cells for human-readable, for machine readable
+    /// it's used to store the current rendered row.
     buffer: String,
     /// For each cell, ordered by column and then by row, containing the index where the
-    /// cell's content ends in the shared buffer. For human-readable only.
+    /// cell's content ends in the shared buffer.
+    /// For human-readable only.
     cells: Vec<usize>,
+    /// Stores for each separator the index of the row it's placed before.
+    /// For human-readable only.
+    separators: Vec<usize>,
 }
 
 impl<'a> TableOutput<'a> {
 
-    /// Fill the next cell on the right. The given content is considered "raw" and 
-    /// unformatted, it will be displayed by default, as-is in all output modes. To
-    /// format the cell for human-readable output, you can use the returned handle.
-    pub fn cell<D: Display>(&mut self, content: D) -> Cell<'_> {
+    /// Create a new row, returning a handle for writing its cells.
+    pub fn row(&mut self) -> Row<'_> {
 
-        match self.output.mode {
-            OutputMode::Human { .. } => {
-                write!(self.buffer, "{content}").unwrap();
-                self.cells.push(self.buffer.len());
-            }
-            OutputMode::TabSeparated {  } => {
-                if self.column == 0 {
-                    write!(self.writer, "row").unwrap();
-                }
-                write!(self.writer, "\t{content}").unwrap();
-            }
+        debug_assert!(self.shared.cells.len().checked_rem(self.shared.columns).unwrap_or(0) == 0);
+        
+        if let OutputMode::TabSeparated {  } = self.output.mode {
+            debug_assert!(self.shared.buffer.is_empty());
+            write!(self.shared.buffer, "row").unwrap();
         }
 
-        self.column += 1;
-        if self.column == self.columns {
-            self.column = 0;
-            if let OutputMode::TabSeparated {  } = self.output.mode {
-                self.writer.write_all(b"\n").unwrap();
-            }
-        }
-
-        Cell {
-            output: &mut *self.output,
-            buffer: &mut self.buffer,
-            cells: &mut self.cells,
+        Row {
+            output: &mut self.output,
+            shared: &mut self.shared,
+            column: 0,
         }
 
     }
 
-    /// Force going to the next row, event if not all cells have been written in the
-    /// current line.
-    pub fn next_row(&mut self) {
-
-        if let OutputMode::TabSeparated {  } = self.output.mode {
-            if self.column == 0 {
-                write!(self.writer, "row").unwrap();
-            }
-        }
+    /// Insert a separator, this is used for human-readable format but also for
+    /// machine-readable formats in order to separate different sections of data
+    /// (they still have the same number of columns), such as the header from the
+    /// rest of the data.
+    pub fn sep(&mut self) {
         
-        for _ in self.column..self.columns {
-            if let OutputMode::TabSeparated {  } = self.output.mode {
-                write!(self.writer, "\t").unwrap();
+        debug_assert!(self.shared.cells.len().checked_rem(self.shared.columns).unwrap_or(0) == 0);
+        
+        match self.output.mode {
+            OutputMode::Human { .. } => {
+                let index = self.shared.cells.len().checked_div(self.shared.columns).unwrap_or(0);
+                self.shared.separators.push(index);
             }
-            self.cells.push(self.buffer.len());
+            OutputMode::TabSeparated {  } => {
+                println!("sep");
+            }
         }
-
-        if let OutputMode::TabSeparated {  } = self.output.mode {
-            self.writer.write_all(b"\n").unwrap();
-        }
-
-        self.column = 0;
 
     }
 
@@ -401,52 +394,149 @@ impl<'a> TableOutput<'a> {
 impl Drop for TableOutput<'_> {
     fn drop(&mut self) {
         
-        if self.column != 0 {
-            self.next_row();
-        }
-
         if let OutputMode::Human { .. } = self.output.mode {
 
-            let mut columns_width = vec![0usize; self.columns];
+
+            let mut columns_width = vec![0usize; self.shared.columns];
 
             // Initially compute maximum width of each column.
-            let mut column = 0;
-            let mut last_idx = 0;
-            for idx in self.cells.iter().copied() {
+            let mut column = 0usize;
+            let mut last_idx = 0usize;
+            for idx in self.shared.cells.iter().copied() {
 
                 columns_width[column] = columns_width[column].max(idx - last_idx);
                 last_idx = idx;
                 
                 column += 1;
-                if column == self.columns {
+                if column == self.shared.columns {
                     column = 0;
                 }
 
             }
 
+            // Small closure just to write a separator.
+            let write_separator: _ = |writer: &mut io::StdoutLock<'_>| {
+                write!(writer, "├─").unwrap();
+                for (col, width) in columns_width.iter().copied().enumerate() {
+                    if col != 0 {
+                        write!(writer, "─┼─").unwrap();
+                    }
+                    write!(writer, "{:─<width$}", "").unwrap();
+                }
+                write!(writer, "─┤\n").unwrap();
+            };
+
+            let mut separators: _ = self.shared.separators.iter().copied().peekable();
+            let mut writer = io::stdout().lock();
+
+            // Write top segment.
+            // write!(writer, "┌─").unwrap();
+            write_separator(&mut writer);
+            // write!(writer, "─┐\n").unwrap();
+
             // Reset and restart again to print.
-            column = 0;
-            last_idx = 0;
-            for idx in self.cells.iter().copied() {
+            let mut row = 0usize;
+            let mut column = 0usize;
+            let mut last_idx = 0usize;
+            for idx in self.shared.cells.iter().copied() {
 
                 if column != 0 {
-                    write!(self.writer, " │ ").unwrap();
+                    write!(writer, " │ ").unwrap();
+                } else {
+
+                    if separators.next_if_eq(&row).is_some() {
+                        write_separator(&mut writer);
+                    }
+
+                    write!(writer, "│ ").unwrap();
+
                 }
 
-                let content = &self.buffer[last_idx..idx];
+                let content = &self.shared.buffer[last_idx..idx];
                 last_idx = idx;
 
                 let width = columns_width[column];
-                write!(self.writer, "{content:width$}").unwrap();
+                write!(writer, "{content:width$}").unwrap();
 
                 column += 1;
-                if column == self.columns {
+                if column == self.shared.columns {
+                    row += 1;
                     column = 0;
-                    self.writer.write_all(b"\n").unwrap();
+                    write!(writer, " │\n").unwrap();
                 }
 
             }
 
+            // Write bottom segment.
+            // write!(writer, "└─").unwrap();
+            write_separator(&mut writer);
+            // write!(writer, "─┘\n").unwrap();
+
+        }
+
+    }
+}
+
+/// A handle for constructing a table row.
+#[derive(Debug)]
+pub struct Row<'a> {
+    output: &'a mut Output,
+    shared: &'a mut TableShared,
+    column: usize,
+}
+
+impl Row<'_> {
+
+    /// Insert a new cell to that row with the given machine-readable content, to add
+    /// a formatted human-readable string, use the returned cell handle.
+    #[track_caller]
+    pub fn cell(&mut self, content: impl Display) -> Cell<'_> {
+        
+        if self.column == self.shared.columns {
+            panic!("too much cells in this row");
+        }
+
+        match self.output.mode {
+            OutputMode::Human { .. } => {
+                write!(self.shared.buffer, "{content}").unwrap();
+                self.shared.cells.push(self.shared.buffer.len());
+            }
+            OutputMode::TabSeparated {  } => {
+                write!(self.shared.buffer, "\t{content}").unwrap();
+            }
+        }
+
+        self.column += 1;
+
+        Cell {
+            output: &mut self.output,
+            shared: &mut self.shared,
+        }
+
+    }
+
+}
+
+impl Drop for Row<'_> {
+    fn drop(&mut self) {
+
+        // Add missing columns' cells.
+        match self.output.mode {
+            OutputMode::Human { .. } => {
+                for _ in self.column..self.shared.columns {
+                    self.shared.cells.push(self.shared.buffer.len());
+                }
+            }
+            OutputMode::TabSeparated {  } => {
+                for _ in self.column..self.shared.columns {
+                    self.shared.buffer.push('\t');
+                }
+            }
+        }
+
+        if let OutputMode::TabSeparated {  } = self.output.mode {
+            println!("{}", self.shared.buffer);
+            self.shared.buffer.clear();
         }
 
     }
@@ -456,8 +546,7 @@ impl Drop for TableOutput<'_> {
 #[derive(Debug)]
 pub struct Cell<'a> {
     output: &'a mut Output,
-    buffer: &'a mut String,
-    cells: &'a mut Vec<usize>,
+    shared: &'a mut TableShared,
 }
 
 impl Cell<'_> {
@@ -468,12 +557,12 @@ impl Cell<'_> {
         
         if let OutputMode::Human { .. } = self.output.mode {
             // We pop the last cell because it can, and should only be this one.
-            self.cells.pop().unwrap();
+            self.shared.cells.pop().unwrap();
             // Truncate the old cell's content.
-            self.buffer.truncate(self.cells.last().copied().unwrap_or(0));
+            self.shared.buffer.truncate(self.shared.cells.last().copied().unwrap_or(0));
             // Rewrite the content.
-            write!(self.buffer, "{message}").unwrap();
-            self.cells.push(self.buffer.len());
+            write!(self.shared.buffer, "{message}").unwrap();
+            self.shared.cells.push(self.shared.buffer.len());
         }
 
         self
@@ -493,6 +582,7 @@ pub fn number_si_unit(num: f32) -> (f32, char) {
     }
 }
 
+/// A wrapper that can be used to format a time delta for human-readable format.
 #[derive(Debug)]
 pub struct TimeDeltaDisplay(pub TimeDelta);
 
