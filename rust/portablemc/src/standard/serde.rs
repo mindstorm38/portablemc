@@ -60,7 +60,7 @@ pub struct VersionMetadata {
     pub logging: HashMap<String, VersionLogging>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum VersionType {
     Release,

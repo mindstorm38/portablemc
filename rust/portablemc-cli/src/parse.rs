@@ -112,8 +112,19 @@ pub enum CliOutput {
 #[derive(Debug, Args)]
 pub struct SearchArgs {
     /// The search query string.
-    #[arg(default_value = "")]
-    pub query: String,
+    /// 
+    /// Its syntax allows giving multiple space-separated words (quoted arguments are not
+    /// split), then if a word contains a colon ':' then it is split in a parameter and
+    /// its value, the parameter and its value are then interpreted depending on the 
+    /// search kind. If a word if not of parameter:value syntax then it's interpreted
+    /// depending on the search kind, for example to filter version name. Multiple
+    /// different parameters acts in a AND logic, but giving multiple times the same
+    /// parameters acts in a OR logic. 
+    /// 
+    /// For example when searching for Mojang versions, the query '1.3 1.4 type:release 
+    /// type:snapshot', all versions containing '1.3' OR '1.4' in their id AND of type
+    /// 'release' or 'snapshot' will be displayed.
+    pub query: Vec<String>,
     /// Select the target of the search query.
     #[arg(short, default_value = "mojang")]
     pub kind: SearchKind,
@@ -122,8 +133,10 @@ pub struct SearchArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum SearchKind {
     /// Search for official versions released by Mojang, including release and snapshots.
-    /// With this kind of search you can give the special names 'release' or 'snapshot'
-    /// to only return the latest release or snapshot name version.
+    /// A query word is used to filter versions' identifiers. Supported parameters are 
+    /// 'type:<release|snapshot|beta|alpha>' for filtering by version type, 'release:'
+    /// to show only the latest release and 'snapshot:' to show only the latest snapshot
+    /// (these last two overrides any other query).
     Mojang,
     /// Search for locally installed versions, located in the versions directory.
     Local,
