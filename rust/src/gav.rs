@@ -245,6 +245,12 @@ impl Gav {
 
     }
 
+    /// Get the representation of the GAV as a string.
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        &self.raw
+    }
+
 }
 
 impl FromStr for Gav {
@@ -259,7 +265,7 @@ impl FromStr for Gav {
 
 impl fmt::Display for Gav {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.raw)
+        f.write_str(self.as_str())
     }
 }
 
@@ -308,6 +314,83 @@ impl serde::Serialize for Gav {
     where
         S: serde::Serializer
     {
-        serializer.serialize_str(&self.raw)
+        serializer.serialize_str(self.as_str())
     }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::str::FromStr;
+    use super::Gav;
+
+    #[test]
+    #[should_panic]
+    fn empty_group() {
+        Gav::new("", "baz", "0.1.2-beta", None, None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn empty_artifact() {
+        Gav::new("foo.bar", "", "0.1.2-beta", None, None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn empty_version() {
+        Gav::new("foo.bar", "baz", "", None, None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn empty_classifier() {
+        Gav::new("foo.bar", "baz", "0.1.2-beta", Some(""), None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn empty_extension() {
+        Gav::new("foo.bar", "baz", "0.1.2-beta", None, Some(""));
+    }
+
+    #[test]
+    fn as_str_correct() {
+        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", None, None).as_str(), "foo.bar:baz:0.1.2-beta");
+        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", Some("natives"), None).as_str(), "foo.bar:baz:0.1.2-beta:natives");
+        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", None, Some("jar")).as_str(), "foo.bar:baz:0.1.2-beta@jar");
+        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", Some("natives"), Some("jar")).as_str(), "foo.bar:baz:0.1.2-beta:natives@jar");
+    }
+
+    #[test]
+    fn from_str_correct() {
+
+        const WRONG_CASES: &'static [&'static str] = &[
+            "", ":", "::",
+            "foo.bar::", ":baz:", "::0.1.2-beta",
+            "foo.bar:baz:", "foo.bar::0.1.2-beta", ":baz:0.1.2-beta",
+            "foo.bar:baz:0.1.2-beta:",
+            "foo.bar:baz:0.1.2-beta@",
+        ];
+
+        for case in WRONG_CASES {
+            assert_eq!(Gav::from_str(case), Err(()));
+        }
+
+        let gav = Gav::from_str("foo.bar:baz:0.1.2-beta").unwrap();
+        assert_eq!(gav.group(), "foo.bar");
+        assert_eq!(gav.artifact(), "baz");
+        assert_eq!(gav.version(), "0.1.2-beta");
+        assert_eq!(gav.classifier(), "");
+        assert_eq!(gav.extension(), "jar");
+
+        let gav = Gav::from_str("foo.bar:baz:0.1.2-beta:natives@txt").unwrap();
+        assert_eq!(gav.group(), "foo.bar");
+        assert_eq!(gav.artifact(), "baz");
+        assert_eq!(gav.version(), "0.1.2-beta");
+        assert_eq!(gav.classifier(), "natives");
+        assert_eq!(gav.extension(), "txt");
+
+    }
+
 }
