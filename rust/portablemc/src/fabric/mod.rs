@@ -200,82 +200,6 @@ impl Installer {
 
 }
 
-/// A fabric-compatible API.
-#[derive(Debug)]
-pub struct Api {
-    /// Base URL for that API, not ending with a '/'. This API must support the following
-    /// endpoints supporting the same API as official Fabric API: 
-    /// - `/versions/game`
-    /// - `/versions/loader`
-    /// - `/versions/loader/<game_version>`
-    /// - `/versions/loader/<game_version>/<loader_loader>` (returning status 400)
-    /// - `/versions/loader/<game_version>/<loader_loader>/profile/json`
-    pub base_url: &'static str,
-    /// Default prefix for the full root version id of the format 
-    /// '<default prefix>-<game version>-<loader version>.
-    pub default_prefix: &'static str,
-}
-
-impl Api {
-
-    /// Request supported game versions.
-    pub fn request_game_versions(&self) -> reqwest::Result<Vec<serde::Game>> {
-        crate::tokio::sync(async move {
-            crate::http::client()?
-                .get(format!("{}/versions/game", self.base_url))
-                .send().await?
-                .error_for_status()?
-                .json().await
-        })
-    }
-
-    /// Request supported loader versions.
-    pub fn request_loader_versions(&self) -> reqwest::Result<Vec<serde::Loader>> {
-        crate::tokio::sync(async move {
-            crate::http::client()?
-                .get(format!("{}/versions/loader", self.base_url))
-                .send().await?
-                .error_for_status()?
-                .json().await
-        })
-    }
-
-    /// Request supported loader versions for the given game version.
-    pub fn request_game_loader_versions(&self, game_version: &str) -> reqwest::Result<Vec<serde::GameLoader>> {
-        crate::tokio::sync(async move {
-            crate::http::client()?
-                .get(format!("{}/versions/loader/{game_version}", self.base_url))
-                .send().await?
-                .error_for_status()?
-                .json().await
-        })
-    }
-
-    /// Return true if the given game version has any loader versions supported.
-    pub fn request_has_game_loader_versions(&self, game_version: &str) -> reqwest::Result<bool> {
-        crate::tokio::sync(async move {
-            crate::http::client()?
-                .get(format!("{}/versions/loader/{game_version}", self.base_url))
-                .send().await?
-                .error_for_status()?
-                .bytes().await
-                .map(|bytes| &*bytes == b"[]") // This avoids parsing JSON
-        })
-    }
-
-    /// Request the prebuilt version metadata for the given game and loader versions.
-    pub fn request_game_loader_version_metadata(&self, game_version: &str, loader_version: &str) -> reqwest::Result<standard::serde::VersionMetadata> {
-        crate::tokio::sync(async move {
-            crate::http::client()?
-                .get(format!("{}/versions/loader/{game_version}/{loader_version}/profile/json", self.base_url))
-                .send().await?
-                .error_for_status()?
-                .json().await
-        })
-    }
-
-}
-
 /// Handler for events happening when installing.
 pub trait Handler: mojang::Handler {
 
@@ -364,6 +288,82 @@ impl<T: Into<mojang::Error>> From<T> for Error {
 /// Type alias for a result with the standard error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// A fabric-compatible API.
+#[derive(Debug)]
+pub struct Api {
+    /// Base URL for that API, not ending with a '/'. This API must support the following
+    /// endpoints supporting the same API as official Fabric API: 
+    /// - `/versions/game`
+    /// - `/versions/loader`
+    /// - `/versions/loader/<game_version>`
+    /// - `/versions/loader/<game_version>/<loader_loader>` (returning status 400)
+    /// - `/versions/loader/<game_version>/<loader_loader>/profile/json`
+    pub base_url: &'static str,
+    /// Default prefix for the full root version id of the format 
+    /// '<default prefix>-<game version>-<loader version>.
+    pub default_prefix: &'static str,
+}
+
+impl Api {
+
+    /// Request supported game versions.
+    pub fn request_game_versions(&self) -> reqwest::Result<Vec<serde::Game>> {
+        crate::tokio::sync(async move {
+            crate::http::client()?
+                .get(format!("{}/versions/game", self.base_url))
+                .send().await?
+                .error_for_status()?
+                .json().await
+        })
+    }
+
+    /// Request supported loader versions.
+    pub fn request_loader_versions(&self) -> reqwest::Result<Vec<serde::Loader>> {
+        crate::tokio::sync(async move {
+            crate::http::client()?
+                .get(format!("{}/versions/loader", self.base_url))
+                .send().await?
+                .error_for_status()?
+                .json().await
+        })
+    }
+
+    /// Request supported loader versions for the given game version.
+    pub fn request_game_loader_versions(&self, game_version: &str) -> reqwest::Result<Vec<serde::GameLoader>> {
+        crate::tokio::sync(async move {
+            crate::http::client()?
+                .get(format!("{}/versions/loader/{game_version}", self.base_url))
+                .send().await?
+                .error_for_status()?
+                .json().await
+        })
+    }
+
+    /// Return true if the given game version has any loader versions supported.
+    pub fn request_has_game_loader_versions(&self, game_version: &str) -> reqwest::Result<bool> {
+        crate::tokio::sync(async move {
+            crate::http::client()?
+                .get(format!("{}/versions/loader/{game_version}", self.base_url))
+                .send().await?
+                .error_for_status()?
+                .bytes().await
+                .map(|bytes| &*bytes == b"[]") // This avoids parsing JSON
+        })
+    }
+
+    /// Request the prebuilt version metadata for the given game and loader versions.
+    pub fn request_game_loader_version_metadata(&self, game_version: &str, loader_version: &str) -> reqwest::Result<standard::serde::VersionMetadata> {
+        crate::tokio::sync(async move {
+            crate::http::client()?
+                .get(format!("{}/versions/loader/{game_version}/{loader_version}/profile/json", self.base_url))
+                .send().await?
+                .error_for_status()?
+                .json().await
+        })
+    }
+
+}
+
 /// Specify the fabric game version to start.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GameVersion {
@@ -394,7 +394,7 @@ pub enum LoaderVersion {
     /// Use the latest stable loader version for the root version.
     Stable,
     /// Use the latest unstable loader version for the root version, see 
-    /// [`GameVersion::Unstable`] for more explanation, the two are the sameGameVersion.
+    /// [`GameVersion::Unstable`] for more explanation, the two are the same.
     Unstable,
     /// Use the specific version.
     Id(String),
