@@ -302,3 +302,12 @@ impl<'de> serde::Deserialize<'de> for Gav {
     }
 
 }
+
+impl serde::Serialize for Gav {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer
+    {
+        serializer.serialize_str(&self.raw)
+    }
+}

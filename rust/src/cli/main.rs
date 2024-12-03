@@ -3,12 +3,12 @@
 use std::time::Instant;
 use std::io::Write;
 
-use portablemc::standard::*;
+use portablemc::{download, standard};
 
 
 fn main() {
     
-    let mut installer = Installer::with_dirs(r"C:\Users\Theo\AppData\Roaming\.minecraft_test".into(), r"C:\Users\Theo\AppData\Roaming\.minecraft_test".into());
+    let mut installer = standard::Installer::with_dirs(r"C:\Users\Theo\AppData\Roaming\.minecraft_test".into(), r"C:\Users\Theo\AppData\Roaming\.minecraft_test".into());
     installer.strict_libraries_checking = false;
     installer.strict_assets_checking = false;
 
@@ -21,9 +21,39 @@ struct DebugHandler {
     download_start: Option<Instant>,
 }
 
-impl Handler for DebugHandler {
+impl download::Handler for DebugHandler {
+    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        
+        if self.download_start.is_none() {
+            self.download_start = Some(Instant::now());
+        }
+
+        if size == 0 {
+            return;
+        }
+
+        let elapsed = self.download_start.unwrap().elapsed();
+
+        let speed = size as f32 / elapsed.as_secs_f32() / 1_000_000.0;
+        let progress = size as f32 / total_size as f32 * 100.0;
+
+        print!("\r[  ..  ] Downloading... {speed:.0} MB/s {progress:5.1}% ({count}/{total_count})");
+
+        if count == total_count {
+            self.download_start = None;
+            print!("\r[  OK  ]\n");
+        }
+        
+        std::io::stdout().flush().unwrap();
+
+    }
+}
+
+impl standard::Handler for DebugHandler {
     
-    fn handle(&mut self, _installer: &Installer, event: Event) -> Result<()> {
+    fn handle_standard_event(&mut self, event: standard::Event) {
+        
+        use standard::Event;
 
         match event {
             Event::HierarchyLoading { .. } => (),
@@ -58,34 +88,10 @@ impl Handler for DebugHandler {
                 print!("\r[  ..  ] Loaded {} assets {id}", index.objects.len()),
             Event::AssetsVerified { id, index } => 
                 print!("\r[  OK  ] Loaded and verified {} assets {id}\n", index.objects.len()),
-            Event::DownloadProgress { count, total_count, size, total_size  } => {
-
-                if self.download_start.is_none() {
-                    self.download_start = Some(Instant::now());
-                }
-
-                if size == 0 {
-                    return Ok(());
-                }
-
-                let elapsed = self.download_start.unwrap().elapsed();
-
-                let speed = size as f32 / elapsed.as_secs_f32() / 1_000_000.0;
-                let progress = size as f32 / total_size as f32 * 100.0;
-
-                print!("\r[  ..  ] Downloading... {speed:.0} MB/s {progress:5.1}% ({count}/{total_count})");
-
-                if count == total_count {
-                    self.download_start = None;
-                    print!("\r[  OK  ]\n");
-                }
-            }
             _ => todo!(),
         }
 
         std::io::stdout().flush().unwrap();
-
-        Ok(())
 
     }
 

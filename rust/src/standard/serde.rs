@@ -1,6 +1,7 @@
 //! JSON schemas structures for serde deserialization.
 
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::ops::Deref;
 
 use regex::Regex;
@@ -10,13 +11,13 @@ use crate::gav::Gav;
 
 
 /// A version metadata JSON schema.
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionMetadata {
     /// The version id, should be the same as the directory the metadata is in.
     pub id: String,
     /// The version type, such as 'release' or 'snapshot'.
-    pub r#type: String,
+    pub r#type: VersionType,
     /// The last time this version has been updated.
     pub time: String,
     /// The first release time of this version.
@@ -56,7 +57,7 @@ pub struct VersionMetadata {
     pub logging: HashMap<String, VersionLogging>,
 }
 
-#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum VersionType {
     Release,
@@ -66,7 +67,7 @@ pub enum VersionType {
 }
 
 /// Object describing the Mojang-provided Java version to use to launch the game.
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionJavaVersion {
     pub component: String,
@@ -74,7 +75,7 @@ pub struct VersionJavaVersion {
 }
 
 /// Describe the asset index to use and how to download it when missing.
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionAssetIndex {
     pub id: String,
@@ -83,7 +84,7 @@ pub struct VersionAssetIndex {
     pub download: Download,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionLibrary {
     pub name: Gav,
@@ -94,7 +95,7 @@ pub struct VersionLibrary {
     pub url: Option<String>,
 }
 
-#[derive(serde::Deserialize, Debug, Default, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionLibraryDownloads {
     pub artifact: Option<VersionLibraryDownload>,
@@ -102,7 +103,7 @@ pub struct VersionLibraryDownloads {
     pub classifiers: HashMap<String, VersionLibraryDownload>,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionLibraryDownload {
     pub path: Option<String>,
@@ -110,28 +111,28 @@ pub struct VersionLibraryDownload {
     pub download: Download,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionArguments {
     pub game: Vec<VersionArgument>,
     pub jvm: Vec<VersionArgument>,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum VersionArgument {
     Raw(String),
     Conditional(VersionConditionalArgument),
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionConditionalArgument {
     pub value: SingleOrVec<String>,
     pub rules: Option<Vec<Rule>>,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionLogging {
     #[serde(default)]
@@ -140,14 +141,14 @@ pub struct VersionLogging {
     pub file: VersionLoggingFile,
 }
 
-#[derive(serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VersionLoggingType {
     #[default]
     #[serde(rename = "log4j2-xml")]
     Log4j2Xml,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionLoggingFile {
     pub id: String,
@@ -155,7 +156,7 @@ pub struct VersionLoggingFile {
     pub download: Download,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct AssetIndex {
     /// For version <= 13w23b (1.6.1).
     #[serde(default)]
@@ -167,13 +168,13 @@ pub struct AssetIndex {
     pub objects: HashMap<String, AssetObject>,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct AssetObject {
     pub size: u32,
     pub hash: Sha1HashString,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Rule {
     pub action: RuleAction,
@@ -183,7 +184,7 @@ pub struct Rule {
     pub features: HashMap<String, bool>,
 }
 
-#[derive(serde::Deserialize, Debug, Default, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct RuleOs {
     pub name: Option<String>,
@@ -192,14 +193,14 @@ pub struct RuleOs {
     pub version: Option<RegexString>,
 }
 
-#[derive(serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleAction {
     Allow,
     Disallow,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct Download {
     pub url: String,
     pub size: Option<u32>,
@@ -226,7 +227,7 @@ impl<'a> From<&'a Download> for EntrySource {
     }
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum SingleOrVec<T> {
     Single(T),
@@ -277,6 +278,21 @@ impl<'de> serde::Deserialize<'de> for Sha1HashString {
 
 }
 
+impl serde::Serialize for Sha1HashString {
+
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer
+    {
+        let mut buf = String::new();
+        for b in self.0 {
+            write!(buf, "{b:02x}").unwrap();
+        }
+        serializer.serialize_str(&buf)
+    }
+
+}
+
 /// A Regex parsed from the string it is defined in.
 #[derive(Debug, Clone)]
 pub struct RegexString(pub Regex);
@@ -317,6 +333,17 @@ impl<'de> serde::Deserialize<'de> for RegexString {
 
         deserializer.deserialize_str(Visitor)
 
+    }
+
+}
+
+impl serde::Serialize for RegexString {
+    
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer
+    {
+        serializer.serialize_str(self.0.as_str())
     }
 
 }
