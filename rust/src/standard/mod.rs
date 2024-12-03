@@ -49,6 +49,27 @@ pub struct Installer {
     pub meta_os_bits: String,
 }
 
+/// This installer step is returned upon successful version hierarchy resolution, all 
+/// version's metadata are loaded and ready to be used.
+#[derive(Debug, Clone)]
+pub struct Hierarchy<'installer> {
+    /// Back reference to the installer.
+    installer: &'installer Installer,
+    /// The resolved version hierarchy.
+    hierarchy: Vec<Version>,
+}
+
+/// This installer step is returned upon successful intermediate resolution, when assets,
+/// libraries have been parsed from the raw metadata, this can be altered before actually
+/// checking all files and computing what needs to be downloaded.
+#[derive(Debug, Clone)]
+pub struct Intermediate<'installer, 'hierarchy> {
+    /// Back reference to the installer.
+    installer: &'installer Installer,
+    /// Back reference to the resolved hierarchy.
+    hierarchy: &'hierarchy [Version],
+}
+
 impl Installer {
 
     /// Create a new installer with default directories and meta OS values for filtering.
@@ -639,27 +660,6 @@ impl Installer {
 
     }
 
-}
-
-/// This installer step is returned upon successful version hierarchy resolution, all 
-/// version's metadata are loaded and ready to be used.
-#[derive(Debug, Clone)]
-pub struct Hierarchy<'installer> {
-    /// Back reference to the installer.
-    installer: &'installer Installer,
-    /// The resolved version hierarchy.
-    hierarchy: Vec<Version>,
-}
-
-/// This installer step is returned upon successful intermediate resolution, when assets,
-/// libraries have been parsed from the raw metadata, this can be altered before actually
-/// checking all files and computing what needs to be downloaded.
-#[derive(Debug, Clone)]
-pub struct Intermediate<'installer, 'hierarchy> {
-    /// Back reference to the installer.
-    installer: &'installer Installer,
-    /// Back reference to the resolved hierarchy.
-    hierarchy: &'hierarchy [Version],
 }
 
 
