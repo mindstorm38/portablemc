@@ -1,5 +1,7 @@
 [package]
 name = "portablemc-cli"
+description = "Command line utility for launching Minecraft quickly and reliably with included support for Mojang versions and popular modloaders."
+categories = ["games", "command-line-utilities"]
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
@@ -8,3 +10,7 @@ repository.workspace = true
 
 [dependencies]
 portablemc.workspace = true
+
+[[bin]]
+name = "portablemc"
+path = "src/main.rs"
