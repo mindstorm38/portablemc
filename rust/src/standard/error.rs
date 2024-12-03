@@ -34,8 +34,12 @@ pub enum Error {
 /// Origin of an uncategorized error.
 #[derive(Debug)]
 pub enum ErrorOrigin {
+    /// The error is related to a specific file.
     File(Box<Path>),
+    /// The origin of the error is explained in this raw message.
     Raw(Box<str>),
+    /// Unknown origin for the error.
+    Unknown,
 }
 
 /// Kind of an uncategorized error.
@@ -59,6 +63,11 @@ impl Error {
     }
 
     #[inline]
+    pub fn new_schema(message: impl Into<Box<str>>) -> Self {
+        ErrorKind::Schema(message.into()).without_origin()
+    }
+
+    #[inline]
     pub fn new_file_io(origin_file: impl Into<Box<Path>>, e: io::Error) -> Self {
         ErrorKind::Io(e).with_file_origin(origin_file)
     }
@@ -66,6 +75,12 @@ impl Error {
     #[inline]
     pub fn new_file_json(origin_file: impl Into<Box<Path>>, e: serde_json::Error) -> Self {
         ErrorKind::Json(e).with_file_origin(origin_file)
+    }
+
+    /// 
+    #[inline]
+    pub fn map_origin<F: FnOnce(ErrorOrigin) -> ErrorOrigin>(self, map: F) -> Self {
+        
     }
 
 }
@@ -82,6 +97,11 @@ impl ErrorKind {
         Error::Other { origin: ErrorOrigin::Raw(raw.into()), kind: self }
     }
 
+    #[inline]
+    pub fn without_origin(self) -> Error {
+        Error::Other { origin: ErrorOrigin::Unknown, kind: self }
+    }
+
 }
 
 impl fmt::Display for Error {
@@ -91,10 +111,10 @@ impl fmt::Display for Error {
             Error::NotSupported(s) => write!(f, "unsupported: {s}"),
             Error::Other { origin, kind } => {
                 
-                write!(f, "unexpected in ")?;
                 match origin {
-                    ErrorOrigin::File(file) => write!(f, "file {file:?}: ")?,
-                    ErrorOrigin::Raw(s) => write!(f, "{s}: ")?,
+                    ErrorOrigin::File(file) => write!(f, "unexpected in file {file:?}: ")?,
+                    ErrorOrigin::Raw(s) => write!(f, "unexpected in {s}: ")?,
+                    ErrorOrigin::Unknown => write!(f, "unexpected: ")?,
                 }
 
                 match kind {

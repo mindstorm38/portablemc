@@ -500,6 +500,8 @@ impl Installer {
                         return Err(Error::new_raw_schema(schema_origin(), format!("/libraries/{lib_idx}/rules, expected list")));
                     };
 
+                    self.resolve_rule(lib_rules, features, all_features)
+
                     // TODO: Interpret rules...
                     lib_state = LibraryState::RejectedRules;
 
@@ -516,6 +518,27 @@ impl Installer {
         }
 
         Err(Error::NotSupported("resolve_libraries"))
+
+    }
+
+    /// Resolve the given JSON array as rules and return true if all rules have passed.
+    fn resolve_rules(&self,
+        rules: &Array,
+        features: &HashMap<String, bool>,
+        all_features: Option<&mut HashSet<String>>,
+    ) -> Result<bool> {
+
+        let mut allowed = false;
+
+        for (rule_idx, rule) in rules.iter().enumerate() {
+
+            let Value::Object(rule) = rule else {
+                return Err(Error::new_schema(format!("/{rule_idx}, expected object")));
+            };
+
+        }
+
+        Ok(false)
 
     }
 
@@ -616,18 +639,16 @@ impl Installer {
 
     }
 
-    /// Check 
-    fn check_rule(&self,
-        rules: Array,
-        features: &HashMap<String, bool>,
-        all_features: &mut HashSet<String>
-    ) -> Result<()> {
-
-        Ok(())
-
-    }
-
 }
+
+// /// The internal installer state.
+// struct State<'handler> {
+//     /// The reference to the handler, this is the preferred way to interact with handler.
+//     handler: &'handler mut dyn Handler,
+//     /// A sequence of downloads that must be completed at the end of the installation
+//     /// procedure, just before returning the environment.
+//     downloads: Vec<Download>,
+// }
 
 /// A handler is given when installing a version and allows tracking installation progress
 /// and also provides methods to alter the installed version, such as downloading missing
@@ -725,9 +746,9 @@ pub struct Version {
 pub struct Assets {
     /// The version of assets index.
     pub version: String,
-    /// For version <= 13w23b (1.6.1)
+    /// Used by Mojang versions until 13w23b *(1.6.1)*.
     pub with_resources: bool,
-    /// For 13w23b (1.6.1) < version <= 13w48b (1.7.2)
+    /// Used by Mojang versions after 13w23b *(1.6.1)* until 13w48b *(1.7.2)*.
     pub with_virtual: bool,
     /// Assets objects mapped from their relative path to their object.
     pub objects: HashMap<PathBuf, Asset>,
