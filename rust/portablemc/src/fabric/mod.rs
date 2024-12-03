@@ -19,23 +19,27 @@ pub use mojang::{RootVersion, Game};
 /// This is the original and official Fabric API.
 pub static FABRIC_API: Api = Api {
     base_url: "https://meta.fabricmc.net/v2",
+    default_prefix: "fabric",
 };
 
 /// This is the API for the Quilt mod loader, which is a fork of Fabric.
 pub static QUILT_API: Api = Api {
     base_url: "https://meta.quiltmc.org/v3",
+    default_prefix: "quilt",
 };
 
 /// This is the API for the LegacyFabric project which aims to backport the Fabric loader
 /// to older versions, up to 1.14 snapshots.
 pub static LEGACY_FABRIC_API: Api = Api {
     base_url: "https://meta.legacyfabric.net/v2",
+    default_prefix: "legacyfabric",
 };
 
 /// This is the API for the LegacyFabric project which aims to backport the Fabric loader
 /// to older versions, up to 1.14 snapshots.
 pub static BABRIC_API: Api = Api {
     base_url: "https://meta.babric.glass-launcher.net/v2",
+    default_prefix: "babric",
 };
 
 /// An installer for supporting mod loaders that are Fabric or like it (Quilt, 
@@ -118,11 +122,11 @@ impl Installer {
             _ => None,
         };
 
-        let game_version = if let Some(stable) = game_stable {
+        let game_version = if let Some(game_stable) = game_stable {
             inner.api.request_game_versions()?
                 .into_iter()
-                .find(|version| version.stable || version.stable == stable)
-                .map(|version| version.version)
+                .find(|game| game.stable || !game_stable)
+                .map(|game| game.version)
                 .ok_or_else(|| Error::AliasGameVersionNotFound { 
                     api: inner.api,
                     game_version: self.inner.game_version.clone()
@@ -140,10 +144,18 @@ impl Installer {
             _ => None,
         };
 
-        let loader_version = if let Some(stable) = loader_stable {
+        let loader_version = if let Some(loader_stable) = loader_stable {
             inner.api.request_game_loader_versions(&game_version)?
                 .into_iter()
-                .find(|loader| loader.loader.stable || loader.loader.stable == stable)
+                .find(|loader| {
+                    // Some APIs don't provide the 'stable' on loader/intermediary
+                    // versions, so we rely on the version containing a '-beta'.
+                    let stable = loader.loader.stable.unwrap_or_else(|| {
+                        !loader.loader.version.contains("-beta")
+                    });
+                    // Latest stable is always valid, or we want unstable.
+                    stable || !loader_stable
+                })
                 .map(|loader| loader.loader.version)
                 .ok_or_else(|| Error::AliasLoaderVersionNotFound {
                     api: inner.api,
@@ -159,7 +171,8 @@ impl Installer {
 
         // Set the root version for underlying Mojang installer, equal to the name that
         // we'll give to the version.
-        let root_version_id = format!("fabric-{game_version}-{loader_version}");
+        let prefix = inner.api.default_prefix;
+        let root_version_id = format!("{prefix}-{game_version}-{loader_version}");
         mojang.root_version(RootVersion::Id(root_version_id.clone()));
 
         // Scoping the temporary internal handler.
@@ -198,6 +211,9 @@ pub struct Api {
     /// - `/versions/loader/<game_version>/<loader_loader>` (returning status 400)
     /// - `/versions/loader/<game_version>/<loader_loader>/profile/json`
     pub base_url: &'static str,
+    /// Default prefix for the full root version id of the format 
+    /// '<default prefix>-<game version>-<loader version>.
+    pub default_prefix: &'static str,
 }
 
 impl Api {

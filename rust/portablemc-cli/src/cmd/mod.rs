@@ -478,7 +478,7 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
             let mut log = out.log("error_reqwest");
             log.args(error.url().into_iter());
             log.newline();
-            log.error("Reqwest error: {error}");
+            log.error(format_args!("Reqwest error: {error}"));
             if let Some(source) = error.source() {
                 log.additional(format_args!("Source: {source}"));
             }
@@ -544,8 +544,8 @@ pub fn log_fabric_error(out: &mut Output, error: fabric::Error) {
             log.error(format_args!("Failed to resolve {api_name} game version '{alias_str}'"));
 
             match game_version {
-                GameVersion::Stable => log.additional("{api_name} might not yet support any stable game version"),
-                GameVersion::Unstable => log.additional("{api_name} have zero game version supported, likely an issue on their side"),
+                GameVersion::Stable => log.additional(format_args!("{api_name} might not yet support any stable game version")),
+                GameVersion::Unstable => log.additional(format_args!("{api_name} have zero game version supported, likely an issue on their side")),
                 GameVersion::Id(_) => unreachable!()
             };
 
@@ -565,8 +565,8 @@ pub fn log_fabric_error(out: &mut Output, error: fabric::Error) {
             log.error(format_args!("Failed to resolve {api_name} loader version '{alias_str}' for game version {game_version_id}"));
 
             match loader_version {
-                LoaderVersion::Stable => log.additional("{api_name} might not yet support any stable loader version for this game version"),
-                LoaderVersion::Unstable => log.additional("{api_name} have zero loader version supported for this game version, likely an issue on their side"),
+                LoaderVersion::Stable => log.additional(format_args!("{api_name} might not yet support any stable loader version for this game version")),
+                LoaderVersion::Unstable => log.additional(format_args!("{api_name} have zero loader version supported for this game version, likely an issue on their side")),
                 LoaderVersion::Id(_) => unreachable!()
             };
 
