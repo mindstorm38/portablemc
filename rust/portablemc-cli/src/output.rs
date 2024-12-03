@@ -256,6 +256,7 @@ impl Log<'_, false> {
                     LogLevel::Warn => ("WARN", "\x1b[33m"),
                     LogLevel::Error => ("ERRO", "\x1b[31m"),
                     LogLevel::Additional => {
+                        mode.log_last_level = last_level; // Cancel the change.
                         if last_level < mode.log_level {
                             return self;
                         } else {
