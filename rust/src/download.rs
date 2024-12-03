@@ -120,8 +120,8 @@ pub enum EntryMode {
     Cache,
 }
 
-/// A download entry to be downloaded later. The entry can be optionally tied to a cache
-/// metadata file 
+/// A download entry to be downloaded later. How this entry will be downloaded depends
+/// on its mode, see [`EntryMode`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     /// Source of the download.
@@ -132,9 +132,45 @@ pub struct Entry {
     pub mode: EntryMode,
 }
 
+impl EntrySource {
+
+    /// Create a new entry source from the given URL, without known size of SHA-1. For
+    /// a more complex construction, use the struct constructor directly.
+    #[inline]
+    pub fn new(url: impl Into<Box<str>>) -> Self {
+        Self {
+            url: url.into(),
+            size: None,
+            sha1: None,
+        }
+    }
+
+    /// Convert this entry source into an entry with known destination and mode.
+    #[inline]
+    pub fn with_file_and_mode(self, file: impl Into<Box<Path>>, mode: EntryMode) -> Entry {
+        Entry {
+            source: self,
+            file: file.into(),
+            mode,
+        }
+    }
+
+    /// Convert this entry source into an entry with known destination, the default
+    /// [`Force`](EntryMode::Force) is used, the entry will be downloaded anyway.
+    #[inline]
+    pub fn with_file(self, file: impl Into<Box<Path>>) -> Entry {
+        self.with_file_and_mode(file, EntryMode::Force)
+    }
+
+}
+
 impl Entry {
 
-    /// Create a new purely cached download entry.
+    /// Create a new purely cached download entry, only the URL is given because the
+    /// destination directory is constructed from a standard cache directory called
+    /// `portablemc-cache` located in a standard user cache directory (or system tmp
+    /// as a fallback), the file name in that directory is the hash of the URL.
+    /// The entry mode is also set to [`Cache`](EntryMode::Cache).
     pub fn new_cached(url: impl Into<Box<str>>) -> Self {
 
         let url = url.into();
@@ -151,16 +187,7 @@ impl Entry {
         file.push("portablemc-cache");
         file.push(url_digest);
 
-        Self {
-            source: EntrySource {
-                url,
-                size: None,
-                sha1: None,
-            },
-            file: file.into(),
-            mode: EntryMode::Cache,
-        }
-
+        EntrySource::new(url).with_file_and_mode(file, EntryMode::Cache)
 
     }
 

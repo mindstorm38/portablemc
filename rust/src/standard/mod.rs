@@ -8,22 +8,20 @@ use std::path::{Path, PathBuf};
 use std::fs::{self, File};
 use std::process::Command;
 use std::fmt::Write as _;
-use std::env;
+use std::{env, os};
 
 use sha1::{Digest, Sha1};
 
-use crate::download::{self, Batch, Entry, EntryMode, EntrySource};
-use crate::path::PathExt;
+use crate::download::{self, Batch, Entry, EntrySource};
+use crate::path::{PathExt, PathBufExt};
 use crate::gav::Gav;
 
 
 /// Base URL for downloading game's assets.
 const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
 
+/// The URL to meta manifest for Mojang-provided JVMs. 
 const JVM_META_MANIFEST_URL: &str = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
-
-// /// Base URL for downloading game's libraries.
-// const LIBRARIES_URL: &str = "https://libraries.minecraft.net/";
 
 
 /// Standard installer handle to install versions, this object is just the configuration
@@ -48,6 +46,9 @@ pub struct Installer {
     /// When enabled, all libraries are strictly checked against their expected SHA-1,
     /// this is disabled by default because it's heavy on CPU.
     pub strict_libraries_check: bool,
+    /// When enabled, all files from Mojang-provided JVMs are strictly checked against
+    /// their expected SHA-1, this is disabled by default because it's heavy on CPU.
+    pub strict_jvm_check: bool,
     /// The OS name used when applying rules for the version metadata.
     pub os_name: String,
     /// The OS system architecture name used when applying rules for version metadata.
@@ -81,6 +82,7 @@ impl Installer {
             jvm_dir: main_dir.join("jvm"),
             strict_assets_check: false,
             strict_libraries_check: false,
+            strict_jvm_check: false,
             os_name: default_os_name().unwrap(),
             os_arch: default_os_arch().unwrap(),
             os_version: default_os_version().unwrap(),
@@ -102,7 +104,7 @@ impl Installer {
         let lib_files = self.load_libraries(&mut handler, &hierarchy, &features, &mut batch)?;
         let logger_config = self.load_logger(&mut handler, &hierarchy, &mut batch)?;
         let assets = self.load_assets(&mut handler, &hierarchy, &mut batch)?;
-        let _jvm = self.load_jvm(&mut handler, &hierarchy)?;
+        let jvm = self.load_jvm(&mut handler, &hierarchy, &mut batch)?;
 
         if !batch.is_empty() {
             handler.handle_standard_event(Event::ResourcesDownloading {  });
@@ -110,30 +112,11 @@ impl Installer {
             handler.handle_standard_event(Event::ResourcesDownloaded {  });
         }
 
-        // After resources downloading we can symlink/copy assets if mapping is need to
-        // resource or virtual directory.
-        let mut assets_virtual_dir = None;
         if let Some(assets) = &assets {
-
-            // If the mapping is resource or virtual then we start by copying assets to
-            // their virtual directory.
-            if assets.mapping != AssetsMapping::None {
-                
-                let virtual_dir = assets_virtual_dir.insert({
-                    let mut buf = self.assets_dir.clone();
-                    buf.push("virtual");
-                    buf.push(&assets.id);
-                    buf
-                });
-
-                for (virtual_file, asset_file) in &assets.objects {
-                    let virtual_file = virtual_dir.join(virtual_file);
-                    fs::hard_link(asset_file, virtual_file).map_err(Error::new_io)?;
-                }
-
-            }
-
+            self.finalize_assets(assets)?;
         }
+
+        self.finalize_jvm(&jvm)?;
 
         // Resolve arguments from the hierarchy of versions.
         let mut jvm_args = Vec::new();
@@ -163,7 +146,7 @@ impl Installer {
             client_file,
             class_files: lib_files.class_files,
             natives_files: lib_files.natives_files,
-            assets_virtual_dir,
+            assets_virtual_dir: None,
             jvm_args,
             game_args,
         })
@@ -267,11 +250,7 @@ impl Installer {
         if let Some(dl) = dl {
             let check_client_sha1 = dl.sha1.as_deref().filter(|_| self.strict_libraries_check);
             if !check_file(&client_file, dl.size, check_client_sha1)? {
-                batch.push(Entry {
-                    source: dl.into(),
-                    file: client_file.clone().into_boxed_path(),
-                    mode: EntryMode::Force,
-                });
+                batch.push(EntrySource::from(dl).with_file(client_file.clone()));
             }
         } else if !client_file.is_file() {
             return Err(Error::ClientNotFound);
@@ -429,11 +408,7 @@ impl Installer {
                 // Only check SHA-1 if strict checking is enabled.
                 let check_source_sha1 = source.sha1.as_ref().filter(|_| self.strict_libraries_check);
                 if !check_file(&lib_file, source.size, check_source_sha1)? {
-                    batch.push(Entry {
-                        source,
-                        file: lib_file.clone().into_boxed_path(),
-                        mode: EntryMode::Force,
-                    });
+                    batch.push(source.with_file(lib_file.clone()));
                 }
             } else if !lib_file.is_file() {
                 return Err(Error::LibraryNotFound { gav: lib.gav })
@@ -474,18 +449,12 @@ impl Installer {
 
         handler.handle_standard_event(Event::LoggerLoading { id: &config.file.id });
 
-        let file = {
-            let mut buf = self.assets_dir.join("log_configs");
-            buf.push(&config.file.id);
-            buf
-        };
+        let file = self.assets_dir
+            .join("log_configs")
+            .joined(config.file.id.as_str());
 
         if !check_file(&file, config.file.download.size, config.file.download.sha1.as_deref())? {
-            batch.push(Entry {
-                source: EntrySource::from(&config.file.download),
-                file: file.clone().into_boxed_path(),
-                mode: EntryMode::Force,
-            });
+            batch.push(EntrySource::from(&config.file.download).with_file(file.clone()));
         }
 
         handler.handle_standard_event(Event::LoggerLoaded { id: &config.file.id });
@@ -547,11 +516,9 @@ impl Installer {
         // download this single file. If the file has no download info
         if let Some(dl) = index_info.download {
             if !check_file(&index_file, dl.size, dl.sha1.as_deref())? {
-                Entry {
-                    source: dl.into(),
-                    file: index_file.clone().into_boxed_path(),
-                    mode: EntryMode::Force,
-                }.download(handler.as_download_dyn())?;
+                EntrySource::from(dl)
+                    .with_file(index_file.clone())
+                    .download(handler.as_download_dyn())?;
             }
         }
 
@@ -578,17 +545,21 @@ impl Installer {
 
         let mut assets = Assets {
             id: index_info.id.to_string(),
-            objects: HashMap::with_capacity(asset_index.objects.len()),
-            mapping: if asset_index.map_to_resources {
-                AssetsMapping::Resources
-            } else if asset_index.r#virtual {
-                AssetsMapping::Virtual
-            } else {
-                AssetsMapping::None
-            },
+            mapping: None,
         };
 
-        for (asset_path, asset) in &asset_index.objects {
+        if asset_index.r#virtual || asset_index.map_to_resources {
+            assets.mapping = Some(AssetsMapping {
+                objects: Vec::new(),
+                virtual_dir: self.assets_dir
+                    .join("virtual")
+                    .joined(assets.id.as_str())
+                    .into_boxed_path(),
+                resources: asset_index.map_to_resources,
+            });
+        }
+
+        for (asset_rel_file, asset) in &asset_index.objects {
 
             asset_file_name.clear();
             for byte in *asset.hash {
@@ -596,15 +567,18 @@ impl Installer {
             }
             
             let asset_hash_prefix = &asset_file_name[0..2];
-            let asset_hash_file = {
-                let mut buf = objects_dir.clone();
-                buf.push(asset_hash_prefix);
-                buf.push(&asset_file_name);
-                buf
-            };
+            let asset_hash_file = objects_dir
+                .join(asset_hash_prefix)
+                .joined(asset_file_name.as_str());
 
-            // Save the association of asset path to the actual hash file.
-            assets.objects.insert(PathBuf::from(asset_path).into_boxed_path(), asset_hash_file.clone().into_boxed_path());
+            // Save the association of asset path to the actual hash file, only do
+            // that if we need it because of virtual or resource mapped assets.
+            if let Some(mapping) = &mut assets.mapping {
+                mapping.objects.push(AssetObject {
+                    rel_file: PathBuf::from(asset_rel_file).into_boxed_path(),
+                    object_file: asset_hash_file.clone().into_boxed_path(),
+                });
+            }
 
             // Some assets are represented with multiple files, but we don't 
             // want to download a file multiple time so we abort here.
@@ -615,15 +589,11 @@ impl Installer {
             // Only check SHA-1 if strict checking.
             let check_asset_sha1 = self.strict_assets_check.then_some(&*asset.hash);
             if !check_file(&asset_hash_file, Some(asset.size), check_asset_sha1)? {
-                batch.push(Entry {
-                    source: EntrySource {
-                        url: format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_file_name}").into_boxed_str(),
-                        size: Some(asset.size),
-                        sha1: Some(*asset.hash),
-                    },
-                    file: asset_hash_file.into_boxed_path(),
-                    mode: EntryMode::Force,
-                });
+                batch.push(EntrySource {
+                    url: format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_file_name}").into_boxed_str(),
+                    size: Some(asset.size),
+                    sha1: Some(*asset.hash),
+                }.with_file(asset_hash_file));
             }
 
         }
@@ -633,11 +603,31 @@ impl Installer {
         Ok(Some(assets))
 
     }
+
+    /// Finalize assets linking in case of virtual or resources mapping.
+    fn finalize_assets(&self, assets: &Assets) -> Result<()> {
+
+        // If the mapping is resource or virtual then we start by copying assets to
+        // their virtual directory. We are using hard link because it's way cheaper
+        // than copying and save storage.
+        let Some(mapping) = &assets.mapping else {
+            return Ok(());
+        };
+
+        for object in &mapping.objects {
+            let virtual_file = mapping.virtual_dir.join(&object.rel_file);
+            fs::hard_link(&object.object_file, virtual_file).map_err(Error::new_io)?;
+        }
+
+        Ok(())
+
+    }
     
     /// The goal of this step is to find a valid JVM to run the game on.
     fn load_jvm(&self, 
         handler: &mut impl Handler, 
         hierarchy: &[Version], 
+        batch: &mut Batch,
     ) -> Result<Jvm> {
 
         let version = hierarchy.iter()
@@ -645,7 +635,7 @@ impl Installer {
 
         let mut jvm;
         
-        // We simply the code with this condition and duplicated match, because in the
+        // We simplify the code with this condition and duplicated match, because in the
         // 'else' case we can simplify any policy that contains Mojang and System to
         // System, because we don't have instructions for finding Mojang version.
         if let Some(version) = version {
@@ -669,15 +659,15 @@ impl Installer {
                 JvmPolicy::System => 
                     jvm = self.load_system_jvm(handler, Some(&major_version))?,
                 JvmPolicy::Mojang => 
-                    jvm = self.load_mojang_jvm(handler, distribution)?,
+                    jvm = self.load_mojang_jvm(handler, distribution, batch)?,
                 JvmPolicy::SystemThenMojang => {
                     jvm = self.load_system_jvm(handler, Some(&major_version))?;
                     if jvm.is_none() {
-                        jvm = self.load_mojang_jvm(handler, distribution)?;
+                        jvm = self.load_mojang_jvm(handler, distribution, batch)?;
                     }
                 }
                 JvmPolicy::MojangThenSystem => {
-                    jvm = self.load_mojang_jvm(handler, distribution)?;
+                    jvm = self.load_mojang_jvm(handler, distribution, batch)?;
                     if jvm.is_none() {
                         jvm = self.load_system_jvm(handler, Some(&major_version))?;
                     }
@@ -776,12 +766,8 @@ impl Installer {
         major_version: Option<&str>,
     ) -> Result<Option<Jvm>> {
 
-        let exec_name = match env::consts::OS {
-            "windows" => "javaw.exe",
-            _ => "java"
-        };
-        
         let mut candidates = Vec::new();
+        let exec_name = jvm_exec_name();
 
         // Check every JVM available in PATH.
         if let Some(path) = env::var_os("PATH") {
@@ -798,9 +784,9 @@ impl Installer {
             if let Ok(read_dir) = fs::read_dir("/usr/lib/jvm/") {
                 for entry in read_dir {
                     let Ok(entry) = entry else { continue };
-                    let mut path = entry.path();
-                    path.push("bin");
-                    path.push(exec_name);
+                    let path = entry.path()
+                        .joined("bin")
+                        .joined(exec_name);
                     if path.is_file() {
                         candidates.push(path);
                     }
@@ -847,6 +833,7 @@ impl Installer {
     fn load_mojang_jvm(&self,
         handler: &mut impl Handler,
         distribution: &str,
+        batch: &mut Batch,
     ) -> Result<Option<Jvm>> {
 
         // On Linux, only glibc dynamic linkage is supported by Mojang-provided JVMs.
@@ -892,18 +879,89 @@ impl Installer {
             return Ok(None);
         };
 
-        let _jvm_dir = self.jvm_dir.join(distribution);
-        let _jvm_manifest_file = self.jvm_dir.join_with_extension(distribution, "json");
+        let dir = self.jvm_dir.join(distribution);
+        let manifest_file = self.jvm_dir.join_with_extension(distribution, "json");
+        let bin_file = if cfg!(target_os = "macos") {
+            dir.join("jre.bundle/Contents/Home/bin/java")
+        } else {
+            dir.join("bin").joined(jvm_exec_name())
+        };
 
-        // if !check_file(&jvm_manifest_file, None, None).map_err(Error::new_io)? {
-        //     Batch::from(Entry {
-        //         source: dl.into(),
-        //         file: index_file.clone().into_boxed_path(),
-        //         executable: false,
-        //     }).download(handler.as_download_dyn())?;
-        // }
+        // Check the manifest, download it, read and parse it...
+        if !check_file(&manifest_file, meta_variant.manifest.size, meta_variant.manifest.sha1.as_deref())? {
+            EntrySource::from(&meta_variant.manifest)
+                .with_file(manifest_file.clone())
+                .download(handler.as_download_dyn())?;
+        }
 
-        Ok(None)
+        let reader = match File::open(&manifest_file) {
+            Ok(reader) => BufReader::new(reader),
+            Err(e) => return Err(Error::new_io_file(e, manifest_file)),
+        };
+
+        let mut deserializer = serde_json::Deserializer::from_reader(reader);
+        let manifest: serde::JvmManifest = match serde_path_to_error::deserialize(&mut deserializer) {
+            Ok(obj) => obj,
+            Err(e) => return Err(Error::new_json_file(e, manifest_file)),
+        };
+
+        let mut mojang_jvm = MojangJvm::default();
+        
+        // Here we only check files because it's too early to assert symlinks.
+        for (rel_file, manifest_file) in &manifest.files {
+
+            // TODO: We could optimize this repeated allocation maybe.
+            let rel_file = Path::new(rel_file);
+            let file = dir.join(rel_file);
+
+            match manifest_file {
+                serde::JvmManifestFile::Directory => {}
+                serde::JvmManifestFile::File { 
+                    executable, 
+                    downloads 
+                } => {
+
+                    if *executable {
+                        mojang_jvm.executables.push(file.clone().into_boxed_path());
+                    }
+                    
+                    let dl = &downloads.raw;
+                    
+                    // Only check SHA-1 if strict checking is enabled.
+                    let check_dl_sha1 = dl.sha1.as_deref().filter(|_| self.strict_jvm_check);
+                    if !check_file(&file, dl.size, check_dl_sha1)? {
+                        batch.push(EntrySource::from(dl).with_file(file));
+                    }
+
+                }
+                serde::JvmManifestFile::Link { 
+                    target
+                } => {
+
+                    // The .parent() function returns an empty string for parent of 
+                    // relative files, this should never return None because the 
+                    // relative file should be _relative_.
+                    let Some(rel_parent_dir) = rel_file.parent() else {
+                        continue
+                    };
+
+                    let target_file = rel_parent_dir.join(target);
+                    
+                    mojang_jvm.links.push(MojangJvmLink {
+                        file: file.into_boxed_path(),
+                        target_file: target_file.into_boxed_path(),
+                    });
+
+                }
+            }
+
+        }
+
+        Ok(Some(Jvm {
+            file: bin_file,
+            version: Some(meta_variant.version.name.clone()),
+            mojang: Some(mojang_jvm),
+        }))
 
     }
 
@@ -932,7 +990,53 @@ impl Installer {
                 .map(|(version, _)| version)
                 .next()
                 .map(str::to_string),
+            mojang: None,
         })
+
+    }
+
+    /// Finalize the setup of any Mojang-provided JVM, doing nothing if not Mojang.
+    fn finalize_jvm(&self, jvm: &Jvm) -> Result<()> {
+
+        let Some(mojang_jvm) = &jvm.mojang else {
+            return Ok(());
+        };
+
+        // This is only relevant on unix where we can set executable mode
+        #[cfg(unix)]
+        for exec_file in &mojang_jvm.executables {
+
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut perm = exec_file.metadata()
+                .map_err(|e| Error::new_io_file(e, exec_file.to_path_buf()))?
+                .permissions();
+
+            // Set executable permission for every owner/group/other with read access.
+            let mode = perm.mode();
+            let new_mode = mode | ((mode & 0o444) >> 2);
+            if new_mode != mode {
+                perm.set_mode(new_mode);
+            }
+
+            fs::set_permissions(exec_file, perm)
+                .map_err(|e| Error::new_io_file(e, exec_file.to_path_buf()))?;
+            
+        }
+
+        // On Unix we simply use a symlink, on other systems (Windows) we hard link,
+        // this act like a copy but is way cheaper.
+        for link in &mojang_jvm.links {
+            
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&link.target_file, &link.file).map_err(Error::new_io)?;
+
+            #[cfg(not(unix))]
+            fs::hard_link(&link.target_file, &link.file).map_err(Error::new_io)?;
+
+        }
+
+        Ok(())
 
     }
 
@@ -1325,21 +1429,31 @@ pub struct Library {
 #[derive(Debug)]
 struct Assets {
     id: String,
-    objects: HashMap<Box<Path>, Box<Path>>,
-    mapping: AssetsMapping,
+    mapping: Option<AssetsMapping>,
 }
 
-/// The mapping mode for assets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AssetsMapping {
-    /// The version is able to read directly from the assets objects dir.
-    None,
-    /// The version needs to have its assets copied to their real path in the virtual dir.
-    /// This has been used for versions between 13w23b (excluded) and 13w48b (1.7.2).
-    Virtual,
-    /// Same as virtual but resources should be copied in work dir resources dir.
-    /// This has been used for versions 13w23b and anterior.
-    Resources,
+/// In case of virtual or resources mapped assets, the launcher needs to hard link all
+/// asset object files to their virtual relative path inside the assets index's virtual
+/// directory. 
+/// 
+/// - Virtual assets has been used between 13w23b (excluded) and 13w48b (1.7.2).
+/// - Resource mapped assets has been used for versions 13w23b and anterior.
+#[derive(Debug)]
+struct AssetsMapping {
+    /// List of objects to link to virtual dir.
+    objects: Vec<AssetObject>,
+    /// Path to the virtual directory for the assets id.
+    virtual_dir: Box<Path>,
+    /// True if a resources directory should link game's working directory to the
+    /// assets index' virtual directory.
+    resources: bool,
+}
+
+/// The asse
+#[derive(Debug)]
+struct AssetObject {
+    rel_file: Box<Path>,
+    object_file: Box<Path>,
 }
 
 /// Internal resolved libraries file paths.
@@ -1358,10 +1472,28 @@ struct LoggerConfig {
     file: PathBuf,
 }
 
+/// Internal resolved JVM.
 #[derive(Debug)]
 struct Jvm {
     file: PathBuf,
     version: Option<String>,
+    mojang: Option<MojangJvm>,
+}
+
+/// Internal optional to the resolve JVM in case of Mojang-provided JVM where files
+/// needs to be made executable and links added.
+#[derive(Debug, Default)]
+struct MojangJvm {
+    /// List of full paths to files that should be executable (relevant under Linux).
+    executables: Vec<Box<Path>>,
+    /// List of links to add given `(link_file, target_file)`.
+    links: Vec<MojangJvmLink>,
+}
+
+#[derive(Debug)]
+struct MojangJvmLink {
+    file: Box<Path>,
+    target_file: Box<Path>,
 }
 
 /// Collection of the installation environment of a version, return by the install 
@@ -1521,4 +1653,13 @@ fn default_jvm_platform() -> Option<String> {
         ("windows", "aarch64") => "windows-arm64",
         _ => return None,
     }.to_string())
+}
+
+/// Return the JVM exec file name. 
+#[inline]
+fn jvm_exec_name() -> &'static str {
+    match env::consts::OS {
+        "windows" => "javaw.exe",
+        _ => "java"
+    }
 }

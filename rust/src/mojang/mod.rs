@@ -6,8 +6,8 @@ pub mod serde;
 use std::io::BufReader;
 use std::fs::{self, File};
 
-use crate::download::{self, Entry, EntryMode, EntrySource};
 use crate::standard::{self, check_file, Handler as _};
+use crate::download::{self, Entry, EntrySource};
 
 
 /// Static URL to the version manifest provided by Mojang.
@@ -200,11 +200,9 @@ impl<H: Handler> InternalHandler<'_, H> {
 
                 self.inner.handle_mojang_event(Event::MojangVersionFetching { id });
                 
-                Entry {
-                    source: EntrySource::from(&self.manifest_version.download),
-                    file: file.to_path_buf().into_boxed_path(),
-                    mode: EntryMode::Force,
-                }.download(&mut self.inner)?;
+                EntrySource::from(&self.manifest_version.download)
+                    .with_file(file.to_path_buf())
+                    .download(&mut self.inner)?;
 
                 self.inner.handle_mojang_event(Event::MojangVersionFetched { id });
 

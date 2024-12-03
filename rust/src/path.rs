@@ -24,3 +24,23 @@ impl PathExt for Path {
     }
 
 }
+
+
+/// Extension to the standard [`PathBuf`], mainly to ease joining.
+pub trait PathBufExt {
+
+    /// Return this path joined with another one, this is different from [`Path::join`]
+    /// in that is doesn't reallocate a new path on each join.
+    fn joined<P: AsRef<Path>>(self, path: P) -> Self;
+
+}
+
+impl PathBufExt for PathBuf {
+    
+    #[inline]
+    fn joined<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.push(path);
+        self
+    }
+
+}
