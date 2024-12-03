@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::process::Command;
 use std::fmt::Write as _;
+use std::sync::LazyLock;
 use std::env;
 
 use sha1::{Digest, Sha1};
@@ -33,59 +34,33 @@ pub(crate) const LIBRARIES_URL: &str = "https://libraries.minecraft.net/";
 /// Note that this installer doesn't provide any fetching of missing versions, enables
 /// no feature by default and provides not fixes for legacy things. This installer just
 /// implement the unspecified standard of Mojang. 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Installer {
-    /// The directory where versions are stored.
-    pub versions_dir: PathBuf,
-    /// The directory where assets, assets index, cached skins and logs config are stored.
-    /// Note that this directory stores caches player skins, so this is the only 
-    /// directory where the client will need to write, and so it needs the permission
-    /// to do so.
-    pub assets_dir: PathBuf,
-    /// The directory where libraries are stored, organized like a maven repository.
-    pub libraries_dir: PathBuf,
-    /// The directory where Mojang-provided JVM has been installed.
-    pub jvm_dir: PathBuf,
-    /// When enabled, all assets are strictly checked against their expected SHA-1,
-    /// this is disabled by default because it's heavy on CPU.
-    pub strict_assets_check: bool,
-    /// When enabled, all libraries are strictly checked against their expected SHA-1,
-    /// this is disabled by default because it's heavy on CPU.
-    pub strict_libraries_check: bool,
-    /// When enabled, all files from Mojang-provided JVMs are strictly checked against
-    /// their expected SHA-1, this is disabled by default because it's heavy on CPU.
-    pub strict_jvm_check: bool,
-    /// The OS name used when applying rules for the version metadata.
-    /// This is also used to select the JVM platform if needed.
-    /// 
-    /// This string, like all others `os_` fields can be used to install the game to run
-    /// it on a different operating system later
-    pub os_name: String,
-    /// The OS system architecture name used when applying rules for version metadata.
-    /// This is also used to select the JVM platform if needed.
-    pub os_arch: String,
-    /// The OS version name used when applying rules for version metadata.
-    pub os_version: String,
-    /// The OS bits replacement for "${arch}" replacement of library natives.
-    pub os_bits: String,
-    /// The policy for finding a JVM to run the game on.
-    pub jvm_policy: JvmPolicy,
+    root_id: String,
+    versions_dir: PathBuf,
+    assets_dir: PathBuf,
+    libraries_dir: PathBuf,
+    jvm_dir: PathBuf,
+    strict_assets_check: bool,
+    strict_libraries_check: bool,
+    strict_jvm_check: bool,
+    jvm_policy: JvmPolicy,
+    launcher_name: Option<String>,
+    launcher_version: Option<String>,
 }
 
 impl Installer {
 
-    /// Create a new installer with default configuration and pointing to defaults
-    /// directories.
-    pub fn new() -> Self {
+    /// Create a new installer with default configuration, using defaults directories and
+    /// the given root version to load and then install. The given version can be later
+    /// changed if needed, using [`Self::root`].
+    pub fn new(root_id: impl Into<String>) -> Self {
+        
         // FIXME: Maybe change the main dir to something more standard under Linux.
-        let dir = default_main_dir().unwrap();
-        Self::with_dir(dir)
-    }
-
-    /// Create a new installer with default configuration and pointing to given 
-    /// directories.
-    pub fn with_dir(main_dir: PathBuf) -> Self {
+        let main_dir = default_main_dir().unwrap();
+                
         Self {
+            root_id: root_id.into(),
             versions_dir: main_dir.join("versions"),
             assets_dir: main_dir.join("assets"),
             libraries_dir: main_dir.join("libraries"),
@@ -93,16 +68,112 @@ impl Installer {
             strict_assets_check: false,
             strict_libraries_check: false,
             strict_jvm_check: false,
-            os_name: default_os_name().unwrap(),
-            os_arch: default_os_arch().unwrap(),
-            os_version: default_os_version().unwrap(),
-            os_bits: default_os_bits().unwrap(),
             jvm_policy: JvmPolicy::SystemThenMojang,
+            launcher_name: None,
+            launcher_version: None,
         }
+
     }
 
-    /// Ensure that a the given version, from its id, is fully installed.
-    pub fn install(&self, mut handler: impl Handler, id: &str) -> Result<Game> {
+    /// Change the root version id to load and install, this overrides the root version
+    /// given when constructing this installer.
+    #[inline]
+    pub fn root(&mut self, root_id: impl Into<String>) -> &mut Self {
+        self.root_id = root_id.into();
+        self
+    }
+
+    /// Shortcut for defining the various main directories of the game, by deriving
+    /// the given path, the directories `versions`, `assets`, `libraries` and `jvm`
+    /// are defined.
+    #[inline]
+    pub fn main_dir(&mut self, main_dir: PathBuf) -> &mut Self {
+        self.versions_dir = main_dir.join("versions");
+        self.assets_dir = main_dir.join("assets");
+        self.libraries_dir = main_dir.join("libraries");
+        self.jvm_dir = main_dir.join("jvm");
+        self
+    }
+
+    /// The directory where versions are stored.
+    #[inline]
+    pub fn versions_dir(&mut self, versions_dir: PathBuf) -> &mut Self {
+        self.versions_dir = versions_dir;
+        self
+    }
+
+    /// The directory where assets, assets index, cached skins and logs config are stored.
+    /// Note that this directory stores caches player skins, so this is the only 
+    /// directory where the client will need to write, and so it needs the permission
+    /// to do so.
+    #[inline]
+    pub fn assets_dir(&mut self, assets_dir: PathBuf) -> &mut Self {
+        self.assets_dir = assets_dir;
+        self
+    }
+
+    /// The directory where libraries are stored, organized like a maven repository.
+    #[inline]
+    pub fn libraries_dir(&mut self, libraries_dir: PathBuf) -> &mut Self {
+        self.libraries_dir = libraries_dir;
+        self
+    }
+
+    /// The directory where Mojang-provided JVM has been installed.
+    #[inline]
+    pub fn jvm_dir(&mut self, jvm_dir: PathBuf) -> &mut Self {
+        self.jvm_dir = jvm_dir;
+        self
+    }
+
+    /// When enabled, all assets are strictly checked against their expected SHA-1,
+    /// this is disabled by default because it's heavy on CPU.
+    #[inline]
+    pub fn strict_assets_check(&mut self, strict: bool) -> &mut Self {
+        self.strict_assets_check = strict;
+        self
+    }
+
+    /// When enabled, all libraries are strictly checked against their expected SHA-1,
+    /// this is disabled by default because it's heavy on CPU.
+    #[inline]
+    pub fn strict_libraries_check(&mut self, strict: bool) -> &mut Self {
+        self.strict_libraries_check = strict;
+        self
+    }
+
+    /// When enabled, all files from Mojang-provided JVMs are strictly checked against
+    /// their expected SHA-1, this is disabled by default because it's heavy on CPU.
+    #[inline]
+    pub fn strict_jvm_check(&mut self, strict: bool) -> &mut Self {
+        self.strict_jvm_check = strict;
+        self
+    }
+
+    /// The policy for finding a JVM to run the game on.
+    #[inline]
+    pub fn jvm_policy(&mut self, policy: JvmPolicy) -> &mut Self {
+        self.jvm_policy = policy;
+        self
+    }
+
+    /// A specific launcher name to put on the command line, defaults to "portablemc".
+    #[inline]
+    pub fn launcher_name(&mut self, launcher_name: String) -> &mut Self {
+        self.launcher_name = Some(launcher_name);
+        self
+    }
+
+    /// A specific launcher version to put on the command line, defaults to PMC version.
+    #[inline]
+    pub fn launcher_version(&mut self, launcher_version: String) -> &mut Self {
+        self.launcher_version = Some(launcher_version);
+        self
+    }
+
+    /// Ensure that a the given version, from its id, is fully installed and return
+    /// a game instance that can be used to run launch it.
+    pub fn install(&mut self, mut handler: impl Handler) -> Result<Game> {
         
         // Start by setting up features.
         let mut features = HashSet::new();
@@ -110,8 +181,7 @@ impl Installer {
         
         // Then we have a sequence of steps that may add entries to the download batch.
         let mut batch = Batch::new();
-        let hierarchy = self.load_hierarchy(&mut handler, id)?;
-        let client_file = self.load_client(&mut handler, &hierarchy, &mut batch)?;
+        let hierarchy = self.load_hierarchy(&mut handler, &self.root_id)?;
         let lib_files = self.load_libraries(&mut handler, &hierarchy, &features, &mut batch)?;
         let logger_config = self.load_logger(&mut handler, &hierarchy, &mut batch)?;
         let assets = self.load_assets(&mut handler, &hierarchy, &mut batch)?;
@@ -132,22 +202,24 @@ impl Installer {
             handler.handle_standard_event(Event::ResourcesDownloaded {  });
         }
 
-        // Final installation step is to finalize assets if virtual or resource mapping
-        // is needed, and JVM for any executable and link files.
+        // Final installation step is to finalize assets if virtual or resource mapping.
         if let Some(assets) = &assets {
             self.finalize_assets(assets)?;
         }
 
+        // Finalization of JVM is needed to ensure executable and linked files.
         self.finalize_jvm(&jvm)?;
 
         // Resolve arguments from the hierarchy of versions.
         let mut jvm_args = Vec::new();
         let mut game_args = Vec::new();
+        // let mut modern_args = false;
         
         for version in &hierarchy {
             if let Some(version_args) = &version.metadata.arguments {
                 self.check_args(&mut jvm_args, &version_args.jvm, &features, None);
                 self.check_args(&mut game_args, &version_args.game, &features, None);
+                // modern_args = true;
             } else if let Some(version_legacy_args) = &version.metadata.legacy_arguments {
                 game_args.extend(version_legacy_args.split_whitespace().map(str::to_string));
             }
@@ -165,15 +237,17 @@ impl Installer {
 
         replace_strings_args(&mut jvm_args, |arg| {
             Some(match arg {
-                "classpath_separator" if cfg!(windows) => ";".to_string(),
-                "classpath_separator" if cfg!(not(windows)) => ":".to_string(),
-                "classpath" => {
-                    std::env::join_paths(&lib_files.class_files).unwrap()
-                        .to_string_lossy()
-                        .into_owned()
-                }
-                "launcher_name" => env!("CARGO_PKG_NAME").to_string(),
-                "launcher_version" => env!("CARGO_PKG_VERSION").to_string(),                
+                #[cfg(windows)]      "classpath_separator" => ";".to_string(),
+                #[cfg(not(windows))] "classpath_separator" => ":".to_string(),
+                "classpath" => std::env::join_paths(&lib_files.class_files).unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+                "launcher_name" => self.launcher_name.as_deref()
+                    .unwrap_or(env!("CARGO_PKG_NAME"))
+                    .to_string(),
+                "launcher_version" => self.launcher_version.as_deref()
+                    .unwrap_or(env!("CARGO_PKG_VERSION"))
+                    .to_string(),
                 _ => return None
             })
         });
@@ -199,22 +273,19 @@ impl Installer {
             })
         });
 
-        todo!()
-        // Ok(Game {
-        //     client_file,
-        //     class_files: lib_files.class_files,
-        //     natives_files: lib_files.natives_files,
-        //     main_class,
-        //     jvm_args,
-        //     game_args,
-        //     jvm_file: jvm.file,
-        //     assets_mapping: assets
-        //         .and_then(|assets| assets.mapping)
-        //         .map(|mapping| GameAssetsMapping {
-        //             virtual_dir: mapping.virtual_dir.into_path_buf(),
-        //             resources: mapping.resources,
-        //         }),
-        // })
+        Ok(Game { 
+            jvm_file: jvm.file.clone(), 
+            main_class, 
+            jvm_args, 
+            game_args,
+            natives_files: lib_files.natives_files, 
+            assets_mapping: assets
+                .and_then(|assets| assets.mapping)
+                .map(|mapping| GameAssetsMapping {
+                    virtual_dir: mapping.virtual_dir.into_path_buf(),
+                    resources: mapping.resources,
+                }),
+        })
 
     }
 
@@ -223,6 +294,11 @@ impl Installer {
         handler: &mut impl Handler, 
         root_id: &str
     ) -> Result<Vec<Version>> {
+
+        // This happen if a temporary empty root id has been used.
+        if root_id.is_empty() {
+            return Err(Error::VersionNotFound { id: String::new() });
+        }
 
         handler.handle_standard_event(Event::HierarchyLoading { root_id });
 
@@ -337,6 +413,8 @@ impl Installer {
         batch: &mut Batch,
     ) -> Result<LibraryFiles> {
 
+        let client_file = self.load_client(&mut *handler, &hierarchy, &mut *batch)?;
+
         handler.handle_standard_event(Event::LibrariesLoading {});
 
         // Tracking libraries that are already defined and should not be overridden.
@@ -351,10 +429,15 @@ impl Installer {
 
                 if let Some(lib_natives) = &lib.natives {
 
+                    // Same reason as below.
+                    let (Some(os_name), Some(os_bits)) = (os_name(), os_bits()) else {
+                        continue;
+                    };
+
                     // If natives object is present, the classifier associated to the
                     // OS overrides the library specifier classifier. If not existing,
                     // we just skip this library because natives are missing.
-                    let Some(classifier) = lib_natives.get(&self.os_name) else {
+                    let Some(classifier) = lib_natives.get(os_name) else {
                         continue;
                     };
 
@@ -363,7 +446,7 @@ impl Installer {
                     const ARCH_REPLACEMENT_PATTERN: &str = "${arch}";
                     if let Some(pattern_idx) = lib_gav.classifier().find(ARCH_REPLACEMENT_PATTERN) {
                         let mut classifier = classifier.clone();
-                        classifier.replace_range(pattern_idx..pattern_idx + ARCH_REPLACEMENT_PATTERN.len(), &self.os_bits);
+                        classifier.replace_range(pattern_idx..pattern_idx + ARCH_REPLACEMENT_PATTERN.len(), os_bits);
                         lib_gav.set_classifier(Some(&classifier));
                     } else {
                         lib_gav.set_classifier(Some(&classifier));
@@ -446,7 +529,10 @@ impl Installer {
 
         handler.handle_standard_event(Event::LibrariesLoaded { libraries: &mut libraries });
 
+        // Old versions seems to prefer having the main class first in class path, so by
+        // default here we put it first, but it may be modified by later versions.
         let mut lib_files = LibraryFiles::default();
+        lib_files.class_files.push(client_file);
 
         // After possible filtering by event handler, verify libraries and download 
         // missing ones.
@@ -837,7 +923,7 @@ impl Installer {
     ) -> Result<Option<Jvm>> {
 
         let mut candidates = Vec::new();
-        let exec_name = self.jvm_exec_name();
+        let exec_name = jvm_exec_name();
 
         // Check every JVM available in PATH.
         if let Some(path) = env::var_os("PATH") {
@@ -907,29 +993,21 @@ impl Installer {
     ) -> Result<Option<Jvm>> {
 
         // On Linux, only glibc dynamic linkage is supported by Mojang-provided JVMs.
-        if cfg!(target_os = "linux") && !cfg!(target_feature = "crt-static") {
+        if cfg!(target_os = "linux") && cfg!(target_feature = "crt-static") {
             handler.handle_standard_event(Event::JvmDynamicCrtUnsupported {  });
+            return Ok(None);
         }
 
         // If we don't have JVM platform this means that we can't load Mojang JVM.
-        let jvm_platform = match (&*self.os_name, &*self.os_arch) {
-            ("osx", "x86_64") => "mac-os",
-            ("osx", "aarch64") => "mac-os-arm64",
-            ("linux", "x86") => "linux-i386",
-            ("linux", "x86_64") => "linux",
-            ("windows", "x86") => "windows-x86",
-            ("windows", "x86_64") => "windows-x64",
-            ("windows", "aarch64") => "windows-arm64",
-            _ => {
-                handler.handle_standard_event(Event::JvmPlatformUnsupported {  });
-                return Ok(None);
-            }
+        let Some(jvm_platform) = mojang_jvm_platform() else {
+            handler.handle_standard_event(Event::JvmPlatformUnsupported {  });
+            return Ok(None);
         };
 
         // Start by ensuring that we have a cached version of the JVM meta-manifest.
         let meta_manifest_entry = Entry::new_cached(JVM_META_MANIFEST_URL);
         let meta_manifest_file = meta_manifest_entry.file.to_path_buf();
-        meta_manifest_entry.download(&mut *handler)?;
+        meta_manifest_entry.download(handler.as_download_dyn())?;
 
         let reader = match File::open(&meta_manifest_file) {
             Ok(reader) => BufReader::new(reader),
@@ -962,10 +1040,10 @@ impl Installer {
         let manifest_file = self.jvm_dir.join_with_extension(distribution, "json");
 
         // On macOS the JVM bundle structure is a bit different so different bin path.
-        let bin_file = if self.os_name == "osx" {
+        let bin_file = if cfg!(target_os = "macos") {
             dir.join("jre.bundle/Contents/Home/bin/java")
         } else {
-            dir.join("bin").joined(self.jvm_exec_name())
+            dir.join("bin").joined(jvm_exec_name())
         };
 
         // Check the manifest, download it, read and parse it...
@@ -996,7 +1074,9 @@ impl Installer {
             let file = dir.join(rel_file);
 
             match manifest_file {
-                serde::JvmManifestFile::Directory => {}
+                serde::JvmManifestFile::Directory => {
+                    fs::create_dir_all(&file).map_err(|e| Error::new_io_file(e, file))?;
+                }
                 serde::JvmManifestFile::File { 
                     executable, 
                     downloads 
@@ -1018,22 +1098,10 @@ impl Installer {
                 serde::JvmManifestFile::Link { 
                     target
                 } => {
-
-                    // The .parent() function returns an empty string for parent of 
-                    // relative files, this should never return None because the 
-                    // relative file should be _relative_.
-                    let Some(rel_parent_dir) = rel_file.parent() else {
-                        continue
-                    };
-
-                    // NOTE: Unsafe path join.
-                    let target_file = rel_parent_dir.join(target);
-                    
                     mojang_jvm.links.push(MojangJvmLink {
                         file: file.into_boxed_path(),
-                        target_file: target_file.into_boxed_path(),
+                        target_file: PathBuf::from(target).into_boxed_path(),
                     });
-
                 }
             }
 
@@ -1046,14 +1114,6 @@ impl Installer {
         }))
 
     }
-
-    
-    /// Return the JVM exec file name. 
-    #[inline]
-    fn jvm_exec_name(&self) -> &'static str {
-        if self.os_name == "windows" { "javaw.exe" } else { "java" }
-    }
-
 
     /// Find the version of a JVM given its path. It returns none if the JVM doesn't
     /// work.
@@ -1120,10 +1180,29 @@ impl Installer {
         for link in &mojang_jvm.links {
             
             #[cfg(unix)]
-            std::os::unix::fs::symlink(&link.target_file, &link.file).map_err(Error::new_io)?;
+            {
+                // We just give the relative link with '..' which will be resolved 
+                // relative to the link's location by the filesystem.
+
+                match std::os::unix::fs::symlink(&link.target_file, &link.file) {
+                    Ok(()) => (),
+                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => (),
+                    Err(e) => return Err(Error::new_io_file(e, link.file.clone())),
+                }
+
+            }
 
             #[cfg(not(unix))]
-            fs::hard_link(&link.target_file, &link.file).map_err(Error::new_io)?;
+            {
+
+                // We unwrap because we are sure that this is a file, and in worse case
+                // the parent file will be "".
+                let parent_dir = link.file.parent().unwrap();
+                let file = parent_dir.join(&link.target_file);
+                
+                fs::hard_link(&link.target_file, &file)
+                    .map_err(|e| Error::new_io_file(e, file))?;
+            }
 
         }
 
@@ -1224,20 +1303,20 @@ impl Installer {
     /// This function may return an unexpected schema error.
     fn check_rule_os(&self, rule_os: &serde::RuleOs) -> bool {
 
-        if let Some(name) = &rule_os.name {
-            if name != &self.os_name {
+        if let (Some(name), Some(os_name)) = (&rule_os.name, os_name()) {
+            if name != os_name {
                 return false;
             }
         }
 
-        if let Some(arch) = &rule_os.arch {
-            if arch != &self.os_arch {
+        if let (Some(arch), Some(os_arch)) = (&rule_os.arch, os_arch()) {
+            if arch != os_arch {
                 return false;
             }
         }
 
-        if let Some(version) = &rule_os.version {
-            if !version.is_match(&self.os_version) {
+        if let (Some(version), Some(os_version)) = (&rule_os.version, os_version()) {
+            if !version.is_match(os_version) {
                 return false;
             }
         }
@@ -1324,7 +1403,8 @@ pub enum Event<'a> {
     LibrariesLoaded {
         libraries: &'a mut Vec<Library>,
     },
-    /// Libraries have been verified.
+    /// Libraries have been verified, the class files includes the client JAR file as 
+    /// first path in the vector.
     LibrariesVerified {
         class_files: &'a mut Vec<PathBuf>,
         natives_files: &'a mut Vec<PathBuf>,
@@ -1518,56 +1598,25 @@ pub struct Library {
     pub natives: bool,
 }
 
-/// Description of the JVM executable and its arguments to run the game. The arguments 
-/// may contain replacement patterns that will be used when starting the game.
-#[derive(Debug, Clone)]
-pub struct Game {
-    /// Working directory when launching the game.
-    pub work_dir: PathBuf,
-    /// Path to the JVM executable file.
-    pub jvm_file: PathBuf,
-    /// The main class that contains the JVM entrypoint.
-    pub main_class: String,
-    /// List of JVM arguments (before the main class in the command line).
-    pub jvm_args: Vec<String>,
-    /// List of game arguments (after the main class in the command line).
-    pub game_args: Vec<String>,
-}
-
-impl Game {
-
-    
-    
-
-}
-
-/*
-/// Collection of the installation environment of a version from [`Installer::install`]
-/// function, this contains every information needed to construct the process.
+/// Description of all installed resources needed for running an installed game version.
+/// The arguments may contain replacement patterns that will be used when starting the 
+/// game.
 /// 
 /// **Important note:** paths in this structure are all relative to the directories
 /// configured in the installer, they are all made absolute before launching the game. 
 #[derive(Debug, Clone)]
 pub struct Game {
-    /// The path to the client JAR file, this will be added to the class path.
-    pub client_file: PathBuf,
-    /// The list of class files to join into the class-path given to JVM.
-    pub class_files: Vec<PathBuf>,
-    /// The list of natives files to integrate into the binary directory, this is mostly
-    /// unused by modern versions that use auto-extracting LWJGL natives, but older 
-    /// versions explicitly required to extract files from archive. This field also
-    /// supports shared-objects or other non-archive files to be hard linked into the
-    /// binary directory.
-    pub natives_files: Vec<PathBuf>,
+    /// Path to the JVM executable file.
+    pub jvm_file: PathBuf,
     /// The main class that contains the JVM entrypoint.
     pub main_class: String,
     /// List of JVM arguments (before the main class in the command line).
     pub jvm_args: Vec<String>,
     /// List of game arguments (after the main class in the command line).
     pub game_args: Vec<String>,
-    /// Path to the JVM executable file.
-    pub jvm_file: PathBuf,
-    /// If assets mapping is required by the version then its description.
+    /// List of native files to be linked (or copied) to bin directory, or extracted to.
+    pub natives_files: Vec<PathBuf>,
+    /// Assets mapping information if any.
     pub assets_mapping: Option<GameAssetsMapping>,
 }
 
@@ -1575,7 +1624,7 @@ pub struct Game {
 #[derive(Debug, Clone)]
 pub struct GameAssetsMapping {
     /// Path to the virtual directory containing the resources, this is used for
-    /// versions between 13w23b (excluded) and 13w48b (1.7.2).
+    /// versions after 13w23b up to 13w48b (1.7.2).
     pub virtual_dir: PathBuf,
     /// True if the virtual directory should be mapped to the working directory 
     /// resources directory, this is used for 13w23b and before.
@@ -1583,19 +1632,35 @@ pub struct GameAssetsMapping {
 }
 
 impl Game {
-    
-    pub fn finalize(self) -> () {
 
-        replace_strings_args(&mut self.jvm_args, |arg| {
-            if arg == "classpath" {
-                // std::env::join_paths(self.class_files)
-            }
-            None
-        });
+    /// Launch the game, building the command line giving it to the given closure. This
+    /// closure should block until the game is terminated, because this will 
+    pub fn launch_with<F, R>(&self, func: F) -> io::Result<R>
+    where
+        F: FnOnce(Command) -> io::Result<R>,
+    {
+
+        let mut command = Command::new(&self.jvm_file);
+        command
+            .args(&self.jvm_args)
+            .arg(&self.main_class)
+            .args(&self.game_args);
+
+        let ret = func(command)?;
+
+        Ok(ret)
 
     }
 
-}*/
+    /// Launch the game and wait for its termination.
+    pub fn launch(&self) -> io::Result<()> {
+        self.launch_with(|mut command| {
+            command.spawn()?.wait()?;
+            Ok(())
+        })
+    }
+
+}
 
 // ========================== //
 // Following code is internal //
@@ -1729,7 +1794,7 @@ fn check_file_inner(
 }
 
 /// Apply arguments replacement for each string, explained in [`replace_string_args`].
-pub(crate) fn replace_strings_args<F>(ss: &mut [String], mut func: F)
+pub(crate) fn replace_strings_args<'input, F>(ss: &mut [String], mut func: F)
 where 
     F: FnMut(&str) -> Option<String>,
 {
@@ -1772,21 +1837,21 @@ where
 /// Return the default main directory for Minecraft, so called ".minecraft".
 fn default_main_dir() -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
-        dirs::data_dir().map(|dir| dir.join(".minecraft"))
+        dirs::data_dir().map(|dir| dir.joined(".minecraft"))
     } else if cfg!(target_os = "macos") {
-        dirs::data_dir().map(|dir| dir.join("minecraft"))
+        dirs::data_dir().map(|dir| dir.joined("minecraft"))
     } else {
-        dirs::home_dir().map(|dir| dir.join(".minecraft"))
+        dirs::home_dir().map(|dir| dir.joined(".minecraft"))
     }
 }
 
 /// Return the default OS name for rules.
-/// Returning none if the OS is not supported.
+/// Returning none if the OS is not known.
 /// 
 /// This is currently not dynamic, so this will return the OS name the binary 
 /// has been compiled for.
 #[inline]
-fn default_os_name() -> Option<String> {
+fn os_name() -> Option<&'static str> {
     Some(match env::consts::OS {
         "windows" => "windows",
         "linux" => "linux",
@@ -1795,7 +1860,7 @@ fn default_os_name() -> Option<String> {
         "openbsd" => "openbsd",
         "netbsd" => "netbsd",
         _ => return None
-    }.to_string())
+    })
 }
 
 /// Return the default OS system architecture name for rules.
@@ -1803,32 +1868,58 @@ fn default_os_name() -> Option<String> {
 /// This is currently not dynamic, so this will return the OS architecture the binary
 /// has been compiled for.
 #[inline]
-fn default_os_arch() -> Option<String> {
+fn os_arch() -> Option<&'static str> {
     Some(match env::consts::ARCH {
         "x86" => "x86",
         "x86_64" => "x86_64",
         "arm" => "arm32",
         "aarch64" => "arm64",
         _ => return None
-    }.to_string())
+    })
 }
 
 /// Return the default OS version name for rules.
 #[inline]
-fn default_os_version() -> Option<String> {
-    use os_info::Version;
-    match os_info::get().version() {
-        Version::Unknown => None,
-        version => Some(version.to_string())
-    }
-}
-
-/// Return the default OS version name for rules.
-#[inline]
-fn default_os_bits() -> Option<String> {
-    match env::consts::ARCH {
-        "x86" | "arm" => Some("32".to_string()),
-        "x86_64" | "aarch64" => Some("64".to_string()),
+fn os_bits() -> Option<&'static str> {
+    Some(match env::consts::ARCH {
+        "x86" | "arm" => "32",
+        "x86_64" | "aarch64" => "64",
         _ => return None
-    }
+    })
+}
+
+/// Return the default OS version name for rules.
+#[inline]
+fn os_version() -> Option<&'static str> {
+
+    static VERSION: LazyLock<Option<String>> = LazyLock::new(|| {
+        use os_info::Version;
+        match os_info::get().version() {
+            Version::Unknown => None,
+            version => Some(version.to_string())
+        }
+    });
+
+    VERSION.as_deref()
+
+}
+
+/// Return the JVM exec file name. 
+#[inline]
+fn jvm_exec_name() -> &'static str {
+    if cfg!(windows) { "javaw.exe" } else { "java" }
+}
+
+#[inline]
+fn mojang_jvm_platform() -> Option<&'static str> {
+    Some(match (env::consts::OS, env::consts::ARCH) {
+        ("macos", "x86_64") => "mac-os",
+        ("macos", "aarch64") => "mac-os-arm64",
+        ("linux", "x86") => "linux-i386",
+        ("linux", "x86_64") => "linux",
+        ("windows", "x86") => "windows-x86",
+        ("windows", "x86_64") => "windows-x64",
+        ("windows", "aarch64") => "windows-arm64",
+        _ => return None
+    })
 }

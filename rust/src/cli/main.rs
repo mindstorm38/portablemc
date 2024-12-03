@@ -4,6 +4,7 @@ use std::fmt::{self, Write as _};
 use std::time::Instant;
 use std::io::Write;
 
+use portablemc::mojang::QuickPlay;
 use portablemc::{download, standard, mojang};
 
 // mod output;
@@ -13,13 +14,20 @@ fn main() {
 
     let mut handler = CliHandler::default();
 
-    let mut installer = standard::Installer::with_dir(r"C:\Users\theor\AppData\Roaming\.minecraft_test".into());
-    installer.strict_libraries_check = false;
-    installer.strict_assets_check = false;
-
-    let installer = mojang::Installer::from(installer);
-    let game = match installer.install(&mut handler, "1.21") {
-        Ok(v) => v,
+    let res = mojang::Installer::new()
+        .root("1.16.4")
+        .quick_play(QuickPlay::Multiplayer { host: "mc.hypixel.net".to_string(), port: 25565 })
+        .resolution(900, 900)
+        .demo(true)
+        .with_standard(|i| i
+            .main_dir(r".minecraft_test".into())
+            .strict_libraries_check(false)
+            .strict_assets_check(false)
+            .strict_jvm_check(false))
+        .install(&mut handler);
+    
+    let game = match res {
+        Ok(game) => game,
         Err(e) => {
             handler.newline();
             handler.state("FAILED", format_args!("{e}"));
@@ -27,8 +35,8 @@ fn main() {
         }
     };
 
+    println!("game: {game:?}");
     let _ = game;
-    // let _ = game.finalize();
 
 }
 
@@ -186,12 +194,21 @@ impl standard::Handler for CliHandler {
             Event::JvmLoading { major_version } => 
                 self.state("..", format_args!("Loading JVM (preferred: {major_version:?}")),
             Event::JvmVersionRejected { file, version } =>
-                self.state("INFO", format_args!("Rejected JVM version {version:?} at {file:?}")),
+                self.state("INFO", format_args!("Rejected JVM version {version:?} at {file:?}"))
+                    .newline(),
+            Event::JvmDynamicCrtUnsupported {  } => 
+                self.state("INFO", format_args!("Couldn't find a Mojang JVM because your launcher is compiled with a static C runtime"))
+                    .newline(),
+            Event::JvmPlatformUnsupported {  } => 
+                self.state("INFO", format_args!("Couldn't find a Mojang JVM because your platform is not supported"))
+                    .newline(),
+            Event::JvmDistributionNotFound {  } => 
+                self.state("INFO", format_args!("Couldn't find a Mojang JVM because the required distribution was not found"))
+                    .newline(),
             Event::JvmLoaded { file, version } => 
                 self.state("OK", format_args!("Loaded JVM version {version:?} at {file:?}"))
                     .newline(),
             _ => todo!(),
-            
         };
 
     }
@@ -210,6 +227,27 @@ impl mojang::Handler for CliHandler {
                 self.state("..", format_args!("Fetching Mojang version {id}")),
             Event::MojangVersionFetched { id } =>
                 self.state("OK", format_args!("Fetched Mojang version {id}"))
+                    .newline(),
+            Event::FixLegacyQuickPlay {  } => 
+                self.state("INFO", format_args!("Fixed: legacy quick play"))
+                    .newline(),
+            Event::FixLegacyProxy { host, port } => 
+                self.state("INFO", format_args!("Fixed: legacy proxy ({host}:{port})"))
+                    .newline(),
+            Event::FixLegacyMergeSort {  } => 
+                self.state("INFO", format_args!("Fixed: legacy merge sort"))
+                    .newline(),
+            Event::FixLegacyResolution {  } => 
+                self.state("INFO", format_args!("Fixed: legacy resolution"))
+                    .newline(),
+            Event::FixBrokenAuthlib {  } => 
+                self.state("INFO", format_args!("Fixed: broken authlib"))
+                    .newline(),
+            Event::QuickPlayNotSupported {  } => 
+                self.state("WARN", format_args!("Quick play has been requested but is not supported"))
+                    .newline(),
+            Event::ResolutionNotSupported {  } => 
+                self.state("WARN", format_args!("Resolution has been requested but is not supported"))
                     .newline(),
             _ => todo!(),
         };

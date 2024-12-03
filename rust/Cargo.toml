@@ -13,8 +13,9 @@ serde_json = "1.0"
 regex = "1.10"
 uuid = { version = "1.10", features = ["v4", "v5"] }
 
-gethostname = "0.5"
 thiserror = "1.0"
+
+gethostname = "0.5"
 os_info = "3"
 dirs = "5.0"
 
@@ -23,7 +24,6 @@ md5 = "0.7"
 
 reqwest = { version = "0.12", features = [] }
 tokio = { version = "=1.37", features = ["rt", "rt-multi-thread", "fs", "time", "net", "macros"] }
-futures = "0.3"
 
 [[bin]]
 name = "portablemc"
