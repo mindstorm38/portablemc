@@ -55,8 +55,8 @@ pub(crate) const LEGACY_JVM_ARGS: &[&str] = &[
 pub struct Installer {
     root_id: String,
     versions_dir: PathBuf,
-    assets_dir: PathBuf,
     libraries_dir: PathBuf,
+    assets_dir: PathBuf,
     jvm_dir: PathBuf,
     bin_dir: PathBuf,
     work_dir: PathBuf,
@@ -70,19 +70,21 @@ pub struct Installer {
 
 impl Installer {
 
-    /// Create a new installer with default configuration, using defaults directories and
-    /// the given root version to load and then install. The given version can be later
-    /// changed if needed, using [`Self::root`].
-    pub fn new(root_id: impl Into<String>) -> Self {
+    /// Create a new installer with default configuration and the given main directory.
+    /// The given root version and directories can be later changed if needed, 
+    /// using [`Self::root`].
+    /// 
+    /// If you're confident a default main directory is available on your system, you
+    /// can use [`Self::new_with_default`].
+    pub fn new(root_id: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
+
+        let work_dir = main_dir.into();
         
-        // TODO: Maybe change the main dir to something more standard under Linux.
-        let work_dir = default_main_dir().unwrap();
-                
         Self {
             root_id: root_id.into(),
             versions_dir: work_dir.join("versions"),
-            assets_dir: work_dir.join("assets"),
             libraries_dir: work_dir.join("libraries"),
+            assets_dir: work_dir.join("assets"),
             jvm_dir: work_dir.join("jvm"),
             bin_dir: work_dir.join("bin"),
             work_dir,
@@ -96,6 +98,13 @@ impl Installer {
 
     }
 
+    /// Same as [`Self::new`] but using the default main directory in your system,
+    /// returning none if there is no default main directory on your system.
+    #[inline]
+    pub fn new_with_default(root_id: impl Into<String>) -> Option<Self> {
+        Some(Self::new(root_id, default_main_dir()?))
+    }
+
     /// Change the root version id to load and install, this overrides the root version
     /// given when constructing this installer.
     #[inline]
@@ -107,6 +116,9 @@ impl Installer {
     /// Shortcut for defining the various main directories of the game, by deriving
     /// the given path, the directories `versions`, `assets`, `libraries` and `jvm`
     /// are defined.
+    /// 
+    /// **Note that on Windows**, long NT UNC paths are very likely to be unsupported and
+    /// you'll get unsound errors with the JVM or the game itself.
     #[inline]
     pub fn main_dir(&mut self, main_dir: impl Into<PathBuf>) -> &mut Self {
         let work_dir = main_dir.into();
@@ -126,6 +138,13 @@ impl Installer {
         self
     }
 
+    /// The directory where libraries are stored, organized like a maven repository.
+    #[inline]
+    pub fn libraries_dir(&mut self, libraries_dir: impl Into<PathBuf>) -> &mut Self {
+        self.libraries_dir = libraries_dir.into();
+        self
+    }
+
     /// The directory where assets, assets index, cached skins and logs config are stored.
     /// Note that this directory stores caches player skins, so this is the only 
     /// directory where the client will need to write, and so it needs the permission
@@ -133,13 +152,6 @@ impl Installer {
     #[inline]
     pub fn assets_dir(&mut self, assets_dir: impl Into<PathBuf>) -> &mut Self {
         self.assets_dir = assets_dir.into();
-        self
-    }
-
-    /// The directory where libraries are stored, organized like a maven repository.
-    #[inline]
-    pub fn libraries_dir(&mut self, libraries_dir: impl Into<PathBuf>) -> &mut Self {
-        self.libraries_dir = libraries_dir.into();
         self
     }
 
@@ -225,7 +237,8 @@ impl Installer {
         
         // Start by setting up features.
         let mut features = HashSet::new();
-        handler.handle_standard_event(Event::FeaturesLoaded { features: &mut features });
+        handler.handle_standard_event(Event::FeaturesFilter { features: &mut features });
+        handler.handle_standard_event(Event::FeaturesLoaded { features: &features });
         
         // Then we have a sequence of steps that may add entries to the download batch.
         let mut batch = Batch::new();
@@ -369,7 +382,8 @@ impl Installer {
             hierarchy.push(version);
         }
 
-        handler.handle_standard_event(Event::HierarchyLoaded { hierarchy: &mut hierarchy });
+        handler.handle_standard_event(Event::HierarchyFilter { hierarchy: &mut hierarchy });
+        handler.handle_standard_event(Event::HierarchyLoaded { hierarchy: &hierarchy });
 
         Ok(hierarchy)
 
@@ -382,7 +396,7 @@ impl Installer {
     ) -> Result<Version> {
 
         if id.is_empty() {
-            return Err(Error::VersionNotFound { id });
+            return Err(Error::VersionNotFound { id: String::new() });
         }
 
         let dir = self.versions_dir.join(&id);
@@ -467,7 +481,7 @@ impl Installer {
         hierarchy: &[Version], 
         features: &HashSet<String>,
         batch: &mut Batch,
-    ) -> Result<LibraryFiles> {
+    ) -> Result<LibrariesFiles> {
 
         let client_file = self.load_client(&mut *handler, &hierarchy, &mut *batch)?;
 
@@ -484,7 +498,7 @@ impl Installer {
                 let mut lib_gav = lib.name.clone();
 
                 if let Some(lib_natives) = &lib.natives {
-
+                    
                     // Same reason as below.
                     let (Some(os_name), Some(os_bits)) = (os_name(), os_bits()) else {
                         continue;
@@ -500,7 +514,7 @@ impl Installer {
                     // If we find a arch replacement pattern, we must replace it with
                     // the target architecture bit-ness (32, 64).
                     const ARCH_REPLACEMENT_PATTERN: &str = "${arch}";
-                    if let Some(pattern_idx) = lib_gav.classifier().find(ARCH_REPLACEMENT_PATTERN) {
+                    if let Some(pattern_idx) = classifier.find(ARCH_REPLACEMENT_PATTERN) {
                         let mut classifier = classifier.clone();
                         classifier.replace_range(pattern_idx..pattern_idx + ARCH_REPLACEMENT_PATTERN.len(), os_bits);
                         lib_gav.set_classifier(Some(&classifier));
@@ -583,11 +597,12 @@ impl Installer {
 
         }
 
-        handler.handle_standard_event(Event::LibrariesLoaded { libraries: &mut libraries });
+        handler.handle_standard_event(Event::LibrariesFilter { libraries: &mut libraries });
+        handler.handle_standard_event(Event::LibrariesLoaded { libraries: &libraries });
 
         // Old versions seems to prefer having the main class first in class path, so by
         // default here we put it first, but it may be modified by later versions.
-        let mut lib_files = LibraryFiles::default();
+        let mut lib_files = LibrariesFiles::default();
         lib_files.class_files.push(client_file);
 
         // After possible filtering by event handler, verify libraries and download 
@@ -633,9 +648,14 @@ impl Installer {
 
         }
 
-        handler.handle_standard_event(Event::LibrariesVerified {
+        handler.handle_standard_event(Event::LibrariesFilesFilter {
             class_files: &mut lib_files.class_files,
             natives_files: &mut lib_files.natives_files,
+        });
+
+        handler.handle_standard_event(Event::LibrariesFilesLoaded {
+            class_files: &lib_files.class_files,
+            natives_files: &lib_files.natives_files,
         });
 
         Ok(lib_files)
@@ -649,7 +669,7 @@ impl Installer {
     /// and it is returned by this function.
     fn finalize_libraries(&self,
         handler: &mut impl Handler,
-        lib_files: &mut LibraryFiles
+        lib_files: &mut LibrariesFiles
     ) -> Result<PathBuf> {
 
         let mut hash_buf = Vec::new();
@@ -759,7 +779,7 @@ impl Installer {
                     // Note that 'src_file' has been canonicalized and therefore we have
                     // no issue of relative linking.
                     let dst_file = bin_dir.join(file_name);
-                    link_file(&src_file, &dst_file)?;
+                    symlink_or_copy_file(&src_file, &dst_file)?;
 
                 }
             }
@@ -1613,18 +1633,26 @@ impl<H: Handler + ?Sized> Handler for  &'_ mut H {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Event<'a> {
-    /// Features for rules have been loaded, the handler can still modify them. 
-    FeaturesLoaded {
+    /// Filter the features.
+    FeaturesFilter {
         features: &'a mut HashSet<String>,
+    },
+    /// Final set of features that will be used.
+    FeaturesLoaded {
+        features: &'a HashSet<String>,
     },
     /// The version hierarchy will be loaded.
     HierarchyLoading {
         root_id: &'a str,
     },
-    /// The version hierarchy has been loaded successfully.
-    HierarchyLoaded {
+    /// Filter the versions hierarchy.
+    HierarchyFilter {
         /// All versions of the hierarchy, in order, starting at the root version.
         hierarchy: &'a mut Vec<Version>,
+    },
+    /// The version hierarchy has been loaded successfully.
+    HierarchyLoaded {
+        hierarchy: &'a [Version],
     },
     /// A version will be loaded.
     VersionLoading {
@@ -1656,18 +1684,27 @@ pub enum Event<'a> {
     },
     /// Libraries will be loaded.
     LibrariesLoading {},
-    /// Libraries have been loaded, this can be altered by the event handler. After that,
-    /// the libraries will be verified and added to the downloads list if missing.
-    LibrariesLoaded {
+    /// Filter libraries that will be verified.
+    LibrariesFilter {
         libraries: &'a mut Vec<Library>,
+    },
+    /// Libraries have been loaded. After that, the libraries will be verified and 
+    /// added to the downloads list if missing.
+    LibrariesLoaded {
+        libraries: &'a [Library],
     },
     /// Libraries have been verified, the class files includes the client JAR file as 
     /// first path in the vector. Note that all paths will be canonicalized, relatively
     /// to the current process' working dir, before being added to the command line, 
     /// so the files must exists.
-    LibrariesVerified {
+    LibrariesFilesFilter {
         class_files: &'a mut Vec<PathBuf>,
         natives_files: &'a mut Vec<PathBuf>,
+    },
+    /// The final version of class and natives files has been loaded.
+    LibrariesFilesLoaded {
+        class_files: &'a [PathBuf],
+        natives_files: &'a [PathBuf],
     },
     /// No logger configuration will be loaded because version doesn't specify any.
     LoggerAbsent {},
@@ -1883,7 +1920,7 @@ pub struct Library {
 #[derive(Debug, Clone)]
 pub struct Game {
     /// Working directory where the JVM process should be running.
-    work_dir: PathBuf,
+    pub work_dir: PathBuf,
     /// Path to the JVM executable file.
     pub jvm_file: PathBuf,
     /// The main class that contains the JVM entrypoint.
@@ -1925,7 +1962,7 @@ impl Game {
 
 /// Internal resolved libraries file paths.
 #[derive(Debug, Default)]
-struct LibraryFiles {
+struct LibrariesFiles {
     class_files: Vec<PathBuf>,
     natives_files: Vec<PathBuf>,
 }
@@ -2096,7 +2133,7 @@ where
 /// installer error.
 #[inline]
 pub(crate) fn canonicalize_file(file: &Path) -> Result<PathBuf> {
-    file.canonicalize().map_err(|e| Error::new_io_file(e, file.to_path_buf()))
+    dunce::canonicalize(file).map_err(|e| Error::new_io_file(e, file.to_path_buf()))
 }
 
 /// Internal shortcut to creating a link file that points to another one, this function
@@ -2132,6 +2169,29 @@ pub(crate) fn link_file(original: &Path, link: &Path) -> Result<()> {
 
 }
 
+#[inline]
+pub(crate) fn symlink_or_copy_file(original: &Path, link: &Path) -> Result<()> {
+
+    let err;
+
+    #[cfg(unix)] {
+        // We just give the relative link with '..' which will be resolved 
+        // relative to the link's location by the filesystem.
+        err = match std::os::unix::fs::symlink(original, link) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+            Err(e) => Err(e),
+        };
+    }
+
+    #[cfg(not(unix))] {
+        err = fs::copy(original, link).map(|_| ());
+    }
+
+    err.map_err(|e| Error::new_io_file(e, link.to_path_buf()))
+
+}
+
 /// Internal shortcut to hard link files, this can also be used for hard linking
 /// directories, if the link already exists the error is ignored.
 #[inline]
@@ -2144,7 +2204,8 @@ pub(crate) fn hard_link_file(original: &Path, link: &Path) -> Result<()> {
 }
 
 /// Return the default main directory for Minecraft, so called ".minecraft".
-fn default_main_dir() -> Option<PathBuf> {
+pub fn default_main_dir() -> Option<PathBuf> {
+    // TODO: Maybe change the main dir to something more standard under Linux.
     if cfg!(target_os = "windows") {
         dirs::data_dir().map(|dir| dir.joined(".minecraft"))
     } else if cfg!(target_os = "macos") {

@@ -67,9 +67,9 @@ impl Installer {
     /// Create a new installer with default configuration, using defaults directories and
     /// the given root version to load and then install. This Mojang installer has all 
     /// fixes enabled except LWJGL and missing version fetching is enabled.
-    pub fn new() -> Self {
+    pub fn new(main_dir: impl Into<PathBuf>) -> Self {
         Self {
-            standard: standard::Installer::new(String::new()),
+            standard: standard::Installer::new(String::new(), main_dir),
             inner: InstallerInner {
                 root: Root::Release,
                 fetch: true,
@@ -93,6 +93,12 @@ impl Installer {
                 fix_lwjgl: None,
             }
         }
+    }
+
+    /// Same as [`Self::new`] but using the default main directory in your system,
+    /// returning none if there is no default main directory on your system.
+    pub fn new_with_default() -> Option<Self> {
+        Some(Self::new(standard::default_main_dir()?))
     }
 
     /// Execute some callback to alter the standard installer.
@@ -209,6 +215,7 @@ impl Installer {
     /// Use offline session with the given UUID, the username is derived from the first
     /// 8 characters of the rendered UUID.
     pub fn auth_offline_uuid(&mut self, uuid: Uuid) -> &mut Self {
+        self.inner.auth_uuid = uuid;
         self.inner.auth_username = uuid.to_string();
         self.inner.auth_username.truncate(8);
         self.reset_auth_online()
@@ -327,8 +334,8 @@ impl Installer {
     /// 
     /// If the given version is less than 3.2.3 this will do nothing.
     #[inline]
-    pub fn fix_lwjgl(&mut self, lwjgl_version: String) -> &mut Self {
-        self.inner.fix_lwjgl = Some(lwjgl_version);
+    pub fn fix_lwjgl(&mut self, lwjgl_version: impl Into<String>) -> &mut Self {
+        self.inner.fix_lwjgl = Some(lwjgl_version.into());
         self
     }
     
@@ -363,8 +370,8 @@ impl Installer {
 
         // Resolve aliases such as "release" or "snapshot" if fetch is enabled.
         let alias = match self.inner.root {
-            Root::Release => Some("release"),
-            Root::Snapshot => Some("snapshot"),
+            Root::Release => Some(standard::serde::VersionType::Release),
+            Root::Snapshot => Some(standard::serde::VersionType::Snapshot),
             _ => None,
         };
 
@@ -373,7 +380,7 @@ impl Installer {
         if let Some(alias) = alias {
             if inner.fetch {
                 let new_manifest = request_manifest(handler.as_download_dyn())?;
-                id = new_manifest.latest.get(alias).cloned();
+                id = new_manifest.latest.get(&alias).cloned();
                 manifest = Some(new_manifest);
             } else {
                 id = None;
@@ -425,6 +432,7 @@ impl Installer {
                     Some(format!("token:{}:{}", inner.auth_token, inner.auth_uuid.as_simple())),
                 "auth_session" => Some(String::new()),
                 "user_type" => Some(inner.auth_type.clone()),
+                "user_properties" => Some(format!("{{}}")),
                 "clientid" => Some(inner.auth_client_id.clone()),
                 _ => None
             }
@@ -740,14 +748,14 @@ impl<H: Handler> InternalHandler<'_, H> {
     fn handle_standard_event_inner(&mut self, mut event: standard::Event) -> Result<()> {
 
         match event {
-            standard::Event::HierarchyLoaded { 
+            standard::Event::HierarchyFilter { 
                 ref hierarchy,
             } => {
                 // Unwrap because hierarchy can't be empty.
                 *self.leaf_id = hierarchy.last().unwrap().id.clone();
                 self.inner.handle_standard_event(event);
             }
-            standard::Event::FeaturesLoaded { 
+            standard::Event::FeaturesFilter { 
                 ref mut features,
             } => {
                 self.modify_features(&mut **features);
@@ -759,12 +767,12 @@ impl<H: Handler> InternalHandler<'_, H> {
             standard::Event::VersionLoading { 
                 id, 
                 file
-            } if self.manifest.is_some() => {
+            } => {
 
                 self.inner.handle_standard_event(event);
 
                 // Ignore the version if excluded.
-                if self.installer.fetch_exclude.iter().any(|id| id == id) {
+                if !self.installer.fetch || self.installer.fetch_exclude.iter().any(|id| id == id) {
                     return Ok(());
                 }
 
@@ -801,12 +809,12 @@ impl<H: Handler> InternalHandler<'_, H> {
                 error: _, 
                 ref mut retry 
             } => {
-
+                
                 let Some(dl) = self.downloads.get(id) else {
                     self.inner.handle_standard_event(event);
                     return Ok(());
                 };
-
+                
                 self.inner.handle_mojang_event(Event::MojangVersionFetching { id });
                 
                 EntrySource::from(dl)
@@ -821,7 +829,7 @@ impl<H: Handler> InternalHandler<'_, H> {
 
             }
             // Apply the various libs fixes we can apply.
-            standard::Event::LibrariesLoaded { 
+            standard::Event::LibrariesFilter { 
                 ref mut libraries
             } => {
                 self.modify_libraries(&mut **libraries)?;                
@@ -948,12 +956,14 @@ impl<H: Handler> InternalHandler<'_, H> {
     
         // Finally we update the download source.
         for lib in libraries {
-            let mut url = "https://repo1.maven.org/maven2".to_string();
-            for component in lib.gav.file_components() {
-                url.push('/');
-                url.push_str(&component);
+            if let ("org.lwjgl", "jar") = (lib.gav.group(), lib.gav.extension()) {
+                let mut url = "https://repo1.maven.org/maven2".to_string();
+                for component in lib.gav.file_components() {
+                    url.push('/');
+                    url.push_str(&component);
+                }
+                lib.source = Some(EntrySource::new(url));
             }
-            lib.source = Some(EntrySource::new(url));
         }
 
         Ok(())

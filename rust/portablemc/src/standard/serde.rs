@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use chrono::{DateTime, FixedOffset};
+
 use crate::serde::{Sha1HashString, RegexString};
 use crate::download::EntrySource;
 use crate::gav::Gav;
@@ -20,9 +22,9 @@ pub struct VersionMetadata {
     /// The version type, such as 'release' or 'snapshot'.
     pub r#type: Option<VersionType>,
     /// The last time this version has been updated.
-    pub time: String,
+    pub time: DateTime<FixedOffset>,
     /// The first release time of this version.
-    pub release_time: String,
+    pub release_time: DateTime<FixedOffset>,
     /// If present, this is the name of another version to resolve after this one and
     /// where fallback values will be taken.
     pub inherits_from: Option<String>,
@@ -58,7 +60,7 @@ pub struct VersionMetadata {
     pub logging: HashMap<String, VersionLogging>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum VersionType {
     Release,
@@ -233,7 +235,7 @@ pub struct JvmMetaManifestAvailability {
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct JvmMetaManifestVersion {
     pub name: String,
-    pub released: String,
+    pub released: DateTime<FixedOffset>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
