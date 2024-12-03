@@ -225,7 +225,8 @@ impl Installer {
         
         // Start by setting up features.
         let mut features = HashSet::new();
-        handler.handle_standard_event(Event::FeaturesLoaded { features: &mut features });
+        handler.handle_standard_event(Event::FeaturesFilter { features: &mut features });
+        handler.handle_standard_event(Event::FeaturesLoaded { features: &features });
         
         // Then we have a sequence of steps that may add entries to the download batch.
         let mut batch = Batch::new();
@@ -369,7 +370,8 @@ impl Installer {
             hierarchy.push(version);
         }
 
-        handler.handle_standard_event(Event::HierarchyLoaded { hierarchy: &mut hierarchy });
+        handler.handle_standard_event(Event::HierarchyFilter { hierarchy: &mut hierarchy });
+        handler.handle_standard_event(Event::HierarchyLoaded { hierarchy: &hierarchy });
 
         Ok(hierarchy)
 
@@ -467,7 +469,7 @@ impl Installer {
         hierarchy: &[Version], 
         features: &HashSet<String>,
         batch: &mut Batch,
-    ) -> Result<LibraryFiles> {
+    ) -> Result<LibrariesFiles> {
 
         let client_file = self.load_client(&mut *handler, &hierarchy, &mut *batch)?;
 
@@ -583,11 +585,12 @@ impl Installer {
 
         }
 
-        handler.handle_standard_event(Event::LibrariesLoaded { libraries: &mut libraries });
+        handler.handle_standard_event(Event::LibrariesFilter { libraries: &mut libraries });
+        handler.handle_standard_event(Event::LibrariesLoaded { libraries: &libraries });
 
         // Old versions seems to prefer having the main class first in class path, so by
         // default here we put it first, but it may be modified by later versions.
-        let mut lib_files = LibraryFiles::default();
+        let mut lib_files = LibrariesFiles::default();
         lib_files.class_files.push(client_file);
 
         // After possible filtering by event handler, verify libraries and download 
@@ -633,9 +636,14 @@ impl Installer {
 
         }
 
-        handler.handle_standard_event(Event::LibrariesVerified {
+        handler.handle_standard_event(Event::LibrariesFilesFilter {
             class_files: &mut lib_files.class_files,
             natives_files: &mut lib_files.natives_files,
+        });
+
+        handler.handle_standard_event(Event::LibrariesFilesLoaded {
+            class_files: &lib_files.class_files,
+            natives_files: &lib_files.natives_files,
         });
 
         Ok(lib_files)
@@ -649,7 +657,7 @@ impl Installer {
     /// and it is returned by this function.
     fn finalize_libraries(&self,
         handler: &mut impl Handler,
-        lib_files: &mut LibraryFiles
+        lib_files: &mut LibrariesFiles
     ) -> Result<PathBuf> {
 
         let mut hash_buf = Vec::new();
@@ -759,7 +767,7 @@ impl Installer {
                     // Note that 'src_file' has been canonicalized and therefore we have
                     // no issue of relative linking.
                     let dst_file = bin_dir.join(file_name);
-                    symlink_or_copy(&src_file, &dst_file)?;
+                    symlink_or_copy_file(&src_file, &dst_file)?;
 
                 }
             }
@@ -1613,18 +1621,26 @@ impl<H: Handler + ?Sized> Handler for  &'_ mut H {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Event<'a> {
-    /// Features for rules have been loaded, the handler can still modify them. 
-    FeaturesLoaded {
+    /// Filter the features.
+    FeaturesFilter {
         features: &'a mut HashSet<String>,
+    },
+    /// Final set of features that will be used.
+    FeaturesLoaded {
+        features: &'a HashSet<String>,
     },
     /// The version hierarchy will be loaded.
     HierarchyLoading {
         root_id: &'a str,
     },
-    /// The version hierarchy has been loaded successfully.
-    HierarchyLoaded {
+    /// Filter the versions hierarchy.
+    HierarchyFilter {
         /// All versions of the hierarchy, in order, starting at the root version.
         hierarchy: &'a mut Vec<Version>,
+    },
+    /// The version hierarchy has been loaded successfully.
+    HierarchyLoaded {
+        hierarchy: &'a [Version],
     },
     /// A version will be loaded.
     VersionLoading {
@@ -1656,18 +1672,27 @@ pub enum Event<'a> {
     },
     /// Libraries will be loaded.
     LibrariesLoading {},
-    /// Libraries have been loaded, this can be altered by the event handler. After that,
-    /// the libraries will be verified and added to the downloads list if missing.
-    LibrariesLoaded {
+    /// Filter libraries that will be verified.
+    LibrariesFilter {
         libraries: &'a mut Vec<Library>,
+    },
+    /// Libraries have been loaded. After that, the libraries will be verified and 
+    /// added to the downloads list if missing.
+    LibrariesLoaded {
+        libraries: &'a [Library],
     },
     /// Libraries have been verified, the class files includes the client JAR file as 
     /// first path in the vector. Note that all paths will be canonicalized, relatively
     /// to the current process' working dir, before being added to the command line, 
     /// so the files must exists.
-    LibrariesVerified {
+    LibrariesFilesFilter {
         class_files: &'a mut Vec<PathBuf>,
         natives_files: &'a mut Vec<PathBuf>,
+    },
+    /// The final version of class and natives files has been loaded.
+    LibrariesFilesLoaded {
+        class_files: &'a [PathBuf],
+        natives_files: &'a [PathBuf],
     },
     /// No logger configuration will be loaded because version doesn't specify any.
     LoggerAbsent {},
@@ -1925,7 +1950,7 @@ impl Game {
 
 /// Internal resolved libraries file paths.
 #[derive(Debug, Default)]
-struct LibraryFiles {
+struct LibrariesFiles {
     class_files: Vec<PathBuf>,
     natives_files: Vec<PathBuf>,
 }
@@ -2133,7 +2158,7 @@ pub(crate) fn link_file(original: &Path, link: &Path) -> Result<()> {
 }
 
 #[inline]
-pub(crate) fn symlink_or_copy(original: &Path, link: &Path) -> Result<()> {
+pub(crate) fn symlink_or_copy_file(original: &Path, link: &Path) -> Result<()> {
 
     let err;
 
@@ -2167,7 +2192,7 @@ pub(crate) fn hard_link_file(original: &Path, link: &Path) -> Result<()> {
 }
 
 /// Return the default main directory for Minecraft, so called ".minecraft".
-fn default_main_dir() -> Option<PathBuf> {
+pub fn default_main_dir() -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
         dirs::data_dir().map(|dir| dir.joined(".minecraft"))
     } else if cfg!(target_os = "macos") {

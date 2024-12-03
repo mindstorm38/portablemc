@@ -6,6 +6,8 @@ use std::str::FromStr;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
+use portablemc::mojang::Root;
+
 
 // ================= //
 //    MAIN COMMAND   //
@@ -15,16 +17,16 @@ use uuid::Uuid;
 /// support for Mojang versions and popular mod loaders.
 #[derive(Debug, Parser)]
 #[command(name = "portablemc", version, author, disable_help_subcommand = true, max_term_width = 140)]
-pub struct Cli {
+pub struct CliArgs {
     #[command(subcommand)]
-    pub cmd: Cmd,
+    pub cmd: CliCmd,
     /// Enable verbose output, the more -v argument you put, the more verbose the
     /// launcher will be.
     #[arg(short, action = clap::ArgAction::Count)]
     pub verbose: u8,
     /// Change the default output format of the launcher.
     #[arg(long)]
-    pub output: Option<Output>,
+    pub output: Option<CliOutput>,
     /// Set the directory where versions, libraries, assets, JVM and where the game is run.
     /// 
     /// This argument is equivalent to calling: 
@@ -36,45 +38,45 @@ pub struct Cli {
     /// --work-dir <main>
     /// 
     /// This argument defaults the standard Minecraft directory on your system.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH")]
     pub main_dir: Option<PathBuf>,
     /// Set the versions directory where all version and their metadata are stored.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH")]
     pub versions_dir: Option<PathBuf>,
     /// Set the libraries directory where all Java libraries are stored.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH")]
     pub libraries_dir: Option<PathBuf>,
     /// Set the assets directory where all game assets are stored.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH")]
     pub assets_dir: Option<PathBuf>,
     /// Set the JVM directory where Mojang's Java Virtual Machines are stored if needed.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH")]
     pub jvm_dir: Option<PathBuf>,
     /// Set the binaries directory where all binary objects are extracted before running
     /// the game.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH")]
     pub bin_dir: Option<PathBuf>,
     /// Set the directory where the game is run from, the game will use this directory
     /// to put options, saves, screenshots and access texture or resource packs and any
     /// other user related stuff.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH")]
     pub work_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum Cmd {
+pub enum CliCmd {
     Search(SearchArgs),
     Start(StartArgs),
     Login(LoginArgs),
@@ -83,7 +85,7 @@ pub enum Cmd {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum Output {
+pub enum CliOutput {
     /// Human-readable output with color to improve readability, it's the default if 
     /// stdout is detected as a terminal.
     HumanColor,
@@ -147,11 +149,11 @@ pub struct StartArgs {
     /// 
     /// You can provide this argument with colon-separated ':' syntax, in such case the
     /// first part defines the kind of installer, supported values are: mojang, fabric,
-    /// quilt, forge, neoforge and legacyfabric. When not using the colon-separated 
-    /// syntax, this will defaults to the mojang installer. Below are detailed each 
-    /// installer.
+    /// quilt, forge, neoforge, legacyfabric and babric. 
+    /// When not using the colon-separated syntax, this will defaults to the 'mojang' 
+    /// installer. Below are detailed each installer.
     /// 
-    /// - mojang:[release|snapshot|<version>]: use 'release' (default is absent) or 
+    /// - mojang:[release|snapshot|<version>] => use 'release' (default is absent) or 
     /// 'snapshot' to install and launch the latest version of that type, or you can 
     /// use any valid version id provided by Mojang (you can search for them using the 
     /// 'portablemc search' command). 
@@ -162,14 +164,30 @@ pub struct StartArgs {
     /// You can manually exclude versions from this rule using '--exclude-fetch' with
     /// each version you don't want to fetch (see this argument's help). The Mojang's
     /// version manifest is only accessed for resolving 'release', 'snapshot' or a
-    /// non-excluded version, if it's not yet cached this will require internet access.
+    /// non-excluded version, if it's not yet cached this will require internet.
     /// 
-    /// - fabric:[<mojang-version>[:<loader-version>]]: install and launch a fabric
-    /// version
+    /// - fabric:[<mojang-version>[:[<loader-version>]]] => install and launch a given 
+    /// mojang version with the Fabric mod loader. Both versions can be omitted (empty) 
+    /// to use the latest versions available, for Mojang version you can use 'release' 
+    /// or 'snapshot' like the 'mojang'. If the version is not yet installed, it will
+    /// requires internet to access the Fabric API. See https://fabricmc.net/.
     /// 
-    /// - quilt:[<mojang-version>[:<loader-version>]]: same as fabric, but for Quilt.
+    /// - quilt:[<mojang-version>[:[<loader-version>]]] => same as 'fabric' installer, 
+    /// but using the Quilt API for missing versions.
+    /// 
+    /// - legacyfabric:[<mojang-version>[:[<loader-version>]]] => same as 'fabric',
+    /// but using the LegacyFabric API for missing versions. This installer can be
+    /// used for using the Fabric mod loader on Mojang versions prior to 1.14, therefore
+    /// it will treat 'release' and 'snapshot' as the latest Mojang release or snapshot
+    /// supported by LegacyFabric. See https://legacyfabric.net/.
+    /// 
+    /// - babric:[:[<loader-version>]] => same as 'fabric', but using the Babric API 
+    /// for missing versions. This mod loader is specifically made to support Fabric
+    /// only on Mojang's b1.7.3, so it's useless to specify the Mojang version like 
+    /// other Fabric-like loaders, the 'release' and 'snapshot' would be equivalent 
+    /// to 'b1.7.3'. See https://babric.github.io/.
     #[arg(default_value = "release")]
-    pub version: String,
+    pub version: StartVersion,
     /// Only ensures that the game is installed but don't launch the game.
     #[arg(long)]
     pub dry: bool,
@@ -184,15 +202,26 @@ pub struct StartArgs {
     pub demo: bool,
     /// Change the resolution of the game window (<width>x<height>, >= 1.6).
     #[arg(long)]
-    pub resolution: Option<Resolution>,
+    pub resolution: Option<StartResolution>,
+    /// Change the LWJGL version used by the game (LWJGL >= 3.2.3).
+    /// 
+    /// This argument will cause all LWJGL libraries of the game to be changed to the
+    /// given version, this applies to natives as well. In addition to simply changing
+    /// the versions, this will also add natives that are missing, such as ARM.
+    /// 
+    /// It's not guaranteed to work with every version of Minecraft and downgrading 
+    /// LWJGL version is not recommended.
+    #[arg(long, value_name = "VERSION")]
+    pub lwjgl: Option<String>,
     /// Exclude the given version from validity check and fetch.
     /// 
     /// This is used by the Mojang installer and all installers relying on it to exclude
     /// version from being validated and fetched from the Mojang's version manifest, as
-    /// described in 'VERSION' help.
+    /// described in 'VERSION' help. You can use '*' a single time to fully disable 
+    /// fetching.
     /// 
     /// This argument can be specified multiple times.
-    #[arg(long, name = "VERSION")]
+    #[arg(long, value_name = "VERSION")]
     pub exclude_fetch: Vec<String>,
     /// Use a filter to exclude Java libraries from the installation.
     /// 
@@ -208,7 +237,7 @@ pub struct StartArgs {
     /// only provided for glibc (see #110 and #112 on GitHub).
     /// 
     /// This argument can be specified multiple times.
-    #[arg(long, name = "FILTER")]
+    #[arg(long, value_name = "FILTER")]
     pub exclude_lib: Vec<String>,  // TODO: Use a specific type.
     /// Include files in the binaries directory, usually shared objects.
     /// 
@@ -221,7 +250,7 @@ pub struct StartArgs {
     /// Read the help message of '--exclude-lib' for a typical use case.
     /// 
     /// This argument can be specified multiple times.
-    #[arg(long, name = "PATH")]
+    #[arg(long, value_name = "PATH")]
     pub include_bin: Vec<PathBuf>,
     /// Authentication common arguments.
     #[command(flatten)]
@@ -238,26 +267,114 @@ pub struct StartArgs {
     #[arg(short, long, conflicts_with_all = ["username", "uuid"])]
     pub login: Option<String>,
     /// Change the default username of the player, for offline-mode.
-    #[arg(short, long)]
+    #[arg(short, long, value_name = "NAME")]
     pub username: Option<String>,
     /// Change the default UUID of the player, for offline-mode.
     #[arg(short = 'i', long)]
     pub uuid: Option<Uuid>,
     /// Immediately tries to connect the given server once the game is started (>= 1.6).
+    /// 
+    /// Note that the client will still be able to disconnect from the server and go back
+    /// to the game's menu and do everything it want.
     #[arg(short, long)]
     pub server: Option<String>,
     /// Change the default port to connect to the server (--server).
-    #[arg(short = 'p', long, name = "PORT", requires = "server", default_value_t = 25565)]
+    #[arg(short = 'p', long, value_name = "PORT", requires = "server", default_value_t = 25565)]
     pub server_port: u16,
 }
 
+/// Represent all possible version the launcher can start.
 #[derive(Debug, Clone)]
-pub struct Resolution {
+pub enum StartVersion {
+    Mojang {
+        root: Root,
+    },
+    Loader {
+        root: Root,
+        loader: Option<String>,
+        kind: StartLoaderKind,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum StartLoaderKind {
+    Fabric,
+    Quilt,
+    LegacyFabric,
+    Babric,
+    Forge,
+    NeoForge,
+}
+
+impl FromStr for StartVersion {
+
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        
+        // Extract the kind (defaults to mojang) and the parameters.
+        let (kind, rest) = s.split_once(':')
+            .unwrap_or(("mojang", s));
+
+        // Then split the rest into all parts.
+        let parts = rest.split(':').collect::<Vec<_>>();
+        debug_assert!(!parts.is_empty());
+
+        // Compute max parts count and immediately discard 
+        let max_parts = match kind {
+            "mojang" => 1,
+            "fabric" | "quilt" | "legacyfabric" | "babric" => 2,
+            "forge" | "neoforge" => 2,
+            _ => return Err(format!("unknown installer kind: {kind}")),
+        };
+
+        if parts.len() > max_parts {
+            return Err(format!("too much colons for this installer kind"));
+        }
+
+        // Most versions use the first part as the Mojang's version, and there is always
+        // at least one part.
+        let root = match parts[0] {
+            "" | 
+            "release" => Root::Release,
+            "snapshot" => Root::Snapshot,
+            id => Root::Id(id.to_string()),
+        };
+
+        let version = match kind {
+            "mojang" => Self::Mojang { root },
+            "fabric" | "quilt" | "legacyfabric" | "babric" | "forge" | "neoforge" => {
+                Self::Loader { 
+                    root, 
+                    loader: parts.get(1).copied().map(str::to_string).filter(|s| !s.is_empty()),
+                    kind: match kind {
+                        "fabric" => StartLoaderKind::Fabric,
+                        "quilt" => StartLoaderKind::Quilt,
+                        "legacyfabric" => StartLoaderKind::LegacyFabric,
+                        "babric" => StartLoaderKind::Babric,
+                        "forge" => StartLoaderKind::Forge,
+                        "neoforge" => StartLoaderKind::NeoForge,
+                        _ => unreachable!(),
+                    },
+                }
+            }
+            _ => unreachable!()
+        };
+
+        Ok(version)
+
+    }
+
+}
+
+/// Represent an optional initial resolution for the game window.
+#[derive(Debug, Clone, Copy)]
+pub struct StartResolution {
     pub width: u16,
     pub height: u16,
 }
 
-impl FromStr for Resolution {
+impl FromStr for StartResolution {
 
     type Err = String;
 

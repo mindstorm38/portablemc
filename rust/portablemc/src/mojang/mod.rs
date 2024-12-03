@@ -327,8 +327,8 @@ impl Installer {
     /// 
     /// If the given version is less than 3.2.3 this will do nothing.
     #[inline]
-    pub fn fix_lwjgl(&mut self, lwjgl_version: String) -> &mut Self {
-        self.inner.fix_lwjgl = Some(lwjgl_version);
+    pub fn fix_lwjgl(&mut self, lwjgl_version: impl Into<String>) -> &mut Self {
+        self.inner.fix_lwjgl = Some(lwjgl_version.into());
         self
     }
     
@@ -740,14 +740,14 @@ impl<H: Handler> InternalHandler<'_, H> {
     fn handle_standard_event_inner(&mut self, mut event: standard::Event) -> Result<()> {
 
         match event {
-            standard::Event::HierarchyLoaded { 
+            standard::Event::HierarchyFilter { 
                 ref hierarchy,
             } => {
                 // Unwrap because hierarchy can't be empty.
                 *self.leaf_id = hierarchy.last().unwrap().id.clone();
                 self.inner.handle_standard_event(event);
             }
-            standard::Event::FeaturesLoaded { 
+            standard::Event::FeaturesFilter { 
                 ref mut features,
             } => {
                 self.modify_features(&mut **features);
@@ -821,7 +821,7 @@ impl<H: Handler> InternalHandler<'_, H> {
 
             }
             // Apply the various libs fixes we can apply.
-            standard::Event::LibrariesLoaded { 
+            standard::Event::LibrariesFilter { 
                 ref mut libraries
             } => {
                 self.modify_libraries(&mut **libraries)?;                
@@ -948,12 +948,14 @@ impl<H: Handler> InternalHandler<'_, H> {
     
         // Finally we update the download source.
         for lib in libraries {
-            let mut url = "https://repo1.maven.org/maven2".to_string();
-            for component in lib.gav.file_components() {
-                url.push('/');
-                url.push_str(&component);
+            if let ("org.lwjgl", "jar") = (lib.gav.group(), lib.gav.extension()) {
+                let mut url = "https://repo1.maven.org/maven2".to_string();
+                for component in lib.gav.file_components() {
+                    url.push('/');
+                    url.push_str(&component);
+                }
+                lib.source = Some(EntrySource::new(url));
             }
-            lib.source = Some(EntrySource::new(url));
         }
 
         Ok(())
