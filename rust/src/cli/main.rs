@@ -6,6 +6,7 @@ use std::io::Write;
 
 use portablemc::mojang::QuickPlay;
 use portablemc::{download, standard, mojang};
+use portablemc::msa;
 
 // mod output;
 
@@ -13,14 +14,24 @@ use portablemc::{download, standard, mojang};
 fn main() {
 
     let mut handler = CliHandler::default();
+    
+    // match test_auth() {
+    //     Ok(()) => handler
+    //         .state("OK", format_args!("Authenticated"))
+    //         .newline(),
+    //     Err(e) => handler
+    //         .state("FAILED", format_args!("Error: {e}"))
+    //         .newline(),
+    // };
 
     let res = mojang::Installer::new()
         .root("1.16.4")
         .quick_play(QuickPlay::Multiplayer { host: "mc.hypixel.net".to_string(), port: 25565 })
         .resolution(900, 900)
         .demo(true)
+        .auth_offline_username_authlib("Mindstorm38")
         .with_standard(|i| i
-            .main_dir(r".minecraft_test".into())
+            .main_dir(r".minecraft_test")
             .strict_libraries_check(false)
             .strict_assets_check(false)
             .strict_jvm_check(false))
@@ -36,13 +47,26 @@ fn main() {
     };
 
     println!("game: {game:?}");
-    match game.launch() {
+    match game.launch(r".minecraft_test") {
         Ok(()) => (),
         Err(e) => {
             handler.newline();
             handler.state("FAILED", format_args!("{e}"));
         }
     }
+
+}
+
+fn test_auth() -> msa::Result<()> {
+
+    let auth = msa::Auth::new("708e91b5-99f8-4a1d-80ec-e746cbb24771".to_string());
+    let device_code_auth = auth.request_device_code()?;
+    println!("{}", device_code_auth.message());
+
+    let account = device_code_auth.wait()?;
+    println!("account: {account:#?}");
+
+    Ok(())
 
 }
 
@@ -73,7 +97,7 @@ impl CliHandler {
         
     }
 
-    /// Set the suffix to be displayed systematically after
+    /// Set the suffix to be displayed systematically after the line.
     fn suffix(&mut self, message: fmt::Arguments) -> &mut Self {
 
         let last_suffix_len = self.suffix_buf.len();
