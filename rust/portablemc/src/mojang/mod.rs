@@ -432,6 +432,7 @@ impl Installer {
                     Some(format!("token:{}:{}", inner.auth_token, inner.auth_uuid.as_simple())),
                 "auth_session" => Some(String::new()),
                 "user_type" => Some(inner.auth_type.clone()),
+                "user_properties" => Some(format!("{{}}")),
                 "clientid" => Some(inner.auth_client_id.clone()),
                 _ => None
             }
