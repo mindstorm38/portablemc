@@ -5,10 +5,18 @@ use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::num::NonZeroU16;
 use std::fs::File;
-use std::io;
+use std::io::{self, Seek, SeekFrom};
 
+use sha1::{Digest, Sha1};
 use serde_json::Value;
 
+use crate::util::{PathExt, DigestReader};
+
+
+/// Base URL for downloading game's assets.
+const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
+/// Base URL for downloading game's libraries.
+const LIBRARIES_URL: &str = "https://libraries.minecraft.net/";
 
 /// Type alias for a JSON object or string key and values.
 pub type Object = serde_json::Map<String, Value>;
@@ -100,6 +108,8 @@ impl Installer {
         let mut features = HashMap::new();
         handler.filter_features(self, &mut features)?;
 
+        self.resolve_assets(&metadata, handler)?;
+
         // Now we want to resolve the main version JAR file.
         let jar_file = self.version_file(version, "jar");
         self.resolve_jar(&metadata, &jar_file, handler)?;
@@ -159,6 +169,122 @@ impl Installer {
 
     }
 
+    /// Resolve the given version's merged metadata assets to use for the version. This
+    /// returns a full description of what assets to use (if so) and the list. This 
+    /// function push downloads for each missing asset.
+    fn resolve_assets(&self, metadata: &Object, handler: &mut dyn Handler) -> Result<()> {
+
+        let Some(assets_index_info) = metadata.get("assetIndex") else {
+            // Asset info may not be present, it's not required because some custom 
+            // versions may want to use there own internal assets.
+            return Ok(());
+        };
+
+        let Value::Object(assets_index_info) = assets_index_info else {
+            return Err(Error::JsonSchema(format!("metadata: /assetIndex must be an object")));
+        };
+
+        // We also keep the path used, for a more useful error message.
+        let Some((assets_index_version, assets_index_version_path)) = 
+            metadata.get("assets")
+                .map(|val| (val, "/assets"))
+                .or_else(|| assets_index_info.get("id")
+                    .map(|val| (val, "/assetIndex/id"))) 
+        else {
+            // Asset info may not be present, same as above.
+            return Ok(());
+        };
+
+        let Value::String(assets_index_version) = assets_index_version else {
+            return Err(Error::JsonSchema(format!("metadata: {assets_index_version_path} must be a string")));
+        };
+
+        // Resolve all used directories and files...
+        let assets_dir = self.main_dir.join("assets");
+        let assets_indexes_dir = assets_dir.join("indexes");
+        let assets_index_file = assets_indexes_dir.join_with_extension(assets_index_version, "json");
+
+        // The assets index info can be parsed as a download entry at this point.
+        let assets_index_download = parse_json_download(assets_index_info, &assets_index_file)
+            .map_err(|err| Error::JsonSchema(format!("metadata: /assetIndex{err}")))?;
+
+        let assets_index_reader = self.read_with_download(assets_index_download, handler)?;
+        let assets_index: Object = serde_json::from_reader(assets_index_reader)?;
+        
+        // For version <= 13w23b (1.6.1)
+        let assets_resources = assets_index.get("map_to_resources");
+        let assets_resources = match assets_resources {
+            Some(&Value::Bool(val)) => val,
+            Some(_) => return Err(Error::JsonSchema(format!("assets index: /map_to_resources must be a boolean"))),
+            None => false,
+        };
+
+        // For 13w23b (1.6.1) < version <= 13w48b (1.7.2)
+        let assets_virtual = assets_index.get("virtual");
+        let assets_virtual = match assets_virtual {
+            Some(&Value::Bool(val)) => val,
+            Some(_) => return Err(Error::JsonSchema(format!("assets index: /virtual must be a boolean"))),
+            None => false,
+        };
+
+        // Objects are mandatory...
+        let Some(Value::Object(assets_objects)) = assets_index.get("objects") else {
+            return Err(Error::JsonSchema(format!("assets index: /objects must be an object")));
+        };
+
+        let assets_objects_dir = assets_dir.join("objects");
+
+        for (asset_id, asset_obj) in assets_objects.iter() {
+
+            let Value::Object(asset_obj) = asset_obj else {
+                return Err(Error::JsonSchema(format!("assets index: /objects/{asset_id} must be an object")));
+            };
+
+            let size_make_err = || Error::JsonSchema(format!("assets index: /objects/{asset_id}/size must be a number (32-bit unsigned)"));
+            let hash_make_err = || Error::JsonSchema(format!("assets index: /objects/{asset_id}/hash must be a string (40 hex characters)"));
+
+            let Some(Value::Number(asset_size)) = asset_obj.get("size") else {
+                return Err(size_make_err());
+            };
+
+            let asset_size = asset_size.as_u64()
+                .and_then(|size| u32::try_from(size).ok())
+                .ok_or_else(size_make_err)?;
+
+            let Some(Value::String(asset_hash_raw)) = asset_obj.get("hash") else {
+                return Err(hash_make_err());
+            };
+
+            let asset_hash = parse_hex_bytes::<20>(asset_hash_raw)
+                .ok_or_else(hash_make_err)?;
+            
+            // The asset file is located in a directory named after the first byte of the
+            // asset's SHA-1 hash, we extract the two first hex character from the hash.
+            // This should not panic if the hex parsing has been successful.
+            let asset_hash_prefix = &asset_hash_raw[..2];
+            let asset_file = {
+                let mut buf = assets_objects_dir.clone();
+                buf.extend([asset_hash_prefix, asset_hash_raw]);
+                buf
+            };
+
+            let asset_url = format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_hash_raw}");
+
+            // TODO: Check if needed
+            handler.push_download(Download {
+                url: &asset_url,
+                file: &asset_file,
+                size: Some(asset_size),
+                sha1: Some(asset_hash),
+                executable: false,
+            })?;
+
+        }
+
+        Ok(())
+
+    }
+
     /// Resolve the entrypoint JAR file used for that version. This will first check if
     /// it is explicitly specified in the metadata, if so it will schedule it for 
     /// download if relevant, if not it will use the already present JAR file. If
@@ -173,23 +299,79 @@ impl Installer {
 
             if let Some(downloads_client) = downloads.get("client") {
 
-                let download = parse_metadata_download_and_verify(downloads_client, jar_file)
+                let Value::Object(downloads_client) = downloads_client else {
+                    return Err(Error::JsonSchema(format!("metadata: /downloads/client must be an object")));
+                };
+
+                let download = parse_json_download(downloads_client, jar_file)
                     .map_err(|err| Error::JsonSchema(format!("metadata: /downloads/client{err}")))?;
 
-                if let Some(download) = download {
-                    handler.push_download(download)?;
-                }
+                // TODO: Check that the file exists or not...
+                handler.push_download(download)?;
 
             }
 
         }
 
+        // If no download entry has been found, but the JAR exists, we use it.
         if !jar_file.is_file() {
             return Err(Error::JarNotFound);
         }
         
         handler.filter_jar(self, jar_file)
 
+    }
+
+    /// Ensure that a file exists from its download entry, checking that the file has the
+    /// right size and SHA-1, if relevant. This will push the download to the handler and
+    /// immediately flush the handler.
+    fn read_with_download(&self, download: Download, handler: &mut dyn Handler) -> Result<File> {
+
+        let file = download.file;
+
+        // The loop is just used here to break early.
+        loop {
+            match File::open(file) {
+                Ok(mut reader) => {
+
+                    // Start by checking the actual size of the file.
+                    if let Some(size) = download.size {
+                        let actual_size = reader.seek(SeekFrom::End(0))?;
+                        if size as u64 != actual_size {
+                            break;
+                        }
+                        reader.seek(SeekFrom::Start(0))?;
+                    }
+                    
+                    if let Some(sha1) = &download.sha1 {
+                        let mut digest = Sha1::new();
+                        io::copy(&mut reader, &mut digest)?;
+                        if digest.finalize().as_slice() != sha1 {
+                            break;
+                        }
+                        reader.seek(SeekFrom::Start(0))?;
+                    }
+                    
+                    return Ok(reader);
+
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => break,
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        // Push and directory flush the download.
+        handler.push_download(download)?;
+        handler.flush_download()?;
+
+        // The handler should have checked it and it should be existing.
+        match File::open(file) {
+            Ok(reader) => Ok(reader),
+            Err(e) if e.kind() == io::ErrorKind::NotFound =>
+                unreachable!("handler returned no error but downloaded file is absent"),
+            Err(e) => return Err(e.into()),
+        }
+        
     }
 
 }
@@ -225,6 +407,7 @@ pub trait Handler {
     }
 
     /// Filter the jar file that will be used as the entry point to launching the game.
+    /// It is not possible for now to modify the JAR file used.
     fn filter_jar(&mut self, installer: &Installer, jar_file: &Path) -> Result<()> {
         let _ = (installer, jar_file);
         Ok(())
@@ -236,7 +419,12 @@ pub trait Handler {
         Ok(())
     }
 
-    /// Push a file to be downloaded later when [`Self::flush_download`] is called. 
+    /// Push a file to be downloaded later when [`Self::flush_download`] is called, 
+    /// this should be the preferred way to download a file from the installer.
+    /// 
+    /// This method should not check if the file already exists, it should always
+    /// download it and only then check size and SHA-1, if relevant.
+    ///  
     /// Implementor is allowed to synchronously download the file in this method, 
     /// instead of waiting for flush, but it should be aware that it will greatly 
     /// reduce efficiency of the installer.
@@ -272,16 +460,17 @@ pub struct Library {
 }
 
 /// A download entry that can be delayed until a call to [`Handler::flush_download`].
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Download {
-    /// Url of the file to download, supported http and https protocols.
-    pub url: String,
+/// This download object borrows the URL and file path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Download<'url, 'file> {
+    /// Url of the file to download.
+    pub url: &'url str,
     /// Path to the file to ultimately download.
-    pub file: PathBuf,
+    pub file: &'file Path,
     /// Expected size of the file, checked after downloading, this use a `u32` because
     /// we are not downloading ubuntu ISO...
     pub size: Option<u32>,
-    /// Expected sha1 of the file, checked after downloading.
+    /// Expected SHA-1 of the file, checked after downloading.
     pub sha1: Option<[u8; 20]>,
     /// True if the file should be made executable on systems where its relevant to 
     /// later execute a binary.
@@ -346,7 +535,8 @@ impl LibrarySpecifier {
 
     }
 
-    #[inline]
+    /// Internal method to split the specifier in all of its component.
+    #[inline(always)]
     fn split(&self) -> (&str, &str, &str, &str, &str) {
         let (group, rem) = self.raw.split_at(self.group_len.get() as usize);
         let (artifact, rem) = rem[1..].split_at(self.artifact_len.get() as usize);
@@ -357,26 +547,31 @@ impl LibrarySpecifier {
         (group, artifact, version, classifier, extension)
     }
 
+    /// Return the group name of the library, never empty.
     #[inline]
     pub fn group(&self) -> &str {
         self.split().0
     }
 
+    /// Return the artifact name of the library, never empty.
     #[inline]
     pub fn artifact(&self) -> &str {
         self.split().1
     }
 
+    /// Return the version of the library, never empty.
     #[inline]
     pub fn version(&self) -> &str {
         self.split().2
     }
 
+    /// Return the classifier of the library, empty if no specifier.
     #[inline]
     pub fn classifier(&self) -> &str {
         self.split().3
     }
 
+    /// Return the extension of the library, never empty, defaults to "jar".
     #[inline]
     pub fn extension(&self) -> &str {
         self.split().4
@@ -468,74 +663,64 @@ fn merge_metadata(dst: &mut Object, src: &Object) {
 
 /// Parse a download file from its JSON value, expected to be an object that contains a
 /// `url` string, and optionally a number `size` and a string`sha1`. 
-/// 
-/// If the file already exists at its path, then this function simply return `Ok(None)`.
-/// The verification is intentionally done in this function because it avoids cloning
-/// url or file path.
-fn parse_metadata_download_and_verify(value: &Value, file: &Path) -> StdResult<Option<Download>, &'static str> {
-
-    let Value::Object(object) = value else {
-        return Err("must be an object");
-    };
+fn parse_json_download<'obj, 'file>(
+    object: &'obj Object, 
+    file: &'file Path
+) -> StdResult<Download<'obj, 'file>, String> {
 
     let Some(Value::String(url)) = object.get("url") else {
-        return Err("/url must be a string");
+        return Err(format!("/url must be a string"));
     };
 
-    let mut download = Download::default();
+    let mut download = Download {
+        url: url.as_str(),
+        file,
+        size: None,
+        sha1: None,
+        executable: false,
+    };
 
     if let Some(size) = object.get("size") {
 
-        const ERR: &str = "/size must be a number (32-bit unsigned)";
-        
+        let make_err = || format!(" must be a number (32-bit unsigned)");
+
         let Value::Number(size) = size else {
-            return Err(ERR);
+            return Err(make_err());
         };
-
-        let new_size = size.as_u64()
+    
+        let size = size.as_u64()
             .and_then(|size| u32::try_from(size).ok())
-            .ok_or_else(|| ERR)?;
-
-        // Here we check if the file already exists.
-        // For now we only check for its size, not for its hash.
-        if let Ok(metadata) = file.metadata() {
-            if metadata.is_file() && metadata.len() == new_size as u64 {
-                return Ok(None);
-            }
-        }
-
-        download.size = Some(new_size);
+            .ok_or_else(make_err)?;
+        
+        download.size = Some(size);
 
     }
 
     if let Some(sha1) = object.get("sha1") {
 
-        const ERR: &str = "/sha1 must be a string (40 hex character)";
+        let make_err = || format!("/sha1 must be a string (40 hex characters)");
 
         let Value::String(sha1) = sha1 else {
-            return Err(ERR);
+            return Err(make_err());
         };
 
-        let mut new_sha1 = [0; 20];
-        parse_hex_bytes(&sha1, &mut new_sha1)
-            .ok_or_else(|| ERR)?;
+        let sha1 = parse_hex_bytes::<20>(sha1)
+            .ok_or_else(make_err)?;
 
-        download.sha1 = Some(new_sha1);
+        download.sha1 = Some(sha1);
 
     }
 
-    download.url = url.to_string();
-    download.file = file.to_path_buf();
-
-    Ok(Some(download))
+    Ok(download)
 
 }
 
 /// Parse the given hex bytes string into the given destination slice, returning none if 
 /// the input string cannot be parsed, is too short or too long.
-fn parse_hex_bytes(mut string: &str, dst: &mut [u8]) -> Option<()> {
+fn parse_hex_bytes<const LEN: usize>(mut string: &str) -> Option<[u8; LEN]> {
     
-    for dst in dst {
+    let mut dst = [0; LEN];
+    for dst in &mut dst {
         if string.is_char_boundary(2) {
 
             let (num, rem) = string.split_at(2);
@@ -549,6 +734,6 @@ fn parse_hex_bytes(mut string: &str, dst: &mut [u8]) -> Option<()> {
     }
 
     // Only successful if no string remains.
-    string.is_empty().then_some(())
+    string.is_empty().then_some(dst)
 
 }
