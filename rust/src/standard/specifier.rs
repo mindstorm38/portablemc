@@ -221,7 +221,9 @@ impl LibrarySpecifier {
         }
     }
 
-    /// Iterator over standard file path component for this specifier.
+    /// Iterator over standard file path component for this specifier, the iterating
+    /// component is a cow because most of these are borrowed but the last file part
+    /// must be formatted and therefore owned.
     pub fn file_components(&self) -> impl Iterator<Item = Cow<'_, str>> + '_ {
 
         let artifact = self.artifact();

@@ -50,6 +50,9 @@ pub struct VersionMetadata {
     pub legacy_arguments: Option<String>,
     /// Modern arguments for game and/or jvm.
     pub arguments: Option<VersionArguments>,
+    /// Logging configuration.
+    #[serde(default)]
+    pub logging: HashMap<String, VersionLogging>,
 }
 
 /// Object describing the Mojang-provided Java version to use to launch the game.
@@ -60,6 +63,7 @@ pub struct VersionJavaVersion {
     pub major_version: u32,
 }
 
+/// Describe the asset index to use and how to download it when missing.
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionAssetIndex {
@@ -99,9 +103,7 @@ pub struct VersionLibraryDownload {
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionArguments {
-    #[serde(flatten)]
     pub game: Vec<VersionArgument>,
-    #[serde(flatten)]
     pub jvm: Vec<VersionArgument>,
 }
 
@@ -117,6 +119,30 @@ pub enum VersionArgument {
 pub struct VersionConditionalArgument {
     pub value: SingleOrVec<String>,
     pub rules: Option<Vec<Rule>>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionLogging {
+    #[serde(default)]
+    pub r#type: VersionLoggingType,
+    pub argument: String,
+    pub file: VersionLoggingFile,
+}
+
+#[derive(serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VersionLoggingType {
+    #[default]
+    #[serde(rename = "log4j2-xml")]
+    Log4j2Xml,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionLoggingFile {
+    pub id: String,
+    #[serde(flatten)]
+    pub download: Download,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]

@@ -21,7 +21,8 @@ impl PathExt for Path {
     #[inline]
     fn join_with_extension<P: AsRef<Path>, S: AsRef<OsStr>>(&self, name: P, extension: S) -> PathBuf {
         let mut buf = self.join(name);
-        buf.set_extension(extension);
+        buf.as_mut_os_string().push(".");
+        buf.as_mut_os_string().push(extension);
         buf
     }
 
