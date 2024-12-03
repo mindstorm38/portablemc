@@ -9,11 +9,11 @@ use std::path::PathBuf;
 
 use reqwest::StatusCode;
 
-use crate::mojang::{self, Handler as _};
+use crate::mojang::{self, Handler as _, RootVersion};
 use crate::download;
 use crate::standard;
 
-pub use mojang::{RootVersion, Game};
+pub use mojang::Game;
 
 
 /// This is the original and official Fabric API.
@@ -109,6 +109,7 @@ impl Installer {
         self.inner.loader_version = version.into();
     }
 
+    /// Install the currently configured Fabric loader with the given handler.
     pub fn install(&mut self, mut handler: impl Handler) -> Result<Game> {
 
         let Self {
