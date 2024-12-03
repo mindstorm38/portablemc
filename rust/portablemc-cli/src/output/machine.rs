@@ -1,11 +1,83 @@
+use std::io::{self, StderrLock, StdoutLock, Write};
+use std::fmt::Display;
+
 use portablemc::{download, mojang, standard};
 
 use super::DownloadTracker;
 
 
+/// A handle to writing a single of tab-separated values on stdout.
+#[derive(Debug)]
+pub struct TabWriter<W: Write> {
+    inner: W,
+}
+
+impl<W: Write> Drop for TabWriter<W> {
+    fn drop(&mut self) {
+        let _ = writeln!(self.inner);
+        let _ = self.inner.flush();
+    }
+}
+
+impl TabWriter<StdoutLock<'static>> {
+
+    pub fn stdout() -> Self {
+        Self {
+            inner: io::stdout().lock(),
+        }
+    }
+    
+}
+
+impl TabWriter<StderrLock<'static>> {
+
+    pub fn stderr() -> Self {
+        Self {
+            inner: io::stderr().lock(),
+        }
+    }
+
+}
+
+impl<W: Write> TabWriter<W> {
+
+    pub fn arg(&mut self, value: impl Display) -> &mut Self {
+        write!(self.inner, "\t{value}").unwrap();
+        self
+    }
+
+    pub fn some_arg(&mut self, value: Option<impl Display>) -> &mut Self {
+        if let Some(value) = value {
+            self.arg(value);
+        }
+        self
+    }
+
+    #[inline]
+    pub fn args<D, I>(&mut self, values: I) -> &mut Self 
+    where
+        D: Display,
+        I: Iterator<Item = D>,
+    {
+        for value in values {
+            self.arg(value);
+        }
+        self
+    }
+
+}
+
+
+
+
+
+
+
 /// Installation handler for machine-readable output.
 #[derive(Debug)]
 pub struct MachineHandler {
+    /// Internal machine writer.
+    writer: MachineWriter,
     /// Internal download handler.
     download: DownloadTracker,
 }
@@ -14,6 +86,7 @@ impl MachineHandler {
 
     pub fn new() -> Self {
         Self {
+            writer: MachineWriter::new(),
             download: DownloadTracker::new(),
         }
     }
@@ -28,9 +101,11 @@ impl download::Handler for MachineHandler {
             return;
         };
 
-        println!("download\tcount:{count}/{total_count}\tsize:{size}/{total_size}\telapsed:{}\tspeed:{}", 
-            metrics.elapsed.as_secs_f32(),
-            metrics.speed);
+        self.writer.line(format_args!("download"))
+            .arg(format_args!("count:{count}/{total_count}"))
+            .arg(format_args!("size:{size}/{total_size}"))
+            .arg(format_args!("elapsed:{}", metrics.elapsed.as_secs_f32()))
+            .arg(format_args!("tspeed:{}", metrics.speed));
 
     }
 
@@ -42,101 +117,98 @@ impl standard::Handler for MachineHandler {
         
         use standard::Event;
 
+        let writer = &mut self.writer;
+
         match event {
             Event::FeaturesFilter { .. } => {}
             Event::FeaturesLoaded { features } => {
-                print!("features_loaded");
-                for feature in features {
-                    print!("\t{feature}");
-                }
-                println!();
+                writer.line("features_loaded")
+                    .args(features.iter());
             }
             Event::HierarchyLoading { root_id } => {
-                println!("hierarchy_loading\t{root_id}");
+                writer.line("hierarchy_loading").arg(root_id);
             }
             Event::HierarchyFilter { .. } => {}
             Event::HierarchyLoaded { hierarchy } => {
-                print!("hierarchy_loaded");
-                for version in hierarchy {
-                    print!("\t{}", version.id);
-                }
-                println!();
+                writer.line("features_loaded")
+                    .args(hierarchy.iter().map(|v| &*v.id));
             }
             Event::VersionLoading { id, .. } => {
-                println!("version_loading\t{id}");
+                writer.line("version_loading").arg(id);
             }
             Event::VersionNotFound { .. } => {}
             Event::VersionLoaded { id, .. } => {
-                println!("version_loaded\t{id}");
+                writer.line("version_loaded").arg(id);
             }
             Event::ClientLoading {  } => {}
             Event::ClientLoaded { .. } => {}
             Event::LibrariesLoading {  } => {
-                println!("libraries_loading\t");
+                writer.line("libraries_loading");
             }
             Event::LibrariesFilter { .. } => {}
             Event::LibrariesLoaded { libraries } => {
-                print!("libraries_loaded");
-                for lib in libraries {
-                    print!("\t{}", lib.gav);
-                }
-                println!();
+                writer.line("libraries_loaded")
+                    .args(libraries.iter().map(|l| &l.gav));
             }
             Event::LibrariesFilesFilter { .. } => {}
             Event::LibrariesFilesLoaded { class_files, natives_files } => {
-                print!("class_files_loaded\t");
-                for file in class_files {
-                    print!("\t{}", file.display());
-                }
-                println!();
-                print!("natives_files_loaded\t");
-                for file in natives_files {
-                    print!("\t{}", file.display());
-                }
-                println!();
+                writer.line("class_files_loaded")
+                    .args(class_files.iter().map(|p| p.display()));
+                writer.line("natives_files")
+                    .args(natives_files.iter().map(|p| p.display()));
             }
-            Event::LoggerAbsent {  } =>
-                println!("logger_absent"),
-            Event::LoggerLoading { id } =>
-                println!("logger_loading\t{id}"),
-            Event::LoggerLoaded { id } =>
-                println!("logger_loaded\t{id}"),
-            Event::AssetsAbsent {  } => 
-                println!("assets_absent"),
-            Event::AssetsLoading { id } => 
-                println!("assets_loading\t{id}"),
-            Event::AssetsLoaded { id, .. } => 
-                println!("assets_loaded\t{id}"),
-            Event::AssetsVerified { id, .. } => 
-                println!("assets_verified\t{id}"),
-            Event::JvmLoading { major_version } => 
-                println!("jvm_loading\t{major_version}"),
+            Event::LoggerAbsent {  } => {
+                writer.line("logger_absent");
+            }
+            Event::LoggerLoading { id } => {
+                writer.line("logger_loading").arg(id);
+            }
+            Event::LoggerLoaded { id } => {
+                writer.line("logger_loaded").arg(id);
+            }
+            Event::AssetsAbsent {  } => {
+                writer.line("assets_absent");
+            }
+            Event::AssetsLoading { id } => {
+                writer.line("assets_loading").arg(id);
+            }
+            Event::AssetsLoaded { id, .. } => {
+                writer.line("assets_loaded").arg(id);
+            }
+            Event::AssetsVerified { id, .. } => {
+                writer.line("assets_verified").arg(id);
+            }
+            Event::JvmLoading { major_version } => {
+                writer.line("jvm_loading").arg(major_version);
+            }
             Event::JvmVersionRejected { file, version } => {
-                print!("jvm_version_rejected\t{}", file.display());
-                if let Some(version) = version {
-                    print!("\t{version}");
-                }
-                println!();
+                writer.line("jvm_version_rejected")
+                    .arg(file.display())
+                    .some_arg(version);
             }
-            Event::JvmDynamicCrtUnsupported {  } => 
-                println!("jvm_dynamic_crt_unsupported"),
-            Event::JvmPlatformUnsupported {  } => 
-                println!("jvm_platform_unsupported"),
-            Event::JvmDistributionNotFound {  } => 
-                println!("jvm_distribution_not_found"),
+            Event::JvmDynamicCrtUnsupported {  } => {
+                writer.line("jvm_dynamic_crt_unsupported");
+            }
+            Event::JvmPlatformUnsupported {  } => {
+                writer.line("jvm_platform_unsupported");
+            }
+            Event::JvmDistributionNotFound {  } => {
+                writer.line("jvm_distribution_not_found");
+            }
             Event::JvmLoaded { file, version } => {
-                print!("jvm_loaded\t{}", file.display());
-                if let Some(version) = version {
-                    print!("\t{version}");
-                }
-                println!();
+                writer.line("jvm_loaded")
+                    .arg(file.display())
+                    .some_arg(version);
             }
-            Event::ResourcesDownloading {  } => 
-                println!("resources_downloading"),
-            Event::ResourcesDownloaded {  } => 
-                println!("resources_downloaded"),
-            Event::BinariesExtracted { dir } => 
-                println!("binaries_extracted\t{}", dir.display()),
+            Event::ResourcesDownloading {  } => {
+                writer.line("resources_downloading");
+            }
+            Event::ResourcesDownloaded {  } => {
+                writer.line("resources_downloaded");
+            }
+            Event::BinariesExtracted { dir } => {
+                writer.line("binaries_extracted").arg(dir.display());
+            }
             _ => todo!("{event:?}")
         };
 
@@ -150,27 +222,39 @@ impl mojang::Handler for MachineHandler {
         
         use mojang::Event;
 
+        let writer = &mut self.writer;
+
         match event {
-            Event::MojangVersionInvalidated { id } => 
-                println!("mojang_version_invalidated\t{id}"),
-            Event::MojangVersionFetching { id } => 
-                println!("mojang_version_fetching\t{id}"),
-            Event::MojangVersionFetched { id } => 
-                println!("mojang_version_fetched\t{id}"),
-            Event::FixLegacyQuickPlay {  } => 
-                println!("fix_legacy_quick_play"),
-            Event::FixLegacyProxy { host, port } => 
-                println!("fix_legacy_proxy\t{host}\t{port}"),
-            Event::FixLegacyMergeSort {  } => 
-                println!("fix_legacy_merge_sort"),
-            Event::FixLegacyResolution {  } => 
-                println!("fix_legacy_resolution"),
-            Event::FixBrokenAuthlib {  } => 
-                println!("fix_broken_authlib"),
-            Event::QuickPlayNotSupported {  } => 
-                println!("quick_play_not_supported"),
-            Event::ResolutionNotSupported {  } => 
-                println!("resolution_not_supported"),
+            Event::MojangVersionInvalidated { id } => {
+                writer.line("mojang_version_invalidated").arg(id);
+            }
+            Event::MojangVersionFetching { id } => {
+                writer.line("mojang_version_fetching").arg(id);
+            }
+            Event::MojangVersionFetched { id } => {
+                writer.line("mojang_version_fetched").arg(id);
+            }
+            Event::FixLegacyQuickPlay {  } => {
+                writer.line("fix_legacy_quick_play");
+            }
+            Event::FixLegacyProxy { host, port } => {
+                writer.line("fix_legacy_proxy").arg(host).arg(port);
+            }
+            Event::FixLegacyMergeSort {  } => {
+                writer.line("fix_legacy_merge_sort");
+            }
+            Event::FixLegacyResolution {  } => {
+                writer.line("fix_legacy_resolution");
+            }
+            Event::FixBrokenAuthlib {  } => {
+                writer.line("fix_broken_authlib");
+            }
+            Event::QuickPlayNotSupported {  } => {
+                writer.line("quick_play_not_supported");
+            }
+            Event::ResolutionNotSupported {  } => {
+                writer.line("resolution_not_supported");
+            }
             _ => todo!("{event:?}")
         }
 

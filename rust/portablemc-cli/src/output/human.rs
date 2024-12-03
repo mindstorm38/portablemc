@@ -7,9 +7,9 @@ use portablemc::{download, mojang, standard};
 use super::DownloadTracker;
 
 
-/// A utility output for printing state
+/// A utility output for printing state message that can be updated dynamically.
 #[derive(Debug)]
-pub struct Output {
+pub struct LogWriter {
     /// Enable color for known states.
     color: bool,
     /// The buffer containing the whole rendered line.
@@ -20,7 +20,7 @@ pub struct Output {
     suffix_buf: String,
 }
 
-impl Output {
+impl LogWriter {
 
     const STATE_COLOR: &'static [(&'static str, &'static str)] = &[
         ("OK", "\x1b[92m"),
@@ -115,11 +115,28 @@ impl Output {
 }
 
 
+/// A utility to write table to stdout.
+#[derive(Debug)]
+pub struct TableWriter {
+    
+}
+
+impl TableWriter {
+
+    pub fn new() -> Self {
+        Self {
+
+        }
+    }
+
+}
+
+
 /// Installation handler for human-readable output.
 #[derive(Debug)]
 pub struct HumanHandler {
     /// Internal state output writer.
-    state: Output,
+    state: LogWriter,
     /// Internal download handler.
     download: DownloadTracker,
 }
@@ -128,7 +145,7 @@ impl HumanHandler {
 
     pub fn new(color: bool) -> Self {
         Self {
-            state: Output::new(color),
+            state: LogWriter::new(color),
             download: DownloadTracker::new(),
         }
     }
@@ -282,18 +299,27 @@ impl mojang::Handler for HumanHandler {
     }
 }
 
-/// Return true if color can be printed to stdout.
+/// Return true if color should be used on terminal.
 /// 
-/// Supporting `NO_COLOR` env: https://no-color.org/.
-pub fn has_stdout_color() -> bool {
-    if !io::stdout().is_terminal() {
-        false
-    } else if cfg!(unix) && env::var_os("TERM").map(|term| term == "dumb").unwrap_or_default() {
+/// Supporting `NO_COLOR` (https://no-color.org/) and `TERM=dumb`.
+pub fn has_color() -> bool {
+    if cfg!(unix) && env::var_os("TERM").map(|term| term == "dumb").unwrap_or_default() {
         false
     } else if env::var_os("NO_COLOR").map(|s| !s.is_empty()).unwrap_or_default() {
         false
     } else {
         true
+    }
+}
+
+/// Return true if color can be printed to stdout.
+/// 
+/// See [`has_color()`].
+pub fn has_stdout_color() -> bool {
+    if !io::stdout().is_terminal() {
+        false
+    } else {
+        has_color()
     }
 }
 
