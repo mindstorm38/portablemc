@@ -26,6 +26,9 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
     let game;
 
     match &args.version {
+        StartVersion::Raw { root } => {
+            todo!()
+        }
         StartVersion::Mojang { 
             root,
         } => {

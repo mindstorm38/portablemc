@@ -161,6 +161,8 @@ pub struct StartArgs {
     /// only on Mojang's b1.7.3, so it's useless to specify the Mojang version like 
     /// other Fabric-like loaders, the 'release' and 'snapshot' would be equivalent 
     /// to 'b1.7.3'. See https://babric.github.io/.
+    /// 
+    /// - raw:<version>
     #[arg(default_value = "release")]
     pub version: StartVersion,
     /// Only ensures that the game is installed but don't launch the game.
@@ -261,6 +263,9 @@ pub struct StartArgs {
 /// Represent all possible version the launcher can start.
 #[derive(Debug, Clone)]
 pub enum StartVersion {
+    Raw {
+        root: String,
+    },
     Mojang {
         root: Root,
     },
@@ -297,6 +302,7 @@ impl FromStr for StartVersion {
 
         // Compute max parts count and immediately discard 
         let max_parts = match kind {
+            "raw" => 1,
             "mojang" => 1,
             "fabric" | "quilt" | "legacyfabric" | "babric" => 2,
             "forge" | "neoforge" => 2,
@@ -305,6 +311,11 @@ impl FromStr for StartVersion {
 
         if parts.len() > max_parts {
             return Err(format!("too much colons for this installer kind"));
+        }
+
+        // Raw version have no alias.
+        if kind == "raw" {
+            return Ok(Self::Raw { root: parts[0].to_string() });
         }
 
         // Most versions use the first part as the Mojang's version, and there is always
