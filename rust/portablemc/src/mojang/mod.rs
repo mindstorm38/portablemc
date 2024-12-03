@@ -67,9 +67,9 @@ impl Installer {
     /// Create a new installer with default configuration, using defaults directories and
     /// the given root version to load and then install. This Mojang installer has all 
     /// fixes enabled except LWJGL and missing version fetching is enabled.
-    pub fn new() -> Self {
+    pub fn new(main_dir: impl Into<PathBuf>) -> Self {
         Self {
-            standard: standard::Installer::new(String::new()),
+            standard: standard::Installer::new(String::new(), main_dir),
             inner: InstallerInner {
                 root: Root::Release,
                 fetch: true,
@@ -93,6 +93,12 @@ impl Installer {
                 fix_lwjgl: None,
             }
         }
+    }
+
+    /// Same as [`Self::new`] but using the default main directory in your system,
+    /// returning none if there is no default main directory on your system.
+    pub fn new_with_default() -> Option<Self> {
+        Some(Self::new(standard::default_main_dir()?))
     }
 
     /// Execute some callback to alter the standard installer.
@@ -759,7 +765,7 @@ impl<H: Handler> InternalHandler<'_, H> {
             standard::Event::VersionLoading { 
                 id, 
                 file
-            } if self.manifest.is_some() => {
+            } => {
 
                 self.inner.handle_standard_event(event);
 
@@ -801,12 +807,12 @@ impl<H: Handler> InternalHandler<'_, H> {
                 error: _, 
                 ref mut retry 
             } => {
-
+                
                 let Some(dl) = self.downloads.get(id) else {
                     self.inner.handle_standard_event(event);
                     return Ok(());
                 };
-
+                
                 self.inner.handle_mojang_event(Event::MojangVersionFetching { id });
                 
                 EntrySource::from(dl)

@@ -1,10 +1,8 @@
 //! Various utilities to ease outputting human or machine readable text.
 
-use std::fmt::{self, Display, Write as _};
+use std::fmt::{Display, Write as _};
 use std::io::{IsTerminal, Write};
 use std::{env, io};
-
-use chrono::TimeDelta;
 
 
 /// An abstraction for outputting to any format on stdout, the goal is to provide an
@@ -14,7 +12,7 @@ use chrono::TimeDelta;
 /// readable and human readable. All functions in this abstraction are machine-oriented,
 /// that means that by default the human representation will be the machine one (or no 
 /// representation at all), but the different handles returned can be used to customize
-/// or a add human representation.
+/// or add human representation.
 #[derive(Debug)]
 pub struct Output {
     /// Mode-specific data.
@@ -56,16 +54,16 @@ impl Output {
     }
 
     /// Enter log mode, this is exclusive with other modes.
-    pub fn log(&mut self) -> LogOutput<'_> {
+    pub fn logger(&mut self) -> LoggerOutput<'_> {
 
         // Save the initial cursor position for the first line to be written.
         if self.escape_cursor_cap {
             print!("\x1b[s");
         }
 
-        LogOutput {
+        LoggerOutput {
             output: self,
-            shared: LogShared::default(),
+            shared: LoggerShared::default(),
         }
     }
 
@@ -86,23 +84,23 @@ impl Output {
 /// The output log mode, used to log events and various other messages, with an optional
 /// state associated and possibly re-writable line for human readable output.
 #[derive(Debug)]
-pub struct LogOutput<'a> {
+pub struct LoggerOutput<'a> {
     /// Exclusive access to output.
     output: &'a mut Output,
     /// Buffer storing the current background log message.
-    shared: LogShared,
+    shared: LoggerShared,
 }
 
 /// Internal buffer for the current line.
 #[derive(Debug, Default)]
-struct LogShared {
+struct LoggerShared {
     /// Line buffer that will be printed when the log is dropped.
     line: String,
     /// For human-readable only, storing the rendered background log.
     background: String
 }
 
-impl LogOutput<'_> {
+impl LoggerOutput<'_> {
 
     /// Internal implementation detail used to be generic over being background.
     #[inline]
@@ -143,7 +141,7 @@ pub struct Log<'a, const BG: bool> {
     /// Exclusive access to output.
     output: &'a mut Output,
     /// Internal buffer.
-    shared: &'a mut LogShared,
+    shared: &'a mut LoggerShared,
 }
 
 impl<const BG: bool> Log<'_, BG> {
@@ -192,6 +190,9 @@ impl<const BG: bool> Log<'_, BG> {
         }
 
         lock.write_all(self.shared.line.as_bytes()).unwrap();
+        if !self.shared.line.is_empty() && !self.shared.background.is_empty() {
+            lock.write_all(b" -- ").unwrap();
+        }
         lock.write_all(self.shared.background.as_bytes()).unwrap();
 
         if newline {
@@ -226,10 +227,13 @@ impl Log<'_, false> {
                     LogLevel::Success => ("OK", "\x1b[92m"),
                     LogLevel::Warning => ("WARN", "\x1b[33m"),
                     LogLevel::Error => ("FAILED", "\x1b[31m"),
+                    LogLevel::Additional => ("", ""),
                 };
 
                 self.shared.line.clear();
-                if !self.output.escape_color_cap || color.is_empty() {
+                if name.is_empty() {
+                    write!(self.shared.line, "         {message}").unwrap();
+                } else if !self.output.escape_color_cap || color.is_empty() {
                     write!(self.shared.line, "[{name:^6}] {message}").unwrap();
                 } else {
                     write!(self.shared.line, "[{color}{name:^6}\x1b[0m] {message}").unwrap();
@@ -267,6 +271,11 @@ impl Log<'_, false> {
         self.line(LogLevel::Error, message)
     }
 
+    #[inline]
+    pub fn additional(&mut self, message: impl Display) -> &mut Self {
+        self.line(LogLevel::Additional, message)
+    }
+
 }
 
 impl Log<'_, true> {
@@ -302,6 +311,7 @@ impl<const BACKGROUND: bool> Drop for Log<'_, BACKGROUND> {
             // Not in human-readable mode, the buffer has not already been flushed.
             let mut lock = io::stdout().lock();
             lock.write_all(self.shared.line.as_bytes()).unwrap();
+            self.shared.line.clear();
             lock.write_all(b"\n").unwrap();
             lock.flush().unwrap();
         }
@@ -322,6 +332,9 @@ pub enum LogLevel {
     Warning,
     /// This log is an error.
     Error,
+    /// This log is an additional log related to the previous one, this is used to have
+    /// a pretty line return instead of terminal's line wrapping.
+    Additional,
 }
 
 /// The output table mode, used to build a table.
@@ -576,54 +589,4 @@ impl Cell<'_> {
 
     }
 
-}
-
-
-/// Find the SI unit of a given number and return the number scaled down to that unit.
-pub fn number_si_unit(num: f32) -> (f32, char) {
-    match num {
-        ..=999.0 => (num, ' '),
-        ..=999_999.0 => (num / 1_000.0, 'k'),
-        ..=999_999_999.0 => (num / 1_000_000.0, 'M'),
-        _ => (num / 1_000_000_000.0, 'G'),
-    }
-}
-
-/// A wrapper that can be used to format a time delta for human-readable format.
-#[derive(Debug)]
-pub struct TimeDeltaDisplay(pub TimeDelta);
-
-impl fmt::Display for TimeDeltaDisplay {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        
-        let years = self.0.num_days() / 365;
-        if years > 0 {
-            return write!(f, "{years} years ago");
-        }
-        
-        // All of this is really wrong but it gives a good, human-friendly, idea.
-        let months = self.0.num_weeks() / 4;
-        if months > 0 {
-            return write!(f, "{months} months ago");
-        }
-        
-        let weeks = self.0.num_weeks();
-        if weeks > 0 {
-            return write!(f, "{weeks} weeks ago");
-        }
-
-        let days = self.0.num_days();
-        if days > 0 {
-            return write!(f, "{days} days ago");
-        }
-
-        let hours = self.0.num_hours();
-        if hours > 0 {
-            return write!(f, "{hours} hours ago");
-        }
-
-        let minutes = self.0.num_minutes();
-        write!(f, "{minutes} minutes ago")
-
-    }
 }

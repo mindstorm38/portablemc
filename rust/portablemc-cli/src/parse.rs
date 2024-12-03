@@ -22,12 +22,12 @@ pub struct CliArgs {
     pub cmd: CliCmd,
     /// Enable verbose output, the more -v argument you put, the more verbose the
     /// launcher will be.
-    #[arg(short, action = clap::ArgAction::Count)]
+    #[arg(short, env = "PMC_VERBOSE", action = clap::ArgAction::Count)]
     pub verbose: u8,
     /// Change the default output format of the launcher.
-    #[arg(long, default_value = "human")]
+    #[arg(long, env = "PMC_OUTPUT", default_value = "human")]
     pub output: CliOutput,
-    /// Set the directory where versions, libraries, assets, JVM and where the game is run.
+    /// Set the directory where versions, libraries, assets, JVM and where the game's run.
     /// 
     /// This argument is equivalent to calling: 
     /// --versions-dir <main>/versions
@@ -37,48 +37,54 @@ pub struct CliArgs {
     /// --bin-dir <main>/bin
     /// --work-dir <main>
     /// 
-    /// This argument defaults the standard Minecraft directory on your system.
-    #[arg(long, value_name = "PATH")]
+    /// If left unspecified, this argument defaults to the standard Minecraft directory
+    /// for your system: in '%USERPROFILE%/AppData/Roaming' on Windows, 
+    /// '$HOME/Library/Application Support/minecraft' on macOS and `$HOME/.minecraft` on
+    /// other systems. If the launcher fails to find the default directory then it will
+    /// abort any command exit with a failure telling you to specify it (using argument 
+    /// or environment variable).
+    #[arg(long, env = "PMC_MAIN_DIR", value_name = "PATH")]
     pub main_dir: Option<PathBuf>,
     /// Set the versions directory where all version and their metadata are stored.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, env = "PMC_VERSIONS_DIR", value_name = "PATH")]
     pub versions_dir: Option<PathBuf>,
     /// Set the libraries directory where all Java libraries are stored.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, env = "PMC_LIBRARIES_DIR", value_name = "PATH")]
     pub libraries_dir: Option<PathBuf>,
     /// Set the assets directory where all game assets are stored.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, env = "PMC_ASSETS_DIR", value_name = "PATH")]
     pub assets_dir: Option<PathBuf>,
     /// Set the JVM directory where Mojang's Java Virtual Machines are stored if needed.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, env = "PMC_JVM_DIR", value_name = "PATH")]
     pub jvm_dir: Option<PathBuf>,
     /// Set the binaries directory where all binary objects are extracted before running
     /// the game.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, env = "PMC_BIN_DIR", value_name = "PATH")]
     pub bin_dir: Option<PathBuf>,
     /// Set the directory where the game is run from, the game will use this directory
     /// to put options, saves, screenshots and access texture or resource packs and any
     /// other user related stuff.
     /// 
     /// This is applied after --main-dir has been applied.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, env = "PMC_WORK_DIR", value_name = "PATH")]
     pub work_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum CliCmd {
-    Search(SearchArgs),
     Start(StartArgs),
+    Search(SearchArgs),
+    Info(InfoArgs),
     Login(LoginArgs),
     Logout(LogoutArgs),
     Show(ShowArgs),
@@ -95,59 +101,10 @@ pub enum CliOutput {
     /// values where the first value defines which kind of data to follow, so that the
     /// program reading this output will be able to properly interpret the following
     /// values, a line return is use to split every line. This mode is always verbose,
-    /// and verbose will not have any effect on it.
+    /// and verbose will not have any effect on it. If the launcher exit with a failure
+    /// code, you should expect finding a log message prefixed with `error_`, describing
+    /// the error(s) causing the exit.
     Machine,
-}
-
-// ================= //
-//  SEARCH COMMAND   //
-// ================= //
-
-/// Search for versions.
-/// 
-/// By default this command will search for official Mojang version but you can change 
-/// this behavior and search for local or mod loaders versions with the -k (--kind) 
-/// argument. Note that the displayed table layout depends on the kind. How the
-/// query string is interpreted depends on the kind.
-#[derive(Debug, Args)]
-pub struct SearchArgs {
-    /// The search query string.
-    /// 
-    /// Its syntax allows giving multiple space-separated words (quoted arguments are not
-    /// split), then if a word contains a colon ':' then it is split in a parameter and
-    /// its value, the parameter and its value are then interpreted depending on the 
-    /// search kind. If a word if not of parameter:value syntax then it's interpreted
-    /// depending on the search kind, for example to filter version name. Multiple
-    /// different parameters acts in a AND logic, but giving multiple times the same
-    /// parameters acts in a OR logic. 
-    /// 
-    /// For example when searching for Mojang versions, the query '1.3 1.4 type:release 
-    /// type:snapshot', all versions containing '1.3' OR '1.4' in their id AND of type
-    /// 'release' or 'snapshot' will be displayed.
-    pub query: Vec<String>,
-    /// Select the target of the search query.
-    #[arg(short, default_value = "mojang")]
-    pub kind: SearchKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum SearchKind {
-    /// Search for official versions released by Mojang, including release and snapshots.
-    /// A query word is used to filter versions' identifiers. Supported parameters are 
-    /// 'type:<release|snapshot|beta|alpha>' for filtering by version type, 'release:'
-    /// to show only the latest release and 'snapshot:' to show only the latest snapshot
-    /// (these last two overrides any other query).
-    Mojang,
-    /// Search for locally installed versions, located in the versions directory.
-    Local,
-    /// Search for Forge loader versions.
-    Forge,
-    /// Search for Fabric loader versions.
-    Fabric,
-    /// Search for Quilt loader versions.
-    Quilt,
-    /// Search for LegacyFabric loader versions.
-    LegacyFabric,
 }
 
 // ================= //
@@ -282,7 +239,7 @@ pub struct StartArgs {
     /// Authenticate into an online session.
     /// 
     /// This conflicts with both '--username' or `--uuid` arguments.
-    #[arg(short, long, conflicts_with_all = ["username", "uuid"])]
+    #[arg(short, long, env = "PMC_START_LOGIN", conflicts_with_all = ["username", "uuid"])]
     pub login: Option<String>,
     /// Change the default username of the player, for offline-mode.
     #[arg(short, long, value_name = "NAME")]
@@ -408,6 +365,67 @@ impl FromStr for StartResolution {
         })
 
     }
+
+}
+
+// ================= //
+//  SEARCH COMMAND   //
+// ================= //
+
+/// Search for versions.
+/// 
+/// By default this command will search for official Mojang version but you can change 
+/// this behavior and search for local or mod loaders versions with the -k (--kind) 
+/// argument. Note that the displayed table layout depends on the kind. How the
+/// query string is interpreted depends on the kind.
+#[derive(Debug, Args)]
+pub struct SearchArgs {
+    /// The search query string.
+    /// 
+    /// Its syntax allows giving multiple space-separated words (quoted arguments are not
+    /// split), then if a word contains a colon ':' then it is split in a parameter and
+    /// its value, the parameter and its value are then interpreted depending on the 
+    /// search kind. If a word if not of parameter:value syntax then it's interpreted
+    /// depending on the search kind, for example to filter version name. Multiple
+    /// different parameters acts in a AND logic, but giving multiple times the same
+    /// parameters acts in a OR logic. 
+    /// 
+    /// For example when searching for Mojang versions, the query '1.3 1.4 type:release 
+    /// type:snapshot', all versions containing '1.3' OR '1.4' in their id AND of type
+    /// 'release' or 'snapshot' will be displayed.
+    pub query: Vec<String>,
+    /// Select the target of the search query.
+    #[arg(short, default_value = "mojang")]
+    pub kind: SearchKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SearchKind {
+    /// Search for official versions released by Mojang, including release and snapshots.
+    /// A query word is used to filter versions' identifiers. Supported parameters are 
+    /// 'type:<release|snapshot|beta|alpha>' for filtering by version type, 'release:'
+    /// to show only the latest release and 'snapshot:' to show only the latest snapshot
+    /// (these last two overrides any other query).
+    Mojang,
+    /// Search for locally installed versions, located in the versions directory.
+    Local,
+    /// Search for Forge loader versions.
+    Forge,
+    /// Search for Fabric loader versions.
+    Fabric,
+    /// Search for Quilt loader versions.
+    Quilt,
+    /// Search for LegacyFabric loader versions.
+    LegacyFabric,
+}
+
+// ================= //
+//   INFO COMMAND    //
+// ================= //
+
+/// Get informations about a version.
+#[derive(Debug, Args)]
+pub struct InfoArgs {
 
 }
 
