@@ -5,6 +5,8 @@ pub mod serde;
 
 use std::path::PathBuf;
 
+use reqwest::Client;
+
 use crate::download;
 use crate::standard;
 use crate::mojang;
@@ -12,28 +14,50 @@ use crate::mojang;
 pub use mojang::{Root, Game};
 
 
+/// This is the original and official Fabric API.
+pub static FABRIC_API: Api = Api {
+    base_url: "https://meta.fabricmc.net/v2",
+};
+
+/// This is the API for the Quilt mod loader, which is a fork of Fabric.
+pub static QUILT_API: Api = Api {
+    base_url: "https://meta.quiltmc.org/v3",
+};
+
+/// This is the API for the LegacyFabric project which aims to backport the Fabric loader
+/// to older versions, up to 1.14 snapshots.
+pub static LEGACY_FABRIC_API: Api = Api {
+    base_url: "https://meta.legacyfabric.net/v2",
+};
+
+/// This is the API for the LegacyFabric project which aims to backport the Fabric loader
+/// to older versions, up to 1.14 snapshots.
+pub static BABRIC_API: Api = Api {
+    base_url: "https://meta.babric.glass-launcher.net/v2",
+};
+
 /// An installer for supporting mod loaders that are Fabric or like it (Quilt, 
 /// LegacyFabric, Babric). The generic parameter is used to specify the API to use.
 #[derive(Debug, Clone)]
-pub struct Installer<A: Api> {
+pub struct Installer {
     /// The underlying Mojang installer logic.
     mojang: mojang::Installer,
     /// Inner installer data, put in a sub struct to fix borrow issue.
-    inner: InstallerInner<A>,
+    inner: InstallerInner,
 }
 
 /// Internal installer data.
 #[derive(Debug, Clone)]
-struct InstallerInner<A> {
-    api: A,
+struct InstallerInner {
+    api: &'static Api,
     root: Root,
     loader: Loader,
 }
 
-impl<A: Api> Installer<A> {
+impl Installer {
 
     /// Create a new installer with default configuration.
-    pub fn new(main_dir: impl Into<PathBuf>, api: A) -> Self {
+    pub fn new(main_dir: impl Into<PathBuf>, api: &'static Api) -> Self {
         Self {
             mojang: mojang::Installer::new(main_dir),
             inner: InstallerInner {
@@ -46,7 +70,7 @@ impl<A: Api> Installer<A> {
 
     /// Same as [`Self::new`] but using the default main directory in your system,
     /// returning none if there is no default main directory on your system.
-    pub fn new_with_default(api: A) -> Option<Self> {
+    pub fn new_with_default(api: &'static Api) -> Option<Self> {
         Some(Self::new(standard::default_main_dir()?, api))
     }
 
@@ -93,18 +117,20 @@ impl<A: Api> Installer<A> {
             _ => None,
         };
 
-        // If we need an alias then we need to load the manifest.
-        let id = if let Some(alias) = alias {
-            mojang::request_manifest(handler.as_download_dyn())?
-                .latest.get(&alias)
-                .cloned()
-                .ok_or_else(|| mojang::Error::RootAliasNotFound { root: self.inner.root.clone() })?
-        } else {
-            match self.inner.root {
-                Root::Id(ref new_id) => new_id.clone(),
-                _ => unreachable!(),
-            }
-        };
+        // // If we need an alias then we need to load the manifest.
+        // let id = if let Some(alias) = alias {
+        //     mojang::request_manifest(handler.as_download_dyn())?
+        //         .latest.get(&alias)
+        //         .cloned()
+        //         .ok_or_else(|| mojang::Error::RootAliasNotFound { root: self.inner.root.clone() })?
+        // } else {
+        //     match self.inner.root {
+        //         Root::Id(ref new_id) => new_id.clone(),
+        //         _ => unreachable!(),
+        //     }
+        // };
+
+        // let versions = inner.api.request_game_versions(handler.as_download_dyn())?;
 
         todo!()
 
@@ -112,59 +138,40 @@ impl<A: Api> Installer<A> {
 
 }
 
-/// Abstract definition of a fabric fork.
-pub trait Api {
-
-    /// Return the base URL for that API, not ending with a '/'. This API must support 
-    /// the following endpoints supporting the same API as official Fabric API: 
+/// A fabric-compatible API.
+#[derive(Debug)]
+pub struct Api {
+    /// Base URL for that API, not ending with a '/'. This API must support the following
+    /// endpoints supporting the same API as official Fabric API: 
     /// `/versions/game`, `/versions/loader`, `/versions/loader/<game_version>` and 
     /// `/versions/loader/<game_version>/<loader_loader>/profile/json`.
-    fn base_url(&self) -> &str;
-
+    pub base_url: &'static str,
 }
 
-/// This is the original and official Fabric API.
-#[derive(Debug)]
-pub struct Fabric;
-impl Api for Fabric {
-    
-    fn base_url(&self) -> &str {
-        "https://meta.fabricmc.net/v2"
+impl Api {
+
+    /// Request supported game versions, using the local cache to support offline 
+    /// starting with .
+    fn request_game_versions(&self, client: &Client) -> Result<Vec<serde::Game>> {
+        crate::tokio::sync(async move {
+            let res = client.get(format!("{}/versions/game", self.base_url))
+                .send().await?
+                .error_for_status()?
+                .json::<Vec<serde::Game>>().await?;
+            Ok(res)
+        })
     }
 
-}
-
-/// This is the API for the Quilt mod loader, which is a fork of Fabric.
-#[derive(Debug)]
-pub struct Quilt;
-impl Api for Quilt {
-
-    fn base_url(&self) -> &str {
-        "https://meta.quiltmc.org/v3"
-    }
-
-}
-
-/// This is the API for the LegacyFabric project which aims to backport the Fabric loader
-/// to older versions, up to 1.14 snapshots.
-#[derive(Debug)]
-pub struct LegacyFabric;
-impl Api for LegacyFabric {
-
-    fn base_url(&self) -> &str {
-        "https://meta.legacyfabric.net/v2"
-    }
-
-}
-
-/// This is the API for the LegacyFabric project which aims to backport the Fabric loader
-/// to older versions, up to 1.14 snapshots.
-#[derive(Debug)]
-pub struct Babric;
-impl Api for Babric {
-
-    fn base_url(&self) -> &str {
-        "https://meta.babric.glass-launcher.net/v2"
+    /// Request supported game versions, using the local cache to support offline 
+    /// starting with .
+    fn request_loader_versions(&self, client: &Client) -> Result<Vec<serde::Loader>> {
+        crate::tokio::sync(async move {
+            let res = client.get(format!("{}/versions/loader", self.base_url))
+                .send().await?
+                .error_for_status()?
+                .json::<Vec<serde::Loader>>().await?;
+            Ok(res)
+        })
     }
 
 }
@@ -206,13 +213,19 @@ pub enum Event {
 pub enum Error {
     /// Error from the standard installer.
     #[error("standard: {0}")]
-    Mojang(#[from] mojang::Error),
+    Mojang(#[source] mojang::Error),
     /// A loader latest or specific version has not been found for the root version.
     #[error("loader not found: {loader:?}")]
     LoaderNotFound {
         root: String,
         loader: Loader,
     },
+}
+
+impl<T: Into<mojang::Error>> From<T> for Error {
+    fn from(value: T) -> Self {
+        Self::Mojang(value.into())
+    }
 }
 
 /// Type alias for a result with the standard error type.
@@ -234,49 +247,33 @@ impl<T: Into<String>> From<T> for Loader {
     }
 }
 
-/// Request game versions from the API, using the local cache to support offline starting.
-pub fn request_game_versions(api: &impl Api, handler: impl download::Handler) -> standard::Result<Vec<serde::Game>> {
-    
-    let entry = download::single_cached(format!("{}/versions/game", api.base_url()))
-        .set_keep_open()
-        .download(handler)??;
-
-    let reader = BufReader::new(entry.take_handle().unwrap());
-    let mut deserializer = serde_json::Deserializer::from_reader(reader);
-    match serde_path_to_error::deserialize::<_, serde::MojangManifest>(&mut deserializer) {
-        Ok(obj) => Ok(obj),
-        Err(e) => Err(standard::Error::new_json_file(e, entry.file()))
-    }
-
-}
-
 // ========================== //
 // Following code is internal //
 // ========================== //
 
 /// Internal handler given to the standard installer.
-struct InternalHandler<'a, H: Handler, A: Api> {
+struct InternalHandler<'a, H: Handler> {
     /// Inner handler.
     inner: &'a mut H,
     /// Back-reference to the installer to know its configuration.
-    installer: &'a InstallerInner<A>,
+    installer: &'a InstallerInner,
     /// If there is an error in the handler.
     error: Result<()>,
 }
 
-impl<H: Handler, A: Api> download::Handler for InternalHandler<'_, H, A> {
+impl<H: Handler> download::Handler for InternalHandler<'_, H> {
     fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
         self.inner.handle_download_progress(count, total_count, size, total_size)
     }
 }
 
-impl<H: Handler, A: Api> standard::Handler for InternalHandler<'_, H, A> {
+impl<H: Handler> standard::Handler for InternalHandler<'_, H> {
     fn handle_standard_event(&mut self, event: standard::Event) { 
         self.error = self.handle_standard_event_inner(event);
     }
 }
 
-impl<H: Handler, A: Api> InternalHandler<'_, H, A> {
+impl<H: Handler> InternalHandler<'_, H> {
 
     fn handle_standard_event_inner(&mut self, event: standard::Event) -> Result<()> { 
         
