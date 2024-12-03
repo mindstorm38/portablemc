@@ -1,6 +1,7 @@
 //! JSON schemas structures for serde deserialization.
 
 use std::collections::HashMap;
+use std::ops::Deref;
 
 use regex::Regex;
 
@@ -32,14 +33,22 @@ pub struct Version {
     pub assets: Option<String>,
     /// Unknown, used by official launcher.
     pub compliance_level: Option<u32>,
+    /// A mapping of downloads for entry point JAR files, such as for client or for 
+    /// server. This sometime also defines a server executable for old versions.
     #[serde(default)]
     pub downloads: HashMap<String, Download>,
+    /// The sequence of JAR libraries to include in the class path when running the
+    /// version, the order of libraries should be respected in the class path (for
+    /// some corner cases with mod loaders). When a library is defined, it can't be
+    /// overridden by inherited versions.
     #[serde(default)]
     pub libraries: Vec<VersionLibrary>,
+    /// The full class name to run as the main JVM class.
     pub main_class: String,
     /// Legacy arguments command line.
     #[serde(rename = "minecraftArguments")]
-    pub legacy_arguments: String,
+    pub legacy_arguments: Option<String>,
+    /// Modern arguments for game and/or jvm.
     pub arguments: Option<VersionArguments>,
 }
 
@@ -68,6 +77,7 @@ pub struct VersionLibrary {
     pub downloads: VersionLibraryDownloads,
     pub natives: Option<HashMap<String, String>>,
     pub rules: Option<Vec<Rule>>,
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -83,7 +93,7 @@ pub struct VersionLibraryDownloads {
 pub struct VersionLibraryDownload {
     pub path: Option<String>,
     #[serde(flatten)]
-    pub common: Download,
+    pub download: Download,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -110,6 +120,24 @@ pub struct VersionConditionalArgument {
 }
 
 #[derive(Debug, serde::Deserialize)]
+pub struct AssetIndex {
+    /// For version <= 13w23b (1.6.1).
+    #[serde(default)]
+    pub map_to_resources: bool,
+    /// For 13w23b (1.6.1) < version <= 13w48b (1.7.2).
+    #[serde(default)]
+    pub r#virtual: bool,
+    /// Mapping of assets from their real path to their download information.
+    pub objects: HashMap<String, AssetObject>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct AssetObject {
+    pub size: u32,
+    pub hash: Sha1HashString,
+}
+
+#[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Rule {
     pub action: RuleAction,
@@ -124,10 +152,11 @@ pub struct Rule {
 pub struct RuleOs {
     pub name: Option<String>,
     pub arch: Option<String>,
+    /// Only known value to use regex.
     pub version: Option<RegexString>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleAction {
     Allow,
@@ -137,8 +166,8 @@ pub enum RuleAction {
 #[derive(Debug, serde::Deserialize)]
 pub struct Download {
     pub url: String,
-    pub sha1: Option<Sha1HashString>,
     pub size: Option<u32>,
+    pub sha1: Option<Sha1HashString>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -151,6 +180,13 @@ pub enum SingleOrVec<T> {
 /// A SHA-1 hash parsed has a 40 hex characters string.
 #[derive(Debug)]
 pub struct Sha1HashString(pub [u8; 20]);
+
+impl Deref for Sha1HashString {
+    type Target = [u8; 20];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl<'de> serde::Deserialize<'de> for Sha1HashString {
 
@@ -189,6 +225,13 @@ impl<'de> serde::Deserialize<'de> for Sha1HashString {
 #[derive(Debug)]
 pub struct RegexString(pub Regex);
 
+impl Deref for RegexString {
+    type Target = Regex;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl<'de> serde::Deserialize<'de> for RegexString {
 
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -221,7 +264,6 @@ impl<'de> serde::Deserialize<'de> for RegexString {
     }
 
 }
-
 
 /// Parse the given hex bytes string into the given destination slice, returning none if 
 /// the input string cannot be parsed, is too short or too long.

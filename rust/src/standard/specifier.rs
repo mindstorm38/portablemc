@@ -7,7 +7,7 @@ use std::ops::Range;
 use std::fmt;
 
 
-/// A maven-style library specifier.
+/// A maven-style library specifier with an optimized memory footprint.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LibrarySpecifier {
     /// Internal buffer containing the whole specifier. This should follows the pattern 
@@ -218,6 +218,27 @@ impl LibrarySpecifier {
             self.extension_len = None;
             self.raw.replace_range(range, "");
         }
+    }
+
+    /// Iterator over standard file path component for this specifier.
+    pub fn file_components(&self) -> impl Iterator<Item = Cow<'_, str>> + '_ {
+
+        let artifact = self.artifact();
+        let version = self.version();
+
+        let mut file_name = format!("{artifact}-{version}");
+        let classifier = self.classifier();
+        if !classifier.is_empty() {
+            file_name.push('-');
+            file_name.push_str(classifier);
+        }
+        file_name.push_str(self.extension());
+
+        self.group().split('.')
+            .chain([artifact, version])
+            .map(Cow::Borrowed)
+            .chain([Cow::Owned(file_name)])
+
     }
 
 }
