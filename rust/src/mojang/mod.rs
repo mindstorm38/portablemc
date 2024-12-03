@@ -1,12 +1,13 @@
 //! Extension to the standard installer with verification and installation of missing
 //! Mojang versions.
 
-use std::path::PathBuf;
+pub mod serde;
+mod manifest;
 
 use crate::standard::{Installer, Handler, Event, Result};
+use crate::http;
 
-
-const VERSION_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+pub use manifest::MojangManifest;
 
 
 /// An installer for Mojang-provided versions.
@@ -14,10 +15,8 @@ const VERSION_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/versi
 pub struct MojangInstaller {
     /// The underlying standard installer logic.
     pub installer: Installer,
-    /// The Mojang version manifest can be cached in the filesystem. This can be useful
-    /// because the only API to request a version JSON file is to query this enormous
-    /// manifest file.
-    pub manifest_cache_file: Option<PathBuf>,
+    /// Underlying version manifest.
+    pub manifest: MojangManifest,
 }
 
 impl MojangInstaller {
@@ -35,7 +34,7 @@ impl MojangInstaller {
 
 }
 
-/// Internal handler wrapper for properly 
+/// Internal handler wrapper.
 struct InternalHandler<'a> {
     handler: &'a mut dyn Handler,
 }

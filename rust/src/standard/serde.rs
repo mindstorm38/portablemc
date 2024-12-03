@@ -5,7 +5,7 @@ use std::ops::Deref;
 
 use regex::Regex;
 
-use super::specifier::LibrarySpecifier;
+use crate::gav::Gav;
 
 
 /// A version metadata JSON schema.
@@ -55,6 +55,15 @@ pub struct VersionMetadata {
     pub logging: HashMap<String, VersionLogging>,
 }
 
+#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VersionType {
+    Release,
+    Snapshot,
+    OldBeta,
+    OldAlpha,
+}
+
 /// Object describing the Mojang-provided Java version to use to launch the game.
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -76,7 +85,7 @@ pub struct VersionAssetIndex {
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionLibrary {
-    pub name: LibrarySpecifier,
+    pub name: Gav,
     #[serde(default)]
     pub downloads: VersionLibraryDownloads,
     pub natives: Option<HashMap<String, String>>,
