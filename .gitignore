@@ -7,3 +7,6 @@ __pycache__
 # Do not keep tests and coverage results
 .pytest_cache
 .coverage
+
+# To avoid cluttering when switching branch with 'rust-rewrite' branch.
+/rust

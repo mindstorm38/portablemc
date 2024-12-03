@@ -643,6 +643,16 @@ class Version:
                     if minecraft_arch_bits is not None:
                         spec.classifier = spec.classifier.replace("${arch}", str(minecraft_arch_bits))
 
+                # Changed in 4.3.1, rules are checked after natives
+                rules = library.get("rules")
+                if rules is not None:
+
+                    if not isinstance(rules, list):
+                        raise ValueError(f"metadata: /libraries/{library_idx}/rules must be a list")
+                    
+                    if not interpret_rule(rules, self._features, f"metadata: /libraries/{library_idx}/rules"):
+                        continue
+                
                 # Create a wildcard copy of the spec without version, because we don't
                 # want to match against version, regardless of its version, a library
                 # should not be added twice.
@@ -655,16 +665,6 @@ class Version:
                 if spec_wild in unique_specs:
                     continue
                 unique_specs.add(spec_wild)
-
-                # Changed in 4.3.1, rules are checked after natives
-                rules = library.get("rules")
-                if rules is not None:
-
-                    if not isinstance(rules, list):
-                        raise ValueError(f"metadata: /libraries/{library_idx}/rules must be a list")
-                    
-                    if not interpret_rule(rules, self._features, f"metadata: /libraries/{library_idx}/rules"):
-                        continue
 
                 lib_entry: Optional[DownloadEntry] = None
                 
