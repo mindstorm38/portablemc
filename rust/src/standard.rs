@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::num::NonZeroU16;
 use std::fs::File;
 use std::io::{self, Seek, SeekFrom};
+use std::sync::Arc;
 
 use sha1::{Digest, Sha1};
 use serde_json::Value;
@@ -23,6 +24,9 @@ pub type Object = serde_json::Map<String, Value>;
 
 /// Type alias for JSON array of values.
 pub type Array = Vec<Value>;
+
+/// Type alias for 20 bytes used for computed SHA-1 hash.
+pub type Sha1Hash = [u8; 20];
 
 /// This is the standard version installer that provides minimal and common installation
 /// of Minecraft versions. The install procedure given by this installer is idempotent,
@@ -101,18 +105,26 @@ impl Installer {
         // Merge the full metadata, because we can only interpret a single metadata.
         let mut metadata = Object::new();
         for version in &hierarchy {
-            merge_metadata(&mut metadata, &version.metadata);
+            merge_json_metadata(&mut metadata, &version.metadata);
         }
+
+        // Downloads list to the end.
+        let mut downloads = Vec::new();
 
         // Build the features list, used when applying metadata rules.
         let mut features = HashMap::new();
         handler.filter_features(self, &mut features)?;
 
-        self.resolve_assets(&metadata, handler)?;
+        // Assets may be absent and unspecified in metadata for some custom versions.
+        let assets = self.resolve_assets(&metadata, &mut downloads, handler)?;
+        handler.filter_assets(self, assets.as_ref());
 
         // Now we want to resolve the main version JAR file.
         let jar_file = self.version_file(version, "jar");
-        self.resolve_jar(&metadata, &jar_file, handler)?;
+        self.resolve_jar(&metadata, &mut downloads, &jar_file, handler)?;
+
+        // Finally download all required files.
+        handler.download(&downloads)?;
 
         Ok(())
 
@@ -151,12 +163,12 @@ impl Installer {
         match File::open(self.version_file(&version, "json")) {
             Ok(metadata_reader) => {
 
-                let version = Version {
+                let mut version = Version {
                     metadata: serde_json::from_reader(metadata_reader)?,
                     name: version.to_string(),
                 };
 
-                if handler.filter_version(self, &version)? {
+                if handler.filter_version(self, &mut version)? {
                     return Ok(version);
                 }
                 
@@ -172,12 +184,12 @@ impl Installer {
     /// Resolve the given version's merged metadata assets to use for the version. This
     /// returns a full description of what assets to use (if so) and the list. This 
     /// function push downloads for each missing asset.
-    fn resolve_assets(&self, metadata: &Object, handler: &mut dyn Handler) -> Result<()> {
+    fn resolve_assets(&self, metadata: &Object, downloads: &mut Vec<Download>, handler: &mut dyn Handler) -> Result<Option<Assets>> {
 
         let Some(assets_index_info) = metadata.get("assetIndex") else {
             // Asset info may not be present, it's not required because some custom 
             // versions may want to use there own internal assets.
-            return Ok(());
+            return Ok(None);
         };
 
         let Value::Object(assets_index_info) = assets_index_info else {
@@ -192,7 +204,7 @@ impl Installer {
                     .map(|val| (val, "/assetIndex/id"))) 
         else {
             // Asset info may not be present, same as above.
-            return Ok(());
+            return Ok(None);
         };
 
         let Value::String(assets_index_version) = assets_index_version else {
@@ -212,16 +224,14 @@ impl Installer {
         let assets_index: Object = serde_json::from_reader(assets_index_reader)?;
         
         // For version <= 13w23b (1.6.1)
-        let assets_resources = assets_index.get("map_to_resources");
-        let assets_resources = match assets_resources {
+        let assets_resources = match assets_index.get("map_to_resources") {
             Some(&Value::Bool(val)) => val,
             Some(_) => return Err(Error::JsonSchema(format!("assets index: /map_to_resources must be a boolean"))),
             None => false,
         };
 
         // For 13w23b (1.6.1) < version <= 13w48b (1.7.2)
-        let assets_virtual = assets_index.get("virtual");
-        let assets_virtual = match assets_virtual {
+        let assets_virtual = match assets_index.get("virtual") {
             Some(&Value::Bool(val)) => val,
             Some(_) => return Err(Error::JsonSchema(format!("assets index: /virtual must be a boolean"))),
             None => false,
@@ -233,6 +243,15 @@ impl Installer {
         };
 
         let assets_objects_dir = assets_dir.join("objects");
+
+        let mut assets = Assets {
+            version: assets_index_version.clone(),
+            count: assets_objects.len(),
+            size: 0,
+            with_resources: assets_resources,
+            with_virtual: assets_virtual,
+            objects: HashMap::new(),
+        };
 
         for (asset_id, asset_obj) in assets_objects.iter() {
 
@@ -250,6 +269,8 @@ impl Installer {
             let asset_size = asset_size.as_u64()
                 .and_then(|size| u32::try_from(size).ok())
                 .ok_or_else(size_make_err)?;
+            
+            assets.size += asset_size as u64;
 
             let Some(Value::String(asset_hash_raw)) = asset_obj.get("hash") else {
                 return Err(hash_make_err());
@@ -257,7 +278,9 @@ impl Installer {
 
             let asset_hash = parse_hex_bytes::<20>(asset_hash_raw)
                 .ok_or_else(hash_make_err)?;
-            
+
+            let asset_relative_file = PathBuf::from(asset_id);
+
             // The asset file is located in a directory named after the first byte of the
             // asset's SHA-1 hash, we extract the two first hex character from the hash.
             // This should not panic if the hex parsing has been successful.
@@ -268,20 +291,27 @@ impl Installer {
                 buf
             };
 
-            let asset_url = format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_hash_raw}");
+            assets.objects.insert(asset_relative_file, asset_hash.clone());
 
-            // TODO: Check if needed
-            handler.push_download(Download {
-                url: &asset_url,
-                file: &asset_file,
-                size: Some(asset_size),
-                sha1: Some(asset_hash),
-                executable: false,
-            })?;
+            let must_download = match asset_file.metadata() {
+                Ok(metadata) => metadata.len() != asset_size as u64,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => true,
+                Err(e) => return Err(e.into()),
+            };
+
+            if must_download {
+                downloads.push(Download {
+                    url: format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_hash_raw}"),
+                    file: asset_file,
+                    size: Some(asset_size),
+                    sha1: Some(asset_hash),
+                    executable: false,
+                })
+            }
 
         }
 
-        Ok(())
+        Ok(Some(assets))
 
     }
 
@@ -289,7 +319,7 @@ impl Installer {
     /// it is explicitly specified in the metadata, if so it will schedule it for 
     /// download if relevant, if not it will use the already present JAR file. If
     /// no JAR file exists, an [`Error::JarNotFound`] error is returned.
-    fn resolve_jar(&self, metadata: &Object, jar_file: &Path, handler: &mut dyn Handler) -> Result<()> {
+    fn resolve_jar(&self, metadata: &Object, downloads: &mut Vec<Download>, jar_file: &Path, handler: &mut dyn Handler) -> Result<()> {
 
         if let Some(downloads) = metadata.get("downloads") {
 
@@ -306,8 +336,7 @@ impl Installer {
                 let download = parse_json_download(downloads_client, jar_file)
                     .map_err(|err| Error::JsonSchema(format!("metadata: /downloads/client{err}")))?;
 
-                // TODO: Check that the file exists or not...
-                handler.push_download(download)?;
+                downloads.push(download);
 
             }
 
@@ -327,7 +356,7 @@ impl Installer {
     /// immediately flush the handler.
     fn read_with_download(&self, download: Download, handler: &mut dyn Handler) -> Result<File> {
 
-        let file = download.file;
+        let file = download.file.as_path();
 
         // The loop is just used here to break early.
         loop {
@@ -361,8 +390,7 @@ impl Installer {
         }
 
         // Push and directory flush the download.
-        handler.push_download(download)?;
-        handler.flush_download()?;
+        handler.download(std::slice::from_ref(&download));
 
         // The handler should have checked it and it should be existing.
         match File::open(file) {
@@ -381,7 +409,7 @@ pub trait Handler {
 
     /// Filter an individual version that have just been loaded from a file, this method
     /// should return false if the version should be requested again.
-    fn filter_version(&mut self, installer: &Installer, version: &Version) -> Result<bool> {
+    fn filter_version(&mut self, installer: &Installer, version: &mut Version) -> Result<bool> {
         let _ = (installer, version);
         Ok(true)
     }
@@ -406,8 +434,8 @@ pub trait Handler {
         Ok(())
     }
 
-    /// Filter assets that will be installed in the 
-    fn filter_assets(&mut self, installer: &Installer, assets: &mut Assets) -> Result<()> {
+    /// Filter assets that will be installed for that version, none if no assets.
+    fn filter_assets(&mut self, installer: &Installer, assets: Option<&Assets>) -> Result<()> {
         let _ = (installer, assets);
         Ok(())
     }
@@ -425,27 +453,14 @@ pub trait Handler {
         Ok(())
     }
 
-    /// Push a file to be downloaded later when [`Self::flush_download`] is called, 
-    /// this should be the preferred way to download a file from the installer.
+    /// Download entries synchronously, this should be the preferred way to download a
+    /// file as-is. When successful, this method should return the total bytes downloaded.
     /// 
     /// This method should not check if the file already exists, it should always
     /// download it and only then check size and SHA-1, if relevant.
-    ///  
-    /// Implementor is allowed to synchronously download the file in this method, 
-    /// instead of waiting for flush, but it should be aware that it will greatly 
-    /// reduce efficiency of the installer.
-    fn push_download(&mut self, download: Download) -> Result<()> {
-        let _ = download;
-        Ok(())
-    }
-
-    /// Download all files previously pushed with [`Self::push_download`]. This method is
-    /// expected to be blocking, but can download all files in parallel if needed, this 
-    /// is an implementation detail. If this function is successful, all previously pushed
-    /// downloads should have been downloaded (hash/size-checked if relevant, and made
-    /// executable if requested).
-    fn flush_download(&mut self) -> Result<()> {
-        Err(Error::UnsupportedOperation("flush_download"))
+    fn download(&mut self, entries: &[Download]) -> Result<usize> {
+        let _ = entries;
+        Err(Error::UnsupportedOperation("download"))
     }
 
 }
@@ -463,14 +478,18 @@ pub struct Version {
 /// Represent all the assets used for the game.
 #[derive(Debug)]
 pub struct Assets {
-    /// Inner list of assets.
-    inner: BTreeMap<String, Asset>,
-}
-
-/// Represent a single asset that will be used by the game.
-#[derive(Debug)]
-pub struct Asset {
-
+    /// The version of assets index.
+    pub version: String,
+    /// Total number of asset objects.
+    pub count: usize,
+    /// Total size of asset objects.
+    pub size: u64,
+    /// For version <= 13w23b (1.6.1)
+    pub with_resources: bool,
+    /// For 13w23b (1.6.1) < version <= 13w48b (1.7.2)
+    pub with_virtual: bool,
+    /// Assets objects mapped from their relative path to their SHA-1 hash.
+    pub objects: HashMap<PathBuf, Sha1Hash>,
 }
 
 #[derive(Debug)]
@@ -481,16 +500,16 @@ pub struct Library {
 /// A download entry that can be delayed until a call to [`Handler::flush_download`].
 /// This download object borrows the URL and file path.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Download<'url, 'file> {
+pub struct Download {
     /// Url of the file to download.
-    pub url: &'url str,
+    pub url: String,
     /// Path to the file to ultimately download.
-    pub file: &'file Path,
+    pub file: PathBuf,
     /// Expected size of the file, checked after downloading, this use a `u32` because
     /// we are not downloading ubuntu ISO...
     pub size: Option<u32>,
     /// Expected SHA-1 of the file, checked after downloading.
-    pub sha1: Option<[u8; 20]>,
+    pub sha1: Option<Sha1Hash>,
     /// True if the file should be made executable on systems where its relevant to 
     /// later execute a binary.
     pub executable: bool,
@@ -664,12 +683,12 @@ fn default_meta_os_version() -> Option<String> {
 }
 
 /// Merge two version metadata JSON values.
-fn merge_metadata(dst: &mut Object, src: &Object) {
+fn merge_json_metadata(dst: &mut Object, src: &Object) {
     for (src_key, src_value) in src.iter() {
         if let Some(dst_value) = dst.get_mut(src_key) {
             match (dst_value, src_value) {
                 (Value::Object(dst_object), Value::Object(src_object)) => 
-                    merge_metadata(dst_object, src_object),
+                    merge_json_metadata(dst_object, src_object),
                 (Value::Array(dst), Value::Array(src)) =>
                     dst.extend(src.iter().cloned()),
                 _ => {}  // Do nothing
@@ -685,7 +704,7 @@ fn merge_metadata(dst: &mut Object, src: &Object) {
 fn parse_json_download<'obj, 'file>(
     object: &'obj Object, 
     file: &'file Path
-) -> StdResult<Download<'obj, 'file>, String> {
+) -> StdResult<Download, String> {
 
     let Some(Value::String(url)) = object.get("url") else {
         return Err(format!("/url must be a string"));
