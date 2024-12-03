@@ -395,7 +395,12 @@ async fn download_entry(
         }
     }
 
-    let mut res = req.send().await?;
+    // If it's a connection error just use the cached copy.
+    let mut res = match req.send().await {
+        Err(e) if cache_header && (e.is_timeout() || e.is_request() || e.is_connect()) => return Ok(()),
+        Err(e) => return Err(e.into()),
+        Ok(res) => res,
+    };
     
     if res.status() == StatusCode::NOT_MODIFIED && cache_header {
         // The server answer that the file has not been modified, do nothing.
@@ -474,7 +479,7 @@ async fn download_entry(
 
 }
 
-/// Given a file and it cache file, return the cache metadata only if the file is valid
+/// Given a file and its cache file, return the cache metadata only if the file is valid
 /// (existing) and the file has not been modified (size and SHA-1).
 async fn check_download_cache(file: &Path, cache_file: &Path) -> io::Result<Option<serde::CacheMeta>> {
 
