@@ -55,6 +55,4 @@ impl MojangManifest {
 
     }
 
-    fn 
-
 }

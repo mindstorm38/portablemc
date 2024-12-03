@@ -10,7 +10,7 @@ use std::fs::File;
 
 use sha1::{Digest, Sha1};
 
-use crate::download as dl;
+use crate::download::{self as dl, Batch, Entry, EntrySource};
 use crate::path::PathExt;
 use crate::gav::Gav;
 
@@ -83,10 +83,16 @@ impl Installer {
         }
     }
 
+
     /// Ensure that a the given version, from its id, is properly installed.
-    pub fn install(&self, handler: &mut dyn Handler, id: &str) -> Result<()> {
+    pub fn install(&self, mut handler: impl Handler, id: &str) -> Result<()> {
+        self.install_impl(&mut handler, id)
+    }
+
+    /// Internal wrapper for using object reference to avoid code duplication.
+    fn install_impl(&self, handler: &mut dyn Handler, id: &str) -> Result<()> {
         
-        let mut batch = dl::Batch::new();
+        let mut batch = Batch::new();
         let features = HashSet::new();
 
         let hierarchy = self.load_hierarchy(handler, id)?;
@@ -95,7 +101,7 @@ impl Installer {
         let _logger_config = self.load_logger(handler, &hierarchy, &mut batch)?;
         let _assets = self.load_assets(handler, &hierarchy, &mut batch)?;
 
-        self.download_many(handler, batch)?;
+        batch.download_blocking(handler.as_download_handler())?;
 
         Ok(())
 
@@ -107,7 +113,7 @@ impl Installer {
         root_id: &str
     ) -> Result<Vec<Version>> {
 
-        handler.handle(self, Event::HierarchyLoading { root_id })?;
+        handler.handle(Event::HierarchyLoading { root_id });
 
         let mut hierarchy = Vec::new();
         let mut current_id = Some(root_id.to_string());
@@ -120,7 +126,7 @@ impl Installer {
             hierarchy.push(version);
         }
 
-        handler.handle(self, Event::HierarchyLoaded { hierarchy: &mut hierarchy })?;
+        handler.handle(Event::HierarchyLoaded { hierarchy: &mut hierarchy });
 
         Ok(hierarchy)
 
@@ -139,7 +145,7 @@ impl Installer {
         let dir = self.versions_dir.join(&id);
         let file = dir.join_with_extension(&id, "json");
 
-        handler.handle(self, Event::VersionLoading { id: &id, file: &file })?;
+        handler.handle(Event::VersionLoading { id: &id, file: &file });
 
         loop {
 
@@ -147,11 +153,14 @@ impl Installer {
                 Ok(reader) => BufReader::new(reader),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {
 
-                    // If not retried, we return a version not found error.
-                    match handler.handle(self, Event::VersionNotFound { id: &id, file: &file, error: None }) {
-                        Ok(()) => return Err(Error::VersionNotFound { id }),
-                        Err(Error::Retry) => continue,
-                        Err(e) => return Err(e),
+                    let mut retry = false;
+                    handler.handle(Event::VersionNotFound { id: &id, file: &file, error: None, retry: &mut retry });
+
+                    if retry {
+                        continue;
+                    } else {
+                        // If not retried, we return a version not found error.
+                        return Err(Error::VersionNotFound { id });
                     }
 
                 }
@@ -164,7 +173,7 @@ impl Installer {
                 Err(e) => return Err(Error::new_file_json(file, e)),
             };
 
-            handler.handle(self, Event::VersionLoaded { id: &id, file: &file, metadata: &mut metadata })?;
+            handler.handle(Event::VersionLoaded { id: &id, file: &file, metadata: &mut metadata });
 
             break Ok(Version {
                 id,
@@ -180,13 +189,13 @@ impl Installer {
     fn load_client(&self, 
         handler: &mut dyn Handler, 
         hierarchy: &[Version], 
-        downloads: &mut Vec<Download>
+        batch: &mut Batch,
     ) -> Result<PathBuf> {
         
         let root_version = &hierarchy[0];
         let client_file = root_version.dir.join_with_extension(&root_version.id, "jar");
 
-        handler.handle(self, Event::ClientLoading {  })?;
+        handler.handle(Event::ClientLoading {  });
 
         let dl = hierarchy.iter()
             .filter_map(|version| version.metadata.downloads.get("client"))
@@ -195,7 +204,7 @@ impl Installer {
         if let Some(dl) = dl {
             let check_client_sha1 = dl.sha1.as_deref().filter(|_| self.strict_libraries_checking);
             if !check_file(&client_file, dl.size, check_client_sha1).map_err(Error::new_io)? {
-                downloads.push(Download {
+                batch.push(Entry {
                     source: dl.into(),
                     file: client_file.clone().into_boxed_path(),
                     executable: false,
@@ -205,7 +214,7 @@ impl Installer {
             return Err(Error::ClientNotFound);
         }
 
-        handler.handle(self, Event::ClientLoaded {  })?;
+        handler.handle(Event::ClientLoaded {  });
         Ok(client_file)
 
     }
@@ -215,10 +224,10 @@ impl Installer {
         handler: &mut dyn Handler,
         hierarchy: &[Version], 
         features: &HashSet<String>,
-        downloads: &mut Vec<Download>
+        batch: &mut Batch,
     ) -> Result<LibraryFiles> {
 
-        handler.handle(self, Event::LibrariesLoading {})?;
+        handler.handle(Event::LibrariesLoading {});
 
         // Tracking libraries that are already defined and should not be overridden.
         let mut libraries_set = HashSet::new();
@@ -287,7 +296,7 @@ impl Installer {
 
                 if let Some(lib_dl) = lib_dl {
                     lib_obj.path = lib_dl.path.as_ref().map(PathBuf::from);
-                    lib_obj.source = Some(DownloadSource::from(&lib_dl.download));
+                    lib_obj.source = Some(EntrySource::from(&lib_dl.download));
                 } else if let Some(repo_url) = &lib.url {
                     
                     // If we don't have any download information, it's possible to use
@@ -305,7 +314,7 @@ impl Installer {
                         url.push_str(&component);
                     }
                     
-                    lib_obj.source = Some(DownloadSource {
+                    lib_obj.source = Some(EntrySource {
                         url: url.into_boxed_str(),
                         size: None,
                         sha1: None,
@@ -325,7 +334,7 @@ impl Installer {
 
         }
 
-        handler.handle(self, Event::LibrariesLoaded { libraries: &mut libraries })?;
+        handler.handle(Event::LibrariesLoaded { libraries: &mut libraries });
 
         let mut lib_files = LibraryFiles::default();
 
@@ -357,7 +366,7 @@ impl Installer {
                 // Only check SHA-1 if strict checking is enabled.
                 let check_source_sha1 = source.sha1.as_ref().filter(|_| self.strict_libraries_checking);
                 if !check_file(&lib_file, source.size, check_source_sha1).map_err(Error::new_io)? {
-                    downloads.push(Download {
+                    batch.push(Entry {
                         source,
                         file: lib_file.clone().into_boxed_path(),
                         executable: false,
@@ -375,10 +384,10 @@ impl Installer {
 
         }
 
-        handler.handle(self, Event::LibrariesVerified {
+        handler.handle(Event::LibrariesVerified {
             class_files: &lib_files.class_files,
             natives_files: &lib_files.natives_files,
-        })?;
+        });
 
         Ok(lib_files)
 
@@ -388,7 +397,7 @@ impl Installer {
     fn load_logger(&self,
         handler: &mut dyn Handler,
         hierarchy: &[Version], 
-        downloads: &mut Vec<Download>,
+        batch: &mut Batch,
     ) -> Result<Option<LoggerConfig>> {
 
         let config = hierarchy.iter()
@@ -396,11 +405,11 @@ impl Installer {
             .next();
 
         let Some(config) = config else {
-            handler.handle(self, Event::LoggerAbsent {  })?;
+            handler.handle(Event::LoggerAbsent {  });
             return Ok(None);
         };
 
-        handler.handle(self, Event::LoggerLoading { id: &config.file.id })?;
+        handler.handle(Event::LoggerLoading { id: &config.file.id });
 
         let file = {
             let mut buf = self.assets_dir.join("log_configs");
@@ -409,14 +418,14 @@ impl Installer {
         };
 
         if !check_file(&file, config.file.download.size, config.file.download.sha1.as_deref()).map_err(Error::new_io)? {
-            downloads.push(Download {
-                source: DownloadSource::from(&config.file.download),
+            batch.push(Entry {
+                source: EntrySource::from(&config.file.download),
                 file: file.clone().into_boxed_path(),
                 executable: false,
             });
         }
 
-        handler.handle(self, Event::LoggerLoaded { id: &config.file.id })?;
+        handler.handle(Event::LoggerLoaded { id: &config.file.id });
 
         Ok(Some(LoggerConfig {
             kind: config.r#type,
@@ -430,7 +439,7 @@ impl Installer {
     fn load_assets(&self, 
         handler: &mut dyn Handler, 
         hierarchy: &[Version], 
-        downloads: &mut Vec<Download>
+        batch: &mut Batch,
     ) -> Result<Option<Assets>> {
 
         /// Internal description of asset information first found in hierarchy.
@@ -460,11 +469,11 @@ impl Installer {
             });
 
         let Some(index_info) = index_info else {
-            handler.handle(self, Event::AssetsAbsent {  })?;
+            handler.handle(Event::AssetsAbsent {  });
             return Ok(None);
         };
 
-        handler.handle(self, Event::AssetsLoading { id: index_info.id })?;
+        handler.handle(Event::AssetsLoading { id: index_info.id });
 
         // Resolve all used directories and files...
         let indexes_dir = self.assets_dir.join("indexes");
@@ -475,11 +484,11 @@ impl Installer {
         // download this single file. If the file has no download info
         if let Some(dl) = index_info.download {
             if !check_file(&index_file, dl.size, dl.sha1.as_deref()).map_err(Error::new_io)? {
-                self.download_many(handler, vec![Download {
+                Batch::from(Entry {
                     source: dl.into(),
                     file: index_file.clone().into_boxed_path(),
                     executable: false,
-                }])?;
+                }).download_blocking(handler.as_download_handler())?;
             }
         }
 
@@ -497,7 +506,7 @@ impl Installer {
             Err(e) => return Err(Error::new_file_json(index_file, e))
         };
         
-        handler.handle(self, Event::AssetsLoaded { id: index_info.id, index: &asset_index })?;
+        handler.handle(Event::AssetsLoaded { id: index_info.id, index: &asset_index });
 
         // Now we check assets that needs to be downloaded...
         let objects_dir = self.assets_dir.join("objects");
@@ -532,8 +541,8 @@ impl Installer {
             // Only check SHA-1 if strict checking.
             let check_asset_sha1 = self.strict_assets_checking.then_some(&*asset.hash);
             if !check_file(&asset_hash_file, Some(asset.size), check_asset_sha1).map_err(Error::new_io)? {
-                downloads.push(Download {
-                    source: DownloadSource {
+                batch.push(Entry {
+                    source: EntrySource {
                         url: format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_file_name}").into_boxed_str(),
                         size: Some(asset.size),
                         sha1: Some(*asset.hash),
@@ -545,7 +554,7 @@ impl Installer {
 
         }
 
-        handler.handle(self, Event::AssetsVerified { id: index_info.id, index: &asset_index })?;
+        handler.handle(Event::AssetsVerified { id: index_info.id, index: &asset_index });
 
         Ok(Some(assets))
 
@@ -640,18 +649,45 @@ impl Installer {
 pub trait Handler {
 
     /// Handle an even from the installer.
-    fn handle(&mut self, installer: &Installer, event: Event) -> Result<()>;
+    fn handle(&mut self, event: Event);
 
 }
 
 /// Blanket implementation that does nothing.
 impl Handler for () {
-    
-    fn handle(&mut self, installer: &Installer, event: Event) -> Result<()> {
-        let _ = (installer, event);
-        Ok(())
+    fn handle(&mut self, event: Event) {
+        let _ = (event,);
+    }
+}
+
+impl<H: Handler> Handler for  &'_ mut H {
+    fn handle(&mut self, event: Event) {
+        (*self).handle(event)
+    }
+}
+
+impl Handler for &'_ mut dyn Handler {
+    fn handle(&mut self, event: Event) {
+        (*self).handle(event)
+    }
+}
+
+impl dyn Handler + '_ {
+
+    /// Shortcut for constructing a download wrapper around the standard handler.
+    #[inline]
+    pub fn as_download_handler(&mut self) -> HandlerDownloadWrapper<&'_ mut dyn Handler> {
+        HandlerDownloadWrapper(self)
     }
 
+}
+
+/// A thin wrapper around a standard handler to be used as a download handler.
+pub struct HandlerDownloadWrapper<H: Handler>(pub H);
+impl<H: Handler> dl::Handler for HandlerDownloadWrapper<H> {
+    fn handle_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        self.0.handle(Event::DownloadProgress { count, total_count, size, total_size })
+    }
 }
 
 /// An event produced by the installer that can be handled by the install handler.
@@ -681,6 +717,7 @@ pub enum Event<'a> {
         id: &'a str,
         file: &'a Path,
         error: Option<serde_path_to_error::Error<serde_json::Error>>,
+        retry: &'a mut bool,
     },
     /// A version file has been loaded successfully.
     VersionLoaded {

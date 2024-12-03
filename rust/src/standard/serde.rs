@@ -5,6 +5,7 @@ use std::ops::Deref;
 
 use regex::Regex;
 
+use crate::download::EntrySource;
 use crate::gav::Gav;
 
 
@@ -203,6 +204,26 @@ pub struct Download {
     pub url: String,
     pub size: Option<u32>,
     pub sha1: Option<Sha1HashString>,
+}
+
+impl From<Download> for EntrySource {
+    fn from(value: Download) -> Self {
+        Self {
+            url: value.url.into_boxed_str(),
+            size: value.size,
+            sha1: value.sha1.as_deref().copied(),
+        }
+    }
+}
+
+impl<'a> From<&'a Download> for EntrySource {
+    fn from(value: &'a Download) -> Self {
+        Self {
+            url: value.url.clone().into_boxed_str(),
+            size: value.size,
+            sha1: value.sha1.as_deref().copied(),
+        }
+    }
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
