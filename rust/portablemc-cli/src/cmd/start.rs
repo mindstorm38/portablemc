@@ -1,7 +1,8 @@
 //! Implementation of the 'start' command.
 
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{Child, Command, ExitCode, Stdio};
 use std::io::{self, BufRead, BufReader};
+use std::sync::Mutex;
 
 use chrono::{DateTime, Local, Utc};
 
@@ -13,6 +14,11 @@ use crate::format::TIME_FORMAT;
 use crate::output::LogLevel;
 
 use super::{Cli, CommonHandler, log_mojang_error, log_io_error};
+
+
+/// The child is shared in order to be properly killed when the launcher exits, because
+/// it's not the case on Windows by default.
+pub static GAME_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 
 
 pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
@@ -139,6 +145,10 @@ pub fn apply_mojang_args<'a>(
 /// Internal function to run the game, separated in order to catch I/O errors.
 fn run_game(cli: &mut Cli, mut command: Command) -> io::Result<()> {
 
+    // Keep the guard while we are launching the command.
+    let mut child_guard = GAME_CHILD.lock().unwrap();
+    assert!(child_guard.is_none(), "more than one game run at a time");
+
     cli.out.log("launching")
         .pending("Launching...");
 
@@ -151,9 +161,15 @@ fn run_game(cli: &mut Cli, mut command: Command) -> io::Result<()> {
         .arg(child.id())
         .success("Launched");
 
+    // Take the stdout pipe and put the child in the shared location, only then we
+    // release the guard so any handled CTRL+C will terminate it.
     let mut pipe = BufReader::new(child.stdout.take().unwrap());
+    *child_guard = Some(child);
+    drop(child_guard);
+
     let mut buffer = Vec::new();
     let mut xml = None::<XmlLogParser>;
+    let mut child_guard = None;
 
     // Read line by line, but not into a string because we don't really know if the 
     // output will be UTF-8 compliant, so we store raw bytes in the buffer.
@@ -234,12 +250,31 @@ fn run_game(cli: &mut Cli, mut command: Command) -> io::Result<()> {
 
         buffer.clear();
 
-        if let Some(_status) = child.try_wait()? {
-            return Ok(());  // Take error status into account.
+        // We don't really know if this line will execute in case of a CTRL+C, which will
+        // take the child to kill it itself, so it might be absent here. We also put it
+        // in an option that allows us to keep the guard for the .wait after the loop.
+        let guard: _ = child_guard.insert(GAME_CHILD.lock().unwrap());
+        let Some(child) = guard.as_mut() else { break };
+
+        // If child is terminated, we take the 
+        if child.try_wait()?.is_some() { 
+            break;
         }
+
+        // Release the guard if we continue the loop.
+        drop(child_guard.take().unwrap());
         
     }
 
+    // Do not lock again if we did in the loop before breaking...
+    let guard: _ = child_guard.get_or_insert_with(|| GAME_CHILD.lock().unwrap());
+
+    // This time we take the child because we will wait indefinitely on it.
+    let Some(mut child) = guard.take() else {
+        return Ok(());
+    };
+
+    // In the end, we'll only log that when the game is gently terminated.
     let status = child.wait()?;
     cli.out.log("terminated")
         .arg(status.code().unwrap_or_default())

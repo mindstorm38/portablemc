@@ -17,6 +17,17 @@ use crate::format;
 
 
 pub fn main(args: CliArgs) -> ExitCode {
+    
+    ctrlc::set_handler(|| {
+
+        // No unwrap to avoid panicking if poisoned.
+        if let Ok(mut guard) = start::GAME_CHILD.lock() {
+            if let Some(mut child) = guard.take() {
+                let _ = child.kill();
+            }
+        }
+        
+    }).unwrap();
 
     let mut out = match args.output {
         CliOutput::Human => Output::human(match args.verbose {

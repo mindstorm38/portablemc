@@ -13,7 +13,7 @@ use std::{env, io};
 /// that means that by default the human representation will be the machine one (or no 
 /// representation at all), but the different handles returned can be used to customize
 /// or add human representation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Output {
     /// Mode-specific data.
     mode: OutputMode,
@@ -23,13 +23,13 @@ pub struct Output {
     escape_color_cap: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum OutputMode {
     Human(OutputHuman),
     TabSep(OutputTabSep),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct OutputHuman {
     /// All log lines below this level are discarded.
     log_level: LogLevel,
@@ -51,7 +51,7 @@ struct OutputHuman {
     table_separators: Vec<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct OutputTabSep {
     /// Line buffer that will be printed when the log is dropped.
     buffer: String,
