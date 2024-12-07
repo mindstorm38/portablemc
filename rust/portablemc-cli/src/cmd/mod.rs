@@ -9,7 +9,7 @@ use std::time::Instant;
 use std::error::Error;
 use std::io;
 
-use portablemc::{download, standard, mojang, fabric};
+use portablemc::{download, standard, mojang, fabric, forge};
 
 use crate::parse::{CliArgs, CliCmd, CliOutput};
 use crate::output::{Output, LogLevel};
@@ -402,14 +402,14 @@ impl fabric::Handler for CommonHandler<'_> {
         let out = &mut *self.out;
 
         match event {
-            Event::VersionFetching { api, game_version, loader_version } => {
+            Event::VersionFetching { api, game_version_id: game_version, loader_version_id: loader_version } => {
                 let (api_id, api_name) = fabric_api_id_name(api);
                 out.log(format_args!("{api_id}_version_fetching"))
                     .arg(game_version)
                     .arg(loader_version)
                     .pending(format_args!("Fetching {api_name} loader {loader_version} for {game_version}"));
             }
-            Event::VersionFetched { api, game_version, loader_version } => {
+            Event::VersionFetched { api, game_version_id: game_version, loader_version_id: loader_version } => {
                 let (api_id, api_name) = fabric_api_id_name(api);
                 out.log(format_args!("{api_id}_version_fetched"))
                     .arg(game_version)
@@ -417,6 +417,20 @@ impl fabric::Handler for CommonHandler<'_> {
                     .info(format_args!("Fetched {api_name} loader {loader_version} for {game_version}"));
             }
             _ => todo!("{event:?}")
+        }
+
+    }
+}
+
+impl forge::Handler for CommonHandler<'_> {
+    fn handle_forge_event(&mut self, event: forge::Event) {
+        
+        // use forge::Event;
+
+        // let out = &mut *self.out;
+
+        match event {
+            _ => todo!("{event:?}"),
         }
 
     }
@@ -458,18 +472,24 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
             log_io_error(out, error, file.as_deref());
         }
         Error::Json { error, file } => {
-            out.log("error_json")
-                .arg(file.display())
-                .arg(error.path())
-                .arg(error.inner())
-                .newline()
-                .error(format_args!("JSON error: {error}"))
-                .additional(format_args!("Related to {}", file.display()));
+
+            let mut log = out.log("error_json");
+
+            log.arg(error.path());
+            log.arg(error.inner());
+            log.newline();
+            log.error(format_args!("JSON error: {error}"));
+            
+            if let Some(file) = file.as_deref() {
+                log.arg(file.display());
+                log.additional(format_args!("Related to {}", file.display()));
+            }
+
         }
         Error::Zip { error, file } => {
             out.log("error_zip")
-                .arg(file.display())
                 .arg(&error)
+                .arg(file.display())
                 .newline()
                 .error(format_args!("ZIP error: {error}"))
                 .additional(format_args!("Related to {}", file.display()));

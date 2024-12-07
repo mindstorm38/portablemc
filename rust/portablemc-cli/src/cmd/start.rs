@@ -8,9 +8,10 @@ use chrono::{DateTime, Local, Utc};
 
 use portablemc::mojang::{self, Handler as _};
 use portablemc::fabric::{self, Handler as _};
+use portablemc::forge::{self, Handler as _};
 use portablemc::standard;
 
-use crate::parse::{StartArgs, StartVersion, StartFabricLoader, StartResolution};
+use crate::parse::{StartArgs, StartFabricLoader, StartForgeLoader, StartResolution, StartVersion};
 use crate::format::TIME_FORMAT;
 use crate::output::LogLevel;
 
@@ -76,10 +77,33 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
         },
         StartVersion::Forge {
+            game_version, 
+            loader_version, 
             kind,
         } => {
+
+            let mut inst = forge::Installer::new(cli.main_dir.clone(), match kind {
+                StartForgeLoader::Forge => &forge::FORGE_API,
+                StartForgeLoader::NeoForge => &forge::NEO_FORGE_API,
+            });
+
+            inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
+            inst.game_version(game_version.clone());
+            inst.loader_version(loader_version.clone());
+
+            let mut handler = CommonHandler::new(&mut cli.out);
+            game = match inst.install(handler.as_forge_dyn()) {
+                Ok(game) => game,
+                Err(e) => {
+                    eprintln!("{e}");
+                    // log_fabric_error(&mut cli.out, e);
+                    return ExitCode::FAILURE;
+                }
+            };
+
             let _ = (kind,);
             todo!("start forge loader");
+
         }
     }
 

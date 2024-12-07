@@ -4,7 +4,7 @@ pub(crate) mod path;
 pub(crate) mod http;
 pub(crate) mod tokio;
 
-pub mod gav;
+pub mod maven;
 pub mod serde;
 
 pub mod download;

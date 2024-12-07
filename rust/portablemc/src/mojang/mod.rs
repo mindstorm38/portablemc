@@ -13,8 +13,8 @@ use std::fs;
 use uuid::Uuid;
 
 use crate::standard::{self, LIBRARIES_URL, check_file, replace_strings_args, Handler as _, Library, LibraryDownload};
+use crate::maven::Gav;
 use crate::download;
-use crate::gav::Gav;
 use crate::msa;
 
 pub use standard::Game;
