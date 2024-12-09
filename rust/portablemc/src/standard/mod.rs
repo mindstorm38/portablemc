@@ -2,8 +2,8 @@
 
 pub mod serde;
 
+use std::io::{self, BufReader, BufWriter, Seek, SeekFrom};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::io::{self, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::collections::HashSet;
 use std::fs::{self, File};
@@ -113,9 +113,15 @@ impl Installer {
     /// Change the root version id to load and install, this overrides the root version
     /// given when constructing this installer.
     #[inline]
-    pub fn root_version(&mut self, root_version_id: impl Into<String>) -> &mut Self {
+    pub fn set_root_version(&mut self, root_version_id: impl Into<String>) -> &mut Self {
         self.root_version_id = root_version_id.into();
         self
+    }
+
+    /// See [`Self::set_root_version`].
+    #[inline]
+    pub fn root_version(&self) -> &str {
+        &self.root_version_id
     }
 
     /// Shortcut for defining the various main directories of the game, by deriving
@@ -125,7 +131,7 @@ impl Installer {
     /// **Note that on Windows**, long NT UNC paths are very likely to be unsupported and
     /// you'll get unsound errors with the JVM or the game itself.
     #[inline]
-    pub fn main_dir(&mut self, main_dir: impl Into<PathBuf>) -> &mut Self {
+    pub fn set_main_dir(&mut self, main_dir: impl Into<PathBuf>) -> &mut Self {
         let mc_dir = main_dir.into();
         self.versions_dir = mc_dir.join("versions");
         self.assets_dir = mc_dir.join("assets");
@@ -138,16 +144,28 @@ impl Installer {
 
     /// The directory where versions are stored.
     #[inline]
-    pub fn versions_dir(&mut self, versions_dir: impl Into<PathBuf>) -> &mut Self {
+    pub fn set_versions_dir(&mut self, versions_dir: impl Into<PathBuf>) -> &mut Self {
         self.versions_dir = versions_dir.into();
         self
     }
 
+    /// See [`Self::set_versions_dir`].
+    #[inline]
+    pub fn versions_dir(&self) -> &Path {
+        &self.versions_dir
+    }
+
     /// The directory where libraries are stored, organized like a maven repository.
     #[inline]
-    pub fn libraries_dir(&mut self, libraries_dir: impl Into<PathBuf>) -> &mut Self {
+    pub fn set_libraries_dir(&mut self, libraries_dir: impl Into<PathBuf>) -> &mut Self {
         self.libraries_dir = libraries_dir.into();
         self
+    }
+
+    /// See [`Self::set_libraries_dir`].
+    #[inline]
+    pub fn libraries_dir(&self) -> &Path {
+        &self.libraries_dir
     }
 
     /// The directory where assets, assets index, cached skins and logs config are stored.
@@ -155,16 +173,28 @@ impl Installer {
     /// directory where the client will need to write, and so it needs the permission
     /// to do so.
     #[inline]
-    pub fn assets_dir(&mut self, assets_dir: impl Into<PathBuf>) -> &mut Self {
+    pub fn set_assets_dir(&mut self, assets_dir: impl Into<PathBuf>) -> &mut Self {
         self.assets_dir = assets_dir.into();
         self
     }
 
+    /// See [`Self::assets_dir`].
+    #[inline]
+    pub fn assets_dir(&self) -> &Path {
+        &self.assets_dir
+    }
+
     /// The directory where Mojang-provided JVM has been installed.
     #[inline]
-    pub fn jvm_dir(&mut self, jvm_dir: impl Into<PathBuf>) -> &mut Self {
+    pub fn set_jvm_dir(&mut self, jvm_dir: impl Into<PathBuf>) -> &mut Self {
         self.jvm_dir = jvm_dir.into();
         self
+    }
+
+    /// See [`Self::set_jvm_dir`].
+    #[inline]
+    pub fn jvm_dir(&self) -> &Path {
+        &self.jvm_dir
     }
 
     /// The directory used to extract natives into (.dll, .so) before startup, in modern
@@ -177,63 +207,109 @@ impl Installer {
     /// really heavy and so can be removed after all instances of the game have been 
     /// terminated, it can also be set to something like `/tmp/pmc` on Linux for example.
     #[inline]
-    pub fn bin_dir(&mut self, bin_dir: impl Into<PathBuf>) -> &mut Self {
+    pub fn set_bin_dir(&mut self, bin_dir: impl Into<PathBuf>) -> &mut Self {
         self.bin_dir = bin_dir.into();
         self
+    }
+
+    /// See [`Self::set_bin_dir`].
+    #[inline]
+    pub fn bin_dir(&self) -> &Path {
+        &self.bin_dir
     }
 
     /// The directory where the process' working directory is set and all user stuff is
     /// saved (saves, resource packs, options and more). The user launching the
     /// game should have read/write permissions to this directory.
     #[inline]
-    pub fn mc_dir(&mut self, mc_dir: impl Into<PathBuf>) -> &mut Self {
+    pub fn set_mc_dir(&mut self, mc_dir: impl Into<PathBuf>) -> &mut Self {
         self.mc_dir = mc_dir.into();
         self
+    }
+
+    /// See [`Self::set_mc_dir`].
+    #[inline]
+    pub fn mc_dir(&self) -> &Path {
+        &self.mc_dir
     }
 
     /// When enabled, all assets are strictly checked against their expected SHA-1,
     /// this is disabled by default because it's heavy on CPU.
     #[inline]
-    pub fn strict_assets_check(&mut self, strict: bool) -> &mut Self {
+    pub fn set_strict_assets_check(&mut self, strict: bool) -> &mut Self {
         self.strict_assets_check = strict;
         self
+    }
+
+    /// See [`Self::set_strict_assets_check`].
+    #[inline]
+    pub fn strict_assets_check(&self) -> bool {
+        self.strict_assets_check
     }
 
     /// When enabled, all libraries are strictly checked against their expected SHA-1,
     /// this is disabled by default because it's heavy on CPU.
     #[inline]
-    pub fn strict_libraries_check(&mut self, strict: bool) -> &mut Self {
+    pub fn set_strict_libraries_check(&mut self, strict: bool) -> &mut Self {
         self.strict_libraries_check = strict;
         self
+    }
+
+    /// See [`Self::set_strict_libraries_check`].
+    #[inline]
+    pub fn strict_libraries_check(&self) -> bool {
+        self.strict_libraries_check
     }
 
     /// When enabled, all files from Mojang-provided JVMs are strictly checked against
     /// their expected SHA-1, this is disabled by default because it's heavy on CPU.
     #[inline]
-    pub fn strict_jvm_check(&mut self, strict: bool) -> &mut Self {
+    pub fn set_strict_jvm_check(&mut self, strict: bool) -> &mut Self {
         self.strict_jvm_check = strict;
         self
     }
 
+    /// See [`Self::set_strict_jvm_check`].
+    #[inline]
+    pub fn strict_jvm_check(&self) -> bool {
+        self.strict_jvm_check
+    }
+
     /// The policy for finding a JVM to run the game on.
     #[inline]
-    pub fn jvm_policy(&mut self, policy: JvmPolicy) -> &mut Self {
+    pub fn set_jvm_policy(&mut self, policy: JvmPolicy) -> &mut Self {
         self.jvm_policy = policy;
         self
     }
 
+    /// See [`Self::set_jvm_policy`].
+    #[inline]
+    pub fn jvm_policy(&self) -> &JvmPolicy {
+        &self.jvm_policy
+    }
+
     /// A specific launcher name to put on the command line, defaults to "portablemc".
     #[inline]
-    pub fn launcher_name(&mut self, launcher_name: String) -> &mut Self {
-        self.launcher_name = Some(launcher_name);
+    pub fn set_launcher_name(&mut self, launcher_name: impl Into<String>) -> &mut Self {
+        self.launcher_name = Some(launcher_name.into());
         self
+    }
+
+    /// See [`Self::set_launcher_version`].
+    pub fn launcher_name(&self) -> &str {
+        self.launcher_name.as_deref().unwrap_or(env!("CARGO_PKG_NAME"))
     }
 
     /// A specific launcher version to put on the command line, defaults to PMC version.
     #[inline]
-    pub fn launcher_version(&mut self, launcher_version: String) -> &mut Self {
-        self.launcher_version = Some(launcher_version);
+    pub fn set_launcher_version(&mut self, launcher_version: impl Into<String>) -> &mut Self {
+        self.launcher_version = Some(launcher_version.into());
         self
+    }
+
+    /// See [`Self::set_launcher_version`].
+    pub fn launcher_version(&self) -> &str {
+        self.launcher_version.as_deref().unwrap_or(env!("CARGO_PKG_VERSION"))
     }
 
     /// Ensure that a the given version, from its id, is fully installed and return
@@ -264,7 +340,7 @@ impl Installer {
         // handler '&mut dyn download::Handler' to avoid large polymorphism duplications.
         if !batch.is_empty() {
             handler.handle_standard_event(Event::ResourcesDownloading {  });
-            batch.download(handler.as_download_dyn())?;
+            batch.download(handler.as_download_dyn())?.into_result()?;
             handler.handle_standard_event(Event::ResourcesDownloaded {  });
         }
 
@@ -316,17 +392,13 @@ impl Installer {
             Some(match arg {
                 #[cfg(windows)]      "classpath_separator" => ";".to_string(),
                 #[cfg(not(windows))] "classpath_separator" => ":".to_string(),
-                "classpath" => std::env::join_paths(lib_files.class_files.iter())
+                "classpath" => env::join_paths(lib_files.class_files.iter())
                     .unwrap()
                     .to_string_lossy()
                     .into_owned(),
                 "natives_directory" => bin_dir.display().to_string(),
-                "launcher_name" => self.launcher_name.as_deref()
-                    .unwrap_or(env!("CARGO_PKG_NAME"))
-                    .to_string(),
-                "launcher_version" => self.launcher_version.as_deref()
-                    .unwrap_or(env!("CARGO_PKG_VERSION"))
-                    .to_string(),
+                "launcher_name" => self.launcher_name().to_string(),
+                "launcher_version" => self.launcher_version().to_string(),
                 _ => return None
             })
         });
@@ -624,17 +696,11 @@ impl Installer {
         for lib in libraries {
 
             // Construct the library path depending on its presence.
-            let lib_file = {
-                let mut buf = self.libraries_dir.clone();
-                if let Some(lib_rel_path) = lib.path.as_deref() {
-                    // NOTE: Unsafe path joining.
-                    buf.push(lib_rel_path);
-                } else {
-                    for comp in lib.gav.file_components() {
-                        buf.push(&*comp);
-                    }
-                }
-                buf
+            let lib_file = if let Some(lib_rel_path) = lib.path.as_deref() {
+                // NOTE: Unsafe path joining.
+                self.libraries_dir.join(lib_rel_path)
+            } else {
+                lib.gav.file(&self.libraries_dir)
             };
 
             // If no repository URL is given, no more download method is available,
@@ -2270,6 +2336,28 @@ pub(crate) fn hard_link_file(original: &Path, link: &Path) -> Result<()> {
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
         Err(e) => Err(Error::new_io_file(e, link.to_path_buf())),
     }
+}
+
+/// A utility function not used in this module, but used for Fabric and Forge mod loader
+/// installers, which needs to manually write the metadata. This function creates any
+/// parent directory if missing.
+pub(crate) fn write_version_metadata(file: &Path, metadata: &serde::VersionMetadata) -> Result<()> {
+
+    // We unwrap because any version metadata file should be located insane version dir.
+    let dir = file.parent().unwrap();
+    fs::create_dir_all(dir)
+        .map_err(|e| Error::new_io_file(e, dir))?;
+
+    let writer = File::create(file)
+        .map_err(|e| Error::new_io_file(e, file))
+        .map(BufWriter::new)?;
+
+    let mut serializer = serde_json::Serializer::new(writer);
+    serde_path_to_error::serialize(&metadata, &mut serializer)
+        .map_err(|e| Error::new_json_file(e, file))?;
+
+    Ok(())
+
 }
 
 /// Return the default main directory for Minecraft, so called ".minecraft".

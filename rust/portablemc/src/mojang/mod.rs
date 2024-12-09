@@ -112,6 +112,12 @@ impl Installer {
         self
     }
 
+    /// Get the underlying standard installer.
+    #[inline]
+    pub fn standard(&self) -> &standard::Installer {
+        &self.standard
+    }
+
     /// By default, this Mojang installer targets the latest release version, use this
     /// function to change the version to install. 
     /// 
@@ -120,15 +126,21 @@ impl Installer {
     /// (which is an issue on Mojang's side) then a [`Error::RootAliasNotFound`] is 
     /// returned.
     #[inline]
-    pub fn root_version(&mut self, root: impl Into<RootVersion>) -> &mut Self {
+    pub fn set_root_version(&mut self, root: impl Into<RootVersion>) -> &mut Self {
         self.inner.root = root.into();
         self
+    }
+
+    /// See [`set_root_version`].
+    #[inline]
+    pub fn root_version(&self) -> &RootVersion {
+        &self.inner.root
     }
 
     /// Clear all versions from being fetch excluded.See [`Self::fetch_exclude`] and 
     /// [`Self::fetch_exclude_all`]. **This is the default state when constructed.**
     #[inline]
-    pub fn fetch_exclude_clear(&mut self) -> &mut Self {
+    pub fn clear_fetch_exclude(&mut self) -> &mut Self {
         self.inner.fetch_exclude = Some(Vec::new());
         self
     }
@@ -140,7 +152,7 @@ impl Installer {
     /// **To don't use online manifest at all, you must also ensure that the root version
     /// is not an alias (`Release` or `Snapshot`).**
     #[inline]
-    pub fn fetch_exclude_all(&mut self) -> &mut Self {
+    pub fn set_fetch_exclude_all(&mut self) -> &mut Self {
         self.inner.fetch_exclude = None;
         self
     }
@@ -149,62 +161,100 @@ impl Installer {
     /// effect if [`Self::fetch_exclude_all`] has already been called and not cancelled
     /// by a [`Self::fetch_exclude_clear`].
     #[inline]
-    pub fn fetch_exclude(&mut self, id: impl Into<String>) -> &mut Self {
+    pub fn add_fetch_exclude(&mut self, id: impl Into<String>) -> &mut Self {
         if let Some(v) = &mut self.inner.fetch_exclude {
             v.push(id.into());
         }
         self
     }
 
+    /// Return the list of version ids to be excluded from being fetched from the Mojang 
+    /// manifest, this returns None if all versions are excluded.
+    pub fn fetch_exclude(&self) -> Option<&[String]> {
+        self.inner.fetch_exclude.as_deref()
+    }
+
     /// Set to true to enable the demo mode of the game.
     #[inline]
-    pub fn demo(&mut self, demo: bool) -> &mut Self {
+    pub fn set_demo(&mut self, demo: bool) -> &mut Self {
         self.inner.demo = demo;
         self
     }
 
+    /// See [`Self::set_demo`].
+    #[inline]
+    pub fn demo(&self) -> bool {
+        self.inner.demo
+    }
+
     /// Enables Quick Play when launching the game, from 1.20 (23w14a).
     #[inline]
-    pub fn quick_play(&mut self, quick_play: QuickPlay) -> &mut Self {
+    pub fn set_quick_play(&mut self, quick_play: QuickPlay) -> &mut Self {
         self.inner.quick_play = Some(quick_play);
         self
     }
 
+    /// Remove Quick Play when launching, this is the default.
     #[inline]
-    pub fn no_quick_play(&mut self) -> &mut Self {
+    pub fn remove_quick_play(&mut self) -> &mut Self {
         self.inner.quick_play = None;
         self
     }
 
+    /// See [`Self::set_quick_play`].
+    #[inline]
+    pub fn quick_play(&self) -> Option<&QuickPlay> {
+        self.inner.quick_play.as_ref()
+    }
+
     /// Set an initial resolution for the game's window.
     #[inline]
-    pub fn resolution(&mut self, width: u16, height: u16) -> &mut Self {
+    pub fn set_resolution(&mut self, width: u16, height: u16) -> &mut Self {
         self.inner.resolution = Some((width, height));
         self
     }
 
+    /// Remove initial resolution for the game's window, this is the default.
     #[inline]
-    pub fn no_resolution(&mut self) -> &mut Self {
+    pub fn remove_resolution(&mut self) -> &mut Self {
         self.inner.resolution = None;
         self
     }
 
+    /// See [`Self::set_resolution`].
+    #[inline]
+    pub fn resolution(&self) -> Option<(u16, u16)> {
+        self.inner.resolution
+    }
+
     /// Disable or not the multiplayer when launching the game.
     #[inline]
-    pub fn disable_multiplayer(&mut self, disable_multiplayer: bool) -> &mut Self {
+    pub fn set_disable_multiplayer(&mut self, disable_multiplayer: bool) -> &mut Self {
         self.inner.disable_multiplayer = disable_multiplayer;
         self
     }
 
+    /// See [`Self::set_disable_multiplayer`].
+    #[inline]
+    pub fn disable_multiplayer(&self) -> bool {
+        self.inner.disable_multiplayer
+    }
+
     /// Disable or not the chat when launching the game.
     #[inline]
-    pub fn disable_chat(&mut self, disable_chat: bool) -> &mut Self {
+    pub fn set_disable_chat(&mut self, disable_chat: bool) -> &mut Self {
         self.inner.disable_chat = disable_chat;
         self
     }
 
+    /// See [`Self::set_disable_chat`].
+    #[inline]
+    pub fn disable_chat(&self) -> bool {
+        self.inner.disable_chat
+    }
+
     /// Manually set the authentication UUID, not touching any other parameter.
-    pub fn auth_raw_uuid(&mut self, uuid: Uuid) -> &mut Self {
+    pub fn set_auth_raw_uuid(&mut self, uuid: Uuid) -> &mut Self {
         self.inner.auth_uuid = uuid;  // TODO: add missing other methods
         self
     }
@@ -222,7 +272,7 @@ impl Installer {
     /// Use offline session with the given UUID and username, note that the username will
     /// be truncated 16 bytes at most (this function will panic if the truncation is not 
     /// on a valid UTF-8 character boundary).
-    pub fn auth_offline(&mut self, uuid: Uuid, username: impl Into<String>) -> &mut Self {
+    pub fn set_auth_offline(&mut self, uuid: Uuid, username: impl Into<String>) -> &mut Self {
         self.inner.auth_uuid = uuid;
         self.inner.auth_username = username.into();
         self.inner.auth_username.truncate(16);
@@ -231,7 +281,7 @@ impl Installer {
 
     /// Use offline session with the given UUID, the username is derived from the first
     /// 8 characters of the rendered UUID.
-    pub fn auth_offline_uuid(&mut self, uuid: Uuid) -> &mut Self {
+    pub fn set_auth_offline_uuid(&mut self, uuid: Uuid) -> &mut Self {
         self.inner.auth_uuid = uuid;
         self.inner.auth_username = uuid.to_string();
         self.inner.auth_username.truncate(8);
@@ -244,8 +294,8 @@ impl Installer {
     /// 
     /// **This is the default UUID/username used if no auth is specified, so you don't
     /// need to call this function, except if you want to override previous auth.**
-    pub fn auth_offline_hostname(&mut self) -> &mut Self {
-        self.auth_offline_uuid(Uuid::new_v5(&standard::UUID_NAMESPACE, gethostname::gethostname().as_encoded_bytes()))
+    pub fn set_auth_offline_hostname(&mut self) -> &mut Self {
+        self.set_auth_offline_uuid(Uuid::new_v5(&standard::UUID_NAMESPACE, gethostname::gethostname().as_encoded_bytes()))
     }
 
     /// Use offline session with the given username (initially truncated to 16 chars), 
@@ -258,7 +308,7 @@ impl Installer {
     /// uses the UUID derivation embedded in Mojang's authlib, deriving the UUID from the
     /// username, if you want the UUID to be coherent with this derivation, you can use
     /// [`Self::auth_offline_username_authlib`] instead.
-    pub fn auth_offline_username(&mut self, username: impl Into<String>) -> &mut Self {
+    pub fn set_auth_offline_username(&mut self, username: impl Into<String>) -> &mut Self {
         self.inner.auth_username = username.into();
         self.inner.auth_username.truncate(16);
         self.inner.auth_uuid = Uuid::new_v5(&standard::UUID_NAMESPACE, self.inner.auth_username.as_bytes());
@@ -273,7 +323,7 @@ impl Installer {
     /// The advantage of this method is to produce the same UUID as the one that will
     /// be produced by Mojang's authlib when connecting to an offline-mode multiplayer
     /// server.
-    pub fn auth_offline_username_authlib(&mut self, username: impl Into<String>) -> &mut Self {
+    pub fn set_auth_offline_username_authlib(&mut self, username: impl Into<String>) -> &mut Self {
         
         self.inner.auth_username = username.into();
         self.inner.auth_username.truncate(16);
@@ -291,7 +341,7 @@ impl Installer {
     }
 
     /// Use online authentication with the given Microsoft Account.
-    pub fn auth_msa(&mut self, account: &msa::Account) -> &mut Self {
+    pub fn set_auth_msa(&mut self, account: &msa::Account) -> &mut Self {
         self.inner.auth_uuid = account.uuid().clone();
         self.inner.auth_username = account.username().to_string();
         self.inner.auth_token = account.access_token().to_string();
@@ -304,44 +354,74 @@ impl Installer {
     /// by the client, this fix tries to use legacy arguments instead, such as --server
     /// and --port, this is enabled by default.
     #[inline]
-    pub fn fix_legacy_quick_play(&mut self, fix: bool) -> &mut Self {
+    pub fn set_fix_legacy_quick_play(&mut self, fix: bool) -> &mut Self {
         self.inner.fix_legacy_quick_play = fix;
         self
+    }
+
+    /// See [`set_fix_legacy_quick_play`].
+    #[inline]
+    pub fn fix_legacy_quick_play(&self) -> bool {
+        self.inner.fix_legacy_quick_play
     }
 
     /// When starting older alpha, beta and release up to 1.5, this allows legacy online
     /// resources such as skins to be properly requested. The implementation is currently 
     /// using `betacraft.uk` proxies.
     #[inline]
-    pub fn fix_legacy_proxy(&mut self, fix: bool) -> &mut Self {
+    pub fn set_fix_legacy_proxy(&mut self, fix: bool) -> &mut Self {
         self.inner.fix_legacy_proxy = fix;
         self
+    }
+
+    /// See [`set_fix_legacy_proxy`].
+    #[inline]
+    pub fn fix_legacy_proxy(&self) -> bool {
+        self.inner.fix_legacy_proxy
     }
 
     /// When starting older alpha and beta versions, this adds a JVM argument to use the
     /// legacy merge sort `java.util.Arrays.useLegacyMergeSort=true`, this is required on
     /// some old versions to avoid crashes.
     #[inline]
-    pub fn fix_legacy_merge_sort(&mut self, fix: bool) -> &mut Self {
+    pub fn set_fix_legacy_merge_sort(&mut self, fix: bool) -> &mut Self {
         self.inner.fix_legacy_merge_sort = fix;
         self
+    }
+
+    /// See [`set_fix_legacy_merge_sort`].
+    #[inline]
+    pub fn fix_legacy_merge_sort(&self) -> bool {
+        self.inner.fix_legacy_merge_sort
     }
 
     /// When starting older versions that don't support modern resolution arguments, this
     /// fix will add arguments to force resolution of the initial window.
     #[inline]
-    pub fn fix_legacy_resolution(&mut self, fix: bool) -> &mut Self {
+    pub fn set_fix_legacy_resolution(&mut self, fix: bool) -> &mut Self {
         self.inner.fix_legacy_resolution = fix;
         self
+    }
+
+    /// See [`set_fix_legacy_resolution`].
+    #[inline]
+    pub fn fix_legacy_resolution(&self) -> bool {
+        self.inner.fix_legacy_resolution
     }
 
     /// Versions 1.16.4 and 1.16.5 uses authlib:2.1.28 which cause multiplayer button
     /// (and probably in-game chat) to be disabled, this can be fixed by switching to
     /// version 2.2.30 of authlib.
     #[inline]
-    pub fn fix_broken_authlib(&mut self, fix: bool) -> &mut Self {
+    pub fn set_fix_broken_authlib(&mut self, fix: bool) -> &mut Self {
         self.inner.fix_broken_authlib = fix;
         self
+    }
+
+    /// See [`set_fix_broken_authlib`].
+    #[inline]
+    pub fn fix_broken_authlib(&self) -> bool {
+        self.inner.fix_broken_authlib
     }
 
     /// Changing the version of LWJGL, this support versions greater or equal to 3.2.3,
@@ -351,16 +431,22 @@ impl Installer {
     /// 
     /// If the given version is less than 3.2.3 this will do nothing.
     #[inline]
-    pub fn fix_lwjgl(&mut self, lwjgl_version: impl Into<String>) -> &mut Self {
+    pub fn set_fix_lwjgl(&mut self, lwjgl_version: impl Into<String>) -> &mut Self {
         self.inner.fix_lwjgl = Some(lwjgl_version.into());
         self
     }
     
     /// Don't fix LWJGL version (see [`Self::fix_lwjgl`]).
     #[inline]
-    pub fn no_fix_lwjgl(&mut self) -> &mut Self {
+    pub fn remove_fix_lwjgl(&mut self) -> &mut Self {
         self.inner.fix_lwjgl = None;
         self
+    }
+
+    /// See [`set_fix_lwjgl`].
+    #[inline]
+    pub fn fix_lwjgl(&self) -> Option<&str> {
+        self.inner.fix_lwjgl.as_deref()
     }
 
     /// Install the given Mojang version from its identifier. This also supports alias
@@ -374,7 +460,7 @@ impl Installer {
         
         // Apply default offline auth, derived from hostname.
         if self.inner.auth_username.is_empty() {
-            self.auth_offline_hostname();
+            self.set_auth_offline_hostname();
         }
 
         let Self {
@@ -405,7 +491,7 @@ impl Installer {
             }
         };
 
-        standard.root_version(id);
+        standard.set_root_version(id);
         
         // Let the handler find the "leaf" version.
         let mut leaf_id = String::new();
@@ -786,7 +872,7 @@ impl<H: Handler> InternalHandler<'_, H> {
                     return Ok(());
                 };
 
-                if exclude.iter().any(|id| id == id) {
+                if exclude.iter().any(|excluded_id| excluded_id == id) {
                     return Ok(());
                 }
 

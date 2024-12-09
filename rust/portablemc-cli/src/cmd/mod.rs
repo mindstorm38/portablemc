@@ -90,6 +90,11 @@ pub struct CommonHandler<'a> {
     out: &'a mut Output,
     /// If a download is running, this contains the instant it started, for speed calc.
     download_start: Option<Instant>,
+    /// When an installer with different supported APIs (for finding game or loader 
+    /// versions) is used, this defines the id used for log messages.
+    api_id: &'static str,
+    /// For the same reason as above, this field is used for human-readable messages.
+    api_name: &'static str,
 }
 
 impl<'a> CommonHandler<'a> {
@@ -98,7 +103,14 @@ impl<'a> CommonHandler<'a> {
         Self {
             out,
             download_start: None,
+            api_id: "",
+            api_name: "",
         }
+    }
+
+    pub fn set_api(&mut self, api_id: &'static str, api_name: &'static str) {
+        self.api_id = api_id;
+        self.api_name = api_name;
     }
 
 }
@@ -401,20 +413,22 @@ impl fabric::Handler for CommonHandler<'_> {
 
         let out = &mut *self.out;
 
+        let api_id = self.api_id;
+        let api_name = self.api_name;
+        debug_assert!(!api_id.is_empty() && !api_name.is_empty());
+
         match event {
-            Event::VersionFetching { api, game_version_id: game_version, loader_version_id: loader_version } => {
-                let (api_id, api_name) = fabric_api_id_name(api);
+            Event::VersionFetching { game_version_id, loader_version_id } => {
                 out.log(format_args!("{api_id}_version_fetching"))
-                    .arg(game_version)
-                    .arg(loader_version)
-                    .pending(format_args!("Fetching {api_name} loader {loader_version} for {game_version}"));
+                    .arg(game_version_id)
+                    .arg(loader_version_id)
+                    .pending(format_args!("Fetching {api_name} loader {loader_version_id} for {game_version_id}"));
             }
-            Event::VersionFetched { api, game_version_id: game_version, loader_version_id: loader_version } => {
-                let (api_id, api_name) = fabric_api_id_name(api);
+            Event::VersionFetched { game_version_id, loader_version_id } => {
                 out.log(format_args!("{api_id}_version_fetched"))
-                    .arg(game_version)
-                    .arg(loader_version)
-                    .info(format_args!("Fetched {api_name} loader {loader_version} for {game_version}"));
+                    .arg(game_version_id)
+                    .arg(loader_version_id)
+                    .info(format_args!("Fetched {api_name} loader {loader_version_id} for {game_version_id}"));
             }
             _ => todo!("{event:?}")
         }
@@ -425,12 +439,75 @@ impl fabric::Handler for CommonHandler<'_> {
 impl forge::Handler for CommonHandler<'_> {
     fn handle_forge_event(&mut self, event: forge::Event) {
         
-        // use forge::Event;
+        use forge::Event;
 
-        // let out = &mut *self.out;
+        let out = &mut *self.out;
+
+        let api_id = self.api_id;
+        let api_name = self.api_name;
+        debug_assert!(!api_id.is_empty() && !api_name.is_empty());
 
         match event {
-            _ => todo!("{event:?}"),
+            Event::Installing { tmp_dir } => {
+                out.log(format_args!("{api_id}_installing"))
+                    .newline()  // Don't overwrite the failed line.
+                    .success(format_args!("{api_name} loader failed to start, installing it"))
+                    .info(format_args!("Installing in temporary directory: {}", tmp_dir.display()));
+            }
+            Event::InstallerFetching { game_version_id, loader_version_id } => {
+                out.log(format_args!("{api_id}_installer_fetching"))
+                    .arg(game_version_id)
+                    .arg(loader_version_id)
+                    .pending(format_args!("Fetching installer {loader_version_id} for {game_version_id}"));
+            }
+            Event::InstallerFetched { game_version_id, loader_version_id } => {
+                out.log(format_args!("{api_id}_installer_fetched"))
+                    .arg(game_version_id)
+                    .arg(loader_version_id)
+                    .success(format_args!("Fetched installer {loader_version_id} for {game_version_id}"));
+            }
+            Event::GameInstalling {  } => {
+                out.log(format_args!("{api_id}_game_installing"))
+                    .success("Installing the game version required by the installer");
+            }
+            Event::InstallerLibrariesFetching {  } => {
+                out.log(format_args!("{api_id}_installer_libraries_fetching"))
+                    .pending(format_args!("Fetching installer libraries"));
+            }
+            Event::InstallerLibrariesFetched {  } => {
+                out.log(format_args!("{api_id}_installer_libraries_fetched"))
+                    .success(format_args!("Fetched installer libraries"));
+            }
+            Event::InstallerProcessor { name, task } => {
+                let processing = match (name.artifact(), task) {
+                    ("installertools", Some("MCP_DATA")) => 
+                        "generating MCP data",
+                    ("installertools", Some("DOWNLOAD_MOJMAPS")) => 
+                        "downloading Mojang mappings",
+                    ("installertools", Some("MERGE_MAPPING")) => 
+                        "merging MCP and Mojang mappings",
+                    ("jarsplitter", _) => 
+                        "splitting client with mappings",
+                    ("ForgeAutoRenamingTool", _) => 
+                        "renaming client with mappings (Forge)",
+                    ("vignette", _) => 
+                        "renaming client with mappings (Vignette)",
+                    ("binarypatcher", _) => 
+                        "patching client",
+                    ("SpecialSource", _) => 
+                        "renaming client with mappings (SpecialSource)",
+                    _ => name.as_str()
+                };
+                out.log(format_args!("{api_id}_installer_processor"))
+                    .arg(name.as_str())
+                    .args(task.into_iter())
+                    .success(format_args!("Installer processing: {processing}"));
+            }
+            Event::Installed {  } => {
+                out.log(format_args!("{api_id}_installed"))
+                    .success("Loader installed, retrying to start the game");
+            }
+            _ => todo!(),
         }
 
     }
@@ -544,15 +621,14 @@ pub fn log_mojang_error(out: &mut Output, error: mojang::Error) {
 
 }
 
-pub fn log_fabric_error(out: &mut Output, error: fabric::Error) {
+pub fn log_fabric_error(out: &mut Output, error: fabric::Error, api_id: &str, api_name: &str) {
 
     use fabric::{Error, GameVersion, LoaderVersion};
 
     match error {
         Error::Mojang(error) => log_mojang_error(out, error),
-        Error::AliasGameVersionNotFound { api, game_version } => {
+        Error::AliasGameVersionNotFound { game_version } => {
 
-            let (api_id, api_name) = fabric_api_id_name(api);
             let alias_str = match game_version {
                 GameVersion::Stable => "stable",
                 GameVersion::Unstable => "unstable",
@@ -564,15 +640,14 @@ pub fn log_fabric_error(out: &mut Output, error: fabric::Error) {
             log.error(format_args!("Failed to resolve {api_name} game version '{alias_str}'"));
 
             match game_version {
-                GameVersion::Stable => log.additional(format_args!("{api_name} might not yet support any stable game version")),
-                GameVersion::Unstable => log.additional(format_args!("{api_name} have zero game version supported, likely an issue on their side")),
+                GameVersion::Stable => log.additional("The loader might not yet support any stable game version"),
+                GameVersion::Unstable => log.additional("The loader have zero game version supported, likely an issue on their side"),
                 GameVersion::Id(_) => unreachable!()
             };
 
         }
-        Error::AliasLoaderVersionNotFound { api, game_version_id, loader_version } => {
+        Error::AliasLoaderVersionNotFound { game_version_id, loader_version } => {
 
-            let (api_id, api_name) = fabric_api_id_name(api);
             let alias_str = match loader_version {
                 LoaderVersion::Stable => "stable",
                 LoaderVersion::Unstable => "unstable",
@@ -585,30 +660,154 @@ pub fn log_fabric_error(out: &mut Output, error: fabric::Error) {
             log.error(format_args!("Failed to resolve {api_name} loader version '{alias_str}' for game version {game_version_id}"));
 
             match loader_version {
-                LoaderVersion::Stable => log.additional(format_args!("{api_name} might not yet support any stable loader version for this game version")),
-                LoaderVersion::Unstable => log.additional(format_args!("{api_name} have zero loader version supported for this game version, likely an issue on their side")),
+                LoaderVersion::Stable => log.additional("The loader might not yet support any stable version for this game version"),
+                LoaderVersion::Unstable => log.additional("The loader have zero version supported for this game version, likely an issue on their side"),
                 LoaderVersion::Id(_) => unreachable!()
             };
 
         }
-        Error::GameVersionNotFound { api, game_version_id } => {
-
-            let (api_id, api_name) = fabric_api_id_name(api);
-
+        Error::GameVersionNotFound { game_version_id } => {
             out.log(format_args!("error_{api_id}_game_version_not_found"))
                 .arg(&game_version_id)
                 .error(format_args!("{api_name} loader has not support for {game_version_id} game version"));
-
         }
-        Error::LoaderVersionNotFound { api, game_version_id, loader_version_id } => {
-            
-            let (api_id, api_name) = fabric_api_id_name(api);
-
+        Error::LoaderVersionNotFound { game_version_id, loader_version_id } => {
             out.log(format_args!("error_{api_id}_loader_version_not_found"))
                 .arg(&game_version_id)
                 .arg(&loader_version_id)
                 .error(format_args!("{api_name} loader has no version {loader_version_id} for game version {game_version_id}"));
+        }
+        _ => todo!(),
+    }
 
+}
+
+pub fn log_forge_error(out: &mut Output, error: forge::Error, api_id: &str, api_name: &str) {
+
+    use forge::{Error, GameVersion, LoaderVersion};
+
+    const CONTACT_DEV: &str = "This version of the loader might not be supported by PortableMC, please contact developers on https://github.com/mindstorm38/portablemc/issues";
+
+    match error {
+        Error::Mojang(error) => log_mojang_error(out, error),
+        Error::AliasGameVersionNotFound { game_version } => {
+
+            let alias_str = match game_version {
+                GameVersion::Release => "release",
+                GameVersion::Id(_) => panic!()
+            };
+
+            let mut log = out.log(format_args!("error_{api_id}_alias_game_version_not_found"));
+            log.arg(alias_str);
+            log.error(format_args!("Failed to resolve {api_name} game version '{alias_str}'"));
+            log.additional("The alias might be missing from manifest, likely an issue on Mojang's side");
+
+        }
+        Error::AliasLoaderVersionNotFound { game_version_id, loader_version } => {
+            
+            let alias_str = match loader_version {
+                LoaderVersion::Stable => "stable",
+                LoaderVersion::Unstable => "unstable",
+                LoaderVersion::Id(_) => panic!()
+            };
+
+            let mut log = out.log(format_args!("error_{api_id}_alias_loader_version_not_found"));
+            log.arg(&game_version_id);
+            log.arg(alias_str);
+            log.error(format_args!("Failed to resolve {api_name} loader version '{alias_str}' for game version {game_version_id}"));
+
+            match loader_version {
+                LoaderVersion::Stable => log.additional("The loader might not yet support any loader version for this game version"),
+                LoaderVersion::Unstable => log.additional("The loader have zero version supported for this game version"),
+                LoaderVersion::Id(_) => unreachable!()
+            };
+
+        }
+        Error::GameVersionNotFound { game_version_id } => {
+            out.log(format_args!("error_{api_id}_game_version_not_found"))
+                .arg(&game_version_id)
+                .error(format_args!("{api_name} loader has not support for {game_version_id} game version"));
+        }
+        Error::LoaderVersionNotFound { game_version_id, loader_version_id } => {
+            out.log(format_args!("error_{api_id}_loader_version_not_found"))
+                .arg(&game_version_id)
+                .arg(&loader_version_id)
+                .error(format_args!("{api_name} loader has no version {loader_version_id} for game version {game_version_id}"))
+                .additional("Note that really old versions have no installer and therefore are not supported by PortableMC");
+        }
+        Error::MavenMetadataMalformed {  } => {
+            out.log(format_args!("error_{api_id}_maven_metadata_malformed"))
+                .error(format_args!("{api_name} loader has an malformed maven metadata"))
+                .additional("Likely an issue on the loader's API side");
+        }
+        Error::InstallerProfileNotFound {  } => {
+            out.log(format_args!("error_{api_id}_installer_profile_not_found"))
+                .error(format_args!("{api_name} installer has no installer profile"))
+                .additional(CONTACT_DEV);
+        }
+        Error::InstallerVersionMetadataNotFound {  } => {
+            out.log(format_args!("error_{api_id}_installer_version_metadata_not_found"))
+                .error(format_args!("{api_name} installer has no embedded version metadata"))
+                .additional(CONTACT_DEV);
+        }
+        Error::InstallerFileNotFound { entry } => {
+            out.log(format_args!("error_{api_id}_installer_file_not_found"))
+                .arg(&entry)
+                .error(format_args!("{api_name} installer is missing a required file: {entry}"))
+                .additional(CONTACT_DEV);
+        }
+        Error::InstallerFailed {  } => {
+            out.log(format_args!("error_{api_id}_installer_failed"))
+                .error(format_args!("{api_name} loader failed to start after installation"))
+                .additional(CONTACT_DEV);
+        }
+        Error::InstallerInvalidProcessor { name } => {
+            out.log(format_args!("error_{api_id}_installer_invalid_processor"))
+                .arg(&name)
+                .error(format_args!("{api_name} installer has an invalid processor: {name}"))
+                .additional(CONTACT_DEV);
+        }
+        Error::InstallerProcessorFailed { name, output } => {
+
+            let mut log = out.log(format_args!("error_{api_id}_installer_processor_failed"));
+            log.arg(&name);
+
+            if let Some(code) = output.status.code() {
+                log.arg(code);
+            } else {
+                log.arg("");
+            }
+            
+            log.error(format_args!("{api_name} installer processor failed ({}):", output.status));
+
+            let stdout = std::str::from_utf8(&output.stdout).ok();
+            let stderr = std::str::from_utf8(&output.stderr).ok();
+
+            if let Some(stdout) = stdout {
+                log.arg(stdout);
+                log.additional(format_args!("stdout: {stdout}"));
+            } else {
+                log.arg(format_args!("{:?}", output.stdout));
+                log.additional(format_args!("stdout: {}", output.stdout.escape_ascii()));
+            }
+
+            if let Some(stderr) = stderr {
+                log.arg(stderr);
+                log.additional(format_args!("stderr: {stderr}"));
+            } else {
+                log.arg(format_args!("{:?}", output.stderr));
+                log.additional(format_args!("stderr: {}", output.stdout.escape_ascii()));
+            }
+
+            log.additional(CONTACT_DEV);
+
+        }
+        Error::InstallerProcessorInvalidOutput { name, file } => {
+            out.log(format_args!("error_{api_id}_installer_processor_invalid_output"))
+                .arg(&name)
+                .arg(file.display())
+                .error(format_args!("{api_name} installer processor {name} produced invalid output: {}", file.display()))
+                .additional(CONTACT_DEV);
         }
         _ => todo!(),
     }
@@ -724,18 +923,4 @@ fn io_error_kind_code(error: &io::Error) -> Option<&'static str> {
         ErrorKind::OutOfMemory => "out_of_memory",
         _ => return None,
     })
-}
-
-fn fabric_api_id_name(api: &fabric::Api) -> (&'static str, &'static str) {
-    if std::ptr::eq(api, &fabric::FABRIC_API) {
-        ("fabric", "Fabric")
-    } else if std::ptr::eq(api, &fabric::QUILT_API) {
-        ("quilt", "Quilt")
-    } else if std::ptr::eq(api, &fabric::LEGACY_FABRIC_API) {
-        ("legacy_fabric", "LegacyFabric")
-    } else if std::ptr::eq(api, &fabric::BABRIC_API) {
-        ("babric", "Babric")
-    } else {
-        panic!("unexpected fabric api: {api:?}");
-    }
 }
