@@ -135,7 +135,7 @@ impl<'de> serde::Deserialize<'de> for Sha1HashString {
 
 /// Parse the given hex bytes string into the given destination slice, returning none if 
 /// the input string cannot be parsed, is too short or too long.
-fn parse_hex_bytes<const LEN: usize>(mut string: &str) -> Option<[u8; LEN]> {
+pub(crate) fn parse_hex_bytes<const LEN: usize>(mut string: &str) -> Option<[u8; LEN]> {
     
     let mut dst = [0; LEN];
     for dst in &mut dst {

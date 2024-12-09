@@ -2,6 +2,7 @@
 
 use std::iter::FusedIterator;
 use std::num::NonZeroU16;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::borrow::Cow;
 use std::ops::Range;
@@ -223,9 +224,17 @@ impl Gav {
         }
     }
 
+    /// Get the representation of the GAV as a string.
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        &self.raw
+    }
+
     /// Iterator over standard file path component for this GAV, the iterating
     /// component is a cow because most of these are borrowed but the last 
     /// file part must be formatted and therefore owned.
+    /// 
+    /// To properly join a GAV to a path, prefer [`Self::file`].
     pub fn file_components(&self) -> impl Iterator<Item = Cow<'_, str>> + use<'_> {
 
         let artifact = self.artifact();
@@ -247,10 +256,35 @@ impl Gav {
 
     }
 
-    /// Get the representation of the GAV as a string.
-    #[inline]
-    pub fn as_str(&self) -> &str {
-        &self.raw
+    /// Create a file path of this GAV from a base directory.
+    pub fn file<P: AsRef<Path>>(&self, dir: P) -> PathBuf {
+
+        // NOTE: Unsafe path joining if any component as a '..'!
+
+        let mut buf = dir.as_ref().to_path_buf();
+        for group_part in self.group().split('.') {
+            buf.push(group_part);
+        }
+
+        let artifact = self.artifact();
+        let version = self.version();
+        buf.push(artifact);
+        buf.push(version);
+
+        // Build the terminal file name.
+        buf.push(artifact);
+        buf.as_mut_os_string().push("-");
+        buf.as_mut_os_string().push(version);
+        let classifier = self.classifier();
+        if !classifier.is_empty() {
+            buf.as_mut_os_string().push("-");
+            buf.as_mut_os_string().push(classifier);
+        }
+        buf.as_mut_os_string().push(".");
+        buf.as_mut_os_string().push(self.extension());
+
+        buf
+
     }
 
 }

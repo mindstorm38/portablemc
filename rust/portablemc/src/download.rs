@@ -500,7 +500,7 @@ pub enum EntryErrorKind {
     Io(#[from] io::Error),
     /// Invalid HTTP status code while requesting the entry.
     #[error("invalid status: {0}")]
-    InvalidStatus(u16),
+    InvalidStatus(reqwest::StatusCode),
     /// Invalid size of the fully downloaded entry compared to the expected size.
     /// Implies that [`EntrySource::size`] is not none.
     #[error("invalid size")]
@@ -782,7 +782,7 @@ async fn download_entry(
             handle: entry.keep_open.then_some(handle),
         });
     } else if res.status() != StatusCode::OK {
-        return Err(EntryErrorKind::InvalidStatus(res.status().as_u16()));
+        return Err(EntryErrorKind::InvalidStatus(res.status()));
     }
 
     // Close the possible cached file because we'll need to create it just below. 

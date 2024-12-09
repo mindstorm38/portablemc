@@ -3,10 +3,8 @@
 
 pub mod serde;
 
-use core::fmt;
-use std::fs::{self, File};
-use std::io::BufWriter;
 use std::path::PathBuf;
+use core::fmt;
 
 use reqwest::StatusCode;
 
@@ -93,6 +91,18 @@ impl Installer {
         self
     }
 
+    /// Get the underlying standard installer.
+    #[inline]
+    pub fn standard(&self) -> &standard::Installer {
+        self.mojang.standard()
+    }
+
+    /// Get the underlying mojang installer.
+    #[inline]
+    pub fn mojang(&self) -> &mojang::Installer {
+        &self.mojang
+    }
+
     /// By default, this Fabric installer targets the latest stable version. To also
     /// change the fabric loader's version to use, see [`Self::loader`]. 
     /// 
@@ -130,7 +140,6 @@ impl Installer {
                 .find(|game| game.stable || !game_stable)
                 .map(|game| game.version)
                 .ok_or_else(|| Error::AliasGameVersionNotFound { 
-                    api: inner.api,
                     game_version: self.inner.game_version.clone()
                 })?
         } else {
@@ -160,7 +169,6 @@ impl Installer {
                 })
                 .map(|loader| loader.loader.version)
                 .ok_or_else(|| Error::AliasLoaderVersionNotFound {
-                    api: inner.api,
                     game_version_id: game_version_id.clone(),
                     loader_version: self.inner.loader_version.clone(),
                 })?
@@ -175,7 +183,7 @@ impl Installer {
         // we'll give to the version.
         let prefix = inner.api.default_prefix;
         let root_version_id = format!("{prefix}-{game_version_id}-{loader_version_id}");
-        mojang.root_version(RootVersion::Id(root_version_id.clone()));
+        mojang.set_root_version(RootVersion::Id(root_version_id.clone()));
 
         // Scoping the temporary internal handler.
         let game = {
@@ -231,12 +239,10 @@ impl<H: Handler + ?Sized> Handler for  &'_ mut H {
 #[non_exhaustive]
 pub enum Event<'a> {
     VersionFetching {
-        api: &'static Api,
         game_version_id: &'a str,
         loader_version_id: &'a str,
     },
     VersionFetched {
-        api: &'static Api,
         game_version_id: &'a str,
         loader_version_id: &'a str,
     },
@@ -253,14 +259,12 @@ pub enum Error {
     /// no version is matching this criteria.
     #[error("alias game version not found: {game_version:?}")]
     AliasGameVersionNotFound {
-        api: &'static Api,
         game_version: GameVersion,
     },
     /// An alias loader version, `Stable` has not been found because the alias is missing
     /// from the fabric API's versions.
     #[error("alias loader version not found: {game_version_id}/{loader_version:?}")]
     AliasLoaderVersionNotFound {
-        api: &'static Api,
         game_version_id: String,
         loader_version: LoaderVersion,
     },
@@ -268,14 +272,12 @@ pub enum Error {
     /// selected API.
     #[error("game version not found: {game_version_id}")]
     GameVersionNotFound {
-        api: &'static Api,
         game_version_id: String,
     },
     /// The given loader version as requested to launch Fabric with is not supported by 
     /// the selected API for the requested game version (which is supported).
     #[error("loader version not found: {game_version_id}/{loader_version_id}")]
     LoaderVersionNotFound {
-        api: &'static Api,
         game_version_id: String,
         loader_version_id: String,
     },
@@ -468,7 +470,6 @@ impl<H: Handler> InternalHandler<'_, H> {
             } if id == self.root_version_id => {
 
                 self.inner.handle_fabric_event(Event::VersionFetching {
-                    api: self.installer.api,
                     game_version_id: self.game_version_id,
                     loader_version_id: self.loader_version_id,
                 });
@@ -483,13 +484,11 @@ impl<H: Handler> InternalHandler<'_, H> {
                     Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => {
                         if self.installer.api.request_has_game_loader_versions(self.game_version_id)? {
                             return Err(Error::LoaderVersionNotFound { 
-                                api: self.installer.api,
                                 game_version_id: self.game_version_id.to_string(),
                                 loader_version_id: self.loader_version_id.to_string(),
                             });
                         } else {
                             return Err(Error::GameVersionNotFound { 
-                                api: self.installer.api,
                                 game_version_id: self.game_version_id.to_string(),
                             });
                         }
@@ -499,22 +498,11 @@ impl<H: Handler> InternalHandler<'_, H> {
 
                 // Force the version id, the prebuilt one might not be exact.
                 metadata.id = id.to_string();
-
-                let dir = file.parent().expect("version metadata should have a parent directory");
-                fs::create_dir_all(dir)
-                    .map_err(|e| standard::Error::new_io_file(e, dir))?;
-
-                let writer = File::create(file)
-                    .map_err(|e| standard::Error::new_io_file(e, file))?;
-
-                let mut serializer = serde_json::Serializer::new(BufWriter::new(writer));
-                serde_path_to_error::serialize(&metadata, &mut serializer)
-                    .map_err(|e| standard::Error::new_json_file(e, file))?;
+                standard::write_version_metadata(file, &metadata)?;
 
                 *retry = true;
 
                 self.inner.handle_fabric_event(Event::VersionFetched {
-                    api: self.installer.api,
                     game_version_id: self.game_version_id,
                     loader_version_id: self.loader_version_id,
                 });

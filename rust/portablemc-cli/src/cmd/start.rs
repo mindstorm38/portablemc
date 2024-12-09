@@ -15,7 +15,7 @@ use crate::parse::{StartArgs, StartFabricLoader, StartForgeLoader, StartResoluti
 use crate::format::TIME_FORMAT;
 use crate::output::LogLevel;
 
-use super::{Cli, CommonHandler, log_io_error, log_mojang_error, log_fabric_error};
+use super::{Cli, CommonHandler, log_io_error, log_mojang_error, log_fabric_error, log_forge_error};
 
 
 /// The child is shared in order to be properly killed when the launcher exits, because
@@ -37,7 +37,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             
             let mut inst = mojang::Installer::new(cli.main_dir.clone());
             apply_mojang_args(&mut inst, &cli, args);
-            inst.root_version(root_version.clone());
+            inst.set_root_version(root_version.clone());
 
             let mut handler = CommonHandler::new(&mut cli.out);
             game = match inst.install(handler.as_mojang_dyn()) {
@@ -55,22 +55,24 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             kind,
         } => {
 
-            let mut inst = fabric::Installer::new(cli.main_dir.clone(), match kind {
-                StartFabricLoader::Fabric => &fabric::FABRIC_API,
-                StartFabricLoader::Quilt => &fabric::QUILT_API,
-                StartFabricLoader::LegacyFabric => &fabric::LEGACY_FABRIC_API,
-                StartFabricLoader::Babric => &fabric::BABRIC_API,
-            });
+            let (api, api_id, api_name) = match kind {
+                StartFabricLoader::Fabric => (&fabric::FABRIC_API, "fabric", "Fabric"),
+                StartFabricLoader::Quilt => (&fabric::QUILT_API, "quilt", "Quilt"),
+                StartFabricLoader::LegacyFabric => (&fabric::LEGACY_FABRIC_API, "legacyfabric", "LegacyFabric"),
+                StartFabricLoader::Babric => (&fabric::BABRIC_API, "babric", "Babric"),
+            };
 
+            let mut inst = fabric::Installer::new(cli.main_dir.clone(), api);
             inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
             inst.game_version(game_version.clone());
             inst.loader_version(loader_version.clone());
 
             let mut handler = CommonHandler::new(&mut cli.out);
+            handler.set_api(api_id, api_name);
             game = match inst.install(handler.as_fabric_dyn()) {
                 Ok(game) => game,
                 Err(e) => {
-                    log_fabric_error(&mut cli.out, e);
+                    log_fabric_error(&mut cli.out, e, api_id, api_name);
                     return ExitCode::FAILURE;
                 }
             };
@@ -82,27 +84,25 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             kind,
         } => {
 
-            let mut inst = forge::Installer::new(cli.main_dir.clone(), match kind {
-                StartForgeLoader::Forge => &forge::FORGE_API,
-                StartForgeLoader::NeoForge => &forge::NEO_FORGE_API,
-            });
+            let (api, api_id, api_name) = match kind {
+                StartForgeLoader::Forge => (&forge::FORGE_API, "forge", "Forge"),
+                StartForgeLoader::NeoForge => (&forge::NEO_FORGE_API, "neoforge", "NeoForge"),
+            };
 
+            let mut inst = forge::Installer::new(cli.main_dir.clone(), api);
             inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
             inst.game_version(game_version.clone());
             inst.loader_version(loader_version.clone());
 
             let mut handler = CommonHandler::new(&mut cli.out);
+            handler.set_api(api_id, api_name);
             game = match inst.install(handler.as_forge_dyn()) {
                 Ok(game) => game,
                 Err(e) => {
-                    eprintln!("{e}");
-                    // log_fabric_error(&mut cli.out, e);
+                    log_forge_error(&mut cli.out, e, api_id, api_name);
                     return ExitCode::FAILURE;
                 }
             };
-
-            let _ = (kind,);
-            todo!("start forge loader");
 
         }
     }
@@ -137,12 +137,12 @@ pub fn apply_standard_args<'a>(
     installer: &'a mut standard::Installer, 
     cli: &Cli, 
 ) -> &'a mut standard::Installer {
-    installer.versions_dir(cli.versions_dir.clone());
-    installer.libraries_dir(cli.libraries_dir.clone());
-    installer.assets_dir(cli.assets_dir.clone());
-    installer.jvm_dir(cli.jvm_dir.clone());
-    installer.bin_dir(cli.bin_dir.clone());
-    installer.mc_dir(cli.mc_dir.clone());
+    installer.set_versions_dir(cli.versions_dir.clone());
+    installer.set_libraries_dir(cli.libraries_dir.clone());
+    installer.set_assets_dir(cli.assets_dir.clone());
+    installer.set_jvm_dir(cli.jvm_dir.clone());
+    installer.set_bin_dir(cli.bin_dir.clone());
+    installer.set_mc_dir(cli.mc_dir.clone());
     installer
 }
 
@@ -154,38 +154,38 @@ pub fn apply_mojang_args<'a>(
 ) -> &'a mut mojang::Installer {
 
     installer.with_standard(|inst| apply_standard_args(inst, cli));
-    installer.disable_multiplayer(args.disable_multiplayer);
-    installer.disable_chat(args.disable_chat);
-    installer.demo(args.demo);
+    installer.set_disable_multiplayer(args.disable_multiplayer);
+    installer.set_disable_chat(args.disable_chat);
+    installer.set_demo(args.demo);
 
     if let Some(StartResolution { width, height }) = args.resolution {
-        installer.resolution(width, height);
+        installer.set_resolution(width, height);
     }
 
     if let Some(lwjgl) = &args.lwjgl {
-        installer.fix_lwjgl(lwjgl.to_string());
+        installer.set_fix_lwjgl(lwjgl.to_string());
     }
 
     for exclude_id in &args.exclude_fetch {
         if exclude_id == "*" {
-            installer.fetch_exclude_all();
+            installer.set_fetch_exclude_all();
         } else {
-            installer.fetch_exclude(exclude_id.clone());
+            installer.add_fetch_exclude(exclude_id.clone());
         }
     }
 
     match (&args.username, &args.uuid) {
         (Some(username), None) => 
-            installer.auth_offline_username_authlib(username.clone()),
+            installer.set_auth_offline_username_authlib(username.clone()),
         (None, Some(uuid)) =>
-            installer.auth_offline_uuid(*uuid),
+            installer.set_auth_offline_uuid(*uuid),
         (Some(username), Some(uuid)) =>
-            installer.auth_offline(*uuid, username.clone()),
+            installer.set_auth_offline(*uuid, username.clone()),
         (None, None) => installer, // nothing
     };
 
     if let Some(server) = &args.server {
-        installer.quick_play(mojang::QuickPlay::Multiplayer { 
+        installer.set_quick_play(mojang::QuickPlay::Multiplayer { 
             host: server.clone(), 
             port: args.server_port,
         });
