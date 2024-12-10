@@ -166,7 +166,7 @@ fn search_local(cli: &mut Cli, query: &[String]) -> ExitCode {
     let reader = match fs::read_dir(&cli.versions_dir) {
         Ok(reader) => reader,
         Err(e) => {
-            log_io_error(&mut cli.out, e, Some(&cli.versions_dir));
+            log_io_error(&mut cli.out, e, &format!("{}", cli.versions_dir.display()));
             return ExitCode::FAILURE;
         }
     };

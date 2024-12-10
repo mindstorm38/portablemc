@@ -607,10 +607,14 @@ fn try_install(
     //      meta stored in 'versionInfo' object. Each library have
     //      two keys 'serverreq' and 'clientreq' that should be
     //      removed when the profile is returned.
-    let profile = match installer_zip.by_name("install_profile.json") {
+    const PROFILE_ENTRY: &str = "install_profile.json";
+    let profile = match installer_zip.by_name(PROFILE_ENTRY) {
         Ok(reader) => {
             let mut deserializer = serde_json::Deserializer::from_reader(reader);
-            serde_path_to_error::deserialize::<_, serde::InstallProfile>(&mut deserializer)?
+            serde_path_to_error::deserialize::<_, serde::InstallProfile>(&mut deserializer)
+                .map_err(|e| standard::Error::new_json(e, format!("entry: {}, from: {}", 
+                    PROFILE_ENTRY, 
+                    installer_file.display())))?
         }
         Err(_) => return Err(Error::InstallerProfileNotFound {  })
     };
@@ -632,7 +636,10 @@ fn try_install(
             let mut metadata = match installer_zip.by_name(metadata_entry) {
                 Ok(reader) => {
                     let mut deserializer = serde_json::Deserializer::from_reader(reader);
-                    serde_path_to_error::deserialize::<_, Box<standard::serde::VersionMetadata>>(&mut deserializer)?
+                    serde_path_to_error::deserialize::<_, Box<standard::serde::VersionMetadata>>(&mut deserializer)
+                        .map_err(|e| standard::Error::new_json(e, format!("entry: {}, from: {}",
+                            metadata_entry,
+                            installer_file.display())))?
                 }
                 Err(_) => return Err(Error::InstallerVersionMetadataNotFound {  })
             };
@@ -643,7 +650,7 @@ fn try_install(
             // JAR, we need to extract it given its path.
             if let Some(name) = &profile.path {
                 let lib_file = name.file(&libraries_dir);
-                extract_installer_maven_artifact(&mut installer_zip, name, &lib_file)?;
+                extract_installer_maven_artifact(installer_file, &mut installer_zip, name, &lib_file)?;
             }
 
             // We keep as map of libraries to their file path, this is also used because
@@ -674,7 +681,7 @@ fn try_install(
                         .set_expect_size(lib_dl.download.size)
                         .set_expect_sha1(lib_dl.download.sha1.as_deref().copied());
                 } else {
-                    extract_installer_maven_artifact(&mut installer_zip, &lib.name, &lib_file)?;
+                    extract_installer_maven_artifact(installer_file, &mut installer_zip, &lib.name, &lib_file)?;
                 }
 
             }
@@ -707,7 +714,7 @@ fn try_install(
                         // NOTE: Unsafe joining.
                         let entry = entry.strip_prefix('/').unwrap_or(entry);
                         let tmp_file = tmp_dir.join(entry);
-                        extract_installer_file(&mut installer_zip, entry, &tmp_file)?;
+                        extract_installer_file(installer_file, &mut installer_zip, entry, &tmp_file)?;
                         InstallDataTypedEntry::File(tmp_file)
                     }
                 };
@@ -786,9 +793,9 @@ fn try_install(
                     }
                 }
 
-                // FIXME:
-                let output = command.spawn()?.wait_with_output()?;
-                // let output = command.output()?;
+                let output = command.output()
+                    .map_err(|e| standard::Error::new_io(e, format!("spawn: {}", jvm_file.display())))?;
+
                 if !output.status.success() {
                     return Err(Error::InstallerProcessorFailed {
                         name: processor.jar.clone(),
@@ -832,7 +839,7 @@ fn try_install(
             // Extract the universal JAR file of the mod loader.
             let jar_file = profile.install.path.file(libraries_dir);
             let jar_entry = &profile.install.file_path[..];
-            extract_installer_file(&mut installer_zip, &jar_entry, &jar_file)?;
+            extract_installer_file(installer_file, &mut installer_zip, &jar_entry, &jar_file)?;
 
             metadata.id = root_version_id.to_string();
             standard::write_version_metadata(&metadata_file, &metadata)?;
@@ -934,6 +941,7 @@ fn format_processor_arg(
 /// For the modern installer, extract from its archive the given artifact to the library
 /// directory.
 fn extract_installer_maven_artifact<R: Read + Seek>(
+    installer_file: &Path,
     installer_zip: &mut ZipArchive<R>,
     src_name: &Gav,
     dst_file: &Path,
@@ -948,12 +956,13 @@ fn extract_installer_maven_artifact<R: Read + Seek>(
         entry_buf
     };
 
-    extract_installer_file(installer_zip, &src_entry, dst_file)
+    extract_installer_file(installer_file, installer_zip, &src_entry, dst_file)
 
 }
 
 /// Extract an installer file from its archive.
 fn extract_installer_file<R: Read + Seek>(
+    installer_file: &Path,
     installer_zip: &mut ZipArchive<R>,
     src_entry: &str,
     dst_file: &Path,
@@ -966,13 +975,16 @@ fn extract_installer_file<R: Read + Seek>(
 
     let parent_dir = dst_file.parent().unwrap();
     fs::create_dir_all(parent_dir)
-        .map_err(|e| standard::Error::new_io_file(e, parent_dir.to_path_buf()))?;
+        .map_err(|e| standard::Error::new_io_file(e, parent_dir))?;
 
     let mut writer = File::create(dst_file)
-        .map_err(|e| standard::Error::new_io_file(e, dst_file.to_path_buf()))
+        .map_err(|e| standard::Error::new_io_file(e, dst_file))
         .map(BufWriter::new)?;
 
-    io::copy(&mut reader, &mut writer)?;
+    io::copy(&mut reader, &mut writer)
+        .map_err(|e| standard::Error::new_io(e, format!("extract: {}, from: {}", 
+            src_entry, 
+            installer_file.display())))?;
 
     Ok(())
 
@@ -997,7 +1009,7 @@ fn find_jar_main_class(jar_file: &Path) -> Result<Option<String>> {
     const MAIN_CLASS_KEY: &str = "Main-Class: ";
 
     let mut line = String::new();
-    while manifest_reader.read_line(&mut line)? != 0 {
+    while manifest_reader.read_line(&mut line).unwrap_or(0) != 0 {
         if line.starts_with(MAIN_CLASS_KEY) {
             if let Some(last_non_whitespace) = line.rfind(|c: char| !c.is_whitespace()) {
                 line.truncate(last_non_whitespace + 1);

@@ -800,10 +800,9 @@ pub fn request_manifest(handler: impl download::Handler) -> Result<serde::Mojang
 
     let reader = BufReader::new(entry.take_handle().unwrap());
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
-    match serde_path_to_error::deserialize::<_, serde::MojangManifest>(&mut deserializer) {
-        Ok(obj) => Ok(obj),
-        Err(e) => Err(standard::Error::new_json_file(e, entry.file()).into())
-    }
+    let manifest = serde_path_to_error::deserialize::<_, serde::MojangManifest>(&mut deserializer)
+        .map_err(|e| standard::Error::new_json_file(e, entry.file()))?;
+    Ok(manifest)
 
 }
 
@@ -895,7 +894,7 @@ impl<H: Handler> InternalHandler<'_, H> {
                 if !check_file(file, dl.size, dl.sha1.as_deref())? {
                     
                     fs::remove_file(file)
-                        .map_err(|e| standard::Error::new_io_file(e, file.to_path_buf()))?;
+                        .map_err(|e| standard::Error::new_io_file(e, file))?;
                     
                     self.inner.handle_mojang_event(Event::VersionInvalidated { id });
                 

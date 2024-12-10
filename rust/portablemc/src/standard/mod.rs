@@ -504,14 +504,12 @@ impl Installer {
                     return Err(Error::VersionNotFound { id });
 
                 }
-                Err(e) => return Err(Error::new_io_file(e, file))
+                Err(e) => return Err(Error::new_io_file(e, &file))
             };
 
             let mut deserializer = serde_json::Deserializer::from_reader(reader);
-            let mut metadata: serde::VersionMetadata = match serde_path_to_error::deserialize(&mut deserializer) {
-                Ok(obj) => obj,
-                Err(e) => return Err(Error::new_json_file(e, file)),
-            };
+            let mut metadata = serde_path_to_error::deserialize(&mut deserializer)
+                .map_err(|e| Error::new_json_file(e, &file))?;
 
             handler.handle_standard_event(Event::VersionLoaded { id: &id, file: &file, metadata: &mut metadata });
 
@@ -781,7 +779,7 @@ impl Installer {
 
         // Create the directory and then canonicalize it.
         fs::create_dir_all(&bin_dir)
-            .map_err(|e| Error::new_io_file(e, bin_dir.clone()))?;
+            .map_err(|e| Error::new_io(e, format!("create dir: {}", bin_dir.display())))?;
 
         // Now we extract all binaries.
         for src_file in &lib_files.natives_files {
@@ -793,12 +791,12 @@ impl Installer {
             match ext {
                 b"zip" | b"jar" => {
 
-                    let src_reader = File::open(&src_file)
-                        .map_err(|e| Error::new_io_file(e, src_file.clone()))
+                    let src_reader = File::open(src_file)
+                        .map_err(|e| Error::new_io_file(e, src_file))
                         .map(BufReader::new)?;
 
                     let mut archive = ZipArchive::new(src_reader)
-                        .map_err(|e| Error::new_zip_file(e, src_file.clone()))?;
+                        .map_err(|e| Error::new_zip_file(e, src_file))?;
                     
                     for i in 0..archive.len() {
                         
@@ -819,9 +817,13 @@ impl Installer {
                         let dst_file = bin_dir.join(file_name);
 
                         let mut dst_writer = File::create(&dst_file)
-                            .map_err(|e| Error::new_io_file(e, dst_file.clone()))?;
+                            .map_err(|e| Error::new_io_file(e, &dst_file))?;
 
-                        io::copy(&mut file, &mut dst_writer)?;
+                        io::copy(&mut file, &mut dst_writer)
+                            .map_err(|e| Error::new_io(e, format!("extract: {}, from: {}, to: {}", 
+                                file.name(),
+                                src_file.display(),
+                                dst_file.display())))?;
 
                     }
 
@@ -980,14 +982,12 @@ impl Installer {
                 Err(e) if !index_downloaded && e.kind() == io::ErrorKind::NotFound =>
                     return Err(Error::AssetsNotFound { id: index_info.id.to_owned() }),
                 Err(e) => 
-                    return Err(Error::new_io_file(e, index_file))
+                    return Err(Error::new_io_file(e, &index_file))
             };
     
             let mut deserializer = serde_json::Deserializer::from_reader(reader);
-            match serde_path_to_error::deserialize::<_, serde::AssetIndex>(&mut deserializer) {
-                Ok(obj) => obj,
-                Err(e) => return Err(Error::new_json_file(e, index_file))
-            }
+            serde_path_to_error::deserialize::<_, serde::AssetIndex>(&mut deserializer)
+                .map_err(|e| Error::new_json_file(e, &index_file))?
 
         };
         
@@ -1093,7 +1093,8 @@ impl Installer {
             
             let virtual_file = mapping.virtual_dir.join(&object.rel_file);
             if let Some(parent) = virtual_file.parent() {
-                fs::create_dir_all(parent)?;
+                fs::create_dir_all(parent)
+                    .map_err(|e| Error::new_io(e, format!("create dir: {}", parent.display())))?;
             }
             hard_link_file(&object.object_file, &virtual_file)?;
 
@@ -1104,11 +1105,14 @@ impl Installer {
                 if !check_file(&resource_file, Some(object.size), None)? {
                     
                     if let Some(parent) = resource_file.parent() {
-                        fs::create_dir_all(parent)?;
+                        fs::create_dir_all(parent)
+                            .map_err(|e| Error::new_io(e, format!("create dir: {}", parent.display())))?;
                     }
 
                     fs::copy(&object.object_file, &resource_file)
-                        .map_err(|e| Error::new_io_file(e, resource_file))?;
+                        .map_err(|e| Error::new_io(e, format!("copy: {}, to: {}",
+                            object.object_file.display(),
+                            resource_file.display())))?;
 
                 }
 
@@ -1342,11 +1346,8 @@ impl Installer {
 
             let reader = BufReader::new(entry.take_handle().unwrap());
             let mut deserializer = serde_json::Deserializer::from_reader(reader);
-
-            match serde_path_to_error::deserialize::<_, serde::JvmMetaManifest>(&mut deserializer) {
-                Ok(obj) => obj,
-                Err(e) => return Err(Error::new_json_file(e, entry.file())),
-            }
+            serde_path_to_error::deserialize::<_, serde::JvmMetaManifest>(&mut deserializer)
+                .map_err(|e| Error::new_json_file(e, entry.file()))?
 
         };
 
@@ -1387,17 +1388,13 @@ impl Installer {
                     .download(handler.as_download_dyn())??;
             }
             
-            let reader = match File::open(&manifest_file) {
-                Ok(reader) => BufReader::new(reader),
-                Err(e) => return Err(Error::new_io_file(e, manifest_file)),
-            };
+            let reader = File::open(&manifest_file)
+                .map_err(|e| Error::new_io_file(e, &manifest_file))
+                .map(BufReader::new)?;
 
             let mut deserializer = serde_json::Deserializer::from_reader(reader);
-
-            match serde_path_to_error::deserialize::<_, serde::JvmManifest>(&mut deserializer) {
-                Ok(obj) => obj,
-                Err(e) => return Err(Error::new_json_file(e, manifest_file)),
-            }
+            serde_path_to_error::deserialize::<_, serde::JvmManifest>(&mut deserializer)
+                .map_err(|e| Error::new_json_file(e, &manifest_file))?
 
         };
 
@@ -1412,7 +1409,8 @@ impl Installer {
 
             match manifest_file {
                 serde::JvmManifestFile::Directory => {
-                    fs::create_dir_all(&file).map_err(|e| Error::new_io_file(e, file))?;
+                    fs::create_dir_all(&file)
+                        .map_err(|e| Error::new_io(e, format!("create dir: {}", file.display())))?;
                 }
                 serde::JvmManifestFile::File { 
                     executable, 
@@ -1566,7 +1564,7 @@ impl Installer {
             use std::os::unix::fs::PermissionsExt;
 
             let mut perm = exec_file.metadata()
-                .map_err(|e| Error::new_io_file(e, exec_file.to_path_buf()))?
+                .map_err(|e| Error::new_io_file(e, &exec_file))?
                 .permissions();
 
             // Set executable permission for every owner/group/other with read access.
@@ -1576,7 +1574,7 @@ impl Installer {
                 
                 perm.set_mode(new_mode);
                 fs::set_permissions(exec_file, perm)
-                    .map_err(|e| Error::new_io_file(e, exec_file.to_path_buf()))?;
+                    .map_err(|e| Error::new_io(e, format!("set permissions: {}", exec_file.display())))?;
 
             }
             
@@ -1905,26 +1903,26 @@ pub enum Error {
     },
     #[error("main class not found")]
     MainClassNotFound {  },
-    /// A generic system's IO error with optional file source.
-    #[error("io: {error} @ {file:?}")]
+    /// A generic system's IO error with an origin.
+    #[error("io: {error} @ {origin}")]
     Io {
         #[source]
         error: io::Error,
-        file: Option<Box<Path>>,
+        origin: Box<str>,
     },
-    /// A JSON deserialization error with a file source.
-    #[error("json: {error} @ {file:?}")]
+    /// A JSON deserialization error with an origin.
+    #[error("json: {error} @ {origin}")]
     Json {
         #[source]
         error: serde_path_to_error::Error<serde_json::Error>,
-        file: Option<Box<Path>>,
+        origin: Box<str>,
     },
-    /// A Zip error with a file source, this can happen when extracting natives.
-    #[error("zip: {error} @ {file}")]
+    /// A Zip error with an origin, this can happen when extracting natives.
+    #[error("zip: {error} @ {origin}")]
     Zip {
         #[source]
         error: ZipError,
-        file: Box<Path>,
+        origin: Box<str>,
     },
     /// A standalone reqwest error, usually on initialization but can be used.
     #[error("reqwest: {error}")]
@@ -1951,36 +1949,39 @@ impl From<download::EntryError> for Error {
     }
 }
 
-impl From<io::Error> for Error {
-    fn from(error: io::Error) -> Self {
-        Self::Io { error, file: None }
-    }
-}
-
-impl From<serde_path_to_error::Error<serde_json::Error>> for Error {
-    fn from(error: serde_path_to_error::Error<serde_json::Error>) -> Self {
-        Self::Json { error, file: None }
-    }
-}
-
 /// Type alias for a result with the standard error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
     
     #[inline]
-    pub fn new_io_file(error: io::Error, file: impl Into<Box<Path>>) -> Self {
-        Self::Io { error, file: Some(file.into()) }
+    pub fn new_io(error: io::Error, origin: impl Into<Box<str>>) -> Self {
+        Self::Io { error, origin: origin.into() }
     }
     
     #[inline]
-    pub fn new_json_file(error: serde_path_to_error::Error<serde_json::Error>, file: impl Into<Box<Path>>) -> Self {
-        Self::Json { error, file: Some(file.into()) }
+    pub fn new_json(error: serde_path_to_error::Error<serde_json::Error>, origin: impl Into<Box<str>>) -> Self {
+        Self::Json { error, origin: origin.into() }
+    }
+    
+    #[inline]
+    pub fn new_zip(error: ZipError, origin: impl Into<Box<str>>) -> Self {
+        Self::Zip { error, origin: origin.into() }
     }
 
     #[inline]
-    pub fn new_zip_file(error: ZipError, file: impl Into<Box<Path>>) -> Self {
-        Self::Zip { error, file: file.into() }
+    pub fn new_io_file(error: io::Error, file: impl AsRef<Path>) -> Self {
+        Self::new_io(error, format!("{}", file.as_ref().display()))
+    }
+    
+    #[inline]
+    pub fn new_json_file(error: serde_path_to_error::Error<serde_json::Error>, file: impl AsRef<Path>) -> Self {
+        Self::new_json(error, format!("{}", file.as_ref().display()))
+    }
+
+    #[inline]
+    pub fn new_zip_file(error: ZipError, file: impl AsRef<Path>) -> Self {
+        Self::new_zip(error, format!("{}", file.as_ref().display()))
     }
 
 }
@@ -2179,7 +2180,8 @@ pub(crate) fn check_file(
     size: Option<u32>,
     sha1: Option<&[u8; 20]>,
 ) -> Result<bool> {
-    check_file_inner(file, size, sha1).map_err(|e| Error::new_io_file(e, file.to_path_buf()))
+    check_file_inner(file, size, sha1)
+        .map_err(|e| Error::new_io(e, format!("check file: {}", file.display())))
 }
 
 fn check_file_inner(
@@ -2273,7 +2275,8 @@ where
 /// installer error.
 #[inline]
 pub(crate) fn canonicalize_file(file: &Path) -> Result<PathBuf> {
-    dunce::canonicalize(file).map_err(|e| Error::new_io_file(e, file.to_path_buf()))
+    dunce::canonicalize(file)
+        .map_err(|e| Error::new_io(e, format!("canonicalize: {}", file.display())))
 }
 
 /// Internal shortcut to creating a link file that points to another one, this function
@@ -2288,23 +2291,26 @@ pub(crate) fn canonicalize_file(file: &Path) -> Result<PathBuf> {
 pub(crate) fn link_file(original: &Path, link: &Path) -> Result<()> {
 
     let err;
+    let action;
 
     #[cfg(unix)] {
         // We just give the relative link with '..' which will be resolved 
         // relative to the link's location by the filesystem.
         err = std::os::unix::fs::symlink(original, link);
+        action = "symlink";
     }
 
     #[cfg(not(unix))] {
         let parent_dir = link.parent().unwrap();
         let file = parent_dir.join(&original);
         err = fs::hard_link(original, &file);
+        action = "hard link";
     }
 
     match err {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
-        Err(e) => Err(Error::new_io_file(e, link.to_path_buf())),
+        Err(e) => Err(Error::new_io(e, format!("{action}: {}, to: {}", original.display(), link.display()))),
     }
 
 }
@@ -2313,6 +2319,7 @@ pub(crate) fn link_file(original: &Path, link: &Path) -> Result<()> {
 pub(crate) fn symlink_or_copy_file(original: &Path, link: &Path) -> Result<()> {
 
     let err;
+    let action;
 
     #[cfg(unix)] {
         // We just give the relative link with '..' which will be resolved 
@@ -2322,13 +2329,15 @@ pub(crate) fn symlink_or_copy_file(original: &Path, link: &Path) -> Result<()> {
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
             Err(e) => Err(e),
         };
+        action = "symlink";
     }
 
     #[cfg(not(unix))] {
         err = fs::copy(original, link).map(|_| ());
+        action = "copy";
     }
 
-    err.map_err(|e| Error::new_io_file(e, link.to_path_buf()))
+    err.map_err(|e| Error::new_io(e, format!("{action}: {}, to: {}", original.display(), link.display())))
 
 }
 
@@ -2339,7 +2348,7 @@ pub(crate) fn hard_link_file(original: &Path, link: &Path) -> Result<()> {
     match fs::hard_link(original, link) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
-        Err(e) => Err(Error::new_io_file(e, link.to_path_buf())),
+        Err(e) => Err(Error::new_io(e, format!("hard link: {}, to: {}", original.display(), link.display()))),
     }
 }
 

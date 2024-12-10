@@ -3,8 +3,8 @@
 pub mod start;
 pub mod search;
 
-use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::path::PathBuf;
 use std::time::Instant;
 use std::error::Error;
 use std::io;
@@ -545,31 +545,25 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
             out.log("error_main_class_not_found")
                 .error("No main class specified in version metadata");
         }
-        Error::Io { error, file } => {
-            log_io_error(out, error, file.as_deref());
+        Error::Io { error, origin } => {
+            log_io_error(out, error, &origin);
         }
-        Error::Json { error, file } => {
-
-            let mut log = out.log("error_json");
-
-            log.arg(error.path());
-            log.arg(error.inner());
-            log.newline();
-            log.error(format_args!("JSON error: {error}"));
-            
-            if let Some(file) = file.as_deref() {
-                log.arg(file.display());
-                log.additional(format_args!("Related to {}", file.display()));
-            }
-
+        Error::Json { error, origin } => {
+            out.log("error_json")
+                .arg(error.path())
+                .arg(error.inner())
+                .arg(&origin)
+                .newline()
+                .error(format_args!("JSON error: {error}"))
+                .additional(format_args!("At {origin}"));
         }
-        Error::Zip { error, file } => {
+        Error::Zip { error, origin } => {
             out.log("error_zip")
                 .arg(&error)
-                .arg(file.display())
+                .arg(&origin)
                 .newline()
                 .error(format_args!("ZIP error: {error}"))
-                .additional(format_args!("Related to {}", file.display()));
+                .additional(format_args!("At {origin}"));
         }
         Error::Reqwest { error } => {
             let mut log = out.log("error_reqwest");
@@ -577,7 +571,7 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
             log.newline();
             log.error(format_args!("Reqwest error: {error}"));
             if let Some(source) = error.source() {
-                log.additional(format_args!("Source: {source}"));
+                log.additional(format_args!("At {source}"));
             }
         }
         Error::Download { batch } => {
@@ -879,7 +873,7 @@ pub fn log_download_error(out: &mut Output, batch: download::BatchResult) {
 }
 
 /// Common function to log an I/O error to the user.
-pub fn log_io_error(out: &mut Output, error: io::Error, file: Option<&Path>) {
+pub fn log_io_error(out: &mut Output, error: io::Error, origin: &str) {
 
     let mut log = out.log("error_io");
 
@@ -889,14 +883,13 @@ pub fn log_io_error(out: &mut Output, error: io::Error, file: Option<&Path>) {
         log.arg(format_args!("unknown:{error}"));
     }
 
-    // Newline because I/O errors are unexpected and we want to keep any previous context.
-    log.newline().error(format_args!("I/O error: {error}"));
+    log.arg(origin);
 
-    if let Some(file) = file {
-        log.arg(file.display());
-        log.additional(format_args!("Related to {}", file.display()));
-    }
-    
+    // Newline because I/O errors are unexpected and we want to keep any previous context.
+    log.newline()
+        .error(format_args!("I/O error: {error}"))
+        .additional(format_args!("At {origin}"));
+
 }
 
 fn io_error_kind_code(error: &io::Error) -> Option<&'static str> {
