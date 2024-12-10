@@ -13,10 +13,13 @@ use std::time::Duration;
 use std::{env, thread};
 use std::ffi::OsStr;
 
+use indexmap::IndexSet;
+
 use zip::result::ZipError;
+use zip::ZipArchive;
+
 use sha1::{Digest, Sha1};
 use uuid::{uuid, Uuid};
-use zip::ZipArchive;
 
 use crate::path::{PathExt, PathBufExt};
 use crate::download::{self, Batch};
@@ -1212,7 +1215,7 @@ impl Installer {
     ) -> Result<Option<Jvm>> {
 
         // If the given JVM don't work, this returns None.
-        let Some(jvm) = self.find_jvm_versions(&[file]).next() else {
+        let Some(jvm) = self.find_jvm_versions(&mut [file.as_path()].into_iter()).next() else {
             return Ok(None)
         };
 
@@ -1255,7 +1258,7 @@ impl Installer {
         major_version: &str,
     ) -> Result<Option<Jvm>> {
 
-        let mut candidates = Vec::new();
+        let mut candidates = IndexSet::new();
         let exec_name = jvm_exec_name();
 
         // Check every JVM available in PATH.
@@ -1263,7 +1266,7 @@ impl Installer {
             for mut path in env::split_paths(&path) {
                 path.push(exec_name);
                 if path.is_file() {
-                    candidates.push(path);
+                    candidates.insert(path);
                 }
             }
         }
@@ -1277,16 +1280,14 @@ impl Installer {
                         .joined("bin")
                         .joined(exec_name);
                     if path.is_file() {
-                        candidates.push(path);
+                        candidates.insert(path);
                     }
                 }
             }
         }
 
-        // Because we check JVM candidates in order and it takes time, so we try to put
-        // and JVM that have the major version 
-        
-        for jvm in self.find_jvm_versions(&candidates) {
+
+        for jvm in self.find_jvm_versions(&mut candidates.iter().map(|p| p.as_path())) {
             
             // If we have a major version requirement but the JVM version couldn't
             // be determined, we skip this candidate.
@@ -1456,9 +1457,13 @@ impl Installer {
     /// Find the version of the given JVMs in parallel and return an iterator for each
     /// path and the JVM, if found. Executables that produced an unexpected error are
     /// simply ignored.
-    fn find_jvm_versions(&self, files: &[PathBuf]) -> impl Iterator<Item = Jvm> {
+    /// 
+    /// We use a '&mut dyn' iterator for dedup of this method.
+    fn find_jvm_versions<'a>(&self, files: &mut dyn Iterator<Item = &'a Path>) -> impl Iterator<Item = Jvm> + use<'a> {
 
-        struct ChildJvm {
+        struct ChildJvm<'a> {
+            /// Executable file of this JVM.
+            file: &'a Path,
             /// The child if we are still waiting for its termination.
             child: Option<Child>,
             /// This is only set when child has terminated properly.
@@ -1486,7 +1491,7 @@ impl Installer {
                 remaining += 1;
             }
 
-            children.push(ChildJvm { child, jvm: None });
+            children.push(ChildJvm { file: &file, child, jvm: None });
 
         }
 
@@ -1495,7 +1500,7 @@ impl Installer {
         
         for _ in 0..TRIES_COUNT {
 
-            for (child_index, child_jvm) in &mut children.iter_mut().enumerate() {
+            for child_jvm in &mut children.iter_mut() {
 
                 let Some(child) = &mut child_jvm.child else { continue };
                 let Ok(status) = child.try_wait() else {
@@ -1521,9 +1526,9 @@ impl Installer {
                 let Ok(output) = String::from_utf8(output.stderr) else { 
                     continue; // Ignore if stderr is not UTF-8.
                 };
-
+                
                 child_jvm.jvm = Some(Jvm {
-                    file: files[child_index].clone(),
+                    file: child_jvm.file.to_path_buf(),
                     version: output.lines()
                         .flat_map(|line| line.split_once('"'))
                         .flat_map(|(_, line)| line.split_once('"'))
