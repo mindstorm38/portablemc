@@ -16,6 +16,7 @@ serde_json = "1.0.133"
 uuid = { version = "1.11.0", features = ["v4", "v5", "serde"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 xmlparser = "0.13.6"    # No deps
+indexmap = "2.7.0"
 bytes = "1.9"
 
 regex = "1.11.1"        # No particular dep
