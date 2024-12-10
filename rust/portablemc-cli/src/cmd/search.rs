@@ -7,7 +7,7 @@ use chrono::{DateTime, Local, TimeDelta, Utc};
 use portablemc::{mojang, standard};
 use portablemc::download::Handler;
 
-use crate::format::{TimeDeltaDisplay, DATE_FORMAT};
+use crate::format::{TimeDeltaFmt, DATE_FORMAT};
 use crate::parse::{SearchArgs, SearchKind};
 
 use super::{Cli, CommonHandler, log_mojang_error, log_io_error};
@@ -150,7 +150,7 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
         let local_release_data_fmt: _ = version.release_time.format(DATE_FORMAT);
         let delta = today.signed_duration_since(&local_release_date);
         if is_latest || delta <= TimeDelta::weeks(4) {
-            cell.format(format_args!("{} ({})", local_release_data_fmt, TimeDeltaDisplay(delta)));
+            cell.format(format_args!("{} ({})", local_release_data_fmt, TimeDeltaFmt(delta)));
         } else {
             cell.format(format_args!("{}", local_release_data_fmt));
         }

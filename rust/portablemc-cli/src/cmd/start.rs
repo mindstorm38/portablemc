@@ -64,8 +64,8 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
             let mut inst = fabric::Installer::new(cli.main_dir.clone(), api);
             inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
-            inst.game_version(game_version.clone());
-            inst.loader_version(loader_version.clone());
+            inst.set_game_version(game_version.clone());
+            inst.set_loader_version(loader_version.clone());
 
             let mut handler = CommonHandler::new(&mut cli.out);
             handler.set_api(api_id, api_name);
@@ -91,8 +91,8 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
             let mut inst = forge::Installer::new(cli.main_dir.clone(), api);
             inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
-            inst.game_version(game_version.clone());
-            inst.loader_version(loader_version.clone());
+            inst.set_game_version(game_version.clone());
+            inst.set_loader_version(loader_version.clone());
 
             let mut handler = CommonHandler::new(&mut cli.out);
             handler.set_api(api_id, api_name);
