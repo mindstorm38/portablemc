@@ -361,16 +361,16 @@ impl Installer {
         // Resolve arguments from the hierarchy of versions.
         let mut jvm_args = Vec::new();
         let mut game_args = Vec::new();
-        // let mut modern_args = false;
-        
+
         for version in &hierarchy {
             if let Some(version_args) = &version.metadata.arguments {
                 self.check_args(&mut jvm_args, &version_args.jvm, &features, None);
                 self.check_args(&mut game_args, &version_args.game, &features, None);
-                // modern_args = true;
             } else if let Some(version_legacy_args) = &version.metadata.legacy_arguments {
-                jvm_args.extend(LEGACY_JVM_ARGS.iter().copied().map(str::to_string));
-                game_args.extend(version_legacy_args.split_whitespace().map(str::to_string));
+                // Legacy args are overwriting everything and abort child version.
+                jvm_args = LEGACY_JVM_ARGS.iter().copied().map(str::to_string).collect::<Vec<_>>();
+                game_args = version_legacy_args.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+                break;
             }
         }
 
