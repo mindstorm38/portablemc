@@ -45,9 +45,13 @@ pub struct InstallLibraryDownloads {
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct InstallProcessor {
     pub jar: Gav,
+    #[serde(default)]
     pub sides: Option<Vec<InstallSide>>,
+    #[serde(default)]
     pub classpath: Vec<Gav>,
+    #[serde(default)]
     pub args: Vec<String>,
+    #[serde(default)]
     pub outputs: HashMap<String, String>,
 }
 
@@ -96,14 +100,11 @@ pub enum InstallSide {
 
 impl InstallSide {
 
-    #[inline]
-    pub fn is_client(self) -> bool {
-        self == Self::Client
-    }
-
-    #[inline]
-    pub fn is_server(self) -> bool {
-        self == Self::Server
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InstallSide::Client => "client",
+            InstallSide::Server => "server",
+        }
     }
 
 }

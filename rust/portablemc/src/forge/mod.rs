@@ -574,6 +574,11 @@ fn try_install(
         }
     };
 
+    let installer_reader = BufReader::new(entry.take_handle().unwrap());
+    let installer_file = entry.file();
+    let mut installer_zip = ZipArchive::new(installer_reader)
+        .map_err(|e| standard::Error::new_zip_file(e, installer_file))?;
+
     handler.handle_forge_event(Event::InstallerFetched {
         game_version_id,
         loader_version_id,
@@ -588,18 +593,9 @@ fn try_install(
     // be already canonicalized.
     mojang.set_root_version(RootVersion::Id(game_version_id.to_string()));
     let jvm_file = match mojang.install(handler.as_mojang_dyn()) {
-        // Err(mojang::Error::Standard(standard::Error::VersionNotFound { id })) if id == game_version_id => {
-        //     return Err(Error::GameVersionNotFound { 
-        //         game_version_id: game_version_id.to_string(),
-        //     });
-        // }
         Err(e) => return Err(Error::Mojang(e)),
         Ok(game) => game.jvm_file,
     };
-
-    let installer_reader = BufReader::new(entry.take_handle().unwrap());
-    let mut installer_zip = ZipArchive::new(installer_reader)
-        .map_err(|e| standard::Error::new_zip_file(e, entry.file()))?;
 
     // The install profiles comes in multiples forms:
     // >= 1.12.2-14.23.5.2851
@@ -622,8 +618,10 @@ fn try_install(
     // The installer directly installs libraries to these directories.
     // We canonicalize the libs path here, this avoids doing it after each join.
     let libraries_dir = standard::canonicalize_file(mojang.standard().libraries_dir())?;
-    let version_dir = mojang.standard().versions_dir().join(&root_version_id);
-    let metadata_file = version_dir.join_with_extension(&root_version_id, "json");
+    let game_version_dir = mojang.standard().versions_dir().join(&game_version_id);
+    let game_client_file = game_version_dir.join_with_extension(&game_version_id, "jar");
+    let root_version_dir = mojang.standard().versions_dir().join(&root_version_id);
+    let metadata_file = root_version_dir.join_with_extension(&root_version_id, "json");
 
     match profile {
         serde::InstallProfile::Modern(profile) => {
@@ -716,6 +714,15 @@ fn try_install(
                 data.insert(name.clone(), kind);
             }
 
+            // Builtin entries.
+            data.insert("SIDE".to_string(), InstallDataTypedEntry::Literal(side.as_str().to_string()));
+            data.insert("MINECRAFT_JAR".to_string(), InstallDataTypedEntry::File(game_client_file));
+            data.insert("MINECRAFT_VERSION".to_string(), InstallDataTypedEntry::Literal(game_version_id.to_string()));
+            // Currently no support for ROOT because it's apparently used only for server...
+            // data.insert("ROOT".to_string(), InstallDataTypedEntry::File(mojang.standard().));
+            data.insert("INSTALLER".to_string(), InstallDataTypedEntry::File(installer_file.to_path_buf()));
+            data.insert("LIBRARY_DIR".to_string(), InstallDataTypedEntry::File(libraries_dir.to_path_buf()));
+
             // Now we process each post-processor in order, each processor will refer to
             // one of the library installed earlier.
             for processor in &profile.processors {
@@ -775,10 +782,13 @@ fn try_install(
                         command.arg(arg);
                     } else {
                         // Ignore malformed arguments for now.
+                        command.arg(arg);
                     }
                 }
 
-                let output = command.output()?;
+                // FIXME:
+                let output = command.spawn()?.wait_with_output()?;
+                // let output = command.output()?;
                 if !output.status.success() {
                     return Err(Error::InstallerProcessorFailed {
                         name: processor.jar.clone(),
@@ -808,9 +818,11 @@ fn try_install(
         }
         serde::InstallProfile::Legacy(profile) => {
             
-            // FIXME: Large copy of bytes here...
+            // FIXME: Large copy of bytes here? Optimized?
             let mut metadata = profile.version_info;
             
+            // TODO: Set Mojang URL for libs that don't have ones.
+
             // Old version (<= 1.6.4) of forge are broken, even on official launcher.
             // So we fix them by manually adding the correct inherited version.
             if metadata.inherits_from.is_none() {
