@@ -40,7 +40,7 @@ pub fn main(args: CliArgs) -> ExitCode {
     let Some(main_dir) = args.main_dir.or_else(standard::default_main_dir) else {
         
         out.log("error_missing_main_dir")
-            .error("There is no default main directory for your platform, please specify it using --main-dir.");
+            .error("There is no default main directory for your platform, please specify it using --main-dir");
         
         return ExitCode::FAILURE;
 
@@ -138,7 +138,7 @@ impl download::Handler for CommonHandler<'_> {
             self.download_start = None;
         }
 
-        let progress = size as f32 / total_size as f32 * 100.0;
+        let progress = (size as f32 / total_size as f32).min(1.0) * 100.0;
         let (speed_fmt, speed_suffix) = format::number_si_unit(speed);
         let (size_fmt, size_suffix) = format::number_si_unit(size as f32);
 
@@ -717,7 +717,7 @@ pub fn log_forge_error(out: &mut Output, error: forge::Error, api_id: &str, api_
             log.error(format_args!("Failed to resolve {api_name} loader version '{alias_str}' for game version {game_version_id}"));
 
             match loader_version {
-                LoaderVersion::Stable => log.additional("The loader might not yet support any loader version for this game version"),
+                LoaderVersion::Stable => log.additional("The loader might not yet support any stable version for this game version"),
                 LoaderVersion::Unstable => log.additional("The loader have zero version supported for this game version"),
                 LoaderVersion::Id(_) => unreachable!()
             };
