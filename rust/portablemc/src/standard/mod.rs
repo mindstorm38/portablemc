@@ -391,8 +391,10 @@ impl Installer {
             _ => None,
         };
 
-        replace_strings_args(&mut jvm_args, |arg| {
+        // Closure to replace arguments in both JVM and game args.
+        let repl_arg = |arg: &str| {
             Some(match arg {
+                // This is used by some mod loaders...
                 #[cfg(windows)]      "classpath_separator" => ";".to_string(),
                 #[cfg(not(windows))] "classpath_separator" => ":".to_string(),
                 "classpath" => env::join_paths(lib_files.class_files.iter())
@@ -400,14 +402,9 @@ impl Installer {
                     .to_string_lossy()
                     .into_owned(),
                 "natives_directory" => bin_dir.display().to_string(),
+                // Information about launcher anv launched version.
                 "launcher_name" => self.launcher_name().to_string(),
                 "launcher_version" => self.launcher_version().to_string(),
-                _ => return None
-            })
-        });
-
-        replace_strings_args(&mut game_args, |arg| {
-            Some(match arg {
                 "version_name" => hierarchy[0].id.clone(),
                 "version_type" => return hierarchy.iter() // First occurrence of 'type'.
                     .filter_map(|v| v.metadata.r#type.as_ref())
@@ -426,7 +423,10 @@ impl Installer {
                     .map(|dir| dir.display().to_string()),
                 _ => return None
             })
-        });
+        };
+
+        replace_strings_args(&mut jvm_args, repl_arg);
+        replace_strings_args(&mut game_args, repl_arg);
 
         Ok(Game {
             mc_dir,
@@ -768,14 +768,11 @@ impl Installer {
             hash_buf.extend_from_slice(file.as_os_str().as_encoded_bytes());
         }
 
+        // We place the root id as prefix for clarity, even if we can theoretically
+        // have multiple bin dir for the same version, if libraries change.
         let bin_uuid = Uuid::new_v5(&UUID_NAMESPACE, &hash_buf);
-        let bin_dir = {
-            // We place the root id as prefix for clarity, even if we can theoretically
-            // have multiple bin dir for the same version, if libraries change.
-            let mut buf = self.bin_dir.join(&self.root_version_id);
-            buf.as_mut_os_string().push(&format!("-{}", bin_uuid.hyphenated()));
-            buf
-        };
+        let bin_dir = self.bin_dir.join(&self.root_version_id)
+            .appended(format!("-{}", bin_uuid.hyphenated()));
 
         // Create the directory and then canonicalize it.
         fs::create_dir_all(&bin_dir)

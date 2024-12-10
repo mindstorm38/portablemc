@@ -439,7 +439,7 @@ impl fabric::Handler for CommonHandler<'_> {
 impl forge::Handler for CommonHandler<'_> {
     fn handle_forge_event(&mut self, event: forge::Event) {
         
-        use forge::Event;
+        use forge::{Event, InstallReason};
 
         let out = &mut *self.out;
 
@@ -448,10 +448,25 @@ impl forge::Handler for CommonHandler<'_> {
         debug_assert!(!api_id.is_empty() && !api_name.is_empty());
 
         match event {
-            Event::Installing { tmp_dir } => {
+            Event::Installing { tmp_dir, reason } => {
+
+                let (reason_code, log_level, reason_desc) = match reason {
+                    InstallReason::MissingVersionMetadata => 
+                        ("missing_version_metadata", LogLevel::Info, "The version metadata is absent, installing"),
+                    InstallReason::MissingClientExtra => 
+                        ("missing_client_extra", LogLevel::Warn, "The client extra is absent, reinstalling"),
+                    InstallReason::MissingClientSrg => 
+                        ("missing_client_srg", LogLevel::Warn, "The client srg is absent, reinstalling"),
+                    InstallReason::MissingPatchedClient => 
+                        ("missing_patched_client", LogLevel::Warn, "The patched client is absent, reinstalling"),
+                    InstallReason::MissingUniversalClient => 
+                        ("missing_universal_client", LogLevel::Warn, "The universal client is absent, reinstalling"),
+                };
+
                 out.log(format_args!("{api_id}_installing"))
+                    .arg(reason_code)
                     .newline()  // Don't overwrite the failed line.
-                    .success(format_args!("{api_name} loader failed to start, installing it"))
+                    .line(log_level, reason_desc)
                     .info(format_args!("Installing in temporary directory: {}", tmp_dir.display()));
             }
             Event::InstallerFetching { game_version_id, loader_version_id } => {
@@ -479,29 +494,34 @@ impl forge::Handler for CommonHandler<'_> {
                     .success(format_args!("Fetched installer libraries"));
             }
             Event::InstallerProcessor { name, task } => {
-                let processing = match (name.artifact(), task) {
+                
+                let desc = match (name.artifact(), task) {
                     ("installertools", Some("MCP_DATA")) => 
-                        "generating MCP data",
+                        "Generating MCP data",
                     ("installertools", Some("DOWNLOAD_MOJMAPS")) => 
-                        "downloading Mojang mappings",
+                        "Downloading Mojang mappings",
                     ("installertools", Some("MERGE_MAPPING")) => 
-                        "merging MCP and Mojang mappings",
+                        "Merging MCP and Mojang mappings",
                     ("jarsplitter", _) => 
-                        "splitting client with mappings",
+                        "Splitting client with mappings",
                     ("ForgeAutoRenamingTool", _) => 
-                        "renaming client with mappings (Forge)",
+                        "Renaming client with mappings (Forge)",
+                    ("AutoRenamingTool", _) if name.group() == "net.neoforged" =>
+                        "Renaming client with mappings (NeoForge)",
                     ("vignette", _) => 
-                        "renaming client with mappings (Vignette)",
+                        "Renaming client with mappings (Vignette)",
                     ("binarypatcher", _) => 
-                        "patching client",
+                        "Patching client",
                     ("SpecialSource", _) => 
-                        "renaming client with mappings (SpecialSource)",
+                        "Renaming client with mappings (SpecialSource)",
                     _ => name.as_str()
                 };
+
                 out.log(format_args!("{api_id}_installer_processor"))
                     .arg(name.as_str())
                     .args(task.into_iter())
-                    .success(format_args!("Installer processing: {processing}"));
+                    .success(format_args!("{desc}"));
+                
             }
             Event::Installed {  } => {
                 out.log(format_args!("{api_id}_installed"))
@@ -748,11 +768,6 @@ pub fn log_forge_error(out: &mut Output, error: forge::Error, api_id: &str, api_
             out.log(format_args!("error_{api_id}_installer_file_not_found"))
                 .arg(&entry)
                 .error(format_args!("{api_name} installer is missing a required file: {entry}"))
-                .additional(CONTACT_DEV);
-        }
-        Error::InstallerFailed {  } => {
-            out.log(format_args!("error_{api_id}_installer_failed"))
-                .error(format_args!("{api_name} loader failed to start after installation"))
                 .additional(CONTACT_DEV);
         }
         Error::InstallerInvalidProcessor { name } => {

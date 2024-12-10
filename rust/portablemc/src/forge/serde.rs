@@ -77,7 +77,7 @@ impl InstallDataEntry {
 #[serde(rename_all = "camelCase")]
 pub struct LegacyInstallProfile {
     pub install: LegacyInstall,
-    pub version_info: standard::serde::VersionMetadata,
+    pub version_info: Box<standard::serde::VersionMetadata>,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]

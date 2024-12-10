@@ -11,10 +11,10 @@ use std::{env, fmt, fs};
 use std::fmt::Write;
 use std::fs::File;
 
+use crate::path::{const_path, PathBufExt, PathExt};
 use crate::download::{self, Batch, EntryErrorKind};
 use crate::mojang::{self, RootVersion};
 use crate::maven::{Gav, MavenMetadata};
-use crate::path::{PathBufExt, PathExt};
 use crate::standard;
 
 use reqwest::StatusCode;
@@ -188,35 +188,112 @@ impl Installer {
         let root_version_id = format!("{prefix}-{loader_version_id}");
         mojang.add_fetch_exclude(root_version_id.clone());
 
-        // Trying only two times.
-        for _ in 0..2 {
+        // The goal is to run the installer a first time, check potential errors to 
+        // know if the error is related to the loader, or not.
+        mojang.set_root_version(RootVersion::Id(root_version_id.clone()));
+        let reason = match mojang.install(handler.as_mojang_dyn()) {
+            Ok(game) => {
+                // Using this outer loop to break when some reason to install is met.
+                loop {
 
-            // The goal is to run the installer a first time, check potential errors to 
-            // know if the error is related to the loader, or not.
-            mojang.set_root_version(RootVersion::Id(root_version_id.clone()));
-            match mojang.install(handler.as_mojang_dyn()) {
-                Ok(game) => return Ok(game),
-                Err(mojang::Error::Standard(standard::Error::VersionNotFound { id })) if id == root_version_id => {
-                    // The version metadata is missing, or corrupted, let's reinstall.
-                    // TODO: IMPORTANT: Depending on the event received, we can use it to
-                    // determine if this is the first install or a broken re-install.
+                    fn check_exists(base: &PathBuf, suffix: &str) -> bool {
+                        let file = base.clone().appended(suffix);
+                        eprintln!("check_exists({})", file.display());
+                        fs::exists(file).unwrap_or_default()
+                    }
+                    
+                    // Start by checking patched client and universal client
+                    let loader_artifact = mojang.standard().libraries_dir()
+                        .join(inner.api.maven_group_base_dir)
+                        .joined(artifact)
+                        .joined(&loader_version_id)
+                        .joined(artifact)
+                            .appended("-")
+                            .appended(&loader_version_id)
+                            .appended("-");
+                    
+                    if !check_exists(&loader_artifact, "client.jar") {
+                        break InstallReason::MissingPatchedClient;
+                    }
+    
+                    if !check_exists(&loader_artifact, "universal.jar") {
+                        break InstallReason::MissingUniversalClient;
+                    }
+
+                    // We analyze game argument to try find which libraries are absolutely
+                    // required for the game to run, there has been so many way of launching
+                    // the game in the Forge/NeoForge history that it's complicated to ensure
+                    // that we can accurately determine if the mod loader is properly 
+                    // installed.
+                    let mut mcp_version = None;
+                    let mut args_iter = game.game_args.iter();
+                    while let Some(arg) = args_iter.next() {
+                        match arg.as_str() {
+                            "--fml.neoFormVersion" |
+                            "--fml.mcpVersion" => {
+                                let Some(version) = args_iter.next() else { continue };
+                                mcp_version = Some(version.as_str());
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // If there is a MCP version to check, we go check if client extra, slim
+                    // and srg files are present, or not, they are loaded dynamically by the 
+                    // mod loader.
+                    if let Some(mcp_version) = mcp_version {
+                        
+                        let mc_artifact = mojang.standard().libraries_dir()
+                            .join("net")
+                            .joined("minecraft")
+                            .joined("client")
+                            .joined(&game_version_id)
+                                .appended("-")
+                                .appended(mcp_version)
+                            .joined("client")
+                                .appended("-")
+                                .appended(&game_version_id)
+                                .appended("-")
+                                .appended(mcp_version)
+                                .appended("-");
+
+                        if !check_exists(&mc_artifact, "extra.jar") {
+                            break InstallReason::MissingClientExtra;
+                        }
+
+                        if !check_exists(&mc_artifact, "srg.jar") {
+                            break InstallReason::MissingClientSrg;
+                        }
+
+                    }
+
+                    // No reason to reinstall, we return the game as-is.
+                    return Ok(game);
+
                 }
-                // TODO: Missing libs
-                Err(e) => return Err(Error::Mojang(e))
+
             }
+            Err(mojang::Error::Standard(standard::Error::VersionNotFound { id })) if id == root_version_id => {
+                // The version metadata is missing, or corrupted, let's reinstall.
+                InstallReason::MissingVersionMetadata
+            }
+            Err(e) => return Err(Error::Mojang(e))
+        };
 
-            try_install(&mut handler, 
-                &mut *mojang, 
-                inner.api, 
-                artifact, 
-                &root_version_id, 
-                &game_version_id, 
-                &loader_version_id,
-                serde::InstallSide::Client)?;
+        try_install(&mut handler, 
+            &mut *mojang, 
+            inner.api, 
+            artifact, 
+            &root_version_id, 
+            &game_version_id, 
+            &loader_version_id,
+            serde::InstallSide::Client,
+            reason)?;
 
-        }
-
-        Err(Error::InstallerFailed {  })
+        // Retrying launch!
+        mojang.set_root_version(RootVersion::Id(root_version_id.clone()));
+        let game = mojang.install(handler.as_mojang_dyn())?;
+        Ok(game)
 
     }
 
@@ -254,6 +331,7 @@ pub enum Event<'a> {
     /// the mod loader.
     Installing {
         tmp_dir: &'a Path,
+        reason: InstallReason,
     },
     /// The loader installer will be fetched.
     InstallerFetching {
@@ -331,9 +409,6 @@ pub enum Error {
     InstallerFileNotFound {
         entry: String,
     },
-    /// In case of repeated installation failure related to the mod loader.
-    #[error("installer retry failed")]
-    InstallerFailed {  },
     /// Failed to execute so process.
     #[error("installer invalid processor")]
     InstallerInvalidProcessor {
@@ -374,7 +449,10 @@ pub struct Api {
     /// If version in the maven-manifest.xml file are known to be in reverse order, this
     /// helps iterating versions from the more recent ones to older ones.
     maven_manifest_reverse_order: bool,
+    /// The base path for the maven group directory, relative to libraries directory.
+    maven_group_base_dir: &'static str,
     /// The base URL for the maven group directory, without leading slash.
+    /// This should've been a `&'static Path` but apparently we can't..
     maven_group_base_url: &'static str,
     /// Get the maven artifact, from 
     maven_artifact: fn(game_version_id: &str, game_major: u8, game_minor: u8) -> &'static str,
@@ -397,6 +475,7 @@ impl fmt::Debug for Api {
 pub static FORGE_API: Api = Api {
     default_prefix: "forge",
     maven_manifest_reverse_order: false,
+    maven_group_base_dir: const_path!("net", "minecraftforge"),
     maven_group_base_url: "https://maven.minecraftforge.net/net/minecraftforge",
     maven_artifact: |_game_version_id: &str, _game_major: u8, _game_minor: u8| {
         "forge"
@@ -418,6 +497,7 @@ pub static FORGE_API: Api = Api {
 pub static NEO_FORGE_API: Api = Api {
     default_prefix: "neoforge",
     maven_manifest_reverse_order: true,
+    maven_group_base_dir: const_path!("net", "neoforged"),
     maven_group_base_url: "https://maven.neoforged.net/releases/net/neoforged",
     maven_artifact: |_game_version_id: &str, game_major: u8, game_minor: u8| {
         if game_major == 20 && game_minor == 1 {
@@ -486,6 +566,16 @@ pub enum LoaderVersion {
     Id(String),
 }
 
+/// The reason for (re)installing the mod loader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallReason {
+    MissingVersionMetadata,
+    MissingClientExtra,
+    MissingClientSrg,
+    MissingPatchedClient,
+    MissingUniversalClient,
+}
+
 // ========================== //
 // Following code is internal //
 // ========================== //
@@ -538,11 +628,13 @@ fn try_install(
     game_version_id: &str,
     loader_version_id: &str,
     side: serde::InstallSide,
+    reason: InstallReason,
 ) -> Result<()> {
 
     let tmp_dir = env::temp_dir().joined(root_version_id);
     handler.handle_forge_event(Event::Installing {
         tmp_dir: &tmp_dir,
+        reason,
     });
 
     // The first thing we do is fetching the installer, so it ends early if there is 
@@ -626,6 +718,7 @@ fn try_install(
     let game_client_file = game_version_dir.join_with_extension(&game_version_id, "jar");
     let root_version_dir = mojang.standard().versions_dir().join(&root_version_id);
     let metadata_file = root_version_dir.join_with_extension(&root_version_id, "json");
+    let mut metadata;
 
     match profile {
         serde::InstallProfile::Modern(profile) => {
@@ -633,7 +726,7 @@ fn try_install(
             // Immediately try, and keep the version metadata, this avoid launching this
             // error at the end after all the processing happened.
             let metadata_entry = profile.json.strip_prefix('/').unwrap_or(&profile.json);
-            let mut metadata = match installer_zip.by_name(metadata_entry) {
+            metadata = match installer_zip.by_name(metadata_entry) {
                 Ok(reader) => {
                     let mut deserializer = serde_json::Deserializer::from_reader(reader);
                     serde_path_to_error::deserialize::<_, Box<standard::serde::VersionMetadata>>(&mut deserializer)
@@ -647,7 +740,8 @@ fn try_install(
             handler.handle_forge_event(Event::InstallerLibrariesFetching {  });
             
             // Some early (still modern) installers (<= 1.16.5) embed the forge universal
-            // JAR, we need to extract it given its path.
+            // JAR, we need to extract it given its path. It also appears that more modern
+            // versions have this property back...
             if let Some(name) = &profile.path {
                 let lib_file = name.file(&libraries_dir);
                 extract_installer_maven_artifact(installer_file, &mut installer_zip, name, &lib_file)?;
@@ -819,14 +913,10 @@ fn try_install(
                 
             }
 
-            metadata.id = root_version_id.to_string();
-            standard::write_version_metadata(&metadata_file, &metadata)?;
-
         }
         serde::InstallProfile::Legacy(profile) => {
             
-            // FIXME: Large copy of bytes here? Optimized?
-            let mut metadata = profile.version_info;
+            metadata = profile.version_info;
             
             // TODO: Set Mojang URL for libs that don't have ones.
 
@@ -841,11 +931,11 @@ fn try_install(
             let jar_entry = &profile.install.file_path[..];
             extract_installer_file(installer_file, &mut installer_zip, &jar_entry, &jar_file)?;
 
-            metadata.id = root_version_id.to_string();
-            standard::write_version_metadata(&metadata_file, &metadata)?;
-
         }
     }
+
+    metadata.id = root_version_id.to_string();
+    standard::write_version_metadata(&metadata_file, &metadata)?;
 
     handler.handle_forge_event(Event::Installed {  });
 

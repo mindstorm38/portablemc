@@ -18,6 +18,8 @@ use tokio::fs::{self, File};
 use tokio::task::JoinSet;
 use tokio::sync::mpsc;
 
+use crate::path::PathBufExt;
+
 
 pub fn single(url: impl Into<Box<str>>, file: impl Into<Box<Path>>) -> Single {
     Single(Entry_::new(url.into(), file.into()))
@@ -733,9 +735,7 @@ async fn download_entry(
     
     // If we are in cache mode, then we derive the file name.
     let cache_file = (entry.mode == EntryMode::Cache).then(|| {
-        let mut buf = entry.core.file.to_path_buf();
-        buf.as_mut_os_string().push(".cache");
-        buf
+        entry.core.file.to_path_buf().appended(".cache")
     });
 
     // If we are in cache mode, try checking the file, if the file is locally valid.
