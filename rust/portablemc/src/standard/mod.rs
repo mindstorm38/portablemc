@@ -61,7 +61,7 @@ const MAX_VERSION_RETRY_COUNT: u8 = 4;
 /// implement the unspecified standard of Mojang. 
 #[derive(Debug, Clone)]
 pub struct Installer {
-    root_version_id: String,
+    root_version: String,
     versions_dir: PathBuf,
     libraries_dir: PathBuf,
     assets_dir: PathBuf,
@@ -84,12 +84,12 @@ impl Installer {
     /// 
     /// If you're confident a default main directory is available on your system, you
     /// can use [`Self::new_with_default`].
-    pub fn new(root_version_id: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(root_version: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
 
         let mc_dir = main_dir.into();
         
         Self {
-            root_version_id: root_version_id.into(),
+            root_version: root_version.into(),
             versions_dir: mc_dir.join("versions"),
             libraries_dir: mc_dir.join("libraries"),
             assets_dir: mc_dir.join("assets"),
@@ -116,15 +116,15 @@ impl Installer {
     /// Change the root version id to load and install, this overrides the root version
     /// given when constructing this installer.
     #[inline]
-    pub fn set_root_version(&mut self, root_version_id: impl Into<String>) -> &mut Self {
-        self.root_version_id = root_version_id.into();
+    pub fn set_root_version(&mut self, root_version: impl Into<String>) -> &mut Self {
+        self.root_version = root_version.into();
         self
     }
 
     /// See [`Self::set_root_version`].
     #[inline]
     pub fn root_version(&self) -> &str {
-        &self.root_version_id
+        &self.root_version
     }
 
     /// Shortcut for defining the various main directories of the game, by deriving
@@ -326,7 +326,7 @@ impl Installer {
         
         // Then we have a sequence of steps that may add entries to the download batch.
         let mut batch = Batch::new();
-        let hierarchy = self.load_hierarchy(&mut handler, &self.root_version_id)?;
+        let hierarchy = self.load_hierarchy(&mut handler, &self.root_version)?;
         let mut lib_files = self.load_libraries(&mut handler, &hierarchy, &features, &mut batch)?;
         let logger_config = self.load_logger(&mut handler, &hierarchy, &mut batch)?;
         let assets = self.load_assets(&mut handler, &hierarchy, &mut batch)?;
@@ -405,7 +405,7 @@ impl Installer {
                 // Information about launcher anv launched version.
                 "launcher_name" => self.launcher_name().to_string(),
                 "launcher_version" => self.launcher_version().to_string(),
-                "version_name" => hierarchy[0].id.clone(),
+                "version_name" => hierarchy[0].name.clone(),
                 "version_type" => return hierarchy.iter() // First occurrence of 'type'.
                     .filter_map(|v| v.metadata.r#type.as_ref())
                     .map(|t| t.as_str().to_string())
@@ -441,21 +441,21 @@ impl Installer {
     /// Internal function that loads the version hierarchy from their JSON metadata files.
     fn load_hierarchy(&self, 
         handler: &mut impl Handler, 
-        root_id: &str
-    ) -> Result<Vec<Version>> {
+        root_version: &str
+    ) -> Result<Vec<LoadedVersion>> {
 
         // This happen if a temporary empty root id has been used.
-        if root_id.is_empty() {
-            return Err(Error::VersionNotFound { id: String::new() });
+        if root_version.is_empty() {
+            return Err(Error::VersionNotFound { version: String::new() });
         }
 
-        handler.handle_standard_event(Event::HierarchyLoading { root_id });
+        handler.handle_standard_event(Event::HierarchyLoading { root_version });
 
         let mut hierarchy = Vec::new();
-        let mut current_id = Some(root_id.to_string());
+        let mut current_id = Some(root_version.to_string());
 
-        while let Some(load_id) = current_id.take() {
-            let version = self.load_version(handler, load_id)?;
+        while let Some(load_version) = current_id.take() {
+            let version = self.load_version(handler, load_version)?;
             if let Some(next_id) = &version.metadata.inherits_from {
                 current_id = Some(next_id.clone());
             }
@@ -472,18 +472,18 @@ impl Installer {
     /// Internal function that loads a version from its JSON metadata file.
     fn load_version(&self, 
         handler: &mut impl Handler, 
-        id: String
-    ) -> Result<Version> {
+        version: String,
+    ) -> Result<LoadedVersion> {
 
-        if id.is_empty() {
-            return Err(Error::VersionNotFound { id: String::new() });
+        if version.is_empty() {
+            return Err(Error::VersionNotFound { version: String::new() });
         }
 
-        let dir = self.versions_dir.join(&id);
-        let file = dir.join_with_extension(&id, "json");
+        let dir = self.versions_dir.join(&version);
+        let file = dir.join_with_extension(&version, "json");
         let mut retry_count = 0;
 
-        handler.handle_standard_event(Event::VersionLoading { id: &id, file: &file });
+        handler.handle_standard_event(Event::VersionLoading { version: &version, file: &file });
 
         loop {
 
@@ -493,7 +493,7 @@ impl Installer {
 
                     if retry_count < MAX_VERSION_RETRY_COUNT {
                         let mut retry = false;
-                        handler.handle_standard_event(Event::VersionNotFound { id: &id, file: &file, error: None, retry: &mut retry });
+                        handler.handle_standard_event(Event::VersionNotFound { version: &version, file: &file, error: None, retry: &mut retry });
                         if retry {
                             retry_count += 1;
                             continue;
@@ -501,7 +501,7 @@ impl Installer {
                     }
 
                     // If not retried, we return a version not found error.
-                    return Err(Error::VersionNotFound { id });
+                    return Err(Error::VersionNotFound { version });
 
                 }
                 Err(e) => return Err(Error::new_io_file(e, &file))
@@ -511,10 +511,10 @@ impl Installer {
             let mut metadata = serde_path_to_error::deserialize(&mut deserializer)
                 .map_err(|e| Error::new_json_file(e, &file))?;
 
-            handler.handle_standard_event(Event::VersionLoaded { id: &id, file: &file, metadata: &mut metadata });
+            handler.handle_standard_event(Event::VersionLoaded { version: &version, file: &file, metadata: &mut metadata });
 
-            break Ok(Version {
-                id,
+            break Ok(LoadedVersion {
+                name: version,
                 dir,
                 metadata,
             });
@@ -526,12 +526,12 @@ impl Installer {
     /// Load the entry point version JAR file.
     fn load_client(&self, 
         handler: &mut impl Handler, 
-        hierarchy: &[Version], 
+        hierarchy: &[LoadedVersion], 
         batch: &mut Batch,
     ) -> Result<PathBuf> {
         
         let root_version = &hierarchy[0];
-        let client_file = root_version.dir.join_with_extension(&root_version.id, "jar");
+        let client_file = root_version.dir.join_with_extension(&root_version.name, "jar");
 
         handler.handle_standard_event(Event::ClientLoading {  });
 
@@ -561,7 +561,7 @@ impl Installer {
     /// Load libraries required to run the game.
     fn load_libraries(&self,
         handler: &mut impl Handler,
-        hierarchy: &[Version], 
+        hierarchy: &[LoadedVersion], 
         features: &HashSet<String>,
         batch: &mut Batch,
     ) -> Result<LibrariesFiles> {
@@ -624,7 +624,7 @@ impl Installer {
                     continue;
                 }
 
-                libraries.push(Library {
+                libraries.push(LoadedLibrary {
                     gav: lib_gav,
                     path: None,
                     download: None,
@@ -771,7 +771,7 @@ impl Installer {
         // We place the root id as prefix for clarity, even if we can theoretically
         // have multiple bin dir for the same version, if libraries change.
         let bin_uuid = Uuid::new_v5(&UUID_NAMESPACE, &hash_buf);
-        let bin_dir = self.bin_dir.join(&self.root_version_id)
+        let bin_dir = self.bin_dir.join(&self.root_version)
             .appended(format!("-{}", bin_uuid.hyphenated()));
 
         // Create the directory and then canonicalize it.
@@ -878,7 +878,7 @@ impl Installer {
     /// Load libraries required to run the game.
     fn load_logger(&self,
         handler: &mut impl Handler,
-        hierarchy: &[Version], 
+        hierarchy: &[LoadedVersion], 
         batch: &mut Batch,
     ) -> Result<Option<LoggerConfig>> {
 
@@ -916,7 +916,7 @@ impl Installer {
     /// Load and verify all assets of the game.
     fn load_assets(&self, 
         handler: &mut impl Handler, 
-        hierarchy: &[Version], 
+        hierarchy: &[LoadedVersion], 
         batch: &mut Batch,
     ) -> Result<Option<Assets>> {
 
@@ -977,7 +977,7 @@ impl Installer {
             let reader = match File::open(&index_file) {
                 Ok(reader) => BufReader::new(reader),
                 Err(e) if !index_downloaded && e.kind() == io::ErrorKind::NotFound =>
-                    return Err(Error::AssetsNotFound { id: index_info.id.to_owned() }),
+                    return Err(Error::AssetsNotFound { version: index_info.id.to_owned() }),
                 Err(e) => 
                     return Err(Error::new_io_file(e, &index_file))
             };
@@ -1124,7 +1124,7 @@ impl Installer {
     /// The goal of this step is to find a valid JVM to run the game on.
     fn load_jvm(&self, 
         handler: &mut impl Handler, 
-        hierarchy: &[Version], 
+        hierarchy: &[LoadedVersion], 
         batch: &mut Batch,
     ) -> Result<Jvm> {
 
@@ -1742,21 +1742,21 @@ pub enum Event<'a> {
     },
     /// The version hierarchy will be loaded.
     HierarchyLoading {
-        root_id: &'a str,
+        root_version: &'a str,
     },
     /// Filter the versions hierarchy.
     HierarchyFilter {
         /// All versions of the hierarchy, in order, starting at the root version.
-        hierarchy: &'a mut Vec<Version>,
+        hierarchy: &'a mut Vec<LoadedVersion>,
     },
     /// The version hierarchy has been loaded successfully.
     HierarchyLoaded {
-        hierarchy: &'a [Version],
+        hierarchy: &'a [LoadedVersion],
     },
     /// A version will be loaded, at this point you can check the file and delete it if
     /// it needs to be re-fetched through a subsequent [`Self::VersionNotFound`] event.
     VersionLoading {
-        id: &'a str,
+        version: &'a str,
         file: &'a Path,
     },
     /// A version file has not been found but is needed. An optional parsing error can
@@ -1765,14 +1765,14 @@ pub enum Event<'a> {
     /// **Retry**: this will retry to open and load the version file. If not retried, the
     /// installation halts with [`Error::VersionNotFound`] error.
     VersionNotFound {
-        id: &'a str,
+        version: &'a str,
         file: &'a Path,
         error: Option<serde_path_to_error::Error<serde_json::Error>>,
         retry: &'a mut bool,
     },
     /// A version file has been loaded successfully.
     VersionLoaded {
-        id: &'a str,
+        version: &'a str,
         file: &'a Path,
         metadata: &'a mut serde::VersionMetadata,
     },
@@ -1786,12 +1786,12 @@ pub enum Event<'a> {
     LibrariesLoading {},
     /// Filter libraries that will be verified.
     LibrariesFilter {
-        libraries: &'a mut Vec<Library>,
+        libraries: &'a mut Vec<LoadedLibrary>,
     },
     /// Libraries have been loaded. After that, the libraries will be verified and 
     /// added to the downloads list if missing.
     LibrariesLoaded {
-        libraries: &'a [Library],
+        libraries: &'a [LoadedLibrary],
     },
     /// Libraries have been verified, the class files includes the client JAR file as 
     /// first path in the vector. Note that all paths will be canonicalized, relatively
@@ -1875,14 +1875,14 @@ pub enum Event<'a> {
 #[non_exhaustive]
 pub enum Error {
     /// The given version is not found when trying to fetch it.
-    #[error("version not found: {id}")]
+    #[error("version not found: {version}")]
     VersionNotFound {
-        id: String,
+        version: String,
     },
     /// The given version is not found and no download information is provided.
-    #[error("assets not found: {id}")]
+    #[error("assets not found: {version}")]
     AssetsNotFound {
-        id: String,
+        version: String,
     },
     /// The version JAR file that is required has no download information and is not 
     /// already existing, is is mandatory to build the class path.
@@ -2017,9 +2017,9 @@ pub enum JvmPolicy {
 
 /// Represent a loaded version.
 #[derive(Debug, Clone)]
-pub struct Version {
+pub struct LoadedVersion {
     /// Identifier of this version.
-    pub id: String,
+    pub name: String,
     /// Directory of that version, where metadata is stored with the JAR file.
     pub dir: PathBuf,
     /// The loaded metadata of the version.
@@ -2028,7 +2028,7 @@ pub struct Version {
 
 /// Represent a loaded library.
 #[derive(Debug, Clone)]
-pub struct Library {
+pub struct LoadedLibrary {
     /// GAV for this library.
     pub gav: Gav,
     /// The path to install the library at, relative to the libraries directory, if not

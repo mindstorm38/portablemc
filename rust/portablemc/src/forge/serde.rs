@@ -17,6 +17,10 @@ pub enum InstallProfile {
 /// For loader >= 1.12.2-14.23.5.2851
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct ModernInstallProfile {
+    /// The loader version.
+    pub version: String,
+    /// The minecraft version.
+    pub minecraft: String,
     /// The installing forge GAV, for early installers, no longer used in modern ones.
     pub path: Option<Gav>,
     /// Path to the 'version.json' file containing the full version metadata.

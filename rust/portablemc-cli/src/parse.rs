@@ -340,7 +340,7 @@ impl FromStr for StartVersion {
                         "" | 
                         "release" => mojang::RootVersion::Release,
                         "snapshot" => mojang::RootVersion::Snapshot,
-                        id => mojang::RootVersion::Id(id.to_string()),
+                        id => mojang::RootVersion::Name(id.to_string()),
                     },
                 }
             }
@@ -350,12 +350,12 @@ impl FromStr for StartVersion {
                         "" |
                         "stable" => fabric::GameVersion::Stable,
                         "unstable" => fabric::GameVersion::Unstable,
-                        id => fabric::GameVersion::Id(id.to_string()),
+                        id => fabric::GameVersion::Name(id.to_string()),
                     },
                     loader_version: match parts.get(1).copied() {
                         None | Some("" | "stable") => fabric::LoaderVersion::Stable,
                         Some("unstable") => fabric::LoaderVersion::Unstable,
-                        Some(id) => fabric::LoaderVersion::Id(id.to_string()),
+                        Some(id) => fabric::LoaderVersion::Name(id.to_string()),
                     },
                     kind: match kind {
                         "fabric" => StartFabricLoader::Fabric,
@@ -371,12 +371,12 @@ impl FromStr for StartVersion {
                     game_version: match parts[0] {
                         "" |
                         "release" => forge::GameVersion::Release,
-                        id => forge::GameVersion::Id(id.to_string()),
+                        id => forge::GameVersion::Name(id.to_string()),
                     },
                     loader_version: match parts.get(1).copied() {
                         None | Some("" | "stable") => forge::LoaderVersion::Stable,
                         Some("unstable") => forge::LoaderVersion::Unstable,
-                        Some(id) => forge::LoaderVersion::Id(id.to_string()),
+                        Some(id) => forge::LoaderVersion::Name(id.to_string()),
                     },
                     kind: match kind {
                         "forge" => StartForgeLoader::Forge,

@@ -12,7 +12,7 @@ use std::fs;
 
 use uuid::Uuid;
 
-use crate::standard::{self, LIBRARIES_URL, check_file, replace_strings_args, Handler as _, Library, LibraryDownload};
+use crate::standard::{self, LIBRARIES_URL, check_file, replace_strings_args, Handler as _, LoadedLibrary, LibraryDownload};
 use crate::maven::Gav;
 use crate::download;
 use crate::msa;
@@ -479,22 +479,22 @@ impl Installer {
         };
 
         // If we need an alias then we need to load the manifest.
-        let id = if let Some(alias) = alias {
+        let version = if let Some(alias) = alias {
             manifest.insert(request_manifest(handler.as_download_dyn())?)
                 .latest.get(&alias)
                 .cloned()
                 .ok_or_else(|| Error::AliasRootVersionNotFound { root_version: self.inner.root.clone() })?
         } else {
             match self.inner.root {
-                RootVersion::Id(ref id) => id.clone(),
+                RootVersion::Name(ref name) => name.clone(),
                 _ => unreachable!(),
             }
         };
 
-        standard.set_root_version(id);
+        standard.set_root_version(version);
         
         // Let the handler find the "leaf" version.
-        let mut leaf_id = String::new();
+        let mut leaf_version = String::new();
 
         // Scoping the temporary internal handler.
         let mut game = {
@@ -505,7 +505,7 @@ impl Installer {
                 error: Ok(()),
                 manifest: &mut manifest,
                 downloads: HashMap::new(),
-                leaf_id: &mut leaf_id,
+                leaf_version: &mut leaf_version,
             };
     
             // Same as above, we are giving a &mut dyn ref to avoid huge monomorphization.
@@ -584,7 +584,7 @@ impl Installer {
         if inner.fix_legacy_proxy {
 
             // Checking as bytes because it's ASCII and we simply matching.
-            let proxy_port = match leaf_id.as_bytes() {
+            let proxy_port = match leaf_version.as_bytes() {
                 [b'1', b'.', b'0' | b'1' | b'3' | b'4' | b'5'] |
                 [b'1', b'.', b'2' | b'3' | b'4' | b'5', b'.', ..] |
                 b"13w16a" | b"13w16b" => Some(11707),
@@ -606,7 +606,7 @@ impl Installer {
 
         }
 
-        if inner.fix_legacy_merge_sort && (leaf_id.starts_with("a1.") || leaf_id.starts_with("b1.")) {
+        if inner.fix_legacy_merge_sort && (leaf_version.starts_with("a1.") || leaf_version.starts_with("b1.")) {
             game.jvm_args.push("-Djava.util.Arrays.useLegacyMergeSort=true".to_string());
             handler.handle_mojang_event(Event::FixLegacyMergeSort {  });
         }
@@ -686,15 +686,15 @@ pub enum Event<'a> {
     /// has an invalid size or SHA-1 and has been removed in order to download an 
     /// up-to-date version from the manifest.
     VersionInvalidated {
-        id: &'a str,
+        version: &'a str,
     },
     /// The required Mojang version metadata is missing and so will be fetched.
     VersionFetching {
-        id: &'a str,
+        version: &'a str,
     },
     /// The mojang version has been fetched.
     VersionFetched {
-        id: &'a str,
+        version: &'a str,
     },
     /// Quick play has been fixed 
     FixLegacyQuickPlay {  },
@@ -755,13 +755,13 @@ pub enum RootVersion {
     /// Resolve the latest snapshot version.
     Snapshot,
     /// Resolve a specific root version from its id.
-    Id(String),
+    Name(String),
 }
 
 /// An impl so that we can give string-like objects to the builder.
 impl<T: Into<String>> From<T> for RootVersion {
     fn from(value: T) -> Self {
-        Self::Id(value.into())
+        Self::Name(value.into())
     }
 }
 
@@ -823,7 +823,7 @@ struct InternalHandler<'a, H: Handler> {
     /// Download informations for versions that should be downloaded.
     downloads: HashMap<String, standard::serde::Download>,
     /// Id of the "leaf" version, the last version without inherited version.
-    leaf_id: &'a mut String,
+    leaf_version: &'a mut String,
 }
 
 impl<H: Handler> download::Handler for InternalHandler<'_, H> {
@@ -847,7 +847,7 @@ impl<H: Handler> InternalHandler<'_, H> {
                 ref hierarchy,
             } => {
                 // Unwrap because hierarchy can't be empty.
-                *self.leaf_id = hierarchy.last().unwrap().id.clone();
+                *self.leaf_version = hierarchy.last().unwrap().name.clone();
                 self.inner.handle_standard_event(event);
             }
             standard::Event::FeaturesFilter { 
@@ -860,7 +860,7 @@ impl<H: Handler> InternalHandler<'_, H> {
             // is wrong we delete the version and so the next event will be that version
             // is not found as handled below.
             standard::Event::VersionLoading { 
-                id, 
+                version, 
                 file
             } => {
 
@@ -871,7 +871,7 @@ impl<H: Handler> InternalHandler<'_, H> {
                     return Ok(());
                 };
 
-                if exclude.iter().any(|excluded_id| excluded_id == id) {
+                if exclude.iter().any(|excluded_id| excluded_id == version) {
                     return Ok(());
                 }
 
@@ -883,45 +883,45 @@ impl<H: Handler> InternalHandler<'_, H> {
 
                 // Unwrap because we checked the manifest in the condition.
                 let Some(dl) = manifest.versions.iter()
-                    .find(|v| &v.id == id)
+                    .find(|v| &v.id == version)
                     .map(|v| &v.download) else {
                         return Ok(());
                     };
 
                 // Save the download information for events "VersionNotFound".
-                self.downloads.insert(id.to_string(), dl.clone());
+                self.downloads.insert(version.to_string(), dl.clone());
 
                 if !check_file(file, dl.size, dl.sha1.as_deref())? {
                     
                     fs::remove_file(file)
                         .map_err(|e| standard::Error::new_io_file(e, file))?;
                     
-                    self.inner.handle_mojang_event(Event::VersionInvalidated { id });
+                    self.inner.handle_mojang_event(Event::VersionInvalidated { version });
                 
                 }
                 
             }
             // In this case we handle a missing version, by finding it in the manifest.
             standard::Event::VersionNotFound { 
-                id, 
+                version, 
                 file, 
                 error: _, 
                 ref mut retry 
             } => {
                 
-                let Some(dl) = self.downloads.get(id) else {
+                let Some(dl) = self.downloads.get(version) else {
                     self.inner.handle_standard_event(event);
                     return Ok(());
                 };
                 
-                self.inner.handle_mojang_event(Event::VersionFetching { id });
+                self.inner.handle_mojang_event(Event::VersionFetching { version });
                 
                 download::single(dl.url.clone(), file.to_path_buf())
                     .set_expect_size(dl.size)
                     .set_expect_sha1(dl.sha1.as_deref().copied())
                     .download(self.inner.as_download_dyn())??;
 
-                self.inner.handle_mojang_event(Event::VersionFetched { id });
+                self.inner.handle_mojang_event(Event::VersionFetched { version });
 
                 // Retry only if no preceding error.
                 **retry = true;
@@ -964,7 +964,7 @@ impl<H: Handler> InternalHandler<'_, H> {
     }
 
     /// Called from the handler to modify libs.
-    fn modify_libraries(&mut self, libraries: &mut Vec<Library>) -> Result<()> {
+    fn modify_libraries(&mut self, libraries: &mut Vec<LoadedLibrary>) -> Result<()> {
 
         if self.installer.fix_broken_authlib {
             self.apply_fix_broken_authlib(&mut *libraries);
@@ -978,7 +978,7 @@ impl<H: Handler> InternalHandler<'_, H> {
 
     }
 
-    fn apply_fix_broken_authlib(&mut self, libraries: &mut Vec<Library>) {
+    fn apply_fix_broken_authlib(&mut self, libraries: &mut Vec<LoadedLibrary>) {
 
         let target_gav = Gav::new("com.mojang", "authlib", "2.1.28", None, None);
         let pos = libraries.iter().position(|lib| lib.gav == target_gav);
@@ -999,7 +999,7 @@ impl<H: Handler> InternalHandler<'_, H> {
     
     }
     
-    fn apply_fix_lwjgl(&mut self, libraries: &mut Vec<Library>, version: &str) -> Result<()> {
+    fn apply_fix_lwjgl(&mut self, libraries: &mut Vec<LoadedLibrary>, version: &str) -> Result<()> {
     
         if version != "3.2.3" && !version.starts_with("3.3.") {
             return Err(Error::LwjglFixNotFound { 
@@ -1045,7 +1045,7 @@ impl<H: Handler> InternalHandler<'_, H> {
         // Now we add the classifiers for each LWJGL lib.
         libraries.extend(lwjgl_libs.into_iter().map(|mut gav| {
             gav.set_classifier(Some(classifier));
-            Library {
+            LoadedLibrary {
                 gav,
                 path: None,
                 download: None, // Will be set in the loop just after.

@@ -110,14 +110,26 @@ impl Installer {
     /// require the online version manifest, if the alias is not found in the manifest 
     /// (which is an issue on Mojang's side) then a 
     /// [`mojang::Error::RootAliasNotFound`] is returned.
-    pub fn game_version(&mut self, version: impl Into<GameVersion>) {
+    pub fn set_game_version(&mut self, version: impl Into<GameVersion>) {
         self.inner.game_version = version.into();
+    }
+
+    /// See [`Self::set_game_version`].   
+    #[inline]
+    pub fn game_version(&self) -> &GameVersion {
+        &self.inner.game_version
     }
 
     /// By default, this Fabric installer targets the latest loader version compatible
     /// with the root version, use this function to override the loader version to use.
-    pub fn loader_version(&mut self, version: impl Into<LoaderVersion>) {
+    pub fn set_loader_version(&mut self, version: impl Into<LoaderVersion>) {
         self.inner.loader_version = version.into();
+    }
+
+    /// See [`Self::set_loader_version`].   
+    #[inline]
+    pub fn loader_version(&self) -> &LoaderVersion {
+        &self.inner.loader_version
     }
 
     /// Install the currently configured Fabric loader with the given handler.
@@ -134,7 +146,7 @@ impl Installer {
             _ => None,
         };
 
-        let game_version_id = if let Some(game_stable) = game_stable {
+        let game_version = if let Some(game_stable) = game_stable {
             inner.api.request_game_versions()?
                 .into_iter()
                 .find(|game| game.stable || !game_stable)
@@ -144,7 +156,7 @@ impl Installer {
                 })?
         } else {
             match self.inner.game_version {
-                GameVersion::Id(ref id) => id.clone(),
+                GameVersion::Name(ref name) => name.clone(),
                 _ => unreachable!()
             }
         };
@@ -155,8 +167,8 @@ impl Installer {
             _ => None,
         };
 
-        let loader_version_id = if let Some(loader_stable) = loader_stable {
-            inner.api.request_game_loader_versions(&game_version_id)?
+        let loader_version = if let Some(loader_stable) = loader_stable {
+            inner.api.request_game_loader_versions(&game_version)?
                 .into_iter()
                 .find(|loader| {
                     // Some APIs don't provide the 'stable' on loader/intermediary
@@ -169,12 +181,12 @@ impl Installer {
                 })
                 .map(|loader| loader.loader.version)
                 .ok_or_else(|| Error::AliasLoaderVersionNotFound {
-                    game_version_id: game_version_id.clone(),
+                    game_version: game_version.clone(),
                     loader_version: self.inner.loader_version.clone(),
                 })?
         } else {
             match self.inner.game_version {
-                GameVersion::Id(ref id) => id.clone(),
+                GameVersion::Name(ref name) => name.clone(),
                 _ => unreachable!()
             }
         };
@@ -182,8 +194,8 @@ impl Installer {
         // Set the root version for underlying Mojang installer, equal to the name that
         // we'll give to the version.
         let prefix = inner.api.default_prefix;
-        let root_version_id = format!("{prefix}-{game_version_id}-{loader_version_id}");
-        mojang.set_root_version(RootVersion::Id(root_version_id.clone()));
+        let root_version = format!("{prefix}-{game_version}-{loader_version}");
+        mojang.set_root_version(RootVersion::Name(root_version.clone()));
 
         // Scoping the temporary internal handler.
         let game = {
@@ -192,9 +204,9 @@ impl Installer {
                 inner: &mut handler,
                 installer: &inner,
                 error: Ok(()),
-                root_version_id: &root_version_id,
-                game_version_id: &game_version_id,
-                loader_version_id: &loader_version_id,
+                root_version: &root_version,
+                game_version: &game_version,
+                loader_version: &loader_version,
             };
     
             // Same as above, we are giving a &mut dyn ref to avoid huge monomorphization.
@@ -239,12 +251,12 @@ impl<H: Handler + ?Sized> Handler for  &'_ mut H {
 #[non_exhaustive]
 pub enum Event<'a> {
     VersionFetching {
-        game_version_id: &'a str,
-        loader_version_id: &'a str,
+        game_version: &'a str,
+        loader_version: &'a str,
     },
     VersionFetched {
-        game_version_id: &'a str,
-        loader_version_id: &'a str,
+        game_version: &'a str,
+        loader_version: &'a str,
     },
 }
 
@@ -263,23 +275,23 @@ pub enum Error {
     },
     /// An alias loader version, `Stable` has not been found because the alias is missing
     /// from the fabric API's versions.
-    #[error("alias loader version not found: {game_version_id}/{loader_version:?}")]
+    #[error("alias loader version not found: {game_version}/{loader_version:?}")]
     AliasLoaderVersionNotFound {
-        game_version_id: String,
+        game_version: String,
         loader_version: LoaderVersion,
     },
     /// The given game version as requested to launch Fabric with is not supported by the
     /// selected API.
-    #[error("game version not found: {game_version_id}")]
+    #[error("game version not found: {game_version}")]
     GameVersionNotFound {
-        game_version_id: String,
+        game_version: String,
     },
     /// The given loader version as requested to launch Fabric with is not supported by 
     /// the selected API for the requested game version (which is supported).
-    #[error("loader version not found: {game_version_id}/{loader_version_id}")]
+    #[error("loader version not found: {game_version}/{loader_version}")]
     LoaderVersionNotFound {
-        game_version_id: String,
-        loader_version_id: String,
+        game_version: String,
+        loader_version: String,
     },
 }
 
@@ -392,12 +404,12 @@ pub enum GameVersion {
     /// published, it is also the latest snapshot (usually not for a long time).
     Unstable,
     /// Use the specific version.
-    Id(String),
+    Name(String),
 }
 
 impl<T: Into<String>> From<T> for GameVersion {
     fn from(value: T) -> Self {
-        Self::Id(value.into())
+        Self::Name(value.into())
     }
 }
 
@@ -411,13 +423,13 @@ pub enum LoaderVersion {
     /// [`GameVersion::Unstable`] for more explanation, the two are the same.
     Unstable,
     /// Use the specific version.
-    Id(String),
+    Name(String),
 }
 
 /// An impl so that we can give string-like objects to the builder.
 impl<T: Into<String>> From<T> for LoaderVersion {
     fn from(value: T) -> Self {
-        Self::Id(value.into())
+        Self::Name(value.into())
     }
 }
 
@@ -434,9 +446,9 @@ struct InternalHandler<'a, H: Handler> {
     /// If there is an error in the handler.
     error: Result<()>,
     /// The real version is, as defined 
-    root_version_id: &'a str,
-    game_version_id: &'a str,
-    loader_version_id: &'a str,
+    root_version: &'a str,
+    game_version: &'a str,
+    loader_version: &'a str,
 }
 
 impl<H: Handler> download::Handler for InternalHandler<'_, H> {
@@ -463,15 +475,15 @@ impl<H: Handler> InternalHandler<'_, H> {
         
         match event {
             standard::Event::VersionNotFound { 
-                id, 
+                version: id, 
                 file, 
                 error: _, 
                 retry,
-            } if id == self.root_version_id => {
+            } if id == self.root_version => {
 
                 self.inner.handle_fabric_event(Event::VersionFetching {
-                    game_version_id: self.game_version_id,
-                    loader_version_id: self.loader_version_id,
+                    game_version: self.game_version,
+                    loader_version: self.loader_version,
                 });
 
                 // At this point we've not yet checked if either game or loader versions
@@ -479,17 +491,17 @@ impl<H: Handler> InternalHandler<'_, H> {
                 // version if he will. But now that we need to request the prebuilt
                 // version metadata, in case of error we'll try to understand what's the
                 // issue: unknown game version or unknown loader version?
-                let mut metadata = match self.installer.api.request_game_loader_version_metadata(self.game_version_id, self.loader_version_id) {
+                let mut metadata = match self.installer.api.request_game_loader_version_metadata(self.game_version, self.loader_version) {
                     Ok(metadata) => metadata,
                     Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => {
-                        if self.installer.api.request_has_game_loader_versions(self.game_version_id)? {
+                        if self.installer.api.request_has_game_loader_versions(self.game_version)? {
                             return Err(Error::LoaderVersionNotFound { 
-                                game_version_id: self.game_version_id.to_string(),
-                                loader_version_id: self.loader_version_id.to_string(),
+                                game_version: self.game_version.to_string(),
+                                loader_version: self.loader_version.to_string(),
                             });
                         } else {
                             return Err(Error::GameVersionNotFound { 
-                                game_version_id: self.game_version_id.to_string(),
+                                game_version: self.game_version.to_string(),
                             });
                         }
                     }
@@ -503,8 +515,8 @@ impl<H: Handler> InternalHandler<'_, H> {
                 *retry = true;
 
                 self.inner.handle_fabric_event(Event::VersionFetched {
-                    game_version_id: self.game_version_id,
-                    loader_version_id: self.loader_version_id,
+                    game_version: self.game_version,
+                    loader_version: self.loader_version,
                 });
 
                 // Note that we never forward the event in any case...

@@ -22,9 +22,9 @@ pub fn number_si_unit(num: f32) -> (f32, char) {
 
 /// A wrapper that can be used to format a time delta for human-readable format.
 #[derive(Debug)]
-pub struct TimeDeltaDisplay(pub TimeDelta);
+pub struct TimeDeltaFmt(pub TimeDelta);
 
-impl fmt::Display for TimeDeltaDisplay {
+impl fmt::Display for TimeDeltaFmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         
         let years = self.0.num_days() / 365;
@@ -56,5 +56,28 @@ impl fmt::Display for TimeDeltaDisplay {
         let minutes = self.0.num_minutes();
         write!(f, "{minutes} minutes ago")
 
+    }
+}
+
+
+/// A helper structure for pretty printing of bytes. It provides format implementations 
+/// for upper and lower hex formatters (`{:x}`, `{:X}`).
+pub struct BytesFmt<'a>(pub &'a [u8]);
+
+impl fmt::UpperHex for BytesFmt<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            f.write_fmt(format_args!("{:02X}", byte))?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::LowerHex for BytesFmt<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            f.write_fmt(format_args!("{:02x}", byte))?;
+        }
+        Ok(())
     }
 }
