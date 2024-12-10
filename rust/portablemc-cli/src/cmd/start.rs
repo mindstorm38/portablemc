@@ -125,7 +125,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
     match run_game(cli, command) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            log_io_error(&mut cli.out, e, None);
+            log_io_error(&mut cli.out, e, "run game");
             ExitCode::FAILURE
         }
     }
