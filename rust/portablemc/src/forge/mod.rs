@@ -13,9 +13,9 @@ use std::fs::File;
 
 use crate::path::{const_path, PathBufExt, PathExt};
 use crate::download::{self, Batch, EntryErrorKind};
+use crate::standard::{self, LIBRARIES_URL};
 use crate::mojang::{self, RootVersion};
 use crate::maven::{Gav, MavenMetadata};
-use crate::standard;
 
 use reqwest::StatusCode;
 use zip::ZipArchive;
@@ -200,11 +200,19 @@ impl Installer {
         let root_version = format!("{prefix}-{loader_version}");
         mojang.add_fetch_exclude(root_version.clone());
 
+        // Get the check configuration for this forge version.
+        let install_config = (inner.api.install_config)(&game_version, game_major, game_minor, &loader_version);
+
         // The goal is to run the installer a first time, check potential errors to 
         // know if the error is related to the loader, or not.
         mojang.set_root_version(RootVersion::Name(root_version.clone()));
         let reason = match mojang.install(handler.as_mojang_dyn()) {
             Ok(game) => {
+
+                if !install_config.check_libraries {
+                    return Ok(game);
+                }
+
                 // Using this outer loop to break when some reason to install is met.
                 loop {
 
@@ -272,7 +280,7 @@ impl Installer {
                             break InstallReason::MissingClientSrg;
                         }
 
-                        if (inner.api.is_loader_version_extra_in_mcp)(&game_version, game_major, game_minor, &loader_version) {
+                        if install_config.extra_in_mcp {
                             if !check_exists(&mcp_artifact, "extra.jar") {
                                 break InstallReason::MissingClientExtra;
                             }
@@ -321,6 +329,7 @@ impl Installer {
             &root_version, 
             &game_version, 
             &loader_version,
+            &install_config,
             serde::InstallSide::Client,
             reason)?;
 
@@ -502,15 +511,34 @@ pub struct Api {
     build_loader_version_prefix: fn(game_version: &str, game_major: u16, game_minor: u16) -> String,
     /// Return true if the given loader version is stable.
     is_loader_version_stable: fn(game_version: &str, game_major: u16, game_minor: u16, loader_version: &str) -> bool,
-    /// Return true if the given ladder version usually put its "extra" generated artifact
-    /// inside the MCP-versioned game version inside `net.minecraft:client`.
-    is_loader_version_extra_in_mcp: fn(game_version: &str, game_major: u16, game_minor: u16, loader_version: &str) -> bool,
+    /// See [`InstallConfig`].
+    install_config: fn(game_version: &str, game_major: u16, game_minor: u16, loader_version: &str) -> InstallConfig,
 }
 
 impl fmt::Debug for Api {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Api").finish()
     }
+}
+
+/// Various configuration options for a loader version, it's used to enable or disable
+/// various checks
+#[derive(Debug)]
+struct InstallConfig {
+    /// If the [`standard::Installer`] runs successfully, this bool is used to determine
+    /// if some important libraries should be checked anyway, if those libraries are 
+    /// absent the installer tries to reinstall.
+    check_libraries: bool,
+    /// If `check_libraries` is true, and this is true, the given ladder version is known
+    /// to put its "extra" generated artifact inside the MCP-versioned game version
+    /// inside `net.minecraft:client`.
+    extra_in_mcp: bool,
+    /// Set to true if this loader is expected to have a legacy install profile.
+    legacy_install_profile: bool,
+    /// Set to true when the installer processors should be checked, this exists because
+    /// some old versions systematically generate wrong SHA-1 and we prefer allowing 
+    /// these versions to be installed even if files might be invalid.
+    check_processor_outputs: bool,
 }
 
 /// The original forge API.
@@ -523,28 +551,48 @@ pub static FORGE_API: Api = Api {
         "forge"
     },
     build_loader_version: |game_version: &str, _game_major: u16, _game_minor: u16, short_loader_version: &str| {
-        format!("{game_version}-{short_loader_version}")
+        if game_version == "1.7.10-pre4" {
+            // This is the only prerelease ever supported by Forge.
+            // Note however that this version seems to be broken, but anyway we support it!
+            format!("1.7.10_pre4-{short_loader_version}")
+        } else {
+            format!("{game_version}-{short_loader_version}")
+        }
     },
     build_loader_version_prefix: |game_version: &str, _game_major: u16, _game_minor: u16| {
-        format!("{game_version}-")
+        if game_version == "1.7.10-pre4" {
+            "1.7.10_pre4".to_string()
+        } else {
+            format!("{game_version}-")
+        }
     },
     is_loader_version_stable: |_game_version: &str, _game_major: u16, _game_minor: u16, _loader_version: &str| {
         true  // All versions are stable
     },
-    is_loader_version_extra_in_mcp: |_game_version: &str, game_major: u16, game_minor: u16, loader_version: &str| {
-        // The 'extra' classifier is stored in different directories depending on version:
-        // >= 1.16.1-32.0.20: inside '<game_version>-<mcp_version>'
-        // <= 1.16.1-32.0.19: inside '<game_version>'
-        if (game_major, game_minor) == (16, 1) {
-            // Equal to 1.16.1, we should check the exact loader version. If we fail to
-            // parse it, we conservatively return true, but it should never be the case.
-            if let Some([32, 0, n, _]) = parse_forge_loader_version(loader_version) {
-                n >= 20
-            } else {
-                true
-            }
-        } else {
-            (game_major, game_minor) > (16, 1)
+    install_config: |_game_version: &str, _game_major: u16, _game_minor: u16, loader_version: &str| {
+        let loader_version = parse_forge_loader_version(loader_version);
+        InstallConfig {
+            // The first version to actually use processors was 1.13.2-25.0.9, therefore
+            // we only check libraries for this version after onward.
+            check_libraries: loader_version.map(|v| v >= [25, 0, 0, 0]).unwrap_or(false),
+            // The 'extra' classifier is stored in different directories depending on version:
+            // v >= 1.16.1-32.0.20: inside '<game_version>-<mcp_version>'
+            // v <= 1.16.1-32.0.19: inside '<game_version>'
+            extra_in_mcp: loader_version.map(|v| v >= [32, 0, 20, 0]).unwrap_or(false),
+            // The install profiles comes in multiples forms:
+            // >= 1.12.2-14.23.5.2851: There are two files, 'install_profile.json' which 
+            //  contains processors and shared data, and `version.json` which is the raw 
+            //  version meta to be fetched.
+            // <= 1.12.2-14.23.5.2847: There is only an 'install_profile.json' with the
+            //  version meta stored in 'versionInfo' object. Each library have two keys 
+            //  'serverreq' and 'clientreq' that should be removed when the profile is 
+            //  returned.
+            legacy_install_profile: loader_version.map(|v| v <= [14, 23, 5, 2847]).unwrap_or(false),
+            // v >= 1.14.4-28.1.16: hashes are valid
+            // 1.13 <= v <= 1.14.4-28.1.15: hashes are invalid
+            // 1.12.2-14.23.5.2851 <= v < 1.13: no processor therefore no hash to check
+            // v <= 1.12.2-14.23.5.2847: legacy installer, no processor
+            check_processor_outputs: loader_version.map(|v| v >= [28, 1, 16, 0]).unwrap_or(false),
         }
     },
 };
@@ -585,8 +633,13 @@ pub static NEO_FORGE_API: Api = Api {
             !loader_version.ends_with("-beta")
         }
     },
-    is_loader_version_extra_in_mcp: |_game_version: &str, _game_major: u16, _game_minor: u16, _loader_version: &str| {
-        true
+    install_config: |_game_version: &str, _game_major: u16, _game_minor: u16, _loader_version: &str| {
+        InstallConfig {
+            check_libraries: true,
+            extra_in_mcp: true,
+            legacy_install_profile: false,
+            check_processor_outputs: true,
+        }
     },
 };
 
@@ -676,6 +729,7 @@ fn try_install(
     root_version: &str,
     game_version: &str,
     loader_version: &str,
+    install_config: &InstallConfig,
     side: serde::InstallSide,
     reason: InstallReason,
 ) -> Result<()> {
@@ -738,24 +792,23 @@ fn try_install(
         Ok(game) => game.jvm_file,
     };
 
-    // The install profiles comes in multiples forms:
-    // >= 1.12.2-14.23.5.2851
-    //      There are two files, 'install_profile.json' which 
-    //      contains processors and shared data, and `version.json`
-    //      which is the raw version meta to be fetched.
-    // <= 1.12.2-14.23.5.2847
-    //      There is only an 'install_profile.json' with the version
-    //      meta stored in 'versionInfo' object. Each library have
-    //      two keys 'serverreq' and 'clientreq' that should be
-    //      removed when the profile is returned.
     const PROFILE_ENTRY: &str = "install_profile.json";
     let profile = match installer_zip.by_name(PROFILE_ENTRY) {
         Ok(reader) => {
+            
             let mut deserializer = serde_json::Deserializer::from_reader(reader);
-            serde_path_to_error::deserialize::<_, serde::InstallProfile>(&mut deserializer)
-                .map_err(|e| standard::Error::new_json(e, format!("entry: {}, from: {}", 
-                    PROFILE_ENTRY, 
-                    installer_file.display())))?
+            let res = if install_config.legacy_install_profile {
+                serde_path_to_error::deserialize::<_, serde::LegacyInstallProfile>(&mut deserializer)
+                    .map(InstallProfileKind::Legacy)
+            } else {
+                serde_path_to_error::deserialize::<_, serde::ModernInstallProfile>(&mut deserializer)
+                    .map(InstallProfileKind::Modern)
+            };
+
+            res.map_err(|e| standard::Error::new_json(e, format!("entry: {}, from: {}", 
+                PROFILE_ENTRY, 
+                installer_file.display())))?
+
         }
         Err(_) => return Err(Error::InstallerProfileNotFound {  })
     };
@@ -770,7 +823,7 @@ fn try_install(
     let mut metadata;
 
     match profile {
-        serde::InstallProfile::Modern(profile) => {
+        InstallProfileKind::Modern(profile) => {
             
             if profile.minecraft != game_version {
                 return Err(Error::InstallerProfileIncoherent {  });
@@ -950,29 +1003,38 @@ fn try_install(
                     });
                 }
 
-                // Check if there are SHA-1...
-                for (file, sha1) in &processor.outputs {
-                    let Some(file) = format_processor_arg(&file, &libraries_dir, &data) else { continue };
-                    let Some(sha1) = format_processor_arg(&sha1, &libraries_dir, &data) else { continue };
-                    let Some(sha1) = crate::serde::parse_hex_bytes::<20>(&sha1) else { continue };
-                    let file = Path::new(&file);
-                    if !standard::check_file(file, None, Some(&sha1))? {
-                        return Err(Error::InstallerProcessorInvalidOutput {
-                            name: processor.jar.clone(),
-                            file: file.to_path_buf().into_boxed_path(),
-                            expected_sha1: Box::new(sha1),
-                        });
+                // If process SHA-1 check is enabled...
+                if install_config.check_processor_outputs {
+                    for (file, sha1) in &processor.outputs {
+                        let Some(file) = format_processor_arg(&file, &libraries_dir, &data) else { continue };
+                        let Some(sha1) = format_processor_arg(&sha1, &libraries_dir, &data) else { continue };
+                        let Some(sha1) = crate::serde::parse_hex_bytes::<20>(&sha1) else { continue };
+                        let file = Path::new(&file);
+                        if !standard::check_file(file, None, Some(&sha1))? {
+                            return Err(Error::InstallerProcessorInvalidOutput {
+                                name: processor.jar.clone(),
+                                file: file.to_path_buf().into_boxed_path(),
+                                expected_sha1: Box::new(sha1),
+                            });
+                        }
                     }
                 }
                 
             }
 
         }
-        serde::InstallProfile::Legacy(profile) => {
+        InstallProfileKind::Legacy(profile) => {
             
             metadata = profile.version_info;
-            
-            // TODO: Set Mojang URL for libs that don't have ones.
+
+            // Older versions used to require libraries that are no longer installed
+            // by parent versions, therefore it's required to add url if not 
+            // provided, pointing to maven central repository, for downloading.
+            for lib in &mut metadata.libraries {
+                if lib.url.is_none() {
+                    lib.url = Some(LIBRARIES_URL.to_string());
+                }
+            }
 
             // Old version (<= 1.6.4) of forge are broken, even on official launcher.
             // So we fix them by manually adding the correct inherited version.
@@ -995,6 +1057,12 @@ fn try_install(
 
     Ok(())
 
+}
+
+#[derive(Debug)]
+enum InstallProfileKind {
+    Modern(serde::ModernInstallProfile),
+    Legacy(serde::LegacyInstallProfile),
 }
 
 /// Internal install data.
@@ -1188,12 +1256,9 @@ fn parse_generic_version<const MAX: usize, const MIN: usize>(version: &str) -> O
 /// Internal function that parses the game version major and minor version numbers, if
 /// the version starts with "1.", returning 0 for minor version is not present.
 fn parse_game_version(version: &str) -> Option<[u16; 2]> {
-    const PREFIX: &str = "1.";
-    if !version.starts_with(PREFIX) {
-        None
-    } else {
-        parse_generic_version::<2, 1>(&version[PREFIX.len()..])
-    }
+    let version = version.strip_prefix("1.")?;
+    let (version, _rest) = version.split_once("-pre").unwrap_or((version, ""));
+    parse_generic_version::<2, 1>(version)
 }
 
 /// Parse the 4 digits of a loader version, ignoring the game version and optional suffix.

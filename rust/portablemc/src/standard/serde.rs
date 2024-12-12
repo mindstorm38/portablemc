@@ -342,6 +342,9 @@ pub enum SingleOrVec<T> {
 /// 
 /// This as been observed with NeoForge installer embedded version, an example of 
 /// malformed time is "2024-12-09T23:22:49.408008176", where the timezone is missing.
+/// 
+/// On old Forge versions there is also a missing ':' in the timezone offset between
+/// hours and minutes.
 fn deserialize_date_time_chill<'de, D>(deserializer: D) -> Result<DateTime<FixedOffset>, D::Error>
 where 
     D: serde::Deserializer<'de>,
@@ -362,17 +365,41 @@ where
         where
             E: serde::de::Error,
         {
+
+            let err;
+            let mut buf;
+
             match DateTime::parse_from_rfc3339(v) {
                 Ok(date) => return Ok(date),
                 Err(e) if e.kind() == ParseErrorKind::TooShort => {
                     // Try adding a 'Z' at the end, we don't know if this was the issue 
                     // so we retry.
-                    let mut buf = v.to_string();
+                    err = e;
+                    buf = v.to_string();
                     buf.push('Z');
-                    DateTime::parse_from_rfc3339(&buf).map_err(|e| E::custom(e))
                 }
-                Err(e) => Err(E::custom(e)),
+                Err(e) if e.kind() == ParseErrorKind::Invalid => {
+                    if let Some(index) = v.rfind(&['+', '-']) {
+                        // This order avoids overflows.
+                        if v.len() - index == 5 && v[v.len() - 4..].is_ascii() {
+                            err = e;
+                            buf = v.to_string();
+                            buf.insert(v.len() - 2, ':');
+                        } else {
+                            return Err(E::custom(e));
+                        }
+                    } else {
+                        return Err(E::custom(e));
+                    }
+                }
+                Err(e) => return Err(E::custom(e)),
+            };
+
+            match DateTime::parse_from_rfc3339(&buf) {
+                Ok(date) => Ok(date),
+                Err(_) => Err(E::custom(err)), // Return the original error!!
             }
+
         }
         
     }

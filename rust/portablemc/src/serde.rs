@@ -155,3 +155,26 @@ pub(crate) fn parse_hex_bytes<const LEN: usize>(mut string: &str) -> Option<[u8;
     string.is_empty().then_some(dst)
 
 }
+
+pub(crate) fn deserialize_or_empty_seq<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where 
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+    T: Default,
+{
+
+    use serde::Deserialize;
+    
+    #[derive(serde::Deserialize, Debug, Clone)]
+    #[serde(untagged)]
+    enum SomeOrSeq<T> {
+        Some(T),
+        Seq([(); 0]),
+    }
+
+    match SomeOrSeq::deserialize(deserializer)? {
+        SomeOrSeq::Some(val) => Ok(val),
+        SomeOrSeq::Seq([]) => Ok(T::default()),
+    }
+
+}

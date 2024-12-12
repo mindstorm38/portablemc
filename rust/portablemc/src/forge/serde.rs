@@ -7,13 +7,6 @@ use crate::maven::Gav;
 use crate::standard;
 
 
-#[derive(serde::Deserialize, Debug, Clone)]
-#[serde(untagged)]
-pub enum InstallProfile {
-    Modern(ModernInstallProfile),
-    Legacy(LegacyInstallProfile),
-}
-
 /// For loader >= 1.12.2-14.23.5.2851
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct ModernInstallProfile {
@@ -32,6 +25,7 @@ pub struct ModernInstallProfile {
     #[serde(default)]
     pub processors: Vec<InstallProcessor>,
     /// Constant data used for replacement in post-processor arguments.
+    #[serde(deserialize_with = "crate::serde::deserialize_or_empty_seq")]
     pub data: HashMap<String, InstallDataEntry>,
 }
 

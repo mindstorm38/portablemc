@@ -452,7 +452,7 @@ impl forge::Handler for CommonHandler<'_> {
 
                 let (reason_code, log_level, reason_desc) = match reason {
                     InstallReason::MissingVersionMetadata => 
-                        ("missing_version_metadata", LogLevel::Info, "The version metadata is absent, installing"),
+                        ("missing_version_metadata", LogLevel::Success, "The version metadata is absent, installing"),
                     InstallReason::MissingCoreLibrary => 
                         ("missing_universal_client", LogLevel::Warn, "The core loader library is absent, reinstalling"),
                     InstallReason::MissingClientExtra => 
