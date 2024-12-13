@@ -454,6 +454,7 @@ impl<'a> TableOutput<'a> {
             OutputMode::Human(mode) => {
                 // Just to ensure that cells count is padded when 'Row' is dropped.
                 debug_assert!(mode.table_cells.len().checked_rem(self.columns).unwrap_or(0) == 0);
+                mode.table_separators.push(mode.table_cells.len() / self.columns);
             }
             OutputMode::TabSep(mode) => {
                 debug_assert!(mode.buffer.is_empty());
@@ -552,6 +553,10 @@ impl Drop for TableOutput<'_> {
             write_separator(&mut writer, "─┴─");
             write!(writer, "─┘\n").unwrap();
 
+            mode.table_buffer.clear();
+            mode.table_cells.clear();
+            mode.table_separators.clear();
+
         }
 
     }
@@ -567,7 +572,8 @@ pub struct Row<'a> {
 impl Row<'_> {
 
     /// Insert a new cell to that row with the given machine-readable content, to add
-    /// a formatted human-readable string, use the returned cell handle.
+    /// a formatted human-readable string, use the returned cell handle. By default,
+    /// the human representation is the given content.
     #[track_caller]
     pub fn cell(&mut self, content: impl Display) -> Cell<'_> {
         
