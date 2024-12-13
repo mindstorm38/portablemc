@@ -3,7 +3,7 @@
 pub mod start;
 pub mod search;
 
-use std::process::ExitCode;
+use std::process::{self, ExitCode};
 use std::path::PathBuf;
 use std::time::Instant;
 use std::error::Error;
@@ -26,6 +26,8 @@ pub fn main(args: CliArgs) -> ExitCode {
                 let _ = child.kill();
             }
         }
+
+        process::exit(0);
         
     }).unwrap();
 
