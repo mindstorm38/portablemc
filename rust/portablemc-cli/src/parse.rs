@@ -129,7 +129,7 @@ pub struct StartArgs {
     /// When not using the colon-separated syntax, this will defaults to the 'mojang' 
     /// installer. Below are detailed each installer.
     /// 
-    /// - mojang:[release|snapshot|<version>] => use 'release' (default is absent) or 
+    /// - mojang:[release|snapshot|<version>] => use 'release' (default if absent) or 
     /// 'snapshot' to install and launch the latest version of that type, or you can 
     /// use any valid version id provided by Mojang (you can search for them using the 
     /// 'portablemc search' command). 
@@ -437,7 +437,7 @@ pub struct SearchArgs {
     /// Its syntax allows giving multiple space-separated words (quoted arguments are not
     /// split), then if a word contains a colon ':' then it is split in a parameter and
     /// its value, the parameter and its value are then interpreted depending on the 
-    /// search kind. If a word if not of parameter:value syntax then it's interpreted
+    /// search kind. If a word is not of 'parameter:value' syntax then it's interpreted
     /// depending on the search kind, for example to filter version name. Multiple
     /// different parameters acts in a AND logic, but giving multiple times the same
     /// parameters acts in a OR logic. 
@@ -454,21 +454,21 @@ pub struct SearchArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum SearchKind {
     /// Search for official versions released by Mojang, including release and snapshots.
-    /// A query word is used to filter versions' identifiers. Supported parameters are 
+    /// A query word is used to filter versions. Supported parameters are 
     /// 'type:<release|snapshot|beta|alpha>' for filtering by version type, 'release:'
     /// to show only the latest release and 'snapshot:' to show only the latest snapshot
     /// (these last two overrides any other query).
     Mojang,
     /// Search for locally installed versions, located in the versions directory.
     Local,
-    /// Search for Forge loader versions.
-    Forge,
     /// Search for Fabric loader versions.
     Fabric,
     /// Search for Quilt loader versions.
     Quilt,
     /// Search for LegacyFabric loader versions.
     LegacyFabric,
+    /// Search for Forge loader versions.
+    Forge,
 }
 
 // ================= //
