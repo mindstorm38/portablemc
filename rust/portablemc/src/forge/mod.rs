@@ -667,11 +667,6 @@ pub enum LoaderVersion {
     /// 
     /// - With [`Api::Forge`], the name represent the full loader version that is appended
     ///   to the game version, like in `1.21-51.0.33`, the loader version is `51.0.33`.
-    ///   Some rare loader versions are strange and are also suffixed by some string
-    ///   related to the game version, like `1.11-13.19.0.2129-1.11.x`, because it don't
-    ///   make sense to specify a loader version `13.19.0.2129-1.11.x`, you can simply 
-    ///   specify `13.19.0.2129` and these case will be handled silently, this suffix
-    ///   won't be included in the root version.
     /// 
     /// - With [`Api::NeoForge`], the name represent the last "patch" number of the loader.
     ///   NeoForge versioning consists in the Minecraft major and minor version (ignoring

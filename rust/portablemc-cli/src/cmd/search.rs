@@ -26,6 +26,23 @@ pub fn main(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
 
 }
 
+// /// Common internal function to parse a search query.
+// fn parse_query<P, V>(query: &[String], mut param: P, mut value: V)
+// where
+//     P: FnMut(&str, &str) -> bool,
+//     V: FnMut(&str),
+// {
+//     for part in query {
+//         if let Some((param, value)) = part.split_once(":") {
+//             if !param(param, value) {
+                
+//             }
+//         } else {
+//             value(&part);
+//         }
+//     }
+// }
+
 fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
 
     // Initial requests...
