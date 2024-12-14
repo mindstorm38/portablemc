@@ -1105,6 +1105,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "portablemc-capi"
+version = "5.0.0-beta.0"
+dependencies = [
+ "portablemc",
+]
+
+[[package]]
 name = "portablemc-cli"
 version = "5.0.0-beta.0"
 dependencies = [
