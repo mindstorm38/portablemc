@@ -1,7 +1,5 @@
 //! JSON schemas structures for serde deserialization.
 
-use std::collections::HashMap;
-
 use chrono::{DateTime, FixedOffset};
 
 use crate::standard;
@@ -11,9 +9,15 @@ use crate::standard;
 #[serde(rename_all = "camelCase")]
 pub struct MojangManifest {
     /// A map associated the latest versions.
-    pub latest: HashMap<standard::serde::VersionType, String>,
+    pub latest: MojangManifestLatest,
     /// List of all versions.
     pub versions: Vec<MojangManifestVersion>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct MojangManifestLatest {
+    pub release: Option<String>,
+    pub snapshot: Option<String>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]

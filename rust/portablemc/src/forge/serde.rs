@@ -10,8 +10,8 @@ use crate::standard;
 /// For loader >= 1.12.2-14.23.5.2851
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct ModernInstallProfile {
-    /// The loader version.
-    pub version: String,
+    // /// The loader version.
+    // pub version: String,
     /// The minecraft version.
     pub minecraft: String,
     /// The installing forge GAV, for early installers, no longer used in modern ones.
@@ -81,8 +81,8 @@ pub struct LegacyInstallProfile {
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LegacyInstall {
-    /// The game version.
-    pub minecraft: String,
+    // /// The game version.
+    // pub minecraft: String,
     pub path: Gav,
     /// The path, within the installer archive, where the universal JAR is located and
     /// can be extracted from.

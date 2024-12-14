@@ -4,8 +4,10 @@ use std::process::ExitCode;
 use std::fs;
 
 use chrono::{DateTime, Local, TimeDelta, Utc};
-use portablemc::{mojang, standard};
+
+use portablemc::standard::VersionChannel;
 use portablemc::download::Handler;
+use portablemc::mojang::Manifest;
 
 use crate::format::{TimeDeltaFmt, DATE_FORMAT};
 use crate::parse::{SearchArgs, SearchKind};
@@ -47,7 +49,7 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
 
     // Initial requests...
     let mut handler = CommonHandler::new(&mut cli.out);
-    let manifest = match mojang::request_manifest(handler.as_download_dyn()) {
+    let manifest = match Manifest::request(handler.as_download_dyn()) {
         Ok(manifest) => manifest,
         Err(e) => {
             log_mojang_error(&mut cli.out, e);
@@ -66,10 +68,10 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
             match param {
                 "type" => {
                     filter_type.push(match value {
-                        "release" => standard::serde::VersionType::Release,
-                        "snapshot" => standard::serde::VersionType::Snapshot,
-                        "beta" => standard::serde::VersionType::OldBeta,
-                        "alpha" => standard::serde::VersionType::OldAlpha,
+                        "release" => VersionChannel::Release,
+                        "snapshot" => VersionChannel::Snapshot,
+                        "beta" => VersionChannel::Beta,
+                        "alpha" => VersionChannel::Alpha,
                         _ => {
                             cli.out.log("error_invalid_type_param")
                                 .arg(value)
@@ -83,8 +85,8 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
                         cli.out.log("error_invalid_release_param")
                             .error("Param 'release' don't expect value");
                         return ExitCode::FAILURE;
-                    } else if let Some(id) = manifest.latest.get(&standard::serde::VersionType::Release) {
-                        only_one = Some(id.clone());
+                    } else if let Some(id) = manifest.name_of_latest(VersionChannel::Release) {
+                        only_one = Some(id);
                     }
                 }
                 "snapshot" => {
@@ -92,8 +94,8 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
                         cli.out.log("error_invalid_snapshot_param")
                             .error("Param 'snapshot' don't expect value");
                         return ExitCode::FAILURE;
-                    } else if let Some(id) = manifest.latest.get(&standard::serde::VersionType::Snapshot) {
-                        only_one = Some(id.clone());
+                    } else if let Some(id) = manifest.name_of_latest(VersionChannel::Snapshot) {
+                        only_one = Some(id);
                     }
                 }
                 _ => {
@@ -121,38 +123,38 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
     
     table.sep();
 
-    for version in &manifest.versions {
+    for version in manifest.iter() {
 
         if let Some(only_one) = only_one.as_deref() {
-            if version.id != only_one {
+            if version.name() != only_one {
                 continue;
             }
         } else {
             if !filter_strings.is_empty() {
-                if !filter_strings.iter().any(|s| version.id.contains(s)) {
+                if !filter_strings.iter().any(|s| version.name().contains(s)) {
                     continue;
                 }
             }
 
             if !filter_type.is_empty() {
-                if !filter_type.contains(&version.r#type) {
+                if !filter_type.contains(&version.channel()) {
                     continue;
                 }
             }
         }
         
         let mut row = table.row();
-        row.cell(&version.id);
+        row.cell(version.name());
         
-        let is_latest = manifest.latest.get(&version.r#type)
-            .map(|id| id == &version.id)
+        let is_latest = manifest.name_of_latest(version.channel())
+            .map(|name| name == version.name())
             .unwrap_or(false);
 
-        let (type_id, type_fmt) = match version.r#type {
-            standard::serde::VersionType::Release => ("release", "Release"),
-            standard::serde::VersionType::Snapshot => ("snapshot", "Snapshot"),
-            standard::serde::VersionType::OldBeta => ("beta", "Beta"),
-            standard::serde::VersionType::OldAlpha => ("alpha", "Alpha"),
+        let (type_id, type_fmt) = match version.channel() {
+            VersionChannel::Release => ("release", "Release"),
+            VersionChannel::Snapshot => ("snapshot", "Snapshot"),
+            VersionChannel::Beta => ("beta", "Beta"),
+            VersionChannel::Alpha => ("alpha", "Alpha"),
         };
         
         if is_latest {
@@ -162,11 +164,12 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
         }
 
         // Raw output is RFC3339 of FixedOffset time, format is local time.
-        let mut cell = row.cell(&version.release_time.to_rfc3339());
-        let local_release_date = version.release_time.with_timezone(&Local);
-        let local_release_data_fmt: _ = version.release_time.format(DATE_FORMAT);
+        let mut cell = row.cell(&version.release_time().to_rfc3339());
+        let local_release_date = version.release_time().with_timezone(&Local);
+        let local_release_data_fmt: _ = version.release_time().format(DATE_FORMAT);
         let delta = today.signed_duration_since(&local_release_date);
-        if is_latest || delta <= TimeDelta::weeks(4) {
+
+        if is_latest || version.channel() == VersionChannel::Release || delta <= TimeDelta::weeks(4) {
             cell.format(format_args!("{} ({})", local_release_data_fmt, TimeDeltaFmt(delta)));
         } else {
             cell.format(format_args!("{}", local_release_data_fmt));

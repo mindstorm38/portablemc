@@ -188,7 +188,7 @@ impl<const BG: bool> Log<'_, BG> {
     /// Append many arguments for machine-readable output.
     pub fn args<D, I>(&mut self, args: I) -> &mut Self
     where
-        I: Iterator<Item = D>,
+        I: IntoIterator<Item = D>,
         D: Display,
     {
         if let OutputMode::TabSep(mode) = &mut self.output.mode {

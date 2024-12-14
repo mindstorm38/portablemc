@@ -1,6 +1,6 @@
 //! Standard installation procedure.
 
-pub mod serde;
+pub(crate) mod serde;
 
 use std::io::{self, BufReader, BufWriter, Seek, SeekFrom};
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -46,11 +46,6 @@ pub(crate) const LEGACY_JVM_ARGS: &[&str] = &[
     "-cp",
     "${classpath}",
 ];
-
-/// To avoid infinite recursion when fetching version if it fails. The current value is
-/// arbitrary, mostly because in general just '1' would be valid, but let's say that we
-/// want handlers to be able to recover from parsing errors, currently unused mechanic.
-const MAX_VERSION_RETRY_COUNT: u8 = 4;
 
 /// Standard installer handle to install versions, this object is just the configuration
 /// of the installer when a version will be installed, such as directories to install 
@@ -462,7 +457,6 @@ impl Installer {
             hierarchy.push(version);
         }
 
-        handler.handle_standard_event(Event::HierarchyFilter { hierarchy: &mut hierarchy });
         handler.handle_standard_event(Event::HierarchyLoaded { hierarchy: &hierarchy });
 
         Ok(hierarchy)
@@ -481,45 +475,55 @@ impl Installer {
 
         let dir = self.versions_dir.join(&version);
         let file = dir.join_with_extension(&version, "json");
-        let mut retry_count = 0;
 
-        handler.handle_standard_event(Event::VersionLoading { version: &version, file: &file });
+        handler.handle_standard_event(Event::VersionLoading { 
+            version: &version, 
+            file: &file,
+        });
 
-        loop {
+        // Try a second time if retry is requested...
+        for _ in 0..2 {
 
             let reader = match File::open(&file) {
                 Ok(reader) => BufReader::new(reader),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                        
+                    let mut retry = false;
+                    handler.handle_standard_event(Event::VersionNotFound { 
+                        version: &version, 
+                        file: &file, 
+                        retry: &mut retry,
+                    });
 
-                    if retry_count < MAX_VERSION_RETRY_COUNT {
-                        let mut retry = false;
-                        handler.handle_standard_event(Event::VersionNotFound { version: &version, file: &file, error: None, retry: &mut retry });
-                        if retry {
-                            retry_count += 1;
-                            continue;
-                        }
+                    if retry {
+                        continue;
+                    } else {
+                        break;
                     }
-
-                    // If not retried, we return a version not found error.
-                    return Err(Error::VersionNotFound { version });
 
                 }
                 Err(e) => return Err(Error::new_io_file(e, &file))
             };
 
             let mut deserializer = serde_json::Deserializer::from_reader(reader);
-            let mut metadata = serde_path_to_error::deserialize(&mut deserializer)
+            let metadata = serde_path_to_error::deserialize::<_, Box<serde::VersionMetadata>>(&mut deserializer)
                 .map_err(|e| Error::new_json_file(e, &file))?;
 
-            handler.handle_standard_event(Event::VersionLoaded { version: &version, file: &file, metadata: &mut metadata });
+            handler.handle_standard_event(Event::VersionLoaded {
+                version: &version, 
+                file: &file,
+            });
 
-            break Ok(LoadedVersion {
+            return Ok(LoadedVersion {
                 name: version,
                 dir,
                 metadata,
             });
 
         }
+
+        // If not retried, we return a version not found error.
+        Err(Error::VersionNotFound { version })
 
     }
 
@@ -988,7 +992,10 @@ impl Installer {
 
         };
         
-        handler.handle_standard_event(Event::AssetsLoaded { id: index_info.id, index: &asset_index });
+        handler.handle_standard_event(Event::AssetsLoaded { 
+            id: index_info.id, 
+            count: asset_index.objects.len(),
+        });
 
         // Now we check assets that needs to be downloaded...
         let objects_dir = self.assets_dir.join("objects");
@@ -1050,7 +1057,10 @@ impl Installer {
 
         }
 
-        handler.handle_standard_event(Event::AssetsVerified { id: index_info.id, index: &asset_index });
+        handler.handle_standard_event(Event::AssetsVerified { 
+            id: index_info.id, 
+            count: asset_index.objects.len(),
+        });
 
         Ok(Some(assets))
 
@@ -1744,11 +1754,6 @@ pub enum Event<'a> {
     HierarchyLoading {
         root_version: &'a str,
     },
-    /// Filter the versions hierarchy.
-    HierarchyFilter {
-        /// All versions of the hierarchy, in order, starting at the root version.
-        hierarchy: &'a mut Vec<LoadedVersion>,
-    },
     /// The version hierarchy has been loaded successfully.
     HierarchyLoaded {
         hierarchy: &'a [LoadedVersion],
@@ -1759,22 +1764,20 @@ pub enum Event<'a> {
         version: &'a str,
         file: &'a Path,
     },
-    /// A version file has not been found but is needed. An optional parsing error can
-    /// be attached if the file exists but is invalid.
-    /// 
-    /// **Retry**: this will retry to open and load the version file. If not retried, the
-    /// installation halts with [`Error::VersionNotFound`] error.
+    /// A version file has not been found but is needed, this is a warning that you can
+    /// fix by writing a working file the the given path (parent directory should be
+    /// created if missing), you also need to set `retry` to true. If the file isn't 
+    /// existing after that, or if `retry` is false, the installation halts with 
+    /// [`Error::VersionNotFound`] error. 
     VersionNotFound {
         version: &'a str,
         file: &'a Path,
-        error: Option<serde_path_to_error::Error<serde_json::Error>>,
         retry: &'a mut bool,
     },
     /// A version file has been loaded successfully.
     VersionLoaded {
         version: &'a str,
         file: &'a Path,
-        metadata: &'a mut serde::VersionMetadata,
     },
     /// The client JAR file will be loaded.
     ClientLoading {},
@@ -1826,12 +1829,12 @@ pub enum Event<'a> {
     /// ones to the download list.
     AssetsLoaded {
         id: &'a str,
-        index: &'a serde::AssetIndex,
+        count: usize,
     },
     /// Assets have been verified.
     AssetsVerified {
         id: &'a str,
-        index: &'a serde::AssetIndex,
+        count: usize,
     },
     /// The JVM will be loaded, depending on the policy configured in the installer. An
     /// optional major version may be required by the version.
@@ -1968,17 +1971,17 @@ impl Error {
 
     #[inline]
     pub fn new_io_file(error: io::Error, file: impl AsRef<Path>) -> Self {
-        Self::new_io(error, format!("{}", file.as_ref().display()))
+        Self::new_io(error, file.as_ref().display().to_string())
     }
     
     #[inline]
     pub fn new_json_file(error: serde_path_to_error::Error<serde_json::Error>, file: impl AsRef<Path>) -> Self {
-        Self::new_json(error, format!("{}", file.as_ref().display()))
+        Self::new_json(error, file.as_ref().display().to_string())
     }
 
     #[inline]
     pub fn new_zip_file(error: ZipError, file: impl AsRef<Path>) -> Self {
-        Self::new_zip(error, format!("{}", file.as_ref().display()))
+        Self::new_zip(error, file.as_ref().display().to_string())
     }
 
 }
@@ -1999,7 +2002,7 @@ pub enum JvmPolicy {
     },
     /// The installer will try to find a suitable JVM executable in the path, searching
     /// a `java` (or `javaw.exe` on Windows) executable. On operating systems where it's
-    /// supported, this will also check for known directories (on Arch for exemple).
+    /// supported, this will also check for known directories (on Arch for example).
     /// If the version needs a specific JVM major version, each candidate executable is 
     /// checked and a warning is triggered to notify that the version is not suited.
     /// Invalid versions are not kept, and if no valid version is found at the end then
@@ -2007,7 +2010,8 @@ pub enum JvmPolicy {
     System,
     /// The installer will try to find a suitable JVM to install from Mojang-provided
     /// distributions, if no JVM is available for the platform (`jvm_platform` on the
-    /// installer) and for the required distribution then a 
+    /// installer) and for the required distribution then a [`Error::JvmNotFound`] error
+    /// is returned.
     Mojang,
     /// The installer search system and then mojang as a fallback.
     SystemThenMojang,
@@ -2018,12 +2022,60 @@ pub enum JvmPolicy {
 /// Represent a loaded version.
 #[derive(Debug, Clone)]
 pub struct LoadedVersion {
-    /// Identifier of this version.
-    pub name: String,
+    /// Name of this version.
+    name: String,
     /// Directory of that version, where metadata is stored with the JAR file.
-    pub dir: PathBuf,
+    dir: PathBuf,
     /// The loaded metadata of the version.
-    pub metadata: serde::VersionMetadata,
+    metadata: Box<serde::VersionMetadata>,
+}
+
+impl LoadedVersion {
+
+    /// Get the version name.
+    /// 
+    /// Most game resources call this the "version id", but for consistency and clarity
+    /// we decided to go with `name` everywhere in the public interface of the library. 
+    /// When it's clear, we just call it "version".
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Get the version directory, where the metadata and client JAR is stored, this 
+    /// directory is named after this version's name.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Return the release channel for this version, if specified in the metadata.
+    pub fn channel(&self) -> Option<VersionChannel> {
+        self.metadata.r#type.map(VersionChannel::from)
+    }
+
+}
+
+/// The different release channels for versions. Most of the game versions calls this 
+/// the "version type", but for keyword reservation issues with `type` we call this 
+/// channel on the public interface, and this is also a good indicator
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VersionChannel {
+    Release,
+    Snapshot,
+    Beta,
+    Alpha,
+}
+
+/// Internal conversion from the serde equivalent of this to the public interface enum.
+/// Both have the same discriminant values so this should be optimized to just a copy.
+impl From<serde::VersionType> for VersionChannel {
+    fn from(value: serde::VersionType) -> Self {
+        match value {
+            serde::VersionType::Release => Self::Release,
+            serde::VersionType::Snapshot => Self::Snapshot,
+            serde::VersionType::OldBeta => Self::Beta,
+            serde::VersionType::OldAlpha => Self::Alpha,
+        }
+    }
 }
 
 /// Represent a loaded library.
@@ -2037,7 +2089,7 @@ pub struct LoadedLibrary {
     /// An optional download information for this library if it is missing.
     pub download: Option<LibraryDownload>,
     /// True if this contains natives that should be extracted into the binaries 
-    /// directory before launching the game, instead of being in the class path.
+    /// directory before launching the game, instead of being added to the class path.
     pub natives: bool,
 }
 

@@ -68,24 +68,24 @@ impl<'de> serde::Deserialize<'de> for RegexString {
 }
 
 
-/// A SHA-1 hash serialized and deserialized to/from has a 40 hex characters string.
+/// A hexadecimal, lower case, formatted bytes string.
 #[derive(Debug, Clone)]
-pub struct Sha1HashString(pub [u8; 20]);
+pub struct HexString<const N: usize>(pub [u8; N]);
 
-impl Deref for Sha1HashString {
-    type Target = [u8; 20];
+impl<const N: usize> Deref for HexString<N> {
+    type Target = [u8; N];
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl DerefMut for Sha1HashString {
+impl<const N: usize> DerefMut for HexString<N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl serde::Serialize for Sha1HashString {
+impl<const N: usize> serde::Serialize for HexString<N> {
 
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -100,29 +100,29 @@ impl serde::Serialize for Sha1HashString {
 
 }
 
-impl<'de> serde::Deserialize<'de> for Sha1HashString {
+impl<'de, const N: usize> serde::Deserialize<'de> for HexString<N> {
 
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
 
-        struct Visitor;
-        impl<'de> serde::de::Visitor<'de> for Visitor {
+        struct Visitor<const N: usize>;
+        impl<'de, const N: usize> serde::de::Visitor<'de> for Visitor<N> {
 
-            type Value = Sha1HashString;
+            type Value = HexString<N>;
         
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(formatter, "a string sha-1 hash (40 hex characters)")
+                write!(formatter, "a bytes string ({} hex characters)", N * 2)
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error, 
             {
-                parse_hex_bytes::<20>(v)
-                    .map(Sha1HashString)
-                    .ok_or_else(|| E::custom("invalid sha-1 hash (40 hex characters)"))
+                parse_hex_bytes::<N>(v)
+                    .map(HexString)
+                    .ok_or_else(|| E::custom(format_args!("invalid bytes string ({} hex characters)", N * 2)))
             }
 
         }
@@ -135,7 +135,7 @@ impl<'de> serde::Deserialize<'de> for Sha1HashString {
 
 /// Parse the given hex bytes string into the given destination slice, returning none if 
 /// the input string cannot be parsed, is too short or too long.
-pub(crate) fn parse_hex_bytes<const LEN: usize>(mut string: &str) -> Option<[u8; LEN]> {
+pub fn parse_hex_bytes<const LEN: usize>(mut string: &str) -> Option<[u8; LEN]> {
     
     let mut dst = [0; LEN];
     for dst in &mut dst {
@@ -156,7 +156,7 @@ pub(crate) fn parse_hex_bytes<const LEN: usize>(mut string: &str) -> Option<[u8;
 
 }
 
-pub(crate) fn deserialize_or_empty_seq<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+pub fn deserialize_or_empty_seq<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where 
     D: serde::Deserializer<'de>,
     T: serde::Deserialize<'de>,

@@ -853,7 +853,7 @@ async fn download_entry(
             let res = serde_json::to_writer(cache_meta_writer, &serde::CacheMeta {
                 url: entry.core.url.to_string(),
                 size,
-                sha1: crate::serde::Sha1HashString(sha1.into()),
+                sha1: crate::serde::HexString(sha1.into()),
                 etag,
                 last_modified,
             });
@@ -966,7 +966,7 @@ impl EntryProgressSender for SingleEntryProgressSender<'_> {
 /// Internal module for serde of cache metadata file.
 mod serde {
 
-    use crate::serde::Sha1HashString;
+    use crate::serde::HexString;
 
     #[derive(Debug, serde::Deserialize, serde::Serialize)]
     pub struct CacheMeta {
@@ -975,7 +975,7 @@ mod serde {
         /// Size of the cached file, used to verify its validity.
         pub size: u32,
         /// SHA-1 hash of the cached file, used to verify its validity. 
-        pub sha1: Sha1HashString,
+        pub sha1: HexString<20>,
         /// The ETag if present.
         pub etag: Option<String>,
         /// Last modified data if present.
