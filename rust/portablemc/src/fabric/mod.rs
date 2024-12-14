@@ -1,7 +1,7 @@
 //! Extension to the Mojang installer to support fetching and installation of 
 //! Fabric-related mod loader versions.
 
-pub mod serde;
+pub(crate) mod serde;
 
 use std::path::PathBuf;
 use core::fmt;
@@ -477,7 +477,6 @@ impl<H: Handler> InternalHandler<'_, H> {
             standard::Event::VersionNotFound { 
                 version: id, 
                 file, 
-                error: _, 
                 retry,
             } if id == self.root_version => {
 

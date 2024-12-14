@@ -2,17 +2,23 @@
 //! Mojang versions, it also provides support for common arguments and fixes on legacy
 //! versions.
 
-pub mod serde;
+pub(crate) mod serde;
 
-use std::collections::{HashMap, HashSet};
 use std::io::{Write as _, BufReader};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::env;
 use std::fs;
 
+use chrono::{DateTime, FixedOffset};
 use uuid::Uuid;
 
-use crate::standard::{self, LIBRARIES_URL, check_file, replace_strings_args, Handler as _, LoadedLibrary, LibraryDownload};
+use crate::standard::{self, 
+    LIBRARIES_URL,
+    check_file, replace_strings_args, 
+    Handler as _,
+    LibraryDownload, LoadedLibrary, VersionChannel
+};
 use crate::maven::Gav;
 use crate::download;
 use crate::msa;
@@ -469,20 +475,20 @@ impl Installer {
         } = self;
 
         // Cached manifest, will only be used if fetch is enabled.
-        let mut manifest = None::<serde::MojangManifest>;
+        let mut manifest = None::<Manifest>;
 
         // Resolve aliases such as "release" or "snapshot" if fetch is enabled.
-        let alias = match self.inner.root {
-            RootVersion::Release => Some(standard::serde::VersionType::Release),
-            RootVersion::Snapshot => Some(standard::serde::VersionType::Snapshot),
+        let channel = match self.inner.root {
+            RootVersion::Release => Some(VersionChannel::Release),
+            RootVersion::Snapshot => Some(VersionChannel::Snapshot),
             _ => None,
         };
 
         // If we need an alias then we need to load the manifest.
-        let version = if let Some(alias) = alias {
-            manifest.insert(request_manifest(handler.as_download_dyn())?)
-                .latest.get(&alias)
-                .cloned()
+        let version = if let Some(channel) = channel {
+            manifest.insert(Manifest::request(handler.as_download_dyn())?)
+                .name_of_latest(channel)
+                .map(str::to_string)
                 .ok_or_else(|| Error::AliasRootVersionNotFound { root_version: self.inner.root.clone() })?
         } else {
             match self.inner.root {
@@ -503,8 +509,7 @@ impl Installer {
                 inner: &mut handler,
                 installer: &inner,
                 error: Ok(()),
-                manifest: &mut manifest,
-                downloads: HashMap::new(),
+                manifest,
                 leaf_version: &mut leaf_version,
             };
     
@@ -790,19 +795,112 @@ pub enum QuickPlay {
     },
 }
 
-/// Request the Mojang versions' manifest. It takes a download handler because this it
-/// will download it in cache and reuse any previous one that is still valid.
-pub fn request_manifest(handler: impl download::Handler) -> Result<serde::MojangManifest> {
-    
-    let mut entry = download::single_cached(VERSION_MANIFEST_URL)
-        .set_keep_open()
-        .download(handler)??;
+/// A handle to the Mojang versions manifest
+#[derive(Debug)]
+pub struct Manifest {
+    inner: Box<serde::MojangManifest>,
+}
 
-    let reader = BufReader::new(entry.take_handle().unwrap());
-    let mut deserializer = serde_json::Deserializer::from_reader(reader);
-    let manifest = serde_path_to_error::deserialize::<_, serde::MojangManifest>(&mut deserializer)
-        .map_err(|e| standard::Error::new_json_file(e, entry.file()))?;
-    Ok(manifest)
+impl Manifest {
+
+    /// Request the Mojang versions' manifest. It takes a download handler because this 
+    /// it will download it in cache and reuse any previous one that is still valid.
+    pub fn request(handler: impl download::Handler) -> Result<Self> {
+
+        let mut entry = download::single_cached(VERSION_MANIFEST_URL)
+            .set_keep_open()
+            .download(handler)??;
+
+        let reader = BufReader::new(entry.take_handle().unwrap());
+        let mut deserializer = serde_json::Deserializer::from_reader(reader);
+        let manifest = serde_path_to_error::deserialize::<_, Box<serde::MojangManifest>>(&mut deserializer)
+            .map_err(|e| standard::Error::new_json_file(e, entry.file()))?;
+
+        Ok(Self { inner: manifest })
+
+    }
+
+    /// Return the latest version for the given channel, only [`VersionChannel::Release`] 
+    /// and [`VersionChannel::Snapshot`] are supported by the manifest as it make no sense
+    /// to have latest alpha or beta versions.
+    pub fn name_of_latest(&self, channel: VersionChannel) -> Option<&str> {
+        match channel {
+            VersionChannel::Release => self.inner.latest.release.as_deref(),
+            VersionChannel::Snapshot => self.inner.latest.snapshot.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Find the index of a version given its name.
+    pub fn index_of_name(&self, name: &str) -> Option<usize> {
+        self.inner.versions.iter().position(|v| v.id == name)
+    }
+
+    /// Get a version from its index within the manifest.
+    pub fn by_index(&self, index: usize) -> Option<ManifestVersion<'_>> {
+        self.inner.versions.get(index).map(ManifestVersion)
+    }
+
+    /// Get a handle to a version information from its name.
+    pub fn by_name(&self, name: &str) -> Option<ManifestVersion<'_>> {
+        self.inner.versions.iter()
+            .find(|v| v.id == name)
+            .map(ManifestVersion)
+    }
+
+    /// Iterator over all versions in the manifest.
+    /// 
+    /// This method currently returns an abstract iterator because the API is not 
+    /// stabilized yet.
+    pub fn iter(&self) -> impl Iterator<Item = ManifestVersion<'_>> + use<'_> {
+        self.inner.versions.iter()
+            .map(ManifestVersion)
+    }
+
+}
+
+/// A handle to a version in the Mojang versions manifest.
+#[derive(Debug)]
+pub struct ManifestVersion<'a>(&'a serde::MojangManifestVersion);
+
+impl<'a> ManifestVersion<'a> {
+
+    /// The name of this version.
+    /// 
+    /// See [`standard::LoadedVersion::name`] for more information on the naming.
+    pub fn name(&self) -> &str {
+        &self.0.id
+    }
+
+    /// The release channel of this version.
+    pub fn channel(&self) -> VersionChannel {
+        VersionChannel::from(self.0.r#type)
+    }
+
+    /// The last update time for this version.
+    pub fn time(&self) -> &DateTime<FixedOffset> {
+        &self.0.time
+    }
+
+    /// The release time for this version. 
+    pub fn release_time(&self) -> &DateTime<FixedOffset> {
+        &self.0.release_time
+    }
+
+    /// Return the download URL to this version metadata.
+    pub fn url(&self) -> &str {
+        &self.0.download.url
+    }
+
+    /// Return the expected size of this version metadata, if any.
+    pub fn size(&self) -> Option<u32> {
+        self.0.download.size
+    }
+
+    /// Return the expected SHA-1 of this version metadata, if any.
+    pub fn sha1(&self) -> Option<&[u8; 20]> {
+        self.0.download.sha1.as_deref()
+    }
 
 }
 
@@ -819,9 +917,7 @@ struct InternalHandler<'a, H: Handler> {
     /// If there is an error in the handler.
     error: Result<()>,
     /// If fetching is enabled, then this contains the manifest to use.
-    manifest: &'a mut Option<serde::MojangManifest>,
-    /// Download informations for versions that should be downloaded.
-    downloads: HashMap<String, standard::serde::Download>,
+    manifest: Option<Manifest>,
     /// Id of the "leaf" version, the last version without inherited version.
     leaf_version: &'a mut String,
 }
@@ -847,7 +943,7 @@ impl<H: Handler> InternalHandler<'_, H> {
                 ref hierarchy,
             } => {
                 // Unwrap because hierarchy can't be empty.
-                *self.leaf_version = hierarchy.last().unwrap().name.clone();
+                *self.leaf_version = hierarchy.last().unwrap().name().to_string();
                 self.inner.handle_standard_event(event);
             }
             standard::Event::FeaturesFilter { 
@@ -877,26 +973,23 @@ impl<H: Handler> InternalHandler<'_, H> {
 
                 // Only ensure that the manifest is loaded after checking fetch exclude.
                 let manifest = match self.manifest {
-                    Some(manifest) => manifest,
-                    None => self.manifest.insert(request_manifest(self.inner.as_download_dyn())?)
+                    Some(ref manifest) => manifest,
+                    None => self.manifest.insert(Manifest::request(self.inner.as_download_dyn())?)
                 };
 
                 // Unwrap because we checked the manifest in the condition.
-                let Some(dl) = manifest.versions.iter()
-                    .find(|v| &v.id == version)
-                    .map(|v| &v.download) else {
-                        return Ok(());
-                    };
+                let Some(version) = manifest.by_name(version) else {
+                    return Ok(());
+                };
 
-                // Save the download information for events "VersionNotFound".
-                self.downloads.insert(version.to_string(), dl.clone());
-
-                if !check_file(file, dl.size, dl.sha1.as_deref())? {
+                if !check_file(file, version.size(), version.sha1())? {
                     
                     fs::remove_file(file)
                         .map_err(|e| standard::Error::new_io_file(e, file))?;
                     
-                    self.inner.handle_mojang_event(Event::VersionInvalidated { version });
+                    self.inner.handle_mojang_event(Event::VersionInvalidated {
+                        version: version.name(),
+                    });
                 
                 }
                 
@@ -905,23 +998,31 @@ impl<H: Handler> InternalHandler<'_, H> {
             standard::Event::VersionNotFound { 
                 version, 
                 file, 
-                error: _, 
                 ref mut retry 
             } => {
                 
-                let Some(dl) = self.downloads.get(version) else {
+                let Some(manifest) = self.manifest.as_ref() else {
                     self.inner.handle_standard_event(event);
                     return Ok(());
                 };
                 
-                self.inner.handle_mojang_event(Event::VersionFetching { version });
+                let Some(version) = manifest.by_name(version) else {
+                    self.inner.handle_standard_event(event);
+                    return Ok(());
+                };
                 
-                download::single(dl.url.clone(), file.to_path_buf())
-                    .set_expect_size(dl.size)
-                    .set_expect_sha1(dl.sha1.as_deref().copied())
+                self.inner.handle_mojang_event(Event::VersionFetching { 
+                    version: version.name(),
+                });
+                
+                download::single(version.url(), file)
+                    .set_expect_size(version.size())
+                    .set_expect_sha1(version.sha1().copied())
                     .download(self.inner.as_download_dyn())??;
 
-                self.inner.handle_mojang_event(Event::VersionFetched { version });
+                self.inner.handle_mojang_event(Event::VersionFetched {
+                    version: version.name(),
+                });
 
                 // Retry only if no preceding error.
                 **retry = true;

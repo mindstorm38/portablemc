@@ -192,7 +192,6 @@ impl standard::Handler for CommonHandler<'_> {
                     .arg(root_version)
                     .info(format_args!("Hierarchy loading from {root_version}"));
             }
-            Event::HierarchyFilter { .. } => {}
             Event::HierarchyLoaded { hierarchy } => {
 
                 let mut buffer = String::new();
@@ -200,11 +199,11 @@ impl standard::Handler for CommonHandler<'_> {
                     if !buffer.is_empty() {
                         buffer.push_str(" -> ");
                     }
-                    buffer.push_str(&version.name);
+                    buffer.push_str(&version.name());
                 }
 
                 out.log("hierarchy_loaded")
-                    .args(hierarchy.iter().map(|v| &*v.name))
+                    .args(hierarchy.iter().map(|v| v.name()))
                     .info(format_args!("Hierarchy loaded: {buffer}"));
 
             }
@@ -273,17 +272,17 @@ impl standard::Handler for CommonHandler<'_> {
                     .arg(id)
                     .pending(format_args!("Loading assets {id}"));
             }
-            Event::AssetsLoaded { id, index } => {
+            Event::AssetsLoaded { id, count } => {
                 out.log("assets_loaded")
                     .arg(id)
-                    .arg(index.objects.len())
-                    .pending(format_args!("Loaded {} assets {id}", index.objects.len()));
+                    .arg(count)
+                    .pending(format_args!("Loaded {count} assets {id}"));
             }
-            Event::AssetsVerified { id, index } => {
+            Event::AssetsVerified { id, count } => {
                 out.log("assets_verified")
                     .arg(id)
-                    .arg(index.objects.len())
-                    .success(format_args!("Loaded and verified {} assets {id}", index.objects.len()));
+                    .arg(count)
+                    .success(format_args!("Loaded and verified {count} assets {id}"));
             }
             Event::ResourcesDownloading {  } => {
                 out.log("resources_downloading")
@@ -302,7 +301,7 @@ impl standard::Handler for CommonHandler<'_> {
                 
                 let mut log = out.log("jvm_version_rejected");
                 log.arg(file.display());
-                log.args(version.into_iter());
+                log.args(version);
 
                 if let Some(version) = version {
                     log.info(format_args!("Rejected JVM (version {version}) at {}", file.display()));
@@ -327,7 +326,7 @@ impl standard::Handler for CommonHandler<'_> {
                 
                 let mut log = out.log("jvm_loaded");
                 log.arg(file.display());
-                log.args(version.into_iter());
+                log.args(version);
                 
                 if let Some(version) = version {
                     log.success(format_args!("Loaded JVM ({version})"));
@@ -523,7 +522,7 @@ impl forge::Handler for CommonHandler<'_> {
 
                 out.log(format_args!("{api_id}_installer_processor"))
                     .arg(name.as_str())
-                    .args(task.into_iter())
+                    .args(task)
                     .success(format_args!("{desc}"));
                 
             }
@@ -591,7 +590,7 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
         }
         Error::Reqwest { error } => {
             let mut log = out.log("error_reqwest");
-            log.args(error.url().into_iter());
+            log.args(error.url());
             log.newline();
             log.error(format_args!("Reqwest error: {error}"));
             if let Some(source) = error.source() {
@@ -864,7 +863,7 @@ pub fn log_download_error(out: &mut Output, batch: download::BatchResult) {
             EntryErrorKind::Reqwest(error) => {
                 log.arg("request");
                 log.arg(&error);
-                log.args(error.source().into_iter());
+                log.args(error.source());
                 if let Some(source) = error.source() {
                     log.additional(format_args!("   {error} (source: {source})"));
                 } else {

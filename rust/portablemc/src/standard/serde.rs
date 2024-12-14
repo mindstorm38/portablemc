@@ -5,7 +5,7 @@ use std::fmt;
 
 use chrono::{DateTime, FixedOffset};
 
-use crate::serde::{Sha1HashString, RegexString};
+use crate::serde::{HexString, RegexString};
 use crate::maven::Gav;
 
 
@@ -223,7 +223,7 @@ pub struct AssetIndex {
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct AssetObject {
     pub size: u32,
-    pub hash: Sha1HashString,
+    pub hash: HexString<20>,
 }
 
 // ================== //
@@ -326,7 +326,7 @@ pub enum RuleAction {
 pub struct Download {
     pub url: String,
     pub size: Option<u32>,
-    pub sha1: Option<Sha1HashString>,
+    pub sha1: Option<HexString<20>>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]

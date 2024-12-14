@@ -1,7 +1,7 @@
 //! Extension to the Mojang installer to support fetching and installation of 
 //! Forge and NeoForge mod loader versions.
 
-pub mod serde;
+pub(crate) mod serde;
 
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek};
 use std::process::{Command, Output};
@@ -11,10 +11,10 @@ use std::{env, fmt, fs};
 use std::fmt::Write;
 use std::fs::File;
 
+use crate::standard::{self, LIBRARIES_URL, VersionChannel};
 use crate::path::{const_path, PathBufExt, PathExt};
 use crate::download::{self, Batch, EntryErrorKind};
-use crate::standard::{self, LIBRARIES_URL};
-use crate::mojang::{self, RootVersion};
+use crate::mojang::{self, Manifest, RootVersion};
 use crate::maven::{Gav, MavenMetadata};
 
 use reqwest::StatusCode;
@@ -120,9 +120,9 @@ impl Installer {
         let game_version = match inner.game_version {
             GameVersion::Name(ref name) => name.clone(),
             GameVersion::Release => {
-                mojang::request_manifest(handler.as_download_dyn())?
-                    .latest.get(&standard::serde::VersionType::Release)
-                    .cloned()
+                Manifest::request(handler.as_download_dyn())?
+                    .name_of_latest(VersionChannel::Release)
+                    .map(str::to_string)
                     .ok_or_else(|| Error::AliasGameVersionNotFound { 
                         game_version: inner.game_version.clone(),
                     })?
