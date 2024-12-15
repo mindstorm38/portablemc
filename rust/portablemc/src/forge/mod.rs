@@ -485,6 +485,56 @@ impl<T: Into<mojang::Error>> From<T> for Error {
 /// Type alias for a result with the standard error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Specify the forge game version to start.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GameVersion {
+    /// Use the latest Mojang's release to start the game.
+    Release,
+    /// Use the specific version.
+    Name(String),
+}
+
+/// Specify the forge loader version to start. Note that, unlike fabric-like loaders,
+/// forge don't have loader versions that are supported by many (or all) game versions.
+/// Instead, each forge loader version is tied to a game version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoaderVersion {
+    /// Use the latest stable loader version for the game version.
+    Stable,
+    /// Use the latest unstable loader version for the game version, unstable version
+    /// don't exists
+    Unstable,
+    /// Use the specific version. The exact meaning of this depends on the actual API
+    /// being used:
+    /// 
+    /// - With [`Api::Forge`], the name represent the full loader version that is appended
+    ///   to the game version, like in `1.21-51.0.33`, the loader version is `51.0.33`.
+    /// 
+    /// - With [`Api::NeoForge`], the name represent the last "patch" number of the loader.
+    ///   NeoForge versioning consists in the Minecraft major and minor version (ignoring
+    ///   the first '1.'), and the loader patch. For example NeoForge loader `20.4.181`,
+    ///   the game version is `1.20.4` and loader version name is `181`.
+    Name(String),
+}
+
+/// The reason for (re)installing the mod loader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallReason {
+    /// The root version metadata is missing, the load was probably not installed before.
+    MissingVersionMetadata,
+    /// The core library is missing, this exists on some loader versions and should've
+    /// been extracted from the installer. Reinstalling.
+    MissingCoreLibrary,
+    /// The client extra artifact is missing.
+    MissingClientExtra,
+    /// The client srg artifact is missing.
+    MissingClientSrg,
+    /// The patched client is missing.
+    MissingPatchedClient,
+    /// The universal client is missing.
+    MissingUniversalClient,
+}
+
 /// Represent an abstract maven-based and installer-based forge-like loader API. There
 /// are currently only two APIs, Forge and NeoForge and this cannot be implemented by
 /// other crates because this APIs is unstable.
@@ -517,7 +567,7 @@ pub struct Api {
 
 impl fmt::Debug for Api {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Api").finish()
+        f.debug_tuple("Api").field(&self.default_prefix).finish()
     }
 }
 
@@ -642,56 +692,6 @@ pub static NEO_FORGE_API: Api = Api {
         }
     },
 };
-
-/// Specify the forge game version to start.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GameVersion {
-    /// Use the latest Mojang's release to start the game.
-    Release,
-    /// Use the specific version.
-    Name(String),
-}
-
-/// Specify the forge loader version to start. Note that, unlike fabric-like loaders,
-/// forge don't have loader versions that are supported by many (or all) game versions.
-/// Instead, each forge loader version is tied to a game version.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LoaderVersion {
-    /// Use the latest stable loader version for the game version.
-    Stable,
-    /// Use the latest unstable loader version for the game version, unstable version
-    /// don't exists
-    Unstable,
-    /// Use the specific version. The exact meaning of this depends on the actual API
-    /// being used:
-    /// 
-    /// - With [`Api::Forge`], the name represent the full loader version that is appended
-    ///   to the game version, like in `1.21-51.0.33`, the loader version is `51.0.33`.
-    /// 
-    /// - With [`Api::NeoForge`], the name represent the last "patch" number of the loader.
-    ///   NeoForge versioning consists in the Minecraft major and minor version (ignoring
-    ///   the first '1.'), and the loader patch. For example NeoForge loader `20.4.181`,
-    ///   the game version is `1.20.4` and loader version name is `181`.
-    Name(String),
-}
-
-/// The reason for (re)installing the mod loader.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InstallReason {
-    /// The root version metadata is missing, the load was probably not installed before.
-    MissingVersionMetadata,
-    /// The core library is missing, this exists on some loader versions and should've
-    /// been extracted from the installer. Reinstalling.
-    MissingCoreLibrary,
-    /// The client extra artifact is missing.
-    MissingClientExtra,
-    /// The client srg artifact is missing.
-    MissingClientSrg,
-    /// The patched client is missing.
-    MissingPatchedClient,
-    /// The universal client is missing.
-    MissingUniversalClient,
-}
 
 // ========================== //
 // Following code is internal //

@@ -8,9 +8,10 @@ use chrono::{DateTime, Local, TimeDelta, Utc};
 use portablemc::standard::VersionChannel;
 use portablemc::download::Handler;
 use portablemc::mojang::Manifest;
+use portablemc::fabric;
 
+use crate::parse::{SearchArgs, SearchKind, SearchChannel, SearchLatestChannel};
 use crate::format::{TimeDeltaFmt, DATE_FORMAT};
-use crate::parse::{SearchArgs, SearchKind};
 
 use super::{Cli, CommonHandler, log_mojang_error, log_io_error};
 
@@ -18,12 +19,14 @@ use super::{Cli, CommonHandler, log_mojang_error, log_io_error};
 pub fn main(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     
     match args.kind {
-        SearchKind::Mojang => search_mojang(cli, &args.query),
-        SearchKind::Local => search_local(cli, &args.query),
+        SearchKind::Mojang => search_mojang(cli, args),
+        SearchKind::Local => search_local(cli, args),
+        SearchKind::Fabric => search_fabric(cli, args, &fabric::FABRIC_API),
+        SearchKind::Quilt => search_fabric(cli, args, &fabric::QUILT_API),
+        SearchKind::LegacyFabric => search_fabric(cli, args, &fabric::LEGACY_FABRIC_API),
+        SearchKind::Babric => search_fabric(cli, args, &fabric::BABRIC_API),
         SearchKind::Forge => todo!(),
-        SearchKind::Fabric => todo!(),
-        SearchKind::Quilt => todo!(),
-        SearchKind::LegacyFabric => todo!(),
+        SearchKind::NeoForge => todo!(),
     }
 
 }
@@ -45,7 +48,7 @@ pub fn main(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
 //     }
 // }
 
-fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
+fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
 
     // Initial requests...
     let mut handler = CommonHandler::new(&mut cli.out);
@@ -59,88 +62,60 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
 
     let today = Utc::now();
 
-    // Parse the query.
-    let mut filter_strings = Vec::new(); 
-    let mut filter_type = Vec::new();
-    let mut only_one = None;
-    for part in query {
-        if let Some((param, value)) = part.split_once(":") {
-            match param {
-                "type" => {
-                    filter_type.push(match value {
-                        "release" => VersionChannel::Release,
-                        "snapshot" => VersionChannel::Snapshot,
-                        "beta" => VersionChannel::Beta,
-                        "alpha" => VersionChannel::Alpha,
-                        _ => {
-                            cli.out.log("error_invalid_type_param")
-                                .arg(value)
-                                .error(format_args!("Unknown type: {value}"));
-                            return ExitCode::FAILURE;
-                        }
-                    });
-                }
-                "release" => {
-                    if !value.is_empty() {
-                        cli.out.log("error_invalid_release_param")
-                            .error("Param 'release' don't expect value");
-                        return ExitCode::FAILURE;
-                    } else if let Some(id) = manifest.name_of_latest(VersionChannel::Release) {
-                        only_one = Some(id);
-                    }
-                }
-                "snapshot" => {
-                    if !value.is_empty() {
-                        cli.out.log("error_invalid_snapshot_param")
-                            .error("Param 'snapshot' don't expect value");
-                        return ExitCode::FAILURE;
-                    } else if let Some(id) = manifest.name_of_latest(VersionChannel::Snapshot) {
-                        only_one = Some(id);
-                    }
-                }
-                _ => {
-                    cli.out.log("error_unknown_param")
-                        .arg(param)
-                        .arg(value)
-                        .error(format_args!("Unknown param: '{part}'"));
-                    return ExitCode::FAILURE;
-                }
-            }
-        } else {
-            filter_strings.push(part.as_str());
-        }
-    }
-
     // Now we construct the table...
     let mut table = cli.out.table(3);
 
     {
         let mut row = table.row();
-        row.cell("id").format("Identifier");
-        row.cell("type").format("Type");
+        row.cell("name").format("Name");
+        row.cell("channel").format("Channel");
         row.cell("release_date").format("Release date");
     }
     
     table.sep();
 
+    // This is an exclusive argument.
+    let only_name = if let Some(latest_channel) = args.latest {
+        let name = match latest_channel {
+            SearchLatestChannel::Release => manifest.name_of_latest(VersionChannel::Release),
+            SearchLatestChannel::Snapshot => manifest.name_of_latest(VersionChannel::Snapshot),
+        };
+        if let Some(name) = name {
+            Some(name)
+        } else {
+            return ExitCode::SUCCESS;
+        }
+    } else {
+        None
+    };
+
+    // Finally displaying version(s).
     for version in manifest.iter() {
 
-        if let Some(only_one) = only_one.as_deref() {
-            if version.name() != only_one {
+        if let Some(only_name) = only_name {
+            if version.name() != only_name {
                 continue;
             }
         } else {
-            if !filter_strings.is_empty() {
-                if !filter_strings.iter().any(|s| version.name().contains(s)) {
+
+            if !args.filter.is_empty() {
+                if !args.filter.iter().any(|s| version.name().contains(s)) {
                     continue;
                 }
             }
 
-            if !filter_type.is_empty() {
-                if !filter_type.contains(&version.channel()) {
+            if !args.channel.is_empty() {
+                let channel = match version.channel() {
+                    VersionChannel::Release => SearchChannel::Release,
+                    VersionChannel::Snapshot => SearchChannel::Snapshot,
+                    VersionChannel::Beta => SearchChannel::Beta,
+                    VersionChannel::Alpha => SearchChannel::Alpha,
+                };
+                if !args.channel.contains(&channel) {
                     continue;
                 }
             }
+
         }
         
         let mut row = table.row();
@@ -150,7 +125,7 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
             .map(|name| name == version.name())
             .unwrap_or(false);
 
-        let (type_id, type_fmt) = match version.channel() {
+        let (channel_id, channel_fmt) = match version.channel() {
             VersionChannel::Release => ("release", "Release"),
             VersionChannel::Snapshot => ("snapshot", "Snapshot"),
             VersionChannel::Beta => ("beta", "Beta"),
@@ -158,9 +133,9 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
         };
         
         if is_latest {
-            row.cell(format_args!("{type_id}*")).format(format_args!("{type_fmt}*"));
+            row.cell(format_args!("{channel_id}*")).format(format_args!("{channel_fmt}*"));
         } else {
-            row.cell(format_args!("{type_id}")).format(format_args!("{type_fmt}"));
+            row.cell(format_args!("{channel_id}")).format(format_args!("{channel_fmt}"));
         }
 
         // Raw output is RFC3339 of FixedOffset time, format is local time.
@@ -181,7 +156,7 @@ fn search_mojang(cli: &mut Cli, query: &[String]) -> ExitCode {
 
 }
 
-fn search_local(cli: &mut Cli, query: &[String]) -> ExitCode {
+fn search_local(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
 
     let reader = match fs::read_dir(&cli.versions_dir) {
         Ok(reader) => reader,
@@ -190,31 +165,13 @@ fn search_local(cli: &mut Cli, query: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-
-    // Parse the query.
-    let mut filter_strings = Vec::new(); 
-    for part in query {
-        if let Some((param, value)) = part.split_once(":") {
-            match param {
-                _ => {
-                    cli.out.log("error_unknown_param")
-                        .arg(param)
-                        .arg(value)
-                        .error(format_args!("Unknown param: '{part}'"));
-                    return ExitCode::FAILURE;
-                }
-            }
-        } else {
-            filter_strings.push(part.as_str());
-        }
-    }
     
     // Construct the table.
     let mut table = cli.out.table(2);
 
     {
         let mut row = table.row();
-        row.cell("id").format("Identifier");
+        row.cell("name").format("Name");
         row.cell("last_modified_date").format("Last modified date");
     }
     
@@ -237,8 +194,8 @@ fn search_local(cli: &mut Cli, query: &[String]) -> ExitCode {
         let Ok(version_last_modified) = version_metadata.modified() else { continue };
         let version_last_modified = DateTime::<Local>::from(version_last_modified);
 
-        if !filter_strings.is_empty() {
-            if !filter_strings.iter().any(|s| version_id.contains(s)) {
+        if !args.filter.is_empty() {
+            if !args.filter.iter().any(|s| version_id.contains(s)) {
                 continue;
             }
         }
@@ -250,6 +207,25 @@ fn search_local(cli: &mut Cli, query: &[String]) -> ExitCode {
             .format(version_last_modified.format(DATE_FORMAT));
 
     }
+
+    ExitCode::SUCCESS
+
+}
+
+fn search_fabric(cli: &mut Cli, args: &SearchArgs, api: &fabric::Api) -> ExitCode {
+
+    let today = Utc::now();
+
+    // Now we construct the table...
+    let mut table = cli.out.table(2);
+
+    {
+        let mut row = table.row();
+        row.cell("version").format("Version");
+        row.cell("channel").format("Channel");
+    }
+    
+    table.sep();
 
     ExitCode::SUCCESS
 
