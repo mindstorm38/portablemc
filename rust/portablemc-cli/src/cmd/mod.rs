@@ -591,6 +591,7 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
         Error::Reqwest { error } => {
             let mut log = out.log("error_reqwest");
             log.args(error.url());
+            log.args(error.source());
             log.newline();
             log.error(format_args!("Reqwest error: {error}"));
             if let Some(source) = error.source() {

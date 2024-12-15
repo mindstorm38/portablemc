@@ -292,7 +292,6 @@ pub enum StartFabricLoader {
 
 #[derive(Debug, Clone)]
 pub enum StartForgeLoader {
-
     Forge,
     NeoForge,
 }
@@ -432,32 +431,40 @@ impl FromStr for StartResolution {
 /// query string is interpreted depends on the kind.
 #[derive(Debug, Args)]
 pub struct SearchArgs {
-    /// The search query string.
-    /// 
-    /// Its syntax allows giving multiple space-separated words (quoted arguments are not
-    /// split), then if a word contains a colon ':' then it is split in a parameter and
-    /// its value, the parameter and its value are then interpreted depending on the 
-    /// search kind. If a word is not of 'parameter:value' syntax then it's interpreted
-    /// depending on the search kind, for example to filter version name. Multiple
-    /// different parameters acts in a AND logic, but giving multiple times the same
-    /// parameters acts in a OR logic. 
-    /// 
-    /// For example when searching for Mojang versions, the query '1.3 1.4 type:release 
-    /// type:snapshot', all versions containing '1.3' OR '1.4' in their id AND of type
-    /// 'release' or 'snapshot' will be displayed.
-    pub query: Vec<String>,
     /// Select the target of the search query.
-    #[arg(short, default_value = "mojang")]
+    #[arg(short, long, default_value = "mojang")]
     pub kind: SearchKind,
+    /// The search filter string.
+    /// 
+    /// You can give multiple filters that will apply to various texts depending on the 
+    /// search king. In general this will apply to the leftmost column, so the version
+    /// name in most of the cases.
+    pub filter: Vec<String>,
+    /// Only keep versions of given channel.
+    /// 
+    /// This argument can be given multiple times to specify multiple channels to match
+    /// in an OR logic.
+    /// 
+    /// [supported search kinds: mojang]
+    #[arg(long)]
+    pub channel: Vec<SearchChannel>,
+    /// Only show the latest version of the given channel.
+    /// 
+    /// This argument can be specified only once and is incompatible with any other
+    /// filters, it also don't work with any channel, some channels have no information 
+    /// about their "latest" version as it doesn't make sense, like the latest Mojang's 
+    /// beta was released 13 years ago, this cannot be described as the "latest" version
+    /// of the game.
+    /// 
+    /// [supported search kinds: mojang]
+    #[arg(long, conflicts_with_all = ["filter", "channel"])]
+    pub latest: Option<SearchLatestChannel>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "lower")]
 pub enum SearchKind {
     /// Search for official versions released by Mojang, including release and snapshots.
-    /// A query word is used to filter versions. Supported parameters are 
-    /// 'type:<release|snapshot|beta|alpha>' for filtering by version type, 'release:'
-    /// to show only the latest release and 'snapshot:' to show only the latest snapshot
-    /// (these last two overrides any other query).
     Mojang,
     /// Search for locally installed versions, located in the versions directory.
     Local,
@@ -467,8 +474,26 @@ pub enum SearchKind {
     Quilt,
     /// Search for LegacyFabric loader versions.
     LegacyFabric,
+    /// Search for Babric loader versions.
+    Babric,
     /// Search for Forge loader versions.
     Forge,
+    /// Search for NeoForge loader versions.
+    NeoForge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SearchChannel {
+    Release,
+    Snapshot,
+    Beta,
+    Alpha,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SearchLatestChannel {
+    Release,
+    Snapshot,
 }
 
 // ================= //

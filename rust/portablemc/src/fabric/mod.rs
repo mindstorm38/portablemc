@@ -1,7 +1,7 @@
 //! Extension to the Mojang installer to support fetching and installation of 
 //! Fabric-related mod loader versions.
 
-pub(crate) mod serde;
+pub mod serde;  // FIXME: Make this pub(crate), but allows accessing the API serde...
 
 use std::path::PathBuf;
 use core::fmt;
@@ -14,32 +14,6 @@ use crate::standard;
 
 pub use mojang::Game;
 
-
-/// This is the original and official Fabric API.
-pub static FABRIC_API: Api = Api {
-    base_url: "https://meta.fabricmc.net/v2",
-    default_prefix: "fabric",
-};
-
-/// This is the API for the Quilt mod loader, which is a fork of Fabric.
-pub static QUILT_API: Api = Api {
-    base_url: "https://meta.quiltmc.org/v3",
-    default_prefix: "quilt",
-};
-
-/// This is the API for the LegacyFabric project which aims to backport the Fabric loader
-/// to older versions, up to 1.14 snapshots.
-pub static LEGACY_FABRIC_API: Api = Api {
-    base_url: "https://meta.legacyfabric.net/v2",
-    default_prefix: "legacyfabric",
-};
-
-/// This is the API for the LegacyFabric project which aims to backport the Fabric loader
-/// to older versions, up to 1.14 snapshots.
-pub static BABRIC_API: Api = Api {
-    base_url: "https://meta.babric.glass-launcher.net/v2",
-    default_prefix: "babric",
-};
 
 /// An installer for supporting mod loaders that are Fabric or like it (Quilt, 
 /// LegacyFabric, Babric). The generic parameter is used to specify the API to use.
@@ -304,8 +278,54 @@ impl<T: Into<mojang::Error>> From<T> for Error {
 /// Type alias for a result with the standard error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Specify the fabric game version to start.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GameVersion {
+    /// Use the latest stable game version, this is usually equivalent to the 'Release'
+    /// version with Mojang, but is up to each fabric-like API to decide.
+    Stable,
+    /// Use the latest unstable game version, this is usually equivalent to the 'Snapshot'
+    /// version with Mojang, but is up to each fabric-like API to decide.
+    /// 
+    /// Note that if the most recent version is stable, it will also be selected as the
+    /// most recent unstable one, much like Mojang, when a stable release is just
+    /// published, it is also the latest snapshot (usually not for a long time).
+    Unstable,
+    /// Use the specific version.
+    Name(String),
+}
+
+impl<T: Into<String>> From<T> for GameVersion {
+    fn from(value: T) -> Self {
+        Self::Name(value.into())
+    }
+}
+
+/// Specify the fabric loader version to start, see [`GameVersion`] for more explanation,
+/// both are almost the same.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoaderVersion {
+    /// Use the latest stable loader version for the root version.
+    Stable,
+    /// Use the latest unstable loader version for the root version, see 
+    /// [`GameVersion::Unstable`] for more explanation, the two are the same.
+    Unstable,
+    /// Use the specific version.
+    Name(String),
+}
+
+/// An impl so that we can give string-like objects to the builder.
+impl<T: Into<String>> From<T> for LoaderVersion {
+    fn from(value: T) -> Self {
+        Self::Name(value.into())
+    }
+}
+
 /// A fabric-compatible API.
 pub struct Api {
+    /// Default prefix for the full root version id of the format 
+    /// '<default prefix>-<game version>-<loader version>.
+    default_prefix: &'static str,
     /// Base URL for that API, not ending with a '/'. This API must support the following
     /// endpoints supporting the same API as official Fabric API: 
     /// - `/versions/game`
@@ -314,9 +334,6 @@ pub struct Api {
     /// - `/versions/loader/<game_version>/<loader_loader>` (returning status 400)
     /// - `/versions/loader/<game_version>/<loader_loader>/profile/json`
     base_url: &'static str,
-    /// Default prefix for the full root version id of the format 
-    /// '<default prefix>-<game version>-<loader version>.
-    default_prefix: &'static str,
 }
 
 impl Api {
@@ -371,7 +388,7 @@ impl Api {
     }
 
     /// Request the prebuilt version metadata for the given game and loader versions.
-    pub fn request_game_loader_version_metadata(&self, game_version: &str, loader_version: &str) -> reqwest::Result<standard::serde::VersionMetadata> {
+    fn request_game_loader_version_metadata(&self, game_version: &str, loader_version: &str) -> reqwest::Result<standard::serde::VersionMetadata> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader/{game_version}/{loader_version}/profile/json", self.base_url))
@@ -386,52 +403,35 @@ impl Api {
 
 impl fmt::Debug for Api {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Api").finish()
+        f.debug_tuple("Api").field(&self.default_prefix).finish()
     }
 }
 
-/// Specify the fabric game version to start.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GameVersion {
-    /// Use the latest stable game version, this is usually equivalent to the 'Release'
-    /// version with Mojang, but is up to each fabric-like API to decide.
-    Stable,
-    /// Use the latest unstable game version, this is usually equivalent to the 'Snapshot'
-    /// version with Mojang, but is up to each fabric-like API to decide.
-    /// 
-    /// Note that if the most recent version is stable, it will also be selected as the
-    /// most recent unstable one, much like Mojang, when a stable release is just
-    /// published, it is also the latest snapshot (usually not for a long time).
-    Unstable,
-    /// Use the specific version.
-    Name(String),
-}
+/// This is the original and official Fabric API.
+pub static FABRIC_API: Api = Api {
+    default_prefix: "fabric",
+    base_url: "https://meta.fabricmc.net/v2",
+};
 
-impl<T: Into<String>> From<T> for GameVersion {
-    fn from(value: T) -> Self {
-        Self::Name(value.into())
-    }
-}
+/// This is the API for the Quilt mod loader, which is a fork of Fabric.
+pub static QUILT_API: Api = Api {
+    default_prefix: "quilt",
+    base_url: "https://meta.quiltmc.org/v3",
+};
 
-/// Specify the fabric loader version to start, see [`GameVersion`] for more explanation,
-/// both are almost the same.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LoaderVersion {
-    /// Use the latest stable loader version for the root version.
-    Stable,
-    /// Use the latest unstable loader version for the root version, see 
-    /// [`GameVersion::Unstable`] for more explanation, the two are the same.
-    Unstable,
-    /// Use the specific version.
-    Name(String),
-}
+/// This is the API for the LegacyFabric project which aims to backport the Fabric loader
+/// to older versions, up to 1.14 snapshots.
+pub static LEGACY_FABRIC_API: Api = Api {
+    default_prefix: "legacyfabric",
+    base_url: "https://meta.legacyfabric.net/v2",
+};
 
-/// An impl so that we can give string-like objects to the builder.
-impl<T: Into<String>> From<T> for LoaderVersion {
-    fn from(value: T) -> Self {
-        Self::Name(value.into())
-    }
-}
+/// This is the API for the LegacyFabric project which aims to backport the Fabric loader
+/// to older versions, up to 1.14 snapshots.
+pub static BABRIC_API: Api = Api {
+    default_prefix: "babric",
+    base_url: "https://meta.babric.glass-launcher.net/v2",
+};
 
 // ========================== //
 // Following code is internal //
