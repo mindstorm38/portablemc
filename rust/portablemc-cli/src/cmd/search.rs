@@ -6,7 +6,6 @@ use std::fs;
 use chrono::{DateTime, Local, TimeDelta, Utc};
 
 use portablemc::standard::VersionChannel;
-use portablemc::download::Handler;
 use portablemc::mojang::Manifest;
 use portablemc::fabric;
 
@@ -52,7 +51,7 @@ fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
 
     // Initial requests...
     let mut handler = CommonHandler::new(&mut cli.out);
-    let manifest = match Manifest::request(handler.as_download_dyn()) {
+    let manifest = match Manifest::request(&mut handler) {
         Ok(manifest) => manifest,
         Err(e) => {
             log_mojang_error(&mut cli.out, e);

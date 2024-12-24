@@ -1,4 +1,7 @@
 //! JSON schemas structures for serde deserialization.
+//! 
+//! This module is internal to the crate and should not be exposed because the format
+//! might change with increasing version and bug fixes.
 
 use std::collections::HashMap;
 use std::fmt;

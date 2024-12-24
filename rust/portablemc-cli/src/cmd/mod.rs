@@ -3,13 +3,16 @@
 pub mod start;
 pub mod search;
 
+use std::collections::HashSet;
 use std::process::{self, ExitCode};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::error::Error;
 use std::io;
 
-use portablemc::{download, standard, mojang, fabric, forge};
+use portablemc::maven::Gav;
+use portablemc::standard::{self, LoadedLibrary, LoadedVersion};
+use portablemc::{download, mojang, fabric, forge};
 
 use crate::parse::{CliArgs, CliCmd, CliOutput};
 use crate::output::{Output, LogLevel};
@@ -118,7 +121,7 @@ impl<'a> CommonHandler<'a> {
 }
 
 impl download::Handler for CommonHandler<'_> {
-    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+    fn progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
         
         if self.download_start.is_none() {
             self.download_start = Some(Instant::now());
@@ -160,380 +163,388 @@ impl download::Handler for CommonHandler<'_> {
 }
 
 impl standard::Handler for CommonHandler<'_> {
-    fn handle_standard_event(&mut self, event: standard::Event) {
+
+    fn loaded_features(&mut self, features: &HashSet<String>) {
         
-        use standard::Event;
+        let mut buffer = String::new();
+        for version in features.iter() {
+            if !buffer.is_empty() {
+                buffer.push_str(", ");
+            } else {
+                buffer.push_str(&version);
+            }
+        }
 
-        let out = &mut *self.out;
+        if buffer.is_empty() {
+            buffer.push_str("{}");
+        }
+
+        self.out.log("loaded_features")
+            .args(features.iter())
+            .info(format_args!("Features loaded: {buffer}"));
         
-        match event {
-            Event::FeaturesFilter { .. } => {}
-            Event::FeaturesLoaded { features } => {
+    }
 
-                let mut buffer = String::new();
-                for version in features.iter() {
-                    if !buffer.is_empty() {
-                        buffer.push_str(", ");
-                    } else {
-                        buffer.push_str(&version);
-                    }
-                }
+    fn load_hierarchy(&mut self, root_version: &str) {
+        self.out.log("load_hierarchy")
+            .arg(root_version)
+            .info(format_args!("Hierarchy loading from {root_version}"));
+    }
 
-                if buffer.is_empty() {
-                    buffer.push_str("{}");
-                }
+    fn loaded_hierarchy(&mut self, hierarchy: &[LoadedVersion]) {
+        
+        let mut buffer = String::new();
+        for version in hierarchy {
+            if !buffer.is_empty() {
+                buffer.push_str(" -> ");
+            }
+            buffer.push_str(&version.name());
+        }
 
-                out.log("features_loaded")
-                    .args(features.iter())
-                    .info(format_args!("Features loaded: {buffer}"));
-            }
-            Event::HierarchyLoading { root_version } => {
-                out.log("hierarchy_loading")
-                    .arg(root_version)
-                    .info(format_args!("Hierarchy loading from {root_version}"));
-            }
-            Event::HierarchyLoaded { hierarchy } => {
+        self.out.log("loaded_hierarchy")
+            .args(hierarchy.iter().map(|v| v.name()))
+            .info(format_args!("Hierarchy loaded: {buffer}"));
+        
+    }
 
-                let mut buffer = String::new();
-                for version in hierarchy {
-                    if !buffer.is_empty() {
-                        buffer.push_str(" -> ");
-                    }
-                    buffer.push_str(&version.name());
-                }
+    fn load_version(&mut self, version: &str, file: &Path) {
+        self.out.log("load_version")
+            .arg(version)
+            .pending(format_args!("Loading version {version}"))
+            .info(format_args!("Version file: {}", file.display()));
+    }
 
-                out.log("hierarchy_loaded")
-                    .args(hierarchy.iter().map(|v| v.name()))
-                    .info(format_args!("Hierarchy loaded: {buffer}"));
+    fn loaded_version(&mut self, version: &str, file: &Path) {
+        self.out.log("loaded_version")
+            .arg(version)
+            .success(format_args!("Loaded version {version}"))
+            .info(format_args!("Version file: {}", file.display()));
+    }
 
-            }
-            Event::VersionLoading { version, .. } => {
-                out.log("version_loading")
-                    .arg(version)
-                    .pending(format_args!("Loading version {version}"));
-            }
-            Event::VersionNotFound { .. } => {}
-            Event::VersionLoaded { version, .. } => {
-                out.log("version_loaded")
-                    .arg(version)
-                    .success(format_args!("Loaded version {version}"));
-            }
-            Event::ClientLoading {  } => {
-                out.log("client_loading")
-                    .pending("Loading client");
-            }
-            Event::ClientLoaded { file } => {
-                out.log("client_loaded")
-                    .arg(file.display())
-                    .success("Loaded client");
-            }
-            Event::LibrariesLoading {  } => {
-                out.log("libraries_loading")
-                    .pending("Loading libraries");
-            }
-            Event::LibrariesFilter { .. } => {}
-            Event::LibrariesLoaded { libraries } => {
-                out.log("libraries_loaded")
-                    .args(libraries.iter().map(|lib| &lib.gav))
-                    .pending(format_args!("Loaded {} libraries, now verifying", libraries.len()));
-            }
-            Event::LibrariesFilesFilter { .. } => {}
-            Event::LibrariesFilesLoaded { class_files, natives_files } => {
-                
-                out.log("libraries_files_loaded")
-                    .success(format_args!("Loaded and verified {}+{} libraries", class_files.len(), natives_files.len()));
+    fn load_client(&mut self) {
+        self.out.log("load_client")
+            .pending("Loading client");
+    }
 
-                out.log("class_files_loaded")
-                    .args(class_files.iter().map(|p| p.display()));
-                out.log("natives_files_loaded")
-                    .args(natives_files.iter().map(|p| p.display()));
+    fn loaded_client(&mut self, file: &Path) {
+        self.out.log("loaded_client")
+            .arg(file.display())
+            .success("Loaded client");
+    }
 
-            }
-            Event::LoggerAbsent {  } => {
-                out.log("logger_absent")
-                    .success("No logger");
-            }
-            Event::LoggerLoading { id } => {
-                out.log("logger_loading")
-                    .arg(id)
-                    .pending(format_args!("Loading logger {id}"));
-            }
-            Event::LoggerLoaded { id } => {
-                out.log("logger_loaded")
-                    .arg(id)
-                    .success(format_args!("Loaded logger {id}"));
-            }
-            Event::AssetsAbsent {  } => {
-                out.log("assets_absent")
-                    .success("No assets");
-            }
-            Event::AssetsLoading { id } => {
-                out.log("assets_loading")
-                    .arg(id)
-                    .pending(format_args!("Loading assets {id}"));
-            }
-            Event::AssetsLoaded { id, count } => {
-                out.log("assets_loaded")
-                    .arg(id)
-                    .arg(count)
-                    .pending(format_args!("Loaded {count} assets {id}"));
-            }
-            Event::AssetsVerified { id, count } => {
-                out.log("assets_verified")
-                    .arg(id)
-                    .arg(count)
-                    .success(format_args!("Loaded and verified {count} assets {id}"));
-            }
-            Event::ResourcesDownloading {  } => {
-                out.log("resources_downloading")
-                    .pending("Downloading");
-            }
-            Event::ResourcesDownloaded {  } => {
-                out.log("resources_downloaded")
-                    .success("Downloaded");
-            }
-            Event::JvmLoading { major_version } => {
-                out.log("jvm_loading")
-                    .arg(major_version)
-                    .pending(format_args!("Loading JVM (preferred: {major_version:?})"));
-            }
-            Event::JvmVersionRejected { file, version } => {
-                
-                let mut log = out.log("jvm_version_rejected");
-                log.arg(file.display());
-                log.args(version);
+    fn load_libraries(&mut self) {
+        self.out.log("load_libraries")
+            .pending("Loading libraries");
+    }
 
-                if let Some(version) = version {
-                    log.info(format_args!("Rejected JVM (version {version}) at {}", file.display()));
-                } else {
-                    log.info(format_args!("Rejected JVM at {}", file.display()));
-                }
-                
-            }
-            Event::JvmDynamicCrtUnsupported {  } => {
-                out.log("jvm_dynamic_crt_unsupported")
-                    .info("Couldn't find a Mojang JVM because your launcher is compiled with a static C runtime");
-            }
-            Event::JvmPlatformUnsupported {  } => {
-                out.log("jvm_platform_unsupported")
-                    .info("Couldn't find a Mojang JVM because your platform is not supported");
-            }
-            Event::JvmDistributionNotFound {  } => {
-                out.log("jvm_distribution_not_found")
-                    .info("Couldn't find a Mojang JVM because the required distribution was not found");
-            }
-            Event::JvmLoaded { file, version } => {
-                
-                let mut log = out.log("jvm_loaded");
-                log.arg(file.display());
-                log.args(version);
-                
-                if let Some(version) = version {
-                    log.success(format_args!("Loaded JVM ({version})"));
-                } else {
-                    log.success(format_args!("Loaded JVM"));
-                }
+    fn loaded_libraries(&mut self, libraries: &[LoadedLibrary]) {
+        self.out.log("loaded_libraries")
+            .args(libraries.iter().map(|lib| &lib.gav))
+            .pending(format_args!("Loaded {} libraries, now verifying", libraries.len()));
+    }
 
-                log.info(format_args!("Loaded JVM at {}", file.display()));
+    fn loaded_libraries_files(&mut self, class_files: &[PathBuf], natives_files: &[PathBuf]) {
+        
+        self.out.log("loaded_libraries_files")
+            .success(format_args!("Loaded and verified {}+{} libraries", class_files.len(), natives_files.len()));
 
-            }
-            Event::BinariesExtracted { dir } => {
-                out.log("binaries_extracted")
-                    .arg(dir.display())
-                    .info(format_args!("Binaries extracted to {}", dir.display()));
-            }
-            _ => todo!("{event:?}")
-        };
+        self.out.log("loaded_class_files")
+            .args(class_files.iter().map(|p| p.display()));
+        self.out.log("loaded_natives_files")
+            .args(natives_files.iter().map(|p| p.display()));
+        
+    }
+
+    fn no_logger(&mut self) {
+        self.out.log("no_logger")
+            .success("No logger");
+    }
+
+    fn load_logger(&mut self, id: &str) {
+        self.out.log("load_logger")
+            .arg(id)
+            .pending(format_args!("Loading logger {id}"));
+    }
+
+    fn loaded_logger(&mut self, id: &str) {
+        self.out.log("loaded_logger")
+            .arg(id)
+            .success(format_args!("Loaded logger {id}"));
+    }
+
+    fn no_assets(&mut self) {
+        self.out.log("no_assets")
+            .success("No assets");
+    }
+
+    fn load_assets(&mut self, id: &str) {
+        self.out.log("assets_loading")
+            .arg(id)
+            .pending(format_args!("Loading assets {id}"));
+    }
+
+    fn loaded_assets(&mut self, id: &str, count: usize) {
+        self.out.log("assets_loaded")
+            .arg(id)
+            .arg(count)
+            .pending(format_args!("Loaded {count} assets {id}"));
+    }
+
+    fn verified_assets(&mut self, id: &str, count: usize) {
+        self.out.log("verified_assets")
+            .arg(id)
+            .arg(count)
+            .success(format_args!("Loaded and verified {count} assets {id}"));
+    }
+
+    fn load_jvm(&mut self, major_version:u32) {
+        self.out.log("load_jvm")
+            .arg(major_version)
+            .pending(format_args!("Loading JVM ({major_version})"));
+    }
+
+    fn reject_jvm_version(&mut self, file: &Path, version: Option<&str>) {
+
+        let mut log = self.out.log("reject_jvm_version");
+        log.arg(file.display());
+        log.args(version);
+
+        if let Some(version) = version {
+            log.info(format_args!("Rejected JVM (version {version}) at {}", file.display()));
+        } else {
+            log.info(format_args!("Rejected JVM at {}", file.display()));
+        }
 
     }
+
+    fn reject_jvm_unsupported_dynamic_crt(&mut self) {
+        self.out.log("reject_jvm_unsupported_dynamic_crt")
+            .info("Couldn't find a Mojang JVM because your launcher is compiled with a static C runtime");
+    }
+
+    fn reject_jvm_unsupported_platform(&mut self) {
+        self.out.log("reject_jvm_unsupported_platform")
+            .info("Couldn't find a Mojang JVM because your platform is not supported");
+    }
+
+    fn reject_jvm_missing_distribution(&mut self) {
+        self.out.log("reject_jvm_missing_distribution")
+            .info("Couldn't find a Mojang JVM because the required distribution was not found");
+    }
+
+    fn loaded_jvm(&mut self, file: &Path, version: Option<&str>) {
+        
+        let mut log = self.out.log("loaded_jvm");
+        log.arg(file.display());
+        log.args(version);
+        
+        if let Some(version) = version {
+            log.success(format_args!("Loaded JVM ({version})"));
+        } else {
+            log.success(format_args!("Loaded JVM"));
+        }
+
+        log.info(format_args!("Loaded JVM at {}", file.display()));
+        
+    }
+
+    fn download_resources(&mut self) {
+        self.out.log("download_resources")
+            .pending("Downloading");
+    }
+
+    fn downloaded_resources(&mut self) {
+        self.out.log("resources_downloaded")
+            .success("Downloaded");
+    }
+
+    fn extracted_binaries(&mut self, dir: &Path) {
+        self.out.log("binaries_extracted")
+            .arg(dir.display())
+            .info(format_args!("Binaries extracted to {}", dir.display()));
+    }
+
 }
 
 impl mojang::Handler for CommonHandler<'_> {
-    fn handle_mojang_event(&mut self, event: mojang::Event) {
-        
-        use mojang::Event;
-
-        let out = &mut *self.out;
-
-        match event {
-            Event::VersionInvalidated { version: id } => {
-                out.log("mojang_version_invalidated")
-                    .arg(id)
-                    .info(format_args!("Mojang version {id} invalidated"));
-            }
-            Event::VersionFetching { version: id } => {
-                out.log("mojang_version_fetching")
-                    .arg(id)
-                    .pending(format_args!("Fetching Mojang version {id}"));
-            }
-            Event::VersionFetched { version: id } => {
-                out.log("mojang_version_fetched")
-                    .arg(id)
-                    .success(format_args!("Fetched Mojang version {id}"));
-            }
-            Event::FixLegacyQuickPlay {  } => {
-                out.log("fix_legacy_quick_play")
-                    .info("Fixed: legacy quick play");
-            }
-            Event::FixLegacyProxy { host, port } => {
-                out.log("fix_legacy_proxy")
-                    .arg(host)
-                    .arg(port)
-                    .info(format_args!("Fixed: legacy proxy ({host}:{port})"));
-            }
-            Event::FixLegacyMergeSort {  } => {
-                out.log("fix_legacy_merge_sort")
-                    .info("Fixed: legacy merge sort");
-            }
-            Event::FixLegacyResolution {  } => {
-                out.log("fix_legacy_resolution")
-                    .info("Fixed: legacy resolution");
-            }
-            Event::FixBrokenAuthlib {  } => {
-                out.log("fix_broken_authlib")
-                    .info("Fixed: broken authlib");
-            }
-            Event::QuickPlayNotSupported {  } => {
-                out.log("quick_play_not_supported")
-                    .warning("Quick play has been requested but is not supported");
-            }
-            Event::ResolutionNotSupported {  } => {
-                out.log("resolution_not_supported")
-                    .warning("Resolution has been requested but is not supported");
-            }
-            _ => todo!("{event:?}")
-        };
-
+    
+    fn invalidated_version(&mut self, version: &str) {
+        self.out.log("invalidated_version")
+            .arg(version)
+            .info(format_args!("Version {version} invalidated"));
     }
+
+    fn fetch_version(&mut self, version: &str) {
+        self.out.log("fetch_version")
+            .arg(version)
+            .pending(format_args!("Fetching version {version}"));
+    }
+
+    fn fetched_version(&mut self, version: &str) {
+        self.out.log("fetched_version")
+            .arg(version)
+            .success(format_args!("Fetched version {version}"));
+    }
+
+    fn fixed_legacy_quick_play(&mut self) {
+        self.out.log("fixed_legacy_quick_play")
+            .info("Fixed: legacy quick play");
+    }
+
+    fn fixed_legacy_proxy(&mut self, host: &str, port: u16) {
+        self.out.log("fixed_legacy_proxy")
+            .arg(host)
+            .arg(port)
+            .info(format_args!("Fixed: legacy proxy ({host}:{port})"));
+    }
+
+    fn fixed_legacy_merge_sort(&mut self) {
+        self.out.log("fixed_legacy_merge_sort")
+            .info("Fixed: legacy merge sort");
+    }
+
+    fn fixed_legacy_resolution(&mut self) {
+        self.out.log("fixed_legacy_resolution")
+            .info("Fixed: legacy resolution");
+    }
+
+    fn fixed_broken_authlib(&mut self) {
+        self.out.log("fixed_broken_authlib")
+            .info("Fixed: broken authlib");
+    }
+
+    fn warn_unsupported_quick_play(&mut self) {
+        self.out.log("warn_unsupported_quick_play")
+            .warning("Quick play has been requested but is not supported");
+    }
+
+    fn warn_unsupported_resolution(&mut self) {
+        self.out.log("warn_unsupported_resolution")
+            .warning("Resolution has been requested but is not supported");
+    }
+
 }
 
 impl fabric::Handler for CommonHandler<'_> {
-    fn handle_fabric_event(&mut self, event: fabric::Event) {
-        
-        use fabric::Event;
 
-        let out = &mut *self.out;
-
-        let api_id = self.api_id;
-        let api_name = self.api_name;
-        debug_assert!(!api_id.is_empty() && !api_name.is_empty());
-
-        match event {
-            Event::VersionFetching { game_version, loader_version } => {
-                out.log(format_args!("{api_id}_version_fetching"))
-                    .arg(game_version)
-                    .arg(loader_version)
-                    .pending(format_args!("Fetching {api_name} loader {loader_version} for {game_version}"));
-            }
-            Event::VersionFetched { game_version, loader_version } => {
-                out.log(format_args!("{api_id}_version_fetched"))
-                    .arg(game_version)
-                    .arg(loader_version)
-                    .info(format_args!("Fetched {api_name} loader {loader_version} for {game_version}"));
-            }
-            _ => todo!("{event:?}")
-        }
-
+    fn fetch_loader_version(&mut self, game_version: &str, loader_version: &str) {
+        let (api_id, api_name) = (self.api_id, self.api_name);
+        self.out.log(format_args!("{api_id}_fetch_loader"))
+            .arg(game_version)
+            .arg(loader_version)
+            .pending(format_args!("Fetching {api_name} loader {loader_version} for {game_version}"));
     }
+
+    fn fetched_loader_version(&mut self, game_version: &str, loader_version: &str) {
+        let (api_id, api_name) = (self.api_id, self.api_name);
+        self.out.log(format_args!("{api_id}_fetched_loader"))
+            .arg(game_version)
+            .arg(loader_version)
+            .info(format_args!("Fetched {api_name} loader {loader_version} for {game_version}"));
+    }
+
 }
 
 impl forge::Handler for CommonHandler<'_> {
-    fn handle_forge_event(&mut self, event: forge::Event) {
+
+    fn installing(&mut self, tmp_dir: &Path, reason: forge::InstallReason) {
         
-        use forge::{Event, InstallReason};
-
-        let out = &mut *self.out;
-
         let api_id = self.api_id;
-        let api_name = self.api_name;
-        debug_assert!(!api_id.is_empty() && !api_name.is_empty());
+        let (reason_code, log_level, reason_desc) = match reason {
+            forge::InstallReason::MissingVersionMetadata => 
+                ("missing_version_metadata", LogLevel::Success, "The version metadata is absent, installing"),
+            forge::InstallReason::MissingCoreLibrary => 
+                ("missing_universal_client", LogLevel::Warn, "The core loader library is absent, reinstalling"),
+            forge::InstallReason::MissingClientExtra => 
+                ("missing_client_extra", LogLevel::Warn, "The client extra is absent, reinstalling"),
+            forge::InstallReason::MissingClientSrg => 
+                ("missing_client_srg", LogLevel::Warn, "The client srg is absent, reinstalling"),
+            forge::InstallReason::MissingPatchedClient => 
+                ("missing_patched_client", LogLevel::Warn, "The patched client is absent, reinstalling"),
+            forge::InstallReason::MissingUniversalClient => 
+                ("missing_universal_client", LogLevel::Warn, "The universal client is absent, reinstalling"),
+        };
 
-        match event {
-            Event::Installing { tmp_dir, reason } => {
-
-                let (reason_code, log_level, reason_desc) = match reason {
-                    InstallReason::MissingVersionMetadata => 
-                        ("missing_version_metadata", LogLevel::Success, "The version metadata is absent, installing"),
-                    InstallReason::MissingCoreLibrary => 
-                        ("missing_universal_client", LogLevel::Warn, "The core loader library is absent, reinstalling"),
-                    InstallReason::MissingClientExtra => 
-                        ("missing_client_extra", LogLevel::Warn, "The client extra is absent, reinstalling"),
-                    InstallReason::MissingClientSrg => 
-                        ("missing_client_srg", LogLevel::Warn, "The client srg is absent, reinstalling"),
-                    InstallReason::MissingPatchedClient => 
-                        ("missing_patched_client", LogLevel::Warn, "The patched client is absent, reinstalling"),
-                    InstallReason::MissingUniversalClient => 
-                        ("missing_universal_client", LogLevel::Warn, "The universal client is absent, reinstalling"),
-                };
-
-                out.log(format_args!("{api_id}_installing"))
-                    .arg(reason_code)
-                    .newline()  // Don't overwrite the failed line.
-                    .line(log_level, reason_desc)
-                    .info(format_args!("Installing in temporary directory: {}", tmp_dir.display()));
-            }
-            Event::InstallerFetching { game_version, loader_version } => {
-                out.log(format_args!("{api_id}_installer_fetching"))
-                    .arg(game_version)
-                    .arg(loader_version)
-                    .pending(format_args!("Fetching installer {loader_version} for {game_version}"));
-            }
-            Event::InstallerFetched { game_version, loader_version } => {
-                out.log(format_args!("{api_id}_installer_fetched"))
-                    .arg(game_version)
-                    .arg(loader_version)
-                    .success(format_args!("Fetched installer {loader_version} for {game_version}"));
-            }
-            Event::GameInstalling {  } => {
-                out.log(format_args!("{api_id}_game_installing"))
-                    .success("Installing the game version required by the installer");
-            }
-            Event::InstallerLibrariesFetching {  } => {
-                out.log(format_args!("{api_id}_installer_libraries_fetching"))
-                    .pending(format_args!("Fetching installer libraries"));
-            }
-            Event::InstallerLibrariesFetched {  } => {
-                out.log(format_args!("{api_id}_installer_libraries_fetched"))
-                    .success(format_args!("Fetched installer libraries"));
-            }
-            Event::InstallerProcessor { name, task } => {
-                
-                let desc = match (name.artifact(), task) {
-                    ("installertools", Some("MCP_DATA")) => 
-                        "Generating MCP data",
-                    ("installertools", Some("DOWNLOAD_MOJMAPS")) => 
-                        "Downloading Mojang mappings",
-                    ("installertools", Some("MERGE_MAPPING")) => 
-                        "Merging MCP and Mojang mappings",
-                    ("jarsplitter", _) => 
-                        "Splitting client with mappings",
-                    ("ForgeAutoRenamingTool", _) => 
-                        "Renaming client with mappings (Forge)",
-                    ("AutoRenamingTool", _) if name.group() == "net.neoforged" =>
-                        "Renaming client with mappings (NeoForge)",
-                    ("vignette", _) => 
-                        "Renaming client with mappings (Vignette)",
-                    ("binarypatcher", _) => 
-                        "Patching client",
-                    ("SpecialSource", _) => 
-                        "Renaming client with mappings (SpecialSource)",
-                    _ => name.as_str()
-                };
-
-                out.log(format_args!("{api_id}_installer_processor"))
-                    .arg(name.as_str())
-                    .args(task)
-                    .success(format_args!("{desc}"));
-                
-            }
-            Event::Installed {  } => {
-                out.log(format_args!("{api_id}_installed"))
-                    .success("Loader installed, retrying to start the game");
-            }
-            _ => todo!(),
-        }
+        self.out.log(format_args!("{api_id}_installing"))
+            .arg(reason_code)
+            .newline()  // Don't overwrite the failed line.
+            .line(log_level, reason_desc)
+            .info(format_args!("Installing in temporary directory: {}", tmp_dir.display()));
 
     }
+
+    fn fetch_installer(&mut self, game_version: &str, loader_version: &str) {
+        let api_id = self.api_id;
+        self.out.log(format_args!("{api_id}_fetch_installer"))
+            .arg(game_version)
+            .arg(loader_version)
+            .pending(format_args!("Fetching installer {loader_version} for {game_version}"));
+    }
+
+    fn fetched_installer(&mut self, game_version: &str, loader_version: &str) {
+        let api_id = self.api_id;
+        self.out.log(format_args!("{api_id}_fetched_installer"))
+            .arg(game_version)
+            .arg(loader_version)
+            .success(format_args!("Fetched installer {loader_version} for {game_version}"));
+    }
+
+    fn installing_game(&mut self) {
+        let api_id = self.api_id;
+        self.out.log(format_args!("{api_id}_game_installing"))
+            .success("Installing the game version required by the installer");
+    }
+
+    fn fetch_installer_libraries(&mut self) {
+        let api_id = self.api_id;
+        self.out.log(format_args!("{api_id}_installer_libraries_fetching"))
+            .pending(format_args!("Fetching installer libraries"));
+    }
+
+    fn fetched_installer_libraries(&mut self) {
+        let api_id = self.api_id;
+        self.out.log(format_args!("{api_id}_installer_libraries_fetched"))
+            .success(format_args!("Fetched installer libraries"));
+    }
+
+    fn run_installer_processor(&mut self, name: &Gav, task: Option<&str>) {
+        
+        let api_id = self.api_id;
+        let desc = match (name.artifact(), task) {
+            ("installertools", Some("MCP_DATA")) => 
+                "Generating MCP data",
+            ("installertools", Some("DOWNLOAD_MOJMAPS")) => 
+                "Downloading Mojang mappings",
+            ("installertools", Some("MERGE_MAPPING")) => 
+                "Merging MCP and Mojang mappings",
+            ("jarsplitter", _) => 
+                "Splitting client with mappings",
+            ("ForgeAutoRenamingTool", _) => 
+                "Renaming client with mappings (Forge)",
+            ("AutoRenamingTool", _) if name.group() == "net.neoforged" =>
+                "Renaming client with mappings (NeoForge)",
+            ("vignette", _) => 
+                "Renaming client with mappings (Vignette)",
+            ("binarypatcher", _) => 
+                "Patching client",
+            ("SpecialSource", _) => 
+                "Renaming client with mappings (SpecialSource)",
+            _ => name.as_str()
+        };
+
+        self.out.log(format_args!("{api_id}_installer_processor"))
+            .arg(name.as_str())
+            .args(task)
+            .success(format_args!("{desc}"));
+
+    }
+
+    fn installed(&mut self) {
+        let api_id = self.api_id;
+        self.out.log(format_args!("{api_id}_installed"))
+            .success("Loader installed, retrying to start the game");
+    }
+
 }
 
 /// Log a standard error on the given logger output.
