@@ -3,12 +3,12 @@
 
 pub mod serde;  // FIXME: Make this pub(crate), but allows accessing the API serde...
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use core::fmt;
 
 use reqwest::StatusCode;
 
-use crate::mojang::{self, Handler as _, RootVersion};
+use crate::mojang::{self, RootVersion};
 use crate::download;
 use crate::standard;
 
@@ -107,7 +107,13 @@ impl Installer {
     }
 
     /// Install the currently configured Fabric loader with the given handler.
+    #[inline]
     pub fn install(&mut self, mut handler: impl Handler) -> Result<Game> {
+        self.install_dyn(&mut handler)
+    }
+
+    #[inline(never)]
+    pub fn install_dyn(&mut self, handler: &mut dyn Handler) -> Result<Game> {
 
         let Self {
             ref mut mojang,
@@ -175,7 +181,7 @@ impl Installer {
         let game = {
 
             let mut handler = InternalHandler {
-                inner: &mut handler,
+                inner: &mut *handler,
                 installer: &inner,
                 error: Ok(()),
                 root_version: &root_version,
@@ -184,7 +190,7 @@ impl Installer {
             };
     
             // Same as above, we are giving a &mut dyn ref to avoid huge monomorphization.
-            let res = mojang.install(handler.as_mojang_dyn());
+            let res = mojang.install(&mut handler);
             handler.error?;
             res?
 
@@ -196,42 +202,11 @@ impl Installer {
 
 }
 
-/// Handler for events happening when installing.
-pub trait Handler: mojang::Handler {
-
-    /// Handle an even from the fabric installer.
-    fn handle_fabric_event(&mut self, event: Event) {
-        let _ = event;
+crate::trait_event_handler! {
+    pub trait Handler: mojang::Handler {
+        fn fetch_loader_version(game_version: &str, loader_version: &str);
+        fn fetched_loader_version(game_version: &str, loader_version: &str);
     }
-
-    fn as_fabric_dyn(&mut self) -> &mut dyn Handler 
-    where Self: Sized {
-        self
-    }
-
-}
-
-/// Blanket implementation that does nothing.
-impl Handler for () { }
-
-impl<H: Handler + ?Sized> Handler for  &'_ mut H {
-    fn handle_fabric_event(&mut self, event: Event) {
-        (*self).handle_fabric_event(event)
-    }
-}
-
-/// An event produced by the installer that can be handled by the install handler.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum Event<'a> {
-    VersionFetching {
-        game_version: &'a str,
-        loader_version: &'a str,
-    },
-    VersionFetched {
-        game_version: &'a str,
-        loader_version: &'a str,
-    },
 }
 
 /// The standard installer could not proceed to the installation of a version.
@@ -438,9 +413,9 @@ pub static BABRIC_API: Api = Api {
 // ========================== //
 
 /// Internal handler given to the standard installer.
-struct InternalHandler<'a, H: Handler> {
+struct InternalHandler<'a> {
     /// Inner handler.
-    inner: &'a mut H,
+    inner: &'a mut dyn Handler,
     /// Back-reference to the installer to know its configuration.
     installer: &'a InstallerInner,
     /// If there is an error in the handler.
@@ -451,80 +426,80 @@ struct InternalHandler<'a, H: Handler> {
     loader_version: &'a str,
 }
 
-impl<H: Handler> download::Handler for InternalHandler<'_, H> {
-    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
-        self.inner.handle_download_progress(count, total_count, size, total_size)
+impl download::Handler for InternalHandler<'_> {
+
+    fn fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn download::Handler> {
+        Some(&mut self.inner)
     }
+
 }
 
-impl<H: Handler> standard::Handler for InternalHandler<'_, H> {
-    fn handle_standard_event(&mut self, event: standard::Event) { 
-        self.error = self.handle_standard_event_inner(event);
+impl standard::Handler for InternalHandler<'_> {
+    
+    fn fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn standard::Handler> {
+        Some(&mut self.inner)
     }
+
+    fn need_version(&mut self, version: &str, file: &Path) -> bool {
+        match self.inner_need_version(version, file) {
+            Ok(true) => return true,
+            Ok(false) => (),
+            Err(e) => self.error = Err(e),
+        }
+        self.inner.need_version(version, file)
+    }
+
 }
 
-impl<H: Handler> mojang::Handler for InternalHandler<'_, H> {
-    fn handle_mojang_event(&mut self, event: mojang::Event) {
-        self.inner.handle_mojang_event(event)
+impl mojang::Handler for InternalHandler<'_> {
+
+    fn fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn mojang::Handler> {
+        Some(&mut self.inner)
     }
+
 }
 
-impl<H: Handler> InternalHandler<'_, H> {
+impl InternalHandler<'_> {
 
-    fn handle_standard_event_inner(&mut self, event: standard::Event) -> Result<()> { 
-        
-        match event {
-            standard::Event::VersionNotFound { 
-                version: id, 
-                file, 
-                retry,
-            } if id == self.root_version => {
+    fn inner_need_version(&mut self, version: &str, file: &Path) -> Result<bool> {
 
-                self.inner.handle_fabric_event(Event::VersionFetching {
-                    game_version: self.game_version,
-                    loader_version: self.loader_version,
-                });
-
-                // At this point we've not yet checked if either game or loader versions
-                // are known by the API, we just wanted to allow the user to input any
-                // version if he will. But now that we need to request the prebuilt
-                // version metadata, in case of error we'll try to understand what's the
-                // issue: unknown game version or unknown loader version?
-                let mut metadata = match self.installer.api.request_game_loader_version_metadata(self.game_version, self.loader_version) {
-                    Ok(metadata) => metadata,
-                    Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => {
-                        if self.installer.api.request_has_game_loader_versions(self.game_version)? {
-                            return Err(Error::LoaderVersionNotFound { 
-                                game_version: self.game_version.to_string(),
-                                loader_version: self.loader_version.to_string(),
-                            });
-                        } else {
-                            return Err(Error::GameVersionNotFound { 
-                                game_version: self.game_version.to_string(),
-                            });
-                        }
-                    }
-                    Err(e) => return Err(e.into()),
-                };
-
-                // Force the version id, the prebuilt one might not be exact.
-                metadata.id = id.to_string();
-                standard::write_version_metadata(file, &metadata)?;
-
-                *retry = true;
-
-                self.inner.handle_fabric_event(Event::VersionFetched {
-                    game_version: self.game_version,
-                    loader_version: self.loader_version,
-                });
-
-                // Note that we never forward the event in any case...
-
-            }
-            _ => self.inner.handle_standard_event(event),
+        if version != self.root_version {
+            return Ok(false);
         }
 
-        Ok(())
+        // self.inner.fetch_version(self.root_version);
+        self.inner.fetch_loader_version(self.game_version, self.loader_version);
+
+        // At this point we've not yet checked if either game or loader versions
+        // are known by the API, we just wanted to allow the user to input any
+        // version if he will. But now that we need to request the prebuilt
+        // version metadata, in case of error we'll try to understand what's the
+        // issue: unknown game version or unknown loader version?
+        let mut metadata = match self.installer.api.request_game_loader_version_metadata(self.game_version, self.loader_version) {
+            Ok(metadata) => metadata,
+            Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => {
+                if self.installer.api.request_has_game_loader_versions(self.game_version)? {
+                    return Err(Error::LoaderVersionNotFound { 
+                        game_version: self.game_version.to_string(),
+                        loader_version: self.loader_version.to_string(),
+                    });
+                } else {
+                    return Err(Error::GameVersionNotFound { 
+                        game_version: self.game_version.to_string(),
+                    });
+                }
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        // Force the version id, the prebuilt one might not be exact.
+        metadata.id = version.to_string();
+        standard::write_version_metadata(file, &metadata)?;
+
+        // self.inner.fetched_version(self.root_version);
+        self.inner.fetched_loader_version(self.game_version, self.loader_version);
+
+        Ok(true)
 
     }
     

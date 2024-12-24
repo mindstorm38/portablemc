@@ -1,4 +1,4 @@
-//! Common serde extensions.
+//! Common serde extensions and custom types.
 
 use std::ops::{Deref, DerefMut};
 use std::fmt::Write;

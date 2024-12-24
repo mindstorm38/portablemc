@@ -6,10 +6,7 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Local, Utc};
 
-use portablemc::mojang::{self, Handler as _};
-use portablemc::fabric::{self, Handler as _};
-use portablemc::forge::{self, Handler as _};
-use portablemc::standard;
+use portablemc::{standard, mojang, fabric, forge};
 
 use crate::parse::{StartArgs, StartFabricLoader, StartForgeLoader, StartResolution, StartVersion};
 use crate::format::TIME_FORMAT;
@@ -34,13 +31,13 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
         StartVersion::Mojang { 
             root_version,
         } => {
-            
+
             let mut inst = mojang::Installer::new(cli.main_dir.clone());
             apply_mojang_args(&mut inst, &cli, args);
             inst.set_root_version(root_version.clone());
 
             let mut handler = CommonHandler::new(&mut cli.out);
-            game = match inst.install(handler.as_mojang_dyn()) {
+            game = match inst.install(&mut handler) {
                 Ok(game) => game,
                 Err(e) => {
                     log_mojang_error(&mut cli.out, e);
@@ -69,7 +66,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
             let mut handler = CommonHandler::new(&mut cli.out);
             handler.set_api(api_id, api_name);
-            game = match inst.install(handler.as_fabric_dyn()) {
+            game = match inst.install(handler) {
                 Ok(game) => game,
                 Err(e) => {
                     log_fabric_error(&mut cli.out, e, api_id, api_name);
@@ -96,7 +93,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
             let mut handler = CommonHandler::new(&mut cli.out);
             handler.set_api(api_id, api_name);
-            game = match inst.install(handler.as_forge_dyn()) {
+            game = match inst.install(handler) {
                 Ok(game) => game,
                 Err(e) => {
                     log_forge_error(&mut cli.out, e, api_id, api_name);

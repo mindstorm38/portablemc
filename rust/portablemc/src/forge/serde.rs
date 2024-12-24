@@ -1,4 +1,7 @@
 //! JSON schemas structures for serde deserialization.
+//! 
+//! This module is internal to the module because it might be modified sooner or later
+//! to fix issues with Forge installers.
 
 use std::collections::HashMap;
 

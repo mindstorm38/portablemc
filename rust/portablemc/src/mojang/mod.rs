@@ -5,8 +5,8 @@
 pub(crate) mod serde;
 
 use std::io::{Write as _, BufReader};
+use std::path::{Path, PathBuf};
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::env;
 use std::fs;
 
@@ -15,8 +15,7 @@ use uuid::Uuid;
 
 use crate::standard::{self, 
     LIBRARIES_URL,
-    check_file, replace_strings_args, 
-    Handler as _,
+    check_file_advanced, 
     LibraryDownload, LoadedLibrary, VersionChannel
 };
 use crate::maven::Gav;
@@ -462,7 +461,13 @@ impl Installer {
     /// 
     /// If the given version is not found in the manifest then it's silently ignored and
     /// the version metadata must already exists.
+    #[inline]
     pub fn install(&mut self, mut handler: impl Handler) -> Result<Game> {
+        self.install_dyn(&mut handler)
+    }
+
+    #[inline(never)]
+    pub fn install_dyn(&mut self, handler: &mut dyn Handler) -> Result<Game> {
         
         // Apply default offline auth, derived from hostname.
         if self.inner.auth_username.is_empty() {
@@ -486,7 +491,7 @@ impl Installer {
 
         // If we need an alias then we need to load the manifest.
         let version = if let Some(channel) = channel {
-            manifest.insert(Manifest::request(handler.as_download_dyn())?)
+            manifest.insert(Manifest::request(&mut *handler)?)
                 .name_of_latest(channel)
                 .map(str::to_string)
                 .ok_or_else(|| Error::AliasRootVersionNotFound { root_version: self.inner.root.clone() })?
@@ -506,7 +511,7 @@ impl Installer {
         let mut game = {
 
             let mut handler = InternalHandler {
-                inner: &mut handler,
+                inner: &mut *handler,
                 installer: &inner,
                 error: Ok(()),
                 manifest,
@@ -514,28 +519,28 @@ impl Installer {
             };
     
             // Same as above, we are giving a &mut dyn ref to avoid huge monomorphization.
-            let res = standard.install(handler.as_standard_dyn());
+            let res = standard.install(&mut handler);
             handler.error?;
             res?
 
         };
 
         // Apply auth parameters.
-        replace_strings_args(&mut game.game_args, |arg| {
-            match arg {
-                "auth_player_name" => Some(inner.auth_username.clone()),
-                "auth_uuid" => Some(inner.auth_uuid.as_simple().to_string()),
-                "auth_access_token" => Some(inner.auth_token.clone()),
-                "auth_xuid" => Some(inner.auth_xuid.clone()),
+        game.replace_args(|arg| {
+            Some(match arg {
+                "auth_player_name" => inner.auth_username.clone(),
+                "auth_uuid" => inner.auth_uuid.as_simple().to_string(),
+                "auth_access_token" => inner.auth_token.clone(),
+                "auth_xuid" => inner.auth_xuid.clone(),
                 // Legacy parameter
                 "auth_session" if !inner.auth_token.is_empty() => 
-                    Some(format!("token:{}:{}", inner.auth_token, inner.auth_uuid.as_simple())),
-                "auth_session" => Some(String::new()),
-                "user_type" => Some(inner.auth_type.clone()),
-                "user_properties" => Some(format!("{{}}")),
-                "clientid" => Some(inner.auth_client_id.clone()),
-                _ => None
-            }
+                    format!("token:{}:{}", inner.auth_token, inner.auth_uuid.as_simple()),
+                "auth_session" => String::new(),
+                "user_type" => inner.auth_type.clone(),
+                "user_properties" => format!("{{}}"),
+                "clientid" => inner.auth_client_id.clone(),
+                _ => return None
+            })
         });
 
         // If Quick Play is enabled, we know that the feature has been enabled by the
@@ -551,8 +556,7 @@ impl Installer {
             };
 
             let mut quick_play_supported = false;
-
-            replace_strings_args(&mut game.game_args, |arg| {
+            game.replace_args(|arg| {
                 if arg == quick_play_arg {
                     quick_play_supported = true;
                     Some(match quick_play {
@@ -575,13 +579,13 @@ impl Installer {
                     ]);
 
                     quick_play_supported = true;
-                    handler.handle_mojang_event(Event::FixLegacyQuickPlay {  });
+                    handler.fixed_legacy_quick_play();
 
                 }
             }
 
             if !quick_play_supported {
-                handler.handle_mojang_event(Event::QuickPlayNotSupported {  });
+                handler.warn_unsupported_quick_play();
             }
 
         }
@@ -603,28 +607,27 @@ impl Installer {
             if let Some(proxy_port) = proxy_port {
                 game.jvm_args.push(format!("-Dhttp.proxyHost=betacraft.uk"));
                 game.jvm_args.push(format!("-Dhttp.proxyPort={proxy_port}"));
-                handler.handle_mojang_event(Event::FixLegacyProxy { 
-                    host: "betacraft.uk", 
-                    port: proxy_port,
-                });
+                handler.fixed_legacy_proxy("betacraft.uk", proxy_port);
             }
 
         }
 
         if inner.fix_legacy_merge_sort && (leaf_version.starts_with("a1.") || leaf_version.starts_with("b1.")) {
             game.jvm_args.push("-Djava.util.Arrays.useLegacyMergeSort=true".to_string());
-            handler.handle_mojang_event(Event::FixLegacyMergeSort {  });
+            handler.fixed_legacy_merge_sort();
         }
 
         if let Some((width, height)) = inner.resolution {
 
             let mut resolution_supported = false;
-            replace_strings_args(&mut game.game_args, |arg| {
-                match arg {
-                    "resolution_width" => Some(width.to_string()),
-                    "resolution_height" => Some(height.to_string()),
-                    _ => None
-                }
+            game.replace_args(|arg| {
+                let repl = match arg {
+                    "resolution_width" => width.to_string(),
+                    "resolution_height" => height.to_string(),
+                    _ => return None
+                };
+                resolution_supported = true;
+                Some(repl)
             });
 
             if !resolution_supported && inner.fix_legacy_resolution {
@@ -635,12 +638,12 @@ impl Installer {
                 ]);
 
                 resolution_supported = true;
-                handler.handle_mojang_event(Event::FixLegacyResolution {  });
+                handler.fixed_legacy_resolution();
 
             }
 
             if !resolution_supported {
-                handler.handle_mojang_event(Event::QuickPlayNotSupported {  });
+                handler.warn_unsupported_resolution();
             }
 
         }
@@ -659,67 +662,44 @@ impl Installer {
 
 }
 
-/// Handler for events happening when installing.
-pub trait Handler: standard::Handler {
+crate::trait_event_handler! {
+    /// Handler for events happening when installing.
+    pub trait Handler: standard::Handler {
+        
+        /// When the given version is being loaded but the file has an invalid size,
+        /// SHA-1, or any other invalidating reason, it has been removed in order to 
+        /// download an up-to-date version.
+        /// 
+        /// This is not specific to Mojang but can be used by various installers.
+        fn invalidated_version(version: &str);
+        /// The required version metadata is missing and so will be fetched.
+        /// 
+        /// This is not specific to Mojang but can be used by various installers.
+        fn fetch_version(version: &str);
+        /// The version has been fetched.
+        /// 
+        /// This is not specific to Mojang but can be used by various installers.
+        fn fetched_version(version: &str);
 
-    /// Handle an even from the mojang installer.
-    fn handle_mojang_event(&mut self, event: Event) {
-        let _ = event;
+        /// Quick play has been fixed.
+        fn fixed_legacy_quick_play();
+        /// Legacy proxy has been defined to fix legacy versions.
+        fn fixed_legacy_proxy(host: &str, port: u16);
+        /// Legacy merge sort has been fixed.
+        fn fixed_legacy_merge_sort();
+        /// Legacy resolution arguments have been added.
+        fn fixed_legacy_resolution();
+        /// Notification of a fix of authlib:2.1.28 has happened.
+        fn fixed_broken_authlib();
+
+        /// A quick play mode is requested by is not supported by this version, or the fix
+        /// has been disabled. This is just a warning.
+        fn warn_unsupported_quick_play();
+        /// A specific initial window resolution has been requested but it's not supported
+        /// by the current version and the fix is disabled. This is just a warning.
+        fn warn_unsupported_resolution();
+
     }
-
-    fn as_mojang_dyn(&mut self) -> &mut dyn Handler 
-    where Self: Sized {
-        self
-    }
-
-}
-
-/// Blanket implementation that does nothing.
-impl Handler for () { }
-
-impl<H: Handler + ?Sized> Handler for  &'_ mut H {
-    fn handle_mojang_event(&mut self, event: Event) {
-        (*self).handle_mojang_event(event)
-    }
-}
-
-/// An event produced by the installer that can be handled by the install handler.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum Event<'a> {
-    /// When the required Mojang version is being loaded (VersionLoading) but the file
-    /// has an invalid size or SHA-1 and has been removed in order to download an 
-    /// up-to-date version from the manifest.
-    VersionInvalidated {
-        version: &'a str,
-    },
-    /// The required Mojang version metadata is missing and so will be fetched.
-    VersionFetching {
-        version: &'a str,
-    },
-    /// The mojang version has been fetched.
-    VersionFetched {
-        version: &'a str,
-    },
-    /// Quick play has been fixed 
-    FixLegacyQuickPlay {  },
-    ///  proxy has been defined to fix legacy versions.
-    FixLegacyProxy {
-        host: &'a str,
-        port: u16,
-    },
-    /// Legacy merge sort has been fixed.
-    FixLegacyMergeSort {  },
-    /// Legacy resolution arguments have been added.
-    FixLegacyResolution {  },
-    /// Notification of a fix of authlib:2.1.28 has happened.
-    FixBrokenAuthlib {  },
-    /// A quick play mode is requested by is not supported by this version, or the fix
-    /// has been disabled. This is just a warning.
-    QuickPlayNotSupported {  },
-    /// A specific initial window resolution has been requested but it's not supported
-    /// by the current version and the fix is disabled. This is just a warning.
-    ResolutionNotSupported {  },
 }
 
 /// The standard installer could not proceed to the installation of a version.
@@ -795,7 +775,7 @@ pub enum QuickPlay {
     },
 }
 
-/// A handle to the Mojang versions manifest
+/// A handle to the Mojang versions manifest.
 #[derive(Debug)]
 pub struct Manifest {
     inner: Box<serde::MojangManifest>,
@@ -909,9 +889,9 @@ impl<'a> ManifestVersion<'a> {
 // ========================== //
 
 /// Internal handler given to the standard installer.
-struct InternalHandler<'a, H: Handler> {
+struct InternalHandler<'a> {
     /// Inner handler.
-    inner: &'a mut H,
+    inner: &'a mut dyn Handler,
     /// Back-reference to the installer to know its configuration.
     installer: &'a InstallerInner,
     /// If there is an error in the handler.
@@ -922,129 +902,22 @@ struct InternalHandler<'a, H: Handler> {
     leaf_version: &'a mut String,
 }
 
-impl<H: Handler> download::Handler for InternalHandler<'_, H> {
-    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
-        self.inner.handle_download_progress(count, total_count, size, total_size)
+impl download::Handler for InternalHandler<'_> {
+    
+    fn fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn download::Handler> {
+        Some(&mut self.inner)
     }
+
 }
 
-impl<H: Handler> standard::Handler for InternalHandler<'_, H> {
-    fn handle_standard_event(&mut self, event: standard::Event) {
-        self.error = self.handle_standard_event_inner(event);
-    }
-}
+impl standard::Handler for InternalHandler<'_> {
 
-impl<H: Handler> InternalHandler<'_, H> {
-
-    fn handle_standard_event_inner(&mut self, mut event: standard::Event) -> Result<()> {
-
-        match event {
-            standard::Event::HierarchyLoaded { 
-                ref hierarchy,
-            } => {
-                // Unwrap because hierarchy can't be empty.
-                *self.leaf_version = hierarchy.last().unwrap().name().to_string();
-                self.inner.handle_standard_event(event);
-            }
-            standard::Event::FeaturesFilter { 
-                ref mut features,
-            } => {
-                self.modify_features(&mut **features);
-                self.inner.handle_standard_event(event);
-            }
-            // In this case we check the version hash just before loading it, if the hash
-            // is wrong we delete the version and so the next event will be that version
-            // is not found as handled below.
-            standard::Event::VersionLoading { 
-                version, 
-                file
-            } => {
-
-                self.inner.handle_standard_event(event);
-
-                // Ignore the version if excluded.
-                let Some(exclude) = &self.installer.fetch_exclude else {
-                    return Ok(());
-                };
-
-                if exclude.iter().any(|excluded_id| excluded_id == version) {
-                    return Ok(());
-                }
-
-                // Only ensure that the manifest is loaded after checking fetch exclude.
-                let manifest = match self.manifest {
-                    Some(ref manifest) => manifest,
-                    None => self.manifest.insert(Manifest::request(self.inner.as_download_dyn())?)
-                };
-
-                // Unwrap because we checked the manifest in the condition.
-                let Some(version) = manifest.by_name(version) else {
-                    return Ok(());
-                };
-
-                if !check_file(file, version.size(), version.sha1())? {
-                    
-                    fs::remove_file(file)
-                        .map_err(|e| standard::Error::new_io_file(e, file))?;
-                    
-                    self.inner.handle_mojang_event(Event::VersionInvalidated {
-                        version: version.name(),
-                    });
-                
-                }
-                
-            }
-            // In this case we handle a missing version, by finding it in the manifest.
-            standard::Event::VersionNotFound { 
-                version, 
-                file, 
-                ref mut retry 
-            } => {
-                
-                let Some(manifest) = self.manifest.as_ref() else {
-                    self.inner.handle_standard_event(event);
-                    return Ok(());
-                };
-                
-                let Some(version) = manifest.by_name(version) else {
-                    self.inner.handle_standard_event(event);
-                    return Ok(());
-                };
-                
-                self.inner.handle_mojang_event(Event::VersionFetching { 
-                    version: version.name(),
-                });
-                
-                download::single(version.url(), file)
-                    .set_expect_size(version.size())
-                    .set_expect_sha1(version.sha1().copied())
-                    .download(self.inner.as_download_dyn())??;
-
-                self.inner.handle_mojang_event(Event::VersionFetched {
-                    version: version.name(),
-                });
-
-                // Retry only if no preceding error.
-                **retry = true;
-
-            }
-            // Apply the various libs fixes we can apply.
-            standard::Event::LibrariesFilter { 
-                ref mut libraries
-            } => {
-                self.modify_libraries(&mut **libraries)?;                
-                self.inner.handle_standard_event(event);
-            },
-            _ => self.inner.handle_standard_event(event),
-        }
-
-        Ok(())
-
+    fn fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn standard::Handler> {
+        Some(&mut self.inner)
     }
 
-    /// Called from the handler to modify features.
-    fn modify_features(&self, features: &mut HashSet<String>) {
-
+    fn filter_features(&mut self, features: &mut HashSet<String>) {
+        
         if self.installer.demo {
             features.insert("is_demo_user".to_string());
         }
@@ -1064,18 +937,102 @@ impl<H: Handler> InternalHandler<'_, H> {
 
     }
 
-    /// Called from the handler to modify libs.
-    fn modify_libraries(&mut self, libraries: &mut Vec<LoadedLibrary>) -> Result<()> {
+    fn loaded_hierarchy(&mut self, hierarchy: &[standard::LoadedVersion]) {
+        *self.leaf_version = hierarchy.last().unwrap().name().to_string();
+        self.inner.loaded_hierarchy(hierarchy);
+    }
 
+    fn load_version(&mut self, version: &str, file: &Path) {
+        self.inner.load_version(version, file);
+        match self.inner_load_version(version, file) {
+            Ok(()) => (),
+            Err(e) => self.error = Err(e),
+        }
+    }
+
+    fn need_version(&mut self, version: &str, file: &Path) -> bool {
+        match self.inner_need_version(version, file) {
+            Ok(true) => return true,
+            Ok(false) => (),
+            Err(e) => self.error = Err(e),
+        }
+        self.inner.need_version(version, file)
+    }
+
+    fn filter_libraries(&mut self, libraries: &mut Vec<LoadedLibrary>) {
+        
         if self.installer.fix_broken_authlib {
             self.apply_fix_broken_authlib(&mut *libraries);
         }
 
         if let Some(lwjgl_version) = self.installer.fix_lwjgl.as_deref() {
-            self.apply_fix_lwjgl(&mut *libraries, lwjgl_version)?;
+            match self.apply_fix_lwjgl(&mut *libraries, lwjgl_version) {
+                Ok(()) => (),
+                Err(e) => self.error = Err(e),
+            }
+        }
+
+    }
+
+}
+
+impl InternalHandler<'_> {
+
+    fn inner_load_version(&mut self, version: &str, file: &Path) -> Result<()> {
+
+        // Ignore the version if excluded.
+        let Some(exclude) = &self.installer.fetch_exclude else {
+            return Ok(());
+        };
+
+        if exclude.iter().any(|excluded_id| excluded_id == version) {
+            return Ok(());
+        }
+
+        // Only ensure that the manifest is loaded after checking fetch exclude.
+        let manifest = match self.manifest {
+            Some(ref manifest) => manifest,
+            None => self.manifest.insert(Manifest::request(&mut *self.inner)?)
+        };
+
+        // Unwrap because we checked the manifest in the condition.
+        let Some(version) = manifest.by_name(version) else {
+            return Ok(());
+        };
+
+        if !check_file_advanced(file, version.size(), version.sha1(), true)? {
+            
+            fs::remove_file(file)
+                .map_err(|e| standard::Error::new_io_file(e, file))?;
+            
+            self.inner.invalidated_version(version.name());
+        
         }
 
         Ok(())
+
+    }
+
+    fn inner_need_version(&mut self, version: &str, file: &Path) -> Result<bool> {
+
+        let Some(manifest) = self.manifest.as_ref() else {
+            return Ok(false);
+        };
+        
+        let Some(version) = manifest.by_name(version) else {
+            return Ok(false);
+        };
+        
+        self.inner.fetch_version(version.name());
+        
+        download::single(version.url(), file)
+            .set_expect_size(version.size())
+            .set_expect_sha1(version.sha1().copied())
+            .download(&mut *self.inner)??;
+
+        self.inner.fetched_version(version.name());
+
+        Ok(true)
 
     }
 
@@ -1094,7 +1051,7 @@ impl<H: Handler> InternalHandler<'_, H> {
                 sha1: Some([0xd6, 0xe6, 0x77, 0x19, 0x9a, 0xa6, 0xb1, 0x9c, 0x4a, 0x9a, 0x2e, 0x72, 0x50, 0x34, 0x14, 0x9e, 0xb3, 0xe7, 0x46, 0xf8]),
             });
 
-            self.inner.handle_mojang_event(Event::FixBrokenAuthlib {  });
+            self.inner.fixed_broken_authlib();
 
         }
     

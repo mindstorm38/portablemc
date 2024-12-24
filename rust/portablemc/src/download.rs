@@ -21,16 +21,18 @@ use tokio::sync::mpsc;
 use crate::path::PathBufExt;
 
 
+/// Download a single entry from the given URL to the given file.
 pub fn single(url: impl Into<Box<str>>, file: impl Into<Box<Path>>) -> Single {
-    Single(Entry_::new(url.into(), file.into()))
+    Single(Entry::new(url.into(), file.into()))
 }
 
+/// Download a single cached entry.
 pub fn single_cached(url: impl Into<Box<str>>) -> Single {
-    Single(Entry_::new_cached(url.into()))
+    Single(Entry::new_cached(url.into()))
 }
 
 #[derive(Debug)]
-pub struct Single(Entry_);
+pub struct Single(Entry);
 
 impl Single {
 
@@ -76,7 +78,7 @@ impl Single {
     #[must_use]
     pub fn download(&mut self, mut handler: impl Handler) -> reqwest::Result<Result<EntrySuccess, EntryError>> {
         let client = crate::http::client()?;
-        Ok(crate::tokio::sync(download_single(client, handler.as_download_dyn(), &self.0)))
+        Ok(crate::tokio::sync(download_single(client, &mut handler, &self.0)))
     }
 
 }
@@ -85,7 +87,7 @@ impl Single {
 #[derive(Debug)]
 pub struct Batch {
     /// All entries to be downloaded.
-    entries: Vec<Entry_>,
+    entries: Vec<Entry>,
 }
 
 impl Batch {
@@ -111,8 +113,8 @@ impl Batch {
     }
 
     /// Insert a new entry to be downloaded in this download batch.
-    pub fn push(&mut self, url: impl Into<Box<str>>, file: impl Into<Box<Path>>) -> &mut Entry_ {
-        self.entries.push(Entry_::new(url.into(), file.into()));
+    pub fn push(&mut self, url: impl Into<Box<str>>, file: impl Into<Box<Path>>) -> &mut Entry {
+        self.entries.push(Entry::new(url.into(), file.into()));
         self.entries.last_mut().unwrap()
     }
 
@@ -122,16 +124,16 @@ impl Batch {
     /// located in a standard user cache directory (or system tmp as a fallback), 
     /// the file name in that directory is the hash of the URL.
     /// The entry mode is also set to [`Cache`](EntryMode::Cache).
-    pub fn push_cached(&mut self, url: impl Into<Box<str>>) -> &mut Entry_ {
-        self.entries.push(Entry_::new_cached(url.into()));
+    pub fn push_cached(&mut self, url: impl Into<Box<str>>) -> &mut Entry {
+        self.entries.push(Entry::new_cached(url.into()));
         self.entries.last_mut().unwrap()
     }
 
-    pub fn entry(&self, index: usize) -> &Entry_ {
+    pub fn entry(&self, index: usize) -> &Entry {
         &self.entries[index]
     }
 
-    pub fn entry_mut(&mut self, index: usize) -> &mut Entry_ {
+    pub fn entry_mut(&mut self, index: usize) -> &mut Entry {
         &mut self.entries[index]
     }
 
@@ -144,7 +146,7 @@ impl Batch {
     pub fn download(&mut self, mut handler: impl Handler) -> reqwest::Result<BatchResult> {
         let client = crate::http::client()?;
         let entries = mem::take(&mut self.entries);
-        Ok(crate::tokio::sync(download_many(client, handler.as_download_dyn(), 40, entries)))
+        Ok(crate::tokio::sync(download_many(client, &mut handler, 40, entries)))
     }
 
 }
@@ -162,7 +164,7 @@ struct EntryCore {
 }
 
 #[derive(Debug)]
-pub struct Entry_ {
+pub struct Entry {
     /// Core information.
     core: EntryCore,
     /// Optional expected size of the file.
@@ -191,7 +193,7 @@ enum EntryMode {
     Cache,
 }
 
-impl Entry_ {
+impl Entry {
 
     fn new(url: Box<str>, file: Box<Path>) -> Self {
         Self {
@@ -349,6 +351,7 @@ impl BatchResult {
 
 }
 
+/// To allow creation of a batch result from a single download.
 impl From<Result<EntrySuccess, EntryError>> for BatchResult {
     fn from(value: Result<EntrySuccess, EntryError>) -> Self {
         Self {
@@ -532,31 +535,14 @@ impl EntryError {
 
 }
 
-
-/// A handle for watching a batch download progress.
-pub trait Handler {
-    
-    /// Notification of a download progress, the download should be considered done when
-    /// 'count' is equal to 'total_count'. This is called anyway at the beginning and at 
-    /// the end of the download. Note that the final given 'size' may be greater than
-    /// 'total_size' in case of unknown expected size, which 'total_size' is the sum.
-    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
-        let _ = (count, total_count, size, total_size);
-    }
-
-    fn as_download_dyn(&mut self) -> &mut dyn Handler
-    where Self: Sized {
-        self
-    }
-    
-}
-
-/// Blanket implementation it no handler is needed.
-impl Handler for () { }
-
-impl<H: Handler + ?Sized> Handler for &'_ mut H {
-    fn handle_download_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
-        (*self).handle_download_progress(count, total_count, size, total_size)
+crate::trait_event_handler! {
+    /// A handle for watching a batch download progress.
+    pub trait Handler {
+        /// Notification of a download progress, the download should be considered done when
+        /// 'count' is equal to 'total_count'. This is called anyway at the beginning and at 
+        /// the end of the download. Note that the final given 'size' may be greater than
+        /// 'total_size' in case of unknown expected size, which 'total_size' is the sum.
+        fn progress(count: u32, total_count: u32, size: u32, total_size: u32);
     }
 }
 
@@ -566,7 +552,7 @@ async fn download_many(
     client: Client,
     handler: &mut dyn Handler,
     concurrent_count: usize,
-    entries: Vec<Entry_>,
+    entries: Vec<Entry>,
 ) -> BatchResult {
 
     // Make it constant and sharable between all tasks.
@@ -597,7 +583,7 @@ async fn download_many(
     let progress_size_interval = total_size / 1000;
     let mut last_size = 0u32;
 
-    handler.handle_download_progress(0, entries.len() as u32, size, total_size);
+    handler.progress(0, entries.len() as u32, size, total_size);
 
     let mut completed = 0;
     let mut futures = JoinSet::new();
@@ -644,7 +630,7 @@ async fn download_many(
         };
         
         if force_progress || size - last_size >= progress_size_interval {
-            handler.handle_download_progress(completed as u32, entries.len() as u32, size, total_size);
+            handler.progress(completed as u32, entries.len() as u32, size, total_size);
             last_size = size;
         }
 
@@ -680,7 +666,7 @@ async fn download_many(
 /// function in order to easily catch the result and send it as an event.
 async fn download_many_entry(
     client: Client, 
-    entries: Arc<Vec<Entry_>>,
+    entries: Arc<Vec<Entry>>,
     index: usize,
     progress_sender: mpsc::Sender<u32>,
 ) -> (usize, Result<EntrySuccessInner, EntryErrorKind>) {
@@ -696,13 +682,13 @@ async fn download_many_entry(
 async fn download_single(
     client: Client,
     handler: &mut dyn Handler,
-    entry: &Entry_,
+    entry: &Entry,
 ) -> Result<EntrySuccess, EntryError> {
 
     let mut size = 0u32;
     let total_size = entry.expect_size.unwrap_or(0);
 
-    handler.handle_download_progress(0, 1, 0, total_size);
+    handler.progress(0, 1, 0, total_size);
 
     let progress_sender = SingleEntryProgressSender {
         handler: &mut *handler,
@@ -712,7 +698,7 @@ async fn download_single(
 
     let res = download_entry(client, entry, progress_sender).await;
 
-    handler.handle_download_progress(1, 1, size, total_size);
+    handler.progress(1, 1, size, total_size);
 
     match res {
         Ok(inner) => Ok(EntrySuccess { core: entry.core.clone(), inner }),
@@ -725,7 +711,7 @@ async fn download_single(
 /// optional handle to the std file, if keep open parameter is enabled on the entry.
 async fn download_entry(
     client: Client, 
-    entry: &Entry_,
+    entry: &Entry,
     progress_sender: impl EntryProgressSender,
 ) -> Result<EntrySuccessInner, EntryErrorKind> {
 
@@ -959,7 +945,7 @@ struct SingleEntryProgressSender<'a> {
 impl EntryProgressSender for SingleEntryProgressSender<'_> {
     async fn send(&mut self, delta: u32) {
         *self.size += delta;
-        self.handler.handle_download_progress(0, 1, *self.size, self.total_size);
+        self.handler.progress(0, 1, *self.size, self.total_size);
     }
 }
 
