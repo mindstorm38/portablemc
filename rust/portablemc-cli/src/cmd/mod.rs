@@ -473,20 +473,18 @@ impl forge::Handler for CommonHandler<'_> {
 
     }
 
-    fn fetch_installer(&mut self, game_version: &str, loader_version: &str) {
+    fn fetch_installer(&mut self, version: &str) {
         let api_id = self.api_id;
         self.out.log(format_args!("{api_id}_fetch_installer"))
-            .arg(game_version)
-            .arg(loader_version)
-            .pending(format_args!("Fetching installer {loader_version} for {game_version}"));
+            .arg(version)
+            .pending(format_args!("Fetching installer {version}"));
     }
 
-    fn fetched_installer(&mut self, game_version: &str, loader_version: &str) {
+    fn fetched_installer(&mut self, version: &str) {
         let api_id = self.api_id;
         self.out.log(format_args!("{api_id}_fetched_installer"))
-            .arg(game_version)
-            .arg(loader_version)
-            .success(format_args!("Fetched installer {loader_version} for {game_version}"));
+            .arg(version)
+            .success(format_args!("Fetched installer {version}"));
     }
 
     fn installing_game(&mut self) {
@@ -558,7 +556,7 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
                 .arg(&id)
                 .error(format_args!("Version {id} not found"));
         }
-        Error::AssetsNotFound { version: id } => {
+        Error::AssetsNotFound { id } => {
             out.log("error_assets_not_found")
                 .arg(&id)
                 .error(format_args!("Assets {id} not found although it is needed by the version"));
@@ -713,55 +711,54 @@ pub fn log_fabric_error(out: &mut Output, error: fabric::Error, api_id: &str, ap
 
 pub fn log_forge_error(out: &mut Output, error: forge::Error, api_id: &str, api_name: &str) {
 
-    use forge::{Error, GameVersion, LoaderVersion};
+    use forge::Error;
 
     const CONTACT_DEV: &str = "This version of the loader might not be supported by PortableMC, please contact developers on https://github.com/mindstorm38/portablemc/issues";
 
     match error {
         Error::Mojang(error) => log_mojang_error(out, error),
-        Error::AliasGameVersionNotFound { game_version } => {
+        // Error::AliasGameVersionNotFound { game_version } => {
 
-            let alias_str = match game_version {
-                GameVersion::Release => "release",
-                GameVersion::Name(_) => panic!()
-            };
+        //     let alias_str = match game_version {
+        //         GameVersion::Release => "release",
+        //         GameVersion::Name(_) => panic!()
+        //     };
 
-            let mut log = out.log(format_args!("error_{api_id}_alias_game_version_not_found"));
-            log.arg(alias_str);
-            log.error(format_args!("Failed to resolve {api_name} game version '{alias_str}'"));
-            log.additional("The alias might be missing from manifest, likely an issue on Mojang's side");
+        //     let mut log = out.log(format_args!("error_{api_id}_alias_game_version_not_found"));
+        //     log.arg(alias_str);
+        //     log.error(format_args!("Failed to resolve {api_name} game version '{alias_str}'"));
+        //     log.additional("The alias might be missing from manifest, likely an issue on Mojang's side");
 
-        }
-        Error::AliasLoaderVersionNotFound { game_version, loader_version } => {
+        // }
+        // Error::AliasLoaderVersionNotFound { game_version, loader_version } => {
             
-            let alias_str = match loader_version {
-                LoaderVersion::Stable => "stable",
-                LoaderVersion::Unstable => "unstable",
-                LoaderVersion::Name(_) => panic!()
-            };
+        //     let alias_str = match loader_version {
+        //         LoaderVersion::Stable => "stable",
+        //         LoaderVersion::Unstable => "unstable",
+        //         LoaderVersion::Name(_) => panic!()
+        //     };
 
-            let mut log = out.log(format_args!("error_{api_id}_alias_loader_version_not_found"));
-            log.arg(&game_version);
-            log.arg(alias_str);
-            log.error(format_args!("Failed to resolve {api_name} loader version '{alias_str}' for game version {game_version}"));
+        //     let mut log = out.log(format_args!("error_{api_id}_alias_loader_version_not_found"));
+        //     log.arg(&game_version);
+        //     log.arg(alias_str);
+        //     log.error(format_args!("Failed to resolve {api_name} loader version '{alias_str}' for game version {game_version}"));
 
-            match loader_version {
-                LoaderVersion::Stable => log.additional("The loader might not yet support any stable version for this game version"),
-                LoaderVersion::Unstable => log.additional("The loader have zero version supported for this game version"),
-                LoaderVersion::Name(_) => unreachable!()
-            };
+        //     match loader_version {
+        //         LoaderVersion::Stable => log.additional("The loader might not yet support any stable version for this game version"),
+        //         LoaderVersion::Unstable => log.additional("The loader have zero version supported for this game version"),
+        //         LoaderVersion::Name(_) => unreachable!()
+        //     };
 
-        }
-        Error::GameVersionNotFound { game_version } => {
-            out.log(format_args!("error_{api_id}_game_version_not_found"))
-                .arg(&game_version)
-                .error(format_args!("{api_name} loader has not support for {game_version} game version"));
-        }
-        Error::LoaderVersionNotFound { game_version, loader_version } => {
-            out.log(format_args!("error_{api_id}_loader_version_not_found"))
-                .arg(&game_version)
-                .arg(&loader_version)
-                .error(format_args!("{api_name} loader has no version {loader_version} for game version {game_version}"))
+        // }
+        // Error::GameVersionNotFound { game_version } => {
+        //     out.log(format_args!("error_{api_id}_game_version_not_found"))
+        //         .arg(&game_version)
+        //         .error(format_args!("{api_name} loader has not support for {game_version} game version"));
+        // }
+        Error::InstallerNotFound { version } => {
+            out.log(format_args!("error_{api_id}_installer_not_found"))
+                .arg(&version)
+                .error(format_args!("{api_name} loader has no installer for {version}"))
                 .additional("Note that really old versions have no installer and therefore are not supported by PortableMC");
         }
         Error::MavenMetadataMalformed {  } => {

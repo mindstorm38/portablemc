@@ -25,9 +25,6 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
     let game;
 
     match &args.version {
-        StartVersion::Raw { root: _ } => {
-            todo!()
-        }
         StartVersion::Mojang { 
             root_version,
         } => {
@@ -47,9 +44,9 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
         }
         StartVersion::Fabric { 
+            kind,
             game_version, 
             loader_version, 
-            kind,
         } => {
 
             let (api, api_id, api_name) = match kind {
@@ -74,22 +71,105 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
                 }
             };
 
-        },
-        StartVersion::Forge {
-            game_version, 
-            loader_version, 
-            kind,
+        }
+        StartVersion::Forge { 
+            kind, 
+            version,
         } => {
 
-            let (api, api_id, api_name) = match kind {
-                StartForgeLoader::Forge => (&forge::FORGE_API, "forge", "Forge"),
-                StartForgeLoader::NeoForge => (&forge::NEO_FORGE_API, "neoforge", "NeoForge"),
+            let (inst_version, api_id, api_name) = match kind {
+                StartForgeLoader::Forge => (forge::Version::new_forge(version), "forge", "Forge"),
+                StartForgeLoader::NeoForge => (forge::Version::new_neoforge(version), "neoforge", "NeoForge"),
             };
 
-            let mut inst = forge::Installer::new(cli.main_dir.clone(), api);
+            let Some(inst_version) = inst_version else {
+                cli.out.log(format_args!("error_{api_id}_malformed_version"))
+                    .arg(version)
+                    .error(format_args!("Malformed {api_name} version '{version}'"));
+                return ExitCode::FAILURE;
+            };
+
+            let mut inst = forge::Installer::new(cli.main_dir.clone(), inst_version);
             inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
-            inst.set_game_version(game_version.clone());
-            inst.set_loader_version(loader_version.clone());
+
+            let mut handler = CommonHandler::new(&mut cli.out);
+            handler.set_api(api_id, api_name);
+            game = match inst.install(handler) {
+                Ok(game) => game,
+                Err(e) => {
+                    log_forge_error(&mut cli.out, e, api_id, api_name);
+                    return ExitCode::FAILURE;
+                }
+            };
+
+        }
+        StartVersion::ForgeLatest { 
+            kind, 
+            game_version, 
+            stable,
+        } => {
+
+            let mut handler = CommonHandler::new(&mut cli.out);
+
+            let game_version_release = game_version.is_none();
+            let game_version = match game_version {
+                Some(game_version) => game_version.clone(),
+                None => {
+
+                    let repo = match mojang::Repo::request(&mut handler) {
+                        Ok(repo) => repo,
+                        Err(e) => {
+                            log_mojang_error(&mut cli.out, e);
+                            return ExitCode::FAILURE;
+                        }
+                    };
+
+                    repo.name_of_latest(standard::VersionChannel::Release)
+                        .unwrap_or("")
+                        .to_string()
+
+                }
+            };
+
+            let (repo, api_id, api_name) = match kind {
+                StartForgeLoader::Forge => (forge::Repo::request_forge(), "forge", "Forge"),
+                StartForgeLoader::NeoForge => (forge::Repo::request_neoforge(), "neoforge", "NeoForge"),
+            }; 
+
+            let repo = match repo {
+                Ok(repo) => repo,
+                Err(e) => {
+                    log_forge_error(&mut cli.out, e, api_id, api_name);
+                    return ExitCode::FAILURE;
+                }
+            };
+            
+            let Some(repo_version) = repo.find_latest(&game_version, *stable) else {
+
+                let stable_str = if *stable { "stable" } else { "unstable" };
+                
+                let mut log = cli.out.log(format_args!("error_{api_id}_latest_version_not_found"));
+                log.arg(&game_version);
+                log.arg(stable_str);
+                log.error(format_args!("{api_name} has no latest {stable_str} version for game version '{game_version}'"));
+
+                if *stable {
+                    log.additional("The loader might not yet support any stable version for this game version");
+                    if game_version_release {
+                        log.additional(format_args!("Try 'unstable' channel with '{api_id}::unstable'"));
+                    } else {
+                        log.additional(format_args!("Try 'unstable' channel with '{api_id}:{game_version}:unstable'"));
+                    }
+                } else {
+                    log.additional("The loader might not yet support this game version, or it is invalid");
+                }
+
+                return ExitCode::FAILURE;
+
+            };
+
+            let mut inst = forge::Installer::new(cli.main_dir.clone(), repo_version);
+            inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
 
             let mut handler = CommonHandler::new(&mut cli.out);
             handler.set_api(api_id, api_name);

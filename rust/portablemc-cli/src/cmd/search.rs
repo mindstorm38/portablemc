@@ -6,13 +6,12 @@ use std::fs;
 use chrono::{DateTime, Local, TimeDelta, Utc};
 
 use portablemc::standard::VersionChannel;
-use portablemc::mojang::Manifest;
-use portablemc::fabric;
+use portablemc::{mojang, fabric, forge};
 
 use crate::parse::{SearchArgs, SearchKind, SearchChannel, SearchLatestChannel};
 use crate::format::{TimeDeltaFmt, DATE_FORMAT};
 
-use super::{Cli, CommonHandler, log_mojang_error, log_io_error};
+use super::{Cli, CommonHandler, log_mojang_error, log_io_error, log_forge_error};
 
 
 pub fn main(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
@@ -24,8 +23,8 @@ pub fn main(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
         SearchKind::Quilt => search_fabric(cli, args, &fabric::QUILT_API),
         SearchKind::LegacyFabric => search_fabric(cli, args, &fabric::LEGACY_FABRIC_API),
         SearchKind::Babric => search_fabric(cli, args, &fabric::BABRIC_API),
-        SearchKind::Forge => todo!(),
-        SearchKind::NeoForge => todo!(),
+        SearchKind::Forge => search_forge(cli, args, false),
+        SearchKind::NeoForge => search_forge(cli, args, true),
     }
 
 }
@@ -48,10 +47,12 @@ pub fn main(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
 // }
 
 fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
+    
+    use mojang::Repo;
 
     // Initial requests...
     let mut handler = CommonHandler::new(&mut cli.out);
-    let manifest = match Manifest::request(&mut handler) {
+    let manifest = match Repo::request(&mut handler) {
         Ok(manifest) => manifest,
         Err(e) => {
             log_mojang_error(&mut cli.out, e);
@@ -225,6 +226,78 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, api: &fabric::Api) -> ExitCod
     }
     
     table.sep();
+
+    ExitCode::SUCCESS
+
+}
+
+fn search_forge(cli: &mut Cli, args: &SearchArgs, neoforge: bool) -> ExitCode {
+
+    use forge::Repo;
+
+    // Start by requesting the repository!
+    let repo = if neoforge {
+        match Repo::request_neoforge() {
+            Ok(repo) => repo,
+            Err(e) => {
+                log_forge_error(&mut cli.out, e, "neoforge", "NeoForge");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        match Repo::request_forge() {
+            Ok(repo) => repo,
+            Err(e) => {
+                log_forge_error(&mut cli.out, e, "forge", "Forge");
+                return ExitCode::FAILURE;
+            }
+        }
+    };
+
+    // Now we construct the table...
+    let mut table = cli.out.table(3);
+
+    {
+        let mut row = table.row();
+        row.cell("version").format("Version");
+        row.cell("game_version").format("Game version");
+        row.cell("channel").format("Channel");
+    }
+    
+    table.sep();
+
+    for version in repo.iter() {
+        
+        if !args.filter.is_empty() {
+            if !args.filter.iter().any(|s| version.name().contains(s)) {
+                continue;
+            }
+        }
+
+        if !args.game_version.is_empty() {
+            if !args.game_version.iter().any(|s| version.game_version() == s) {
+                continue;
+            }
+        }
+
+        if !args.channel.is_empty() {
+            let stable = version.is_stable();
+            if !args.channel.iter().any(|c| match c {
+                SearchChannel::Stable => stable,
+                SearchChannel::Unstable => !stable,
+                _ => false,
+            }) {
+                continue;
+            }
+        }
+
+        let mut row = table.row();
+        row.cell(version.name());
+        row.cell(version.game_version());
+        row.cell(if version.is_stable() { "stable" } else { "unstable" })
+            .format(if version.is_stable() { "Stable" } else { "Unstable" });
+
+    }
 
     ExitCode::SUCCESS
 
