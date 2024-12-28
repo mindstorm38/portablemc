@@ -4,25 +4,25 @@ use std::path::{Path, PathBuf};
 use std::ffi::OsStr;
 
 
-/// A macro to generate OS-aware path from multiple components, const-compatible. Because
-/// `std::path::Path` don't support being built are const time, this macro returns a str.
-#[cfg(windows)]
-macro_rules! const_path {
-    ( $first:literal $( , $part:literal )* ) => {
-        concat!( $first $( , '\\', $part )* )
-    };
-}
+// /// A macro to generate OS-aware path from multiple components, const-compatible. Because
+// /// `std::path::Path` don't support being built are const time, this macro returns a str.
+// #[cfg(windows)]
+// macro_rules! const_path {
+//     ( $first:literal $( , $part:literal )* ) => {
+//         concat!( $first $( , '\\', $part )* )
+//     };
+// }
 
-/// A macro to generate OS-aware path from multiple components, const-compatible. Because
-/// `std::path::Path` don't support being built are const time, this macro returns a str.
-#[cfg(not(windows))]
-macro_rules! const_path {
-    ( $first:literal $( , $part:literal )* ) => {
-        concat!( $first $( , '/', $part )* )
-    };
-}
+// /// A macro to generate OS-aware path from multiple components, const-compatible. Because
+// /// `std::path::Path` don't support being built are const time, this macro returns a str.
+// #[cfg(not(windows))]
+// macro_rules! const_path {
+//     ( $first:literal $( , $part:literal )* ) => {
+//         concat!( $first $( , '/', $part )* )
+//     };
+// }
 
-pub(crate) use const_path;
+// pub(crate) use const_path;
 
 
 /// Extension to the standard [`Path`].
@@ -32,6 +32,8 @@ pub trait PathExt {
     /// This shortcut avoids a temporary allocation of a formatted string when joining.
     fn join_with_extension<P: AsRef<Path>, S: AsRef<OsStr>>(&self, name: P, extension: S) -> PathBuf;
 
+    fn append<S: AsRef<OsStr>>(&self, s: S) -> PathBuf;
+
 }
 
 impl PathExt for Path {
@@ -39,6 +41,11 @@ impl PathExt for Path {
     #[inline]
     fn join_with_extension<P: AsRef<Path>, S: AsRef<OsStr>>(&self, name: P, extension: S) -> PathBuf {
         self.join(name).appended(".").appended(extension)
+    }
+
+    #[inline]
+    fn append<S: AsRef<OsStr>>(&self, s: S) -> PathBuf {
+        self.to_path_buf().appended(s)
     }
 
 }

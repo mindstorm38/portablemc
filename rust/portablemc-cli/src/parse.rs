@@ -6,7 +6,7 @@ use std::str::FromStr;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
-use portablemc::{fabric, forge, mojang};
+use portablemc::{fabric, mojang};
 
 
 // ================= //
@@ -143,9 +143,9 @@ pub struct StartArgs {
     /// non-excluded version, if it's not yet cached this will require internet.
     /// 
     /// - fabric:[<game-version>[:[<loader-version>]]] => install and launch a given 
-    /// mojang version with the Fabric mod loader. Both versions can be omitted (empty) 
+    /// Mojang version with the Fabric mod loader. Both versions can be omitted (empty) 
     /// to use the latest stable versions available, but you can also manually specify 
-    /// 'stable' or 'unstable', which are equivalent as Mojang's release and snapshot
+    /// 'stable' or 'unstable', which are equivalent as Mojang release and snapshot
     /// but at the discretion of the Fabric API. If the version is not yet installed, 
     /// it will requires internet to access the Fabric API. See https://fabricmc.net/.
     /// 
@@ -159,11 +159,19 @@ pub struct StartArgs {
     /// 
     /// - babric:[:[<loader-version>]] => same as 'fabric', but using the Babric API 
     /// for missing versions. This mod loader is specifically made to support Fabric
-    /// only on Mojang's b1.7.3, so it's useless to specify the game version like 
+    /// only on Mojang b1.7.3, so it's useless to specify the game version like 
     /// other Fabric-like loaders, both 'stable' and 'unstable' would be equivalent 
     /// to 'b1.7.3'. See https://babric.github.io/.
     /// 
-    /// - raw:<version> => TODO
+    /// - forge::<loader-version> | forge:[<game-version>][:stable|unstable] => the 
+    /// syntax is a bit cumbersome because you can either specify the full loader version
+    /// such as '1.21.4-54.0.12' but you must leave the first parameter empty, or you 
+    /// can specify a Mojang game version with optional second parameter that specifies
+    /// if you target the latest 'stable' (default) or 'unstable' loader version.
+    /// See https://minecraftforge.net/.
+    /// 
+    /// - neoforge::<loader-version> | neoforge:[<game-version>][:stable|unstable] => same
+    /// as 'forge', but using the NeoForge repository. See https://neoforged.net/.
     #[arg(default_value = "release")]
     pub version: StartVersion,
     /// Only ensures that the game is installed but don't launch the game.
@@ -264,21 +272,22 @@ pub struct StartArgs {
 /// Represent all possible version the launcher can start.
 #[derive(Debug, Clone)]
 pub enum StartVersion {
-    Raw {
-        root: String,
-    },
     Mojang {
         root_version: mojang::RootVersion,
     },
     Fabric {
+        kind: StartFabricLoader,
         game_version: fabric::GameVersion,
         loader_version: fabric::LoaderVersion,
-        kind: StartFabricLoader,
     },
     Forge {
-        game_version: forge::GameVersion,
-        loader_version: forge::LoaderVersion,
         kind: StartForgeLoader,
+        version: String,
+    },
+    ForgeLatest {
+        kind: StartForgeLoader,
+        game_version: Option<String>,  // None for targeting "release"
+        stable: bool,
     }
 }
 
@@ -320,17 +329,8 @@ impl FromStr for StartVersion {
         };
 
         if parts.len() > max_parts {
-            return Err(format!("too much colons for this installer kind"));
+            return Err(format!("too much parameters for this installer kind"));
         }
-
-        // Raw version have no alias.
-        if kind == "raw" {
-            return Ok(Self::Raw { root: parts[0].to_string() });
-        }
-
-        // Most versions use the first part as the Mojang's version, and there is always
-        // at least one part.
-        
 
         let version = match kind {
             "mojang" => {
@@ -345,6 +345,13 @@ impl FromStr for StartVersion {
             }
             "fabric" | "quilt" | "legacyfabric" | "babric" => {
                 Self::Fabric { 
+                    kind: match kind {
+                        "fabric" => StartFabricLoader::Fabric,
+                        "quilt" => StartFabricLoader::Quilt,
+                        "legacyfabric" => StartFabricLoader::LegacyFabric,
+                        "babric" => StartFabricLoader::Babric,
+                        _ => unreachable!(),
+                    },
                     game_version: match parts[0] {
                         "" |
                         "stable" => fabric::GameVersion::Stable,
@@ -356,33 +363,46 @@ impl FromStr for StartVersion {
                         Some("unstable") => fabric::LoaderVersion::Unstable,
                         Some(id) => fabric::LoaderVersion::Name(id.to_string()),
                     },
-                    kind: match kind {
-                        "fabric" => StartFabricLoader::Fabric,
-                        "quilt" => StartFabricLoader::Quilt,
-                        "legacyfabric" => StartFabricLoader::LegacyFabric,
-                        "babric" => StartFabricLoader::Babric,
-                        _ => unreachable!(),
-                    },
                 }
             }
             "forge" | "neoforge" => {
-                Self::Forge { 
-                    game_version: match parts[0] {
-                        "" |
-                        "release" => forge::GameVersion::Release,
-                        id => forge::GameVersion::Name(id.to_string()),
-                    },
-                    loader_version: match parts.get(1).copied() {
-                        None | Some("" | "stable") => forge::LoaderVersion::Stable,
-                        Some("unstable") => forge::LoaderVersion::Unstable,
-                        Some(id) => forge::LoaderVersion::Name(id.to_string()),
-                    },
-                    kind: match kind {
-                        "forge" => StartForgeLoader::Forge,
-                        "neoforge" => StartForgeLoader::NeoForge,
-                        _ => unreachable!(),
-                    },
+
+                let kind = match kind {
+                    "forge" => StartForgeLoader::Forge,
+                    "neoforge" => StartForgeLoader::NeoForge,
+                    _ => unreachable!(),
+                };
+
+                match parts.get(1).copied() {
+                    None | 
+                    Some("" | "stable" | "unstable") => {
+                        Self::ForgeLatest { 
+                            kind, 
+                            game_version: match parts[0] {
+                                "" | "release" => None,
+                                id => Some(id.to_string()),
+                            }, 
+                            stable: match parts.get(1).copied() {
+                                None | Some("" | "stable") => true,
+                                Some("unstable") => false,
+                                _ => unreachable!(),
+                            },
+                        }
+                    }
+                    Some(other) => {
+
+                        if !parts[0].is_empty() {
+                            return Err(format!("first parameter should be empty when specifying full loader version"));
+                        }
+
+                        Self::Forge { 
+                            kind, 
+                            version: other.to_string(),
+                        }
+                        
+                    }
                 }
+
             }
             _ => unreachable!()
         };
@@ -445,7 +465,7 @@ pub struct SearchArgs {
     /// This argument can be given multiple times to specify multiple channels to match
     /// in an OR logic.
     /// 
-    /// [supported search kinds: mojang]
+    /// [supported search kinds: mojang, forge, neoforge]
     #[arg(long)]
     pub channel: Vec<SearchChannel>,
     /// Only show the latest version of the given channel.
@@ -459,6 +479,11 @@ pub struct SearchArgs {
     /// [supported search kinds: mojang]
     #[arg(long, conflicts_with_all = ["filter", "channel"])]
     pub latest: Option<SearchLatestChannel>,
+    /// Only keep loader versions that targets the given game version.
+    /// 
+    /// [supported search kinds: forge, neoforge]
+    #[arg(long)]
+    pub game_version: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -484,15 +509,25 @@ pub enum SearchKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum SearchChannel {
+    /// Filter versions by release channel (only for mojang).
     Release,
+    /// Filter versions by snapshot channel (only for mojang).
     Snapshot,
+    /// Filter versions by beta channel (only for mojang).
     Beta,
+    /// Filter versions by alpha channel (only for mojang).
     Alpha,
+    /// Filter versions by stable channel (only for mod loaders).
+    Stable,
+    /// Filter versions by unstable channel (only for mod loaders).
+    Unstable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum SearchLatestChannel {
+    /// Select the latest release version.
     Release,
+    /// Select the latest snapshot version.
     Snapshot,
 }
 

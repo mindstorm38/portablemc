@@ -311,10 +311,35 @@ pub struct Api {
     base_url: &'static str,
 }
 
+pub struct ApiGames {
+    api: &'static Api,
+    versions: Vec<serde::Game>,
+}
+
+pub struct ApiLoaders {
+    api: &'static Api,
+    versions: Vec<serde::Loader>,
+}
+
+pub struct ApiLoader {
+
+}
+
 impl Api {
 
+    pub fn request_games(&'static self) -> reqwest::Result<ApiGames> {
+        self.request_game_versions().map(|versions| ApiGames {
+            api: self,
+            versions,
+        })
+    }
+
+    pub fn request_loaders(&'static self) -> reqwest::Result<ApiLoaders> {
+        todo!()
+    }
+
     /// Request supported game versions.
-    pub fn request_game_versions(&self) -> reqwest::Result<Vec<serde::Game>> {
+    fn request_game_versions(&self) -> reqwest::Result<Vec<serde::Game>> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/game", self.base_url))
@@ -326,7 +351,7 @@ impl Api {
     }
 
     /// Request supported loader versions.
-    pub fn request_loader_versions(&self) -> reqwest::Result<Vec<serde::Loader>> {
+    fn request_loader_versions(&self) -> reqwest::Result<Vec<serde::Loader>> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader", self.base_url))
@@ -338,7 +363,7 @@ impl Api {
     }
 
     /// Request supported loader versions for the given game version.
-    pub fn request_game_loader_versions(&self, game_version: &str) -> reqwest::Result<Vec<serde::GameLoader>> {
+    fn request_game_loader_versions(&self, game_version: &str) -> reqwest::Result<Vec<serde::GameLoader>> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader/{game_version}", self.base_url))
@@ -350,7 +375,7 @@ impl Api {
     }
 
     /// Return true if the given game version has any loader versions supported.
-    pub fn request_has_game_loader_versions(&self, game_version: &str) -> reqwest::Result<bool> {
+    fn request_has_game_loader_versions(&self, game_version: &str) -> reqwest::Result<bool> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader/{game_version}", self.base_url))
@@ -380,6 +405,22 @@ impl fmt::Debug for Api {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Api").field(&self.default_prefix).finish()
     }
+}
+
+impl ApiGames {
+
+    /// Get the latest supported version, stable or unstable.
+    pub fn latest(&self, stable: bool) -> Option<&str> {
+        self.versions.iter()
+            .find(|game| game.stable || !stable)
+            .map(|game| &*game.version)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&'_ str, bool)> + use<'_> {
+        self.versions.iter()
+            .map(|version| (&*version.version, version.stable))
+    }
+
 }
 
 /// This is the original and official Fabric API.

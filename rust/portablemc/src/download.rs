@@ -2,9 +2,9 @@
 //! 
 //! Partially inspired by: https://patshaughnessy.net/2020/1/20/downloading-100000-files-using-async-rust
 
-use std::io::{self, BufWriter, Seek, SeekFrom, Write};
-use std::cmp::Ordering;
+use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::FusedIterator;
+use std::cmp::Ordering;
 use std::path::Path;
 use std::{env, mem};
 use std::sync::Arc;
@@ -470,19 +470,37 @@ impl EntrySuccess {
         &self.inner.sha1
     }
 
+    /// If the entry was configured with `keep_open` option then it should return some
+    /// file handle.
     #[inline]
     pub fn handle(&self) -> Option<&std::fs::File> {
         self.inner.handle.as_ref()
     }
 
+    /// If the entry was configured with `keep_open` option then it should return some
+    /// file handle through mutable ref.
     #[inline]
     pub fn handle_mut(&mut self) -> Option<&mut std::fs::File> {
         self.inner.handle.as_mut()
     }
 
+    /// If the entry was configured with `keep_open` option then it should return some
+    /// file handle, once, and after this any `handle_` method will return none.
     #[inline]
     pub fn take_handle(&mut self) -> Option<std::fs::File> {
         self.inner.handle.take()
+    }
+
+    /// Take the internal handle if the entry was configured with `keep_open` option, and
+    /// read the entire file to a string.
+    /// 
+    /// For now internal because it's being tested...
+    pub(crate) fn read_handle_to_string(&mut self) -> Option<io::Result<String>> {
+        let mut buf = String::new();
+        match self.take_handle()?.read_to_string(&mut buf) {
+            Ok(_) => Some(Ok(buf)),
+            Err(e) => Some(Err(e)),
+        }
     }
 
 }

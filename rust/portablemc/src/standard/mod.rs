@@ -632,7 +632,9 @@ impl Installer {
 
                 let lib_dl;
                 if lib_obj.natives {
-                    lib_dl = lib.downloads.classifiers.get(lib_obj.gav.classifier());
+                    // Unwrap because as seen above, if there are native with define a
+                    // classifier on the GAV.
+                    lib_dl = lib.downloads.classifiers.get(lib_obj.gav.classifier().unwrap());
                 } else {
                     lib_dl = lib.downloads.artifact.as_ref();
                 }
@@ -651,16 +653,11 @@ impl Installer {
                     // can derive with the library name to find a URL.
 
                     let mut url = repo_url.clone();
-
-                    if url.ends_with('/') {
-                        url.truncate(url.len() - 1);
-                    }
-                    
-                    for component in lib_obj.gav.file_components() {
+                    if !url.ends_with('/') {
                         url.push('/');
-                        url.push_str(&component);
                     }
-                    
+                    write!(url, "{}", lib_obj.gav.url()).unwrap();
+
                     lib_obj.download = Some(LibraryDownload {
                         url,
                         size: None,
@@ -967,7 +964,7 @@ impl Installer {
             let reader = match File::open(&index_file) {
                 Ok(reader) => BufReader::new(reader),
                 Err(e) if !index_downloaded && e.kind() == io::ErrorKind::NotFound =>
-                    return Err(Error::AssetsNotFound { version: index_info.id.to_owned() }),
+                    return Err(Error::AssetsNotFound { id: index_info.id.to_owned() }),
                 Err(e) => 
                     return Err(Error::new_io_file(e, &index_file))
             };
@@ -1783,9 +1780,9 @@ pub enum Error {
         version: String,
     },
     /// The given version is not found and no download information is provided.
-    #[error("assets not found: {version}")]
+    #[error("assets not found: {id}")]
     AssetsNotFound {
-        version: String,
+        id: String,
     },
     /// The version JAR file that is required has no download information and is not 
     /// already existing, is is mandatory to build the class path.

@@ -480,7 +480,7 @@ impl Installer {
         } = self;
 
         // Cached manifest, will only be used if fetch is enabled.
-        let mut manifest = None::<Manifest>;
+        let mut manifest = None::<Repo>;
 
         // Resolve aliases such as "release" or "snapshot" if fetch is enabled.
         let channel = match self.inner.root {
@@ -491,7 +491,7 @@ impl Installer {
 
         // If we need an alias then we need to load the manifest.
         let version = if let Some(channel) = channel {
-            manifest.insert(Manifest::request(&mut *handler)?)
+            manifest.insert(Repo::request(&mut *handler)?)
                 .name_of_latest(channel)
                 .map(str::to_string)
                 .ok_or_else(|| Error::AliasRootVersionNotFound { root_version: self.inner.root.clone() })?
@@ -777,11 +777,11 @@ pub enum QuickPlay {
 
 /// A handle to the Mojang versions manifest.
 #[derive(Debug)]
-pub struct Manifest {
+pub struct Repo {
     inner: Box<serde::MojangManifest>,
 }
 
-impl Manifest {
+impl Repo {
 
     /// Request the Mojang versions' manifest. It takes a download handler because this 
     /// it will download it in cache and reuse any previous one that is still valid.
@@ -798,6 +798,15 @@ impl Manifest {
 
         Ok(Self { inner: manifest })
 
+    }
+
+    /// Iterator over all versions in the manifest.
+    /// 
+    /// This method currently returns an abstract iterator because the API is not 
+    /// stabilized yet.
+    pub fn iter(&self) -> impl Iterator<Item = RepoVersion<'_>> + use<'_> {
+        self.inner.versions.iter()
+            .map(RepoVersion)
     }
 
     /// Return the latest version for the given channel, only [`VersionChannel::Release`] 
@@ -817,38 +826,29 @@ impl Manifest {
     }
 
     /// Get a version from its index within the manifest.
-    pub fn by_index(&self, index: usize) -> Option<ManifestVersion<'_>> {
-        self.inner.versions.get(index).map(ManifestVersion)
+    pub fn by_index(&self, index: usize) -> Option<RepoVersion<'_>> {
+        self.inner.versions.get(index).map(RepoVersion)
     }
 
     /// Get a handle to a version information from its name.
-    pub fn by_name(&self, name: &str) -> Option<ManifestVersion<'_>> {
+    pub fn by_name(&self, name: &str) -> Option<RepoVersion<'_>> {
         self.inner.versions.iter()
             .find(|v| v.id == name)
-            .map(ManifestVersion)
-    }
-
-    /// Iterator over all versions in the manifest.
-    /// 
-    /// This method currently returns an abstract iterator because the API is not 
-    /// stabilized yet.
-    pub fn iter(&self) -> impl Iterator<Item = ManifestVersion<'_>> + use<'_> {
-        self.inner.versions.iter()
-            .map(ManifestVersion)
+            .map(RepoVersion)
     }
 
 }
 
 /// A handle to a version in the Mojang versions manifest.
 #[derive(Debug)]
-pub struct ManifestVersion<'a>(&'a serde::MojangManifestVersion);
+pub struct RepoVersion<'a>(&'a serde::MojangManifestVersion);
 
-impl<'a> ManifestVersion<'a> {
+impl<'a> RepoVersion<'a> {
 
     /// The name of this version.
     /// 
     /// See [`standard::LoadedVersion::name`] for more information on the naming.
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'a str {
         &self.0.id
     }
 
@@ -858,17 +858,17 @@ impl<'a> ManifestVersion<'a> {
     }
 
     /// The last update time for this version.
-    pub fn time(&self) -> &DateTime<FixedOffset> {
+    pub fn time(&self) -> &'a DateTime<FixedOffset> {
         &self.0.time
     }
 
     /// The release time for this version. 
-    pub fn release_time(&self) -> &DateTime<FixedOffset> {
+    pub fn release_time(&self) -> &'a DateTime<FixedOffset> {
         &self.0.release_time
     }
 
     /// Return the download URL to this version metadata.
-    pub fn url(&self) -> &str {
+    pub fn url(&self) -> &'a str {
         &self.0.download.url
     }
 
@@ -878,7 +878,7 @@ impl<'a> ManifestVersion<'a> {
     }
 
     /// Return the expected SHA-1 of this version metadata, if any.
-    pub fn sha1(&self) -> Option<&[u8; 20]> {
+    pub fn sha1(&self) -> Option<&'a [u8; 20]> {
         self.0.download.sha1.as_deref()
     }
 
@@ -897,7 +897,7 @@ struct InternalHandler<'a> {
     /// If there is an error in the handler.
     error: Result<()>,
     /// If fetching is enabled, then this contains the manifest to use.
-    manifest: Option<Manifest>,
+    manifest: Option<Repo>,
     /// Id of the "leaf" version, the last version without inherited version.
     leaf_version: &'a mut String,
 }
@@ -992,7 +992,7 @@ impl InternalHandler<'_> {
         // Only ensure that the manifest is loaded after checking fetch exclude.
         let manifest = match self.manifest {
             Some(ref manifest) => manifest,
-            None => self.manifest.insert(Manifest::request(&mut *self.inner)?)
+            None => self.manifest.insert(Repo::request(&mut *self.inner)?)
         };
 
         // Unwrap because we checked the manifest in the condition.
@@ -1084,8 +1084,8 @@ impl InternalHandler<'_> {
     
         // Start by not retaining libraries with classifiers (natives).
         libraries.retain_mut(|lib| {
-            if let ("org.lwjgl", "jar") = (lib.gav.group(), lib.gav.extension()) {
-                if lib.gav.classifier().is_empty() {
+            if let ("org.lwjgl", "jar") = (lib.gav.group(), lib.gav.extension_or_default()) {
+                if lib.gav.classifier().is_none() {
                     lib.path = None;
                     lib.download = None;  // Will be updated afterward.
                     lib.gav.set_version(version);
@@ -1113,12 +1113,8 @@ impl InternalHandler<'_> {
     
         // Finally we update the download source.
         for lib in libraries {
-            if let ("org.lwjgl", "jar") = (lib.gav.group(), lib.gav.extension()) {
-                let mut url = "https://repo1.maven.org/maven2".to_string();
-                for component in lib.gav.file_components() {
-                    url.push('/');
-                    url.push_str(&component);
-                }
+            if let ("org.lwjgl", "jar") = (lib.gav.group(), lib.gav.extension_or_default()) {
+                let url = format!("https://repo1.maven.org/maven2/{}", lib.gav.url());
                 lib.download = Some(LibraryDownload { url, size: None, sha1: None });
             }
         }

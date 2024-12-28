@@ -79,7 +79,7 @@ macro_rules! trait_event_handler {
         impl<H: $name + ?Sized> $name for &'_ mut H {
             $( 
                 fn $func ( &mut self $( , $arg : $arg_ty )* ) $( -> $ret_ty )? {
-                    $name::$func( *self $(, $arg)* )
+                    $name::$func( &mut **self $(, $arg)* )
                 }
             )*
         }

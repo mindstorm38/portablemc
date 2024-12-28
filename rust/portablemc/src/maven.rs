@@ -1,8 +1,8 @@
 //! Maven related utilities, such as GAV and 'maven-metadata.xml' parsing.
 
+use std::path::{Path, PathBuf};
 use std::iter::FusedIterator;
 use std::num::NonZeroU16;
-use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::borrow::Cow;
 use std::ops::Range;
@@ -177,10 +177,19 @@ impl Gav {
         self.raw.replace_range(range, version);
     }
 
-    /// Return the classifier of the library, empty if no classifier.
+    pub fn with_version(&self, version: &str) -> Self {
+        Self::new(self.group(), self.artifact(), version, self.classifier(), self.extension())
+    }
+
+    /// Return the classifier of the library, none if no classifier.
     #[inline]
-    pub fn classifier(&self) -> &str {
-        &self.raw[self.classifier_range()]
+    pub fn classifier(&self) -> Option<&str> {
+        let range = self.classifier_range();
+        if range.is_empty() {
+            None
+        } else {
+            Some(&self.raw[self.classifier_range()])
+        }
     }
 
     /// Change the classifier of the library, should not be empty.
@@ -198,15 +207,26 @@ impl Gav {
         }
     }
 
-    /// Return the extension of the library, never empty, defaults to "jar".
+    pub fn with_classifier(&self, classifier: Option<&str>) -> Self {
+        Self::new(self.group(), self.artifact(), self.version(), classifier, self.extension())
+    }
+
+    /// Return the extension of the library, none if the default extension should be used,
+    /// like "jar".
     #[inline]
-    pub fn extension(&self) -> &str {
+    pub fn extension(&self) -> Option<&str> {
         let range = self.extension_range();
         if range.is_empty() {
-            "jar"
+            None
         } else {
-            &self.raw[range]
+            Some(&self.raw[range])
         }
+    }
+
+    /// Return the extension of the library, "jar" if default extension should be used.
+    #[inline]
+    pub fn extension_or_default(&self) -> &str {
+        self.extension().unwrap_or("jar")
     }
 
     /// Change the extension of the library, should not be empty.
@@ -230,36 +250,45 @@ impl Gav {
         &self.raw
     }
 
-    /// Iterator over standard file path component for this GAV, the iterating
-    /// component is a cow because most of these are borrowed but the last 
-    /// file part must be formatted and therefore owned.
+    // /// Iterator over standard file path component for this GAV, the iterating
+    // /// component is a cow because most of these are borrowed but the last 
+    // /// file part must be formatted and therefore owned.
+    // /// 
+    // /// To properly join a GAV to a path, prefer [`Self::file`].
+    // pub fn file_components(&self) -> impl Iterator<Item = Cow<'_, str>> + use<'_> {
+
+    //     let artifact = self.artifact();
+    //     let version = self.version();
+
+    //     let mut file_name = format!("{artifact}-{version}");
+    //     if let Some(classifier) = self.classifier() {
+    //         file_name.push('-');
+    //         file_name.push_str(classifier);
+    //     }
+    //     file_name.push('.');
+    //     file_name.push_str(self.extension_or_default());
+
+    //     self.group().split('.')
+    //         .chain([artifact, version])
+    //         .map(Cow::Borrowed)
+    //         .chain([Cow::Owned(file_name)])
+
+    // }
+
+    /// Get a URL formatter for this GAV, this can be appended to any full URL.
     /// 
-    /// To properly join a GAV to a path, prefer [`Self::file`].
-    pub fn file_components(&self) -> impl Iterator<Item = Cow<'_, str>> + use<'_> {
-
-        let artifact = self.artifact();
-        let version = self.version();
-
-        let mut file_name = format!("{artifact}-{version}");
-        let classifier = self.classifier();
-        if !classifier.is_empty() {
-            file_name.push('-');
-            file_name.push_str(classifier);
-        }
-        file_name.push('.');
-        file_name.push_str(self.extension());
-
-        self.group().split('.')
-            .chain([artifact, version])
-            .map(Cow::Borrowed)
-            .chain([Cow::Owned(file_name)])
-
+    /// For example, 
+    /// `net.minecraft:client:1.21.1` will transform into 
+    /// `net/minecraft/client/1.21.1/client-1.21.1.jar`.
+    #[inline]
+    pub fn url(&self) -> GavUrl<'_> {
+        GavUrl(self)
     }
 
     /// Create a file path of this GAV from a base directory.
+    /// 
+    /// NOTE: Unsafe path joining if any component as a '..'!
     pub fn file<P: AsRef<Path>>(&self, dir: P) -> PathBuf {
-
-        // NOTE: Unsafe path joining if any component as a '..'!
 
         let mut buf = dir.as_ref().to_path_buf();
         for group_part in self.group().split('.') {
@@ -275,13 +304,12 @@ impl Gav {
         buf.push(artifact);
         buf.as_mut_os_string().push("-");
         buf.as_mut_os_string().push(version);
-        let classifier = self.classifier();
-        if !classifier.is_empty() {
+        if let Some(classifier) = self.classifier() {
             buf.as_mut_os_string().push("-");
             buf.as_mut_os_string().push(classifier);
         }
         buf.as_mut_os_string().push(".");
-        buf.as_mut_os_string().push(self.extension());
+        buf.as_mut_os_string().push(self.extension_or_default());
 
         buf
 
@@ -354,6 +382,119 @@ impl serde::Serialize for Gav {
     }
 }
 
+/// URL formatter for a gav.
+pub struct GavUrl<'a>(&'a Gav);
+
+impl fmt::Display for GavUrl<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+
+        for group_part in self.0.group().split('.') {
+            f.write_str(group_part)?;
+            f.write_str("/")?;
+        }
+        
+        let artifact = self.0.artifact();
+        let version = self.0.version();
+
+        f.write_str(artifact)?;
+        f.write_str("/")?;
+        f.write_str(version)?;
+        f.write_str("/")?;
+        f.write_str(artifact)?;
+        f.write_str("-")?;
+        f.write_str(version)?;
+
+        if let Some(classifier) = self.0.classifier() {
+            f.write_str("-")?;
+            f.write_str(classifier)?;
+        }
+
+        f.write_str(".")?;
+        f.write_str(self.0.extension_or_default())
+
+    }
+}
+
+/// A streaming parser for a 'maven-metadata.xml' file, this is an iterator that return
+/// each versions.
+#[derive(Debug)]
+pub(crate) struct MetadataParser<'a> {
+    tokenizer: Option<xmlparser::Tokenizer<'a>>,
+}
+
+impl<'a> MetadataParser<'a> {
+
+    pub fn new(buffer: &'a str) -> Self {
+        Self {
+            tokenizer: Some(xmlparser::Tokenizer::from(buffer)),
+        }
+    }
+
+}
+
+impl<'a> Iterator for MetadataParser<'a> {
+
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+
+        use xmlparser::{Token, ElementEnd};
+
+        let tokenizer = self.tokenizer.as_mut()?;
+        let mut version = false;
+
+        while let Ok(token) = tokenizer.next()? {
+
+            match token {
+                Token::ElementStart { prefix, local, .. } => {
+                    if prefix.is_empty() && local == "version" {
+                        if !version {
+                            version = true;
+                        } else {
+                            break;  // return none
+                        }
+                    } else if version {
+                        break;  // return none
+                    }
+                }
+                Token::ElementEnd { end: ElementEnd::Close(prefix, local), .. } => {
+                    if version {
+                        if prefix.is_empty() && local == "version" {
+                            version = false;
+                        } else {
+                            break;  // return none
+                        }
+                    }
+                }
+                Token::ElementEnd { end: ElementEnd::Empty, .. } => {
+                    if version {
+                        break;  // return none
+                    }
+                }
+                Token::Text { text } => {
+                    if version {
+                        return Some(text.as_str());
+                    }
+                }
+                _ => continue,
+            }
+
+        }
+
+        // Tokenizer doesn't implement FusedIterator yet so we nullify if none's returned.
+        // If any error we nullify tokenizer so we always return none.
+        self.tokenizer = None;
+        None
+
+    }
+    
+}
+
+/// Valid to implement because we return none forever after any error.
+impl FusedIterator for MetadataParser<'_> {  }
+
+
+/*
 /// Representation of a 'maven-metadata.xml' file with all registered versions, optimized
 /// to avoid wasting memory space.
 pub struct MavenMetadata {
@@ -516,7 +657,7 @@ impl ExactSizeIterator for MavenMetadataVersions<'_> {
     fn len(&self) -> usize {
         self.versions.len()
     }
-}
+} */
 
 #[cfg(test)]
 mod tests {
@@ -581,15 +722,15 @@ mod tests {
         assert_eq!(gav.group(), "foo.bar");
         assert_eq!(gav.artifact(), "baz");
         assert_eq!(gav.version(), "0.1.2-beta");
-        assert_eq!(gav.classifier(), "");
-        assert_eq!(gav.extension(), "jar");
+        assert_eq!(gav.classifier(), None);
+        assert_eq!(gav.extension(), None);
 
         let gav = Gav::from_str("foo.bar:baz:0.1.2-beta:natives@txt").unwrap();
         assert_eq!(gav.group(), "foo.bar");
         assert_eq!(gav.artifact(), "baz");
         assert_eq!(gav.version(), "0.1.2-beta");
-        assert_eq!(gav.classifier(), "natives");
-        assert_eq!(gav.extension(), "txt");
+        assert_eq!(gav.classifier(), Some("natives"));
+        assert_eq!(gav.extension(), Some("txt"));
 
     }
 
