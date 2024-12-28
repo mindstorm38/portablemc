@@ -618,24 +618,24 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
 /// Log a mojang error on the given logger output.
 pub fn log_mojang_error(out: &mut Output, error: mojang::Error) {
 
-    use mojang::{Error, RootVersion};
+    use mojang::Error;
 
     match error {
         Error::Standard(error) => log_standard_error(out, error),
-        Error::AliasRootVersionNotFound { root_version } => {
+        // Error::AliasRootVersionNotFound { root_version } => {
             
-            let alias_str = match &root_version {
-                RootVersion::Release => "release",
-                RootVersion::Snapshot => "snapshot",
-                RootVersion::Name(_) => panic!()
-            };
+        //     let alias_str = match &root_version {
+        //         RootVersion::Release => "release",
+        //         RootVersion::Snapshot => "snapshot",
+        //         RootVersion::Name(_) => panic!()
+        //     };
 
-            out.log("error_mojang_alias_root_version_not_found")
-                .arg(alias_str)
-                .error(format_args!("Failed to resolve Mojang root version '{alias_str}'"))
-                .additional("The alias might be missing from manifest, likely an issue on Mojang's side");
+        //     out.log("error_mojang_alias_root_version_not_found")
+        //         .arg(alias_str)
+        //         .error(format_args!("Failed to resolve Mojang root version '{alias_str}'"))
+        //         .additional("The alias might be missing from manifest, likely an issue on Mojang's side");
 
-        }
+        // }
         Error::LwjglFixNotFound { version } => {
             out.log("error_lwjgl_fix_not_found")
                 .arg(&version)

@@ -8,9 +8,9 @@ use core::fmt;
 
 use reqwest::StatusCode;
 
-use crate::mojang::{self, RootVersion};
 use crate::download;
 use crate::standard;
+use crate::mojang;
 
 pub use mojang::Game;
 
@@ -38,7 +38,7 @@ impl Installer {
     /// Create a new installer with default configuration.
     pub fn new(main_dir: impl Into<PathBuf>, api: &'static Api) -> Self {
         Self {
-            mojang: mojang::Installer::new(main_dir),
+            mojang: mojang::Installer::new(String::new(), main_dir),
             inner: InstallerInner {
                 api,
                 game_version: GameVersion::Stable,
@@ -175,7 +175,7 @@ impl Installer {
         // we'll give to the version.
         let prefix = inner.api.default_prefix;
         let root_version = format!("{prefix}-{game_version}-{loader_version}");
-        mojang.set_root_version(RootVersion::Name(root_version.clone()));
+        mojang.set_version(root_version.clone());
 
         // Scoping the temporary internal handler.
         let game = {
@@ -294,6 +294,16 @@ impl<T: Into<String>> From<T> for LoaderVersion {
     fn from(value: T) -> Self {
         Self::Name(value.into())
     }
+}
+
+pub struct Version {
+
+}
+
+impl Version {
+
+
+
 }
 
 /// A fabric-compatible API.

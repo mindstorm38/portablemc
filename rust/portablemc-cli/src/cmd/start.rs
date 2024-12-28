@@ -6,7 +6,8 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Local, Utc};
 
-use portablemc::{standard, mojang, fabric, forge};
+use portablemc::{mojang, fabric, forge};
+use portablemc::standard::{self, Game};
 
 use crate::parse::{StartArgs, StartFabricLoader, StartForgeLoader, StartResolution, StartVersion};
 use crate::format::TIME_FORMAT;
@@ -22,31 +23,37 @@ pub static GAME_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 
 pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
-    let game;
-
-    match &args.version {
+    match args.version {
         StartVersion::Mojang { 
-            root_version,
+            ref version,
         } => {
+            main_mojang(version.clone(), cli, args)
+        }
+        StartVersion::MojangRelease |
+        StartVersion::MojangSnapshot => {
 
-            let mut inst = mojang::Installer::new(cli.main_dir.clone());
-            apply_mojang_args(&mut inst, &cli, args);
-            inst.set_root_version(root_version.clone());
-
-            let mut handler = CommonHandler::new(&mut cli.out);
-            game = match inst.install(&mut handler) {
-                Ok(game) => game,
+            let handler = CommonHandler::new(&mut cli.out);
+            let repo = match mojang::Manifest::request(handler) {
+                Ok(repo) => repo,
                 Err(e) => {
                     log_mojang_error(&mut cli.out, e);
                     return ExitCode::FAILURE;
                 }
             };
 
+            let version = match args.version {
+                StartVersion::MojangRelease => repo.latest_release_name(),
+                StartVersion::MojangSnapshot => repo.latest_snapshot_name(),
+                _ => unreachable!(),
+            };
+
+            main_mojang(version.to_string(), cli, args)
+
         }
         StartVersion::Fabric { 
-            kind,
-            game_version, 
-            loader_version, 
+            ref kind,
+            ref game_version, 
+            ref loader_version, 
         } => {
 
             let (api, api_id, api_name) = match kind {
@@ -63,18 +70,18 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
             let mut handler = CommonHandler::new(&mut cli.out);
             handler.set_api(api_id, api_name);
-            game = match inst.install(handler) {
-                Ok(game) => game,
+            match inst.install(handler) {
+                Ok(game) => main_game(game, cli, args),
                 Err(e) => {
                     log_fabric_error(&mut cli.out, e, api_id, api_name);
                     return ExitCode::FAILURE;
                 }
-            };
+            }
 
         }
         StartVersion::Forge { 
-            kind, 
-            version,
+            ref kind, 
+            ref version,
         } => {
 
             let (inst_version, api_id, api_name) = match kind {
@@ -89,34 +96,22 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
                 return ExitCode::FAILURE;
             };
 
-            let mut inst = forge::Installer::new(cli.main_dir.clone(), inst_version);
-            inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
-
-            let mut handler = CommonHandler::new(&mut cli.out);
-            handler.set_api(api_id, api_name);
-            game = match inst.install(handler) {
-                Ok(game) => game,
-                Err(e) => {
-                    log_forge_error(&mut cli.out, e, api_id, api_name);
-                    return ExitCode::FAILURE;
-                }
-            };
+            main_forge(inst_version, cli, args, api_id, api_name)
 
         }
         StartVersion::ForgeLatest { 
-            kind, 
-            game_version, 
+            ref kind, 
+            ref game_version, 
             stable,
         } => {
-
-            let mut handler = CommonHandler::new(&mut cli.out);
-
+            
             let game_version_release = game_version.is_none();
             let game_version = match game_version {
                 Some(game_version) => game_version.clone(),
                 None => {
-
-                    let repo = match mojang::Repo::request(&mut handler) {
+                    
+                    let handler = CommonHandler::new(&mut cli.out);
+                    let repo = match mojang::Manifest::request(handler) {
                         Ok(repo) => repo,
                         Err(e) => {
                             log_mojang_error(&mut cli.out, e);
@@ -124,9 +119,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
                         }
                     };
 
-                    repo.name_of_latest(standard::VersionChannel::Release)
-                        .unwrap_or("")
-                        .to_string()
+                    repo.latest_release_name().to_string()
 
                 }
             };
@@ -144,16 +137,16 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
                 }
             };
             
-            let Some(repo_version) = repo.find_latest(&game_version, *stable) else {
+            let Some(repo_version) = repo.find_latest(&game_version, stable) else {
 
-                let stable_str = if *stable { "stable" } else { "unstable" };
+                let stable_str = if stable { "stable" } else { "unstable" };
                 
                 let mut log = cli.out.log(format_args!("error_{api_id}_latest_version_not_found"));
                 log.arg(&game_version);
                 log.arg(stable_str);
                 log.error(format_args!("{api_name} has no latest {stable_str} version for game version '{game_version}'"));
 
-                if *stable {
+                if stable {
                     log.additional("The loader might not yet support any stable version for this game version");
                     if game_version_release {
                         log.additional(format_args!("Try 'unstable' channel with '{api_id}::unstable'"));
@@ -168,21 +161,50 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
             };
 
-            let mut inst = forge::Installer::new(cli.main_dir.clone(), repo_version);
-            inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
-
-            let mut handler = CommonHandler::new(&mut cli.out);
-            handler.set_api(api_id, api_name);
-            game = match inst.install(handler) {
-                Ok(game) => game,
-                Err(e) => {
-                    log_forge_error(&mut cli.out, e, api_id, api_name);
-                    return ExitCode::FAILURE;
-                }
-            };
+            main_forge(repo_version.into(), cli, args, api_id, api_name)
 
         }
     }
+
+}
+
+/// Main entrypoint for starting a Mojang version from its name.
+fn main_mojang(version: String, cli: &mut Cli, args: &StartArgs) -> ExitCode {
+
+    let mut inst = mojang::Installer::new(version, cli.main_dir.clone());
+    apply_mojang_args(&mut inst, &cli, args);
+
+    let mut handler = CommonHandler::new(&mut cli.out);
+    match inst.install(&mut handler) {
+        Ok(game) => main_game(game, cli, args),
+        Err(e) => {
+            log_mojang_error(&mut cli.out, e);
+            return ExitCode::FAILURE;
+        }
+    }
+    
+}
+
+/// Main entrypoint for starting a Forge/NeoForge version from its object.
+fn main_forge(version: forge::Version, cli: &mut Cli, args: &StartArgs, api_id: &'static str, api_name: &'static str) -> ExitCode {
+
+    let mut inst = forge::Installer::new(version, cli.main_dir.clone());
+    inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
+
+    let mut handler = CommonHandler::new(&mut cli.out);
+    handler.set_api(api_id, api_name);
+    match inst.install(handler) {
+        Ok(game) => main_game(game, cli, args),
+        Err(e) => {
+            log_forge_error(&mut cli.out, e, api_id, api_name);
+            return ExitCode::FAILURE;
+        }
+    }
+
+}
+
+/// Main entrypoint for running the installed game.
+fn main_game(game: Game, cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
     // Build the command here so that we can debug it's arguments without launching.
     let command = game.command();
@@ -199,7 +221,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    match run_game(cli, command) {
+    match run_command(cli, command) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             log_io_error(&mut cli.out, e, "run game");
@@ -210,7 +232,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 }
 
 // Internal function to apply args to the standard installer.
-pub fn apply_standard_args<'a>(
+fn apply_standard_args<'a>(
     installer: &'a mut standard::Installer, 
     cli: &Cli, 
 ) -> &'a mut standard::Installer {
@@ -224,7 +246,7 @@ pub fn apply_standard_args<'a>(
 }
 
 // Internal function to apply args to the mojang installer.
-pub fn apply_mojang_args<'a>(
+fn apply_mojang_args<'a>(
     installer: &'a mut mojang::Installer,
     cli: &Cli, 
     args: &StartArgs,
@@ -273,7 +295,7 @@ pub fn apply_mojang_args<'a>(
 }
 
 /// Internal function to run the game, separated in order to catch I/O errors.
-fn run_game(cli: &mut Cli, mut command: Command) -> io::Result<()> {
+fn run_command(cli: &mut Cli, mut command: Command) -> io::Result<()> {
 
     // Keep the guard while we are launching the command.
     let mut child_guard = GAME_CHILD.lock().unwrap();

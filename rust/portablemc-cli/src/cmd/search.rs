@@ -48,11 +48,11 @@ pub fn main(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
 
 fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     
-    use mojang::Repo;
+    use mojang::Manifest;
 
     // Initial requests...
     let mut handler = CommonHandler::new(&mut cli.out);
-    let manifest = match Repo::request(&mut handler) {
+    let manifest = match Manifest::request(&mut handler) {
         Ok(manifest) => manifest,
         Err(e) => {
             log_mojang_error(&mut cli.out, e);
@@ -75,19 +75,12 @@ fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     table.sep();
 
     // This is an exclusive argument.
-    let only_name = if let Some(latest_channel) = args.latest {
-        let name = match latest_channel {
-            SearchLatestChannel::Release => manifest.name_of_latest(VersionChannel::Release),
-            SearchLatestChannel::Snapshot => manifest.name_of_latest(VersionChannel::Snapshot),
-        };
-        if let Some(name) = name {
-            Some(name)
-        } else {
-            return ExitCode::SUCCESS;
+    let only_name = args.latest.as_ref().map(|channel| {
+        match channel {
+            SearchLatestChannel::Release => manifest.latest_release_name(),
+            SearchLatestChannel::Snapshot => manifest.latest_snapshot_name(),
         }
-    } else {
-        None
-    };
+    });
 
     // Finally displaying version(s).
     for version in manifest.iter() {
@@ -121,15 +114,11 @@ fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
         let mut row = table.row();
         row.cell(version.name());
         
-        let is_latest = manifest.name_of_latest(version.channel())
-            .map(|name| name == version.name())
-            .unwrap_or(false);
-
-        let (channel_id, channel_fmt) = match version.channel() {
-            VersionChannel::Release => ("release", "Release"),
-            VersionChannel::Snapshot => ("snapshot", "Snapshot"),
-            VersionChannel::Beta => ("beta", "Beta"),
-            VersionChannel::Alpha => ("alpha", "Alpha"),
+        let (channel_id, channel_fmt, is_latest) = match version.channel() {
+            VersionChannel::Release => ("release", "Release", manifest.latest_release_name() == version.name()),
+            VersionChannel::Snapshot => ("snapshot", "Snapshot", manifest.latest_snapshot_name() == version.name()),
+            VersionChannel::Beta => ("beta", "Beta", false),
+            VersionChannel::Alpha => ("alpha", "Alpha", false),
         };
         
         if is_latest {

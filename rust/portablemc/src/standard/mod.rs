@@ -59,7 +59,7 @@ pub(crate) const LEGACY_JVM_ARGS: &[&str] = &[
 /// for fetching missing Mojang versions, various fixes and authentication support.**
 #[derive(Debug, Clone)]
 pub struct Installer {
-    root_version: String,
+    version: String,
     versions_dir: PathBuf,
     libraries_dir: PathBuf,
     assets_dir: PathBuf,
@@ -82,12 +82,12 @@ impl Installer {
     /// 
     /// If you're confident a default main directory is available on your system, you
     /// can use [`Self::new_with_default`].
-    pub fn new(root_version: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(version: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
 
         let mc_dir = main_dir.into();
         
         Self {
-            root_version: root_version.into(),
+            version: version.into(),
             versions_dir: mc_dir.join("versions"),
             libraries_dir: mc_dir.join("libraries"),
             assets_dir: mc_dir.join("assets"),
@@ -114,15 +114,15 @@ impl Installer {
     /// Change the root version id to load and install, this overrides the root version
     /// given when constructing this installer.
     #[inline]
-    pub fn set_root_version(&mut self, root_version: impl Into<String>) -> &mut Self {
-        self.root_version = root_version.into();
+    pub fn set_version(&mut self, version: impl Into<String>) -> &mut Self {
+        self.version = version.into();
         self
     }
 
-    /// See [`Self::set_root_version`].
+    /// See [`Self::set_version`].
     #[inline]
-    pub fn root_version(&self) -> &str {
-        &self.root_version
+    pub fn version(&self) -> &str {
+        &self.version
     }
 
     /// Shortcut for defining the various main directories of the game, by deriving
@@ -331,7 +331,7 @@ impl Installer {
         
         // Then we have a sequence of steps that may add entries to the download batch.
         let mut batch = Batch::new();
-        let hierarchy = self.load_hierarchy(&mut *handler, &self.root_version)?;
+        let hierarchy = self.load_hierarchy(&mut *handler, &self.version)?;
         let mut lib_files = self.load_libraries(&mut *handler, &hierarchy, &features, &mut batch)?;
         let logger_config = self.load_logger(&mut *handler, &hierarchy, &mut batch)?;
         let assets = self.load_assets(&mut *handler, &hierarchy, &mut batch)?;
@@ -758,7 +758,7 @@ impl Installer {
         // We place the root id as prefix for clarity, even if we can theoretically
         // have multiple bin dir for the same version, if libraries change.
         let bin_uuid = Uuid::new_v5(&UUID_NAMESPACE, &hash_buf);
-        let bin_dir = self.bin_dir.join(&self.root_version)
+        let bin_dir = self.bin_dir.join(&self.version)
             .appended(format!("-{}", bin_uuid.hyphenated()));
 
         // Create the directory and then canonicalize it.
