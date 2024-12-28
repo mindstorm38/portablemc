@@ -16,8 +16,8 @@ pub struct MojangManifest {
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct MojangManifestLatest {
-    pub release: Option<String>,
-    pub snapshot: Option<String>,
+    pub release: String,
+    pub snapshot: String,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]

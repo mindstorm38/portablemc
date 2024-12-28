@@ -6,7 +6,7 @@ use std::str::FromStr;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
-use portablemc::{fabric, mojang};
+use portablemc::fabric;
 
 
 // ================= //
@@ -273,8 +273,10 @@ pub struct StartArgs {
 #[derive(Debug, Clone)]
 pub enum StartVersion {
     Mojang {
-        root_version: mojang::RootVersion,
+        version: String,
     },
+    MojangRelease,
+    MojangSnapshot,
     Fabric {
         kind: StartFabricLoader,
         game_version: fabric::GameVersion,
@@ -334,13 +336,11 @@ impl FromStr for StartVersion {
 
         let version = match kind {
             "mojang" => {
-                Self::Mojang { 
-                    root_version: match parts[0] {
-                        "" | 
-                        "release" => mojang::RootVersion::Release,
-                        "snapshot" => mojang::RootVersion::Snapshot,
-                        id => mojang::RootVersion::Name(id.to_string()),
-                    },
+                match parts[0] {
+                    "" | 
+                    "release" => Self::MojangRelease {  },
+                    "snapshot" => Self::MojangSnapshot {  },
+                    version => Self::Mojang { version: version.to_string() },
                 }
             }
             "fabric" | "quilt" | "legacyfabric" | "babric" => {

@@ -15,8 +15,8 @@ use std::fs::File;
 use crate::download::{self, Batch, EntryErrorKind};
 use crate::standard::{self, LIBRARIES_URL};
 use crate::maven::{Gav, MetadataParser};
-use crate::mojang::{self, RootVersion};
 use crate::path::{PathBufExt, PathExt};
+use crate::mojang;
 
 use reqwest::StatusCode;
 use zip::ZipArchive;
@@ -38,9 +38,10 @@ pub struct Installer {
 impl Installer {
 
     /// Create a new installer with default configuration.
-    pub fn new(main_dir: impl Into<PathBuf>, version: impl Into<Version>) -> Self {
+    pub fn new(version: impl Into<Version>, main_dir: impl Into<PathBuf>) -> Self {
         Self {
-            mojang: mojang::Installer::new(main_dir),
+            // Empty version by default, will be set at install.
+            mojang: mojang::Installer::new(String::new(), main_dir),
             version: version.into(),
         }
     }
@@ -48,7 +49,7 @@ impl Installer {
     /// Same as [`Self::new`] but using the default main directory in your system,
     /// returning none if there is no default main directory on your system.
     pub fn new_with_default(version: impl Into<Version>) -> Option<Self> {
-        Some(Self::new(standard::default_main_dir()?, version))
+        Some(Self::new(version, standard::default_main_dir()?))
     }
 
     /// Execute some callback to alter the mojang installer.
@@ -75,29 +76,17 @@ impl Installer {
         &self.mojang
     }
 
-    // /// By default, this Forge and NeoForge installer targets the latest stable version.
-    // pub fn set_game_version(&mut self, version: impl Into<GameVersion>) {
-    //     self.inner.game_version = version.into();
-    // }
+    /// Change the version to start provided at construction.
+    #[inline]
+    pub fn set_version(&mut self, version: impl Into<Version>) {
+        self.version = version.into();
+    }
 
-    // /// See [`Self::set_game_version`].   
-    // #[inline]
-    // pub fn game_version(&self) -> &GameVersion {
-    //     &self.inner.game_version
-    // }
-
-    // /// By default, this Forge installer targets the latest stable loader version for the
-    // /// currently configured game version, use this function to override the loader 
-    // /// version to use.
-    // pub fn set_loader_version(&mut self, version: impl Into<LoaderVersion>) {
-    //     self.inner.loader_version = version.into();
-    // }
-
-    // /// See [`Self::set_loader_version`].   
-    // #[inline]
-    // pub fn loader_version(&self) -> &LoaderVersion {
-    //     &self.inner.loader_version
-    // }
+    /// Get the currently configured version to install and launch.
+    #[inline]
+    pub fn version(&self) -> &Version {
+        &self.version
+    }
 
     /// Install the currently configured Forge/NeoForge loader with the given handler.
     #[inline]
@@ -113,84 +102,6 @@ impl Installer {
             ref version,
         } = self;
 
-        // // Start by getting the game version.
-        // let game_version = match inner.game_version {
-        //     GameVersion::Name(ref name) => name.clone(),
-        //     GameVersion::Release => {
-        //         mojang::Repo::request(&mut *handler)?
-        //             .name_of_latest(VersionChannel::Release)
-        //             .map(str::to_string)
-        //             .ok_or_else(|| Error::AliasGameVersionNotFound { 
-        //                 game_version: inner.game_version.clone(),
-        //             })?
-        //     }
-        // };
-
-        // let Some([game_major, game_minor]) = parse_game_version(&game_version) else {
-        //     return Err(Error::GameVersionNotFound { 
-        //         game_version,
-        //     });
-        // };
-
-        // let artifact = (inner.api.maven_artifact)(&game_version, game_major, game_minor);
-
-        // // Full loader version id, containing the game version.
-        // let loader_version = match inner.loader_version {
-        //     LoaderVersion::Name(ref name) => {
-        //         (inner.api.build_loader_version)(&game_version, game_major, game_minor, &name)
-        //     }
-        //     LoaderVersion::Stable |
-        //     LoaderVersion::Unstable => {
-
-        //         let metadata_url = format!("{}/{artifact}/maven-metadata.xml", inner.api.maven_group_base_url);
-        //         let metadata = request_maven_metadata(&metadata_url)?;
-
-        //         let stable = matches!(inner.loader_version, LoaderVersion::Stable);
-        //         let prefix = (inner.api.build_loader_version_prefix)(&game_version, game_major, game_minor);
-                
-        //         // This common closure will set the 'found_version' external variable to 
-        //         // true if some loader version contains the game version prefix, so at
-        //         // least on loader is supported for the game version, this is used to 
-        //         // have a more precise error returned.
-        //         let mut found_game_version = false;
-        //         let find_version = |version: &&str| {
-        //             if !version.starts_with(&prefix) {
-        //                 return false;
-        //             }
-        //             found_game_version = true;
-        //             // Either stable is not required, to we return any version, or the 
-        //             // version must be stable.
-        //             !stable || (inner.api.is_loader_version_stable)(&game_version, game_major, game_minor, version)
-        //         };
-
-        //         let version;
-        //         if inner.api.maven_manifest_reverse_order {
-        //             version = metadata.versions().rev().find(find_version).map(str::to_string);
-        //         } else {
-        //             version = metadata.versions().find(find_version).map(str::to_string);
-        //         }
-                
-        //         let Some(version) = version else {
-        //             // Check if at least one loader with the game version has been found,
-        //             // if not the case we can return that the game version is not yet
-        //             // supported by the loader.
-        //             if found_game_version {
-        //                 return Err(Error::AliasLoaderVersionNotFound { 
-        //                     game_version, 
-        //                     loader_version: inner.loader_version.clone(),
-        //                 });
-        //             } else {
-        //                 return Err(Error::GameVersionNotFound { 
-        //                     game_version,
-        //                 });
-        //             }
-        //         };
-
-        //         version
-
-        //     }
-        // };
-
         // Construct the root version id, and adding it to fetch exclude, we don't want
         // to try to fetch it from Mojang's manifest: it's pointless.
         let prefix = version.default_prefix;
@@ -200,7 +111,7 @@ impl Installer {
 
         // The goal is to run the installer a first time, check potential errors to 
         // know if the error is related to the loader, or not.
-        mojang.set_root_version(RootVersion::Name(root_version.clone()));
+        mojang.set_version(root_version.clone());
         let reason = match mojang.install(&mut *handler) {
             Ok(game) => {
 
@@ -312,7 +223,7 @@ impl Installer {
         try_install(&mut *handler, &mut *mojang, version, &root_version, serde::InstallSide::Client, reason)?;
 
         // Retrying launch!
-        mojang.set_root_version(RootVersion::Name(root_version.clone()));
+        mojang.set_version(root_version);
         let game = mojang.install(&mut *handler)?;
         Ok(game)
 
@@ -353,25 +264,6 @@ pub enum Error {
     /// Error from the standard installer.
     #[error("standard: {0}")]
     Mojang(#[source] mojang::Error),
-    // /// An alias game version, `Release` has not been found because the no version is 
-    // /// matching this criteria.
-    // #[error("alias game version not found: {game_version:?}")]
-    // AliasGameVersionNotFound {
-    //     game_version: GameVersion,
-    // },
-    // /// An alias loader version, `Stable` or `Unstable` has not been found because the 
-    // /// alias is missing the for API's versions.
-    // #[error("alias loader version not found: {game_version}/{loader_version:?}")]
-    // AliasLoaderVersionNotFound {
-    //     game_version: String,
-    //     loader_version: LoaderVersion,
-    // },
-    // /// The given game version as requested to launch Forge with is not supported by the
-    // /// selected API.
-    // #[error("game version not found: {game_version}")]
-    // GameVersionNotFound {
-    //     game_version: String,
-    // },
     /// The given loader version as requested to launch Forge with has not supported 
     /// installer.
     #[error("installer not found: {version}")]
@@ -550,6 +442,11 @@ impl Version {
             check_processor_outputs: true,
         })
 
+    }
+
+    /// Get the name of this version.
+    pub fn name(&self) -> &str {
+        self.gav.version()
     }
 
 }
@@ -742,24 +639,6 @@ impl<'a> RepoVersion<'a> {
         }
     }
 
-    // /// Get the loader version from this version.
-    // pub fn loader_version(&self) -> &'a str {
-    //     if self.repo.neoforge {
-    //         if self.version == "47.1.82" {
-    //             "47.1.82"
-    //         } else if let Some(loader_version) = self.version.strip_prefix("1.20.1-") {
-    //             loader_version
-    //         } else {
-    //             self.version.splitn(3, '.').last().unwrap_or("")
-    //         }
-    //     } else {
-    //         match self.version.split_once('-') {
-    //             Some((_, loader_version)) => loader_version,
-    //             None => ""  // Should not happen
-    //         }
-    //     }
-    // }
-
     /// Return true if this version is stable.
     pub fn is_stable(&self) -> bool {
         if self.repo.neoforge {
@@ -780,164 +659,6 @@ impl From<RepoVersion<'_>> for Version {
         }.expect("this conversion should be infaillible, or the internal parsing implementation is wrong")
     }
 }
-
-// /// Represent an abstract maven-based and installer-based forge-like loader API. There
-// /// are currently only two APIs, Forge and NeoForge and this cannot be implemented by
-// /// other crates because this APIs is unstable.
-// /// 
-// /// Internally, we are using function pointers, like a vtable but without any data, this 
-// /// avoid using a trait with dyn references and sealed traits.
-// pub struct Api {
-//     /// Default prefix for the full root version id of the format 
-//     /// '<default prefix>-<game version>-<loader version>.
-//     default_prefix: &'static str,
-//     /// If version in the maven-manifest.xml file are known to be in reverse order, this
-//     /// helps iterating versions from the more recent ones to older ones.
-//     maven_manifest_reverse_order: bool,
-//     /// The base path for the maven group directory, relative to libraries directory.
-//     /// This should've been a `&'static Path` but apparently we can't..
-//     maven_group_base_dir: &'static str,
-//     /// The base URL for the maven group directory, without leading slash.
-//     maven_group_base_url: &'static str,
-//     /// Get the maven artifact.
-//     maven_artifact: fn(game_version: &str, game_major: u16, game_minor: u16) -> &'static str,
-//     /// Build the full loader version from the short loader version given explicitly.
-//     build_loader_version: fn(game_version: &str, game_major: u16, game_minor: u16, short_loader_version: &str) -> String,
-//     /// Build the expected prefix to all maven version for the given game version.
-//     build_loader_version_prefix: fn(game_version: &str, game_major: u16, game_minor: u16) -> String,
-//     /// Return true if the given loader version is stable.
-//     is_loader_version_stable: fn(game_version: &str, game_major: u16, game_minor: u16, loader_version: &str) -> bool,
-//     /// See [`InstallConfig`].
-//     install_config: fn(game_version: &str, game_major: u16, game_minor: u16, loader_version: &str) -> InstallConfig,
-// }
-
-// impl fmt::Debug for Api {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         f.debug_tuple("Api").field(&self.default_prefix).finish()
-//     }
-// }
-
-// /// Various configuration options for a loader version, it's used to enable or disable
-// /// various checks
-// #[derive(Debug)]
-// struct InstallConfig {
-//     /// If the [`standard::Installer`] runs successfully, this bool is used to determine
-//     /// if some important libraries should be checked anyway, if those libraries are 
-//     /// absent the installer tries to reinstall.
-//     check_libraries: bool,
-//     /// If `check_libraries` is true, and this is true, the given ladder version is known
-//     /// to put its "extra" generated artifact inside the MCP-versioned game version
-//     /// inside `net.minecraft:client`.
-//     extra_in_mcp: bool,
-//     /// Set to true if this loader is expected to have a legacy install profile.
-//     legacy_install_profile: bool,
-//     /// Set to true when the installer processors should be checked, this exists because
-//     /// some old versions systematically generate wrong SHA-1 and we prefer allowing 
-//     /// these versions to be installed even if files might be invalid.
-//     check_processor_outputs: bool,
-// }
-
-// /// The original forge API.
-// pub static FORGE_API: Api = Api {
-//     default_prefix: "forge",
-//     maven_manifest_reverse_order: false,
-//     maven_group_base_dir: const_path!("net", "minecraftforge"),
-//     maven_group_base_url: "https://maven.minecraftforge.net/net/minecraftforge",
-//     maven_artifact: |_game_version: &str, _game_major: u16, _game_minor: u16| {
-//         "forge"
-//     },
-//     build_loader_version: |game_version: &str, _game_major: u16, _game_minor: u16, short_loader_version: &str| {
-//         if game_version == "1.7.10-pre4" {
-//             // This is the only prerelease ever supported by Forge.
-//             // Note however that this version seems to be broken, but anyway we support it!
-//             format!("1.7.10_pre4-{short_loader_version}")
-//         } else {
-//             format!("{game_version}-{short_loader_version}")
-//         }
-//     },
-//     build_loader_version_prefix: |game_version: &str, _game_major: u16, _game_minor: u16| {
-//         if game_version == "1.7.10-pre4" {
-//             "1.7.10_pre4-".to_string()
-//         } else {
-//             format!("{game_version}-")
-//         }
-//     },
-//     is_loader_version_stable: |_game_version: &str, _game_major: u16, _game_minor: u16, _loader_version: &str| {
-//         true  // All versions are stable
-//     },
-//     install_config: |_game_version: &str, _game_major: u16, _game_minor: u16, loader_version: &str| {
-//         let loader_version = parse_forge_loader_version(loader_version);
-//         InstallConfig {
-//             // The first version to actually use processors was 1.13.2-25.0.9, therefore
-//             // we only check libraries for this version after onward.
-//             check_libraries: loader_version.map(|v| v >= [25, 0, 0, 0]).unwrap_or(false),
-//             // The 'extra' classifier is stored in different directories depending on version:
-//             // v >= 1.16.1-32.0.20: inside '<game_version>-<mcp_version>'
-//             // v <= 1.16.1-32.0.19: inside '<game_version>'
-//             extra_in_mcp: loader_version.map(|v| v >= [32, 0, 20, 0]).unwrap_or(false),
-//             // The install profiles comes in multiples forms:
-//             // >= 1.12.2-14.23.5.2851: There are two files, 'install_profile.json' which 
-//             //  contains processors and shared data, and `version.json` which is the raw 
-//             //  version meta to be fetched.
-//             // <= 1.12.2-14.23.5.2847: There is only an 'install_profile.json' with the
-//             //  version meta stored in 'versionInfo' object. Each library have two keys 
-//             //  'serverreq' and 'clientreq' that should be removed when the profile is 
-//             //  returned.
-//             legacy_install_profile: loader_version.map(|v| v <= [14, 23, 5, 2847]).unwrap_or(false),
-//             // v >= 1.14.4-28.1.16: hashes are valid
-//             // 1.13 <= v <= 1.14.4-28.1.15: hashes are invalid
-//             // 1.12.2-14.23.5.2851 <= v < 1.13: no processor therefore no hash to check
-//             // v <= 1.12.2-14.23.5.2847: legacy installer, no processor
-//             check_processor_outputs: loader_version.map(|v| v >= [28, 1, 16, 0]).unwrap_or(false),
-//         }
-//     },
-// };
-
-// /// The forked forge API, called NeoForge. The special case of 1.20.1 is properly handled
-// /// under the legacy artifact ID 'forge', subsequent versions are handled as 'neoforge'
-// /// with the new loader versioning.
-// pub static NEO_FORGE_API: Api = Api {
-//     default_prefix: "neoforge",
-//     maven_manifest_reverse_order: true,
-//     maven_group_base_dir: const_path!("net", "neoforged"),
-//     maven_group_base_url: "https://maven.neoforged.net/releases/net/neoforged",
-//     maven_artifact: |_game_version: &str, game_major: u16, game_minor: u16| {
-//         if game_major == 20 && game_minor == 1 {
-//             "forge"
-//         } else {
-//             "neoforge"
-//         }
-//     },
-//     build_loader_version: |_game_version: &str, game_major: u16, game_minor: u16, short_loader_version: &str| {
-//         if game_major == 20 && game_minor == 1 {
-//             format!("1.20.1-{short_loader_version}")
-//         } else {
-//             format!("{game_major}.{game_minor}.{short_loader_version}")
-//         }
-//     },
-//     build_loader_version_prefix: |_game_version: &str, game_major: u16, game_minor: u16| {
-//         if game_major == 20 && game_minor == 1 {
-//             format!("1.20.1-")
-//         } else {
-//             format!("{game_major}.{game_minor}.")
-//         }
-//     },
-//     is_loader_version_stable: |_game_version: &str, game_major: u16, game_minor: u16, loader_version: &str| {
-//         if game_major == 20 && game_minor == 1 {
-//             true
-//         } else {
-//             !loader_version.ends_with("-beta")
-//         }
-//     },
-//     install_config: |_game_version: &str, _game_major: u16, _game_minor: u16, _loader_version: &str| {
-//         InstallConfig {
-//             check_libraries: true,
-//             extra_in_mcp: true,
-//             legacy_install_profile: false,
-//             check_processor_outputs: true,
-//         }
-//     },
-// };
 
 // ========================== //
 // Following code is internal //
@@ -994,7 +715,7 @@ fn try_install(
     // for later execution of installer processors. Note that the JVM exec path should
     // be already canonicalized.
     handler.installing_game();
-    mojang.set_root_version(RootVersion::Name(version.game_version.clone()));
+    mojang.set_version(version.game_version.clone());
     let jvm_file = match mojang.install(&mut *handler) {
         Err(e) => return Err(Error::Mojang(e)),
         Ok(game) => game.jvm_file,

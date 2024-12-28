@@ -46,7 +46,6 @@ pub struct Installer {
 /// Internal installer data.
 #[derive(Debug, Clone)]
 struct InstallerInner {
-    root: RootVersion,
     fetch_exclude: Option<Vec<String>>,  // None when fetch is disabled.
     demo: bool,
     quick_play: Option<QuickPlay>,
@@ -72,11 +71,10 @@ impl Installer {
     /// Create a new installer with default configuration, using defaults directories. 
     /// This Mojang installer has all fixes enabled except LWJGL and missing version 
     /// fetching is enabled.
-    pub fn new(main_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(version: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
         Self {
-            standard: standard::Installer::new(String::new(), main_dir),
+            standard: standard::Installer::new(version, main_dir),
             inner: InstallerInner {
-                root: RootVersion::Release,
                 fetch_exclude: Some(Vec::new()),  // Enabled by default
                 demo: false,
                 quick_play: None,
@@ -101,8 +99,8 @@ impl Installer {
 
     /// Same as [`Self::new`] but using the default main directory in your system,
     /// returning none if there is no default main directory on your system.
-    pub fn new_with_default() -> Option<Self> {
-        Some(Self::new(standard::default_main_dir()?))
+    pub fn new_with_default(version: impl Into<String>) -> Option<Self> {
+        Some(Self::new(version, standard::default_main_dir()?))
     }
 
     /// Execute some callback to alter the standard installer.
@@ -123,23 +121,17 @@ impl Installer {
         &self.standard
     }
 
-    /// By default, this Mojang installer targets the latest release version, use this
-    /// function to change the version to install. 
-    /// 
-    /// If this root version is an alias (`Release` the default, or `Snapshot`), it will 
-    /// require the online version manifest, if the alias is not found in the manifest 
-    /// (which is an issue on Mojang's side) then a [`Error::RootAliasNotFound`] is 
-    /// returned.
+    /// Change the version to install and start specified at construction.
     #[inline]
-    pub fn set_root_version(&mut self, root: impl Into<RootVersion>) -> &mut Self {
-        self.inner.root = root.into();
+    pub fn set_version(&mut self, version: impl Into<String>) -> &mut Self {
+        self.standard.set_version(version);  // Simply using standard's version.
         self
     }
 
-    /// See [`set_root_version`].
+    /// See [`set_version`].
     #[inline]
-    pub fn root_version(&self) -> &RootVersion {
-        &self.inner.root
+    pub fn version(&self) -> &str {
+        &self.standard.version()
     }
 
     /// Clear all versions from being fetch excluded.See [`Self::fetch_exclude`] and 
@@ -478,31 +470,6 @@ impl Installer {
             ref mut standard,
             ref inner,
         } = self;
-
-        // Cached manifest, will only be used if fetch is enabled.
-        let mut manifest = None::<Repo>;
-
-        // Resolve aliases such as "release" or "snapshot" if fetch is enabled.
-        let channel = match self.inner.root {
-            RootVersion::Release => Some(VersionChannel::Release),
-            RootVersion::Snapshot => Some(VersionChannel::Snapshot),
-            _ => None,
-        };
-
-        // If we need an alias then we need to load the manifest.
-        let version = if let Some(channel) = channel {
-            manifest.insert(Repo::request(&mut *handler)?)
-                .name_of_latest(channel)
-                .map(str::to_string)
-                .ok_or_else(|| Error::AliasRootVersionNotFound { root_version: self.inner.root.clone() })?
-        } else {
-            match self.inner.root {
-                RootVersion::Name(ref name) => name.clone(),
-                _ => unreachable!(),
-            }
-        };
-
-        standard.set_root_version(version);
         
         // Let the handler find the "leaf" version.
         let mut leaf_version = String::new();
@@ -514,7 +481,7 @@ impl Installer {
                 inner: &mut *handler,
                 installer: &inner,
                 error: Ok(()),
-                manifest,
+                manifest: None,
                 leaf_version: &mut leaf_version,
             };
     
@@ -669,16 +636,10 @@ crate::trait_event_handler! {
         /// When the given version is being loaded but the file has an invalid size,
         /// SHA-1, or any other invalidating reason, it has been removed in order to 
         /// download an up-to-date version.
-        /// 
-        /// This is not specific to Mojang but can be used by various installers.
         fn invalidated_version(version: &str);
         /// The required version metadata is missing and so will be fetched.
-        /// 
-        /// This is not specific to Mojang but can be used by various installers.
         fn fetch_version(version: &str);
         /// The version has been fetched.
-        /// 
-        /// This is not specific to Mojang but can be used by various installers.
         fn fetched_version(version: &str);
 
         /// Quick play has been fixed.
@@ -709,12 +670,6 @@ pub enum Error {
     /// Error from the standard installer.
     #[error("standard: {0}")]
     Standard(#[source] standard::Error),
-    /// An alias root version, `Release` or `Snapshot` has not been found because the 
-    /// alias is missing from the Mojang's version manifest.
-    #[error("alias root version not found: {root_version:?}")]
-    AliasRootVersionNotFound {
-        root_version: RootVersion,
-    },
     /// The LWJGL fix is enabled with a version that is not supported, maybe because
     /// it is too old (< 3.2.3) or because of your system not being supported.
     #[error("lwjgl fix not found: {version}")]
@@ -731,24 +686,6 @@ impl<T: Into<standard::Error>> From<T> for Error {
 
 /// Type alias for a result with the standard error type.
 pub type Result<T> = std::result::Result<T, Error>;
-
-/// Specify the root version to start with Mojang.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RootVersion {
-    /// Resolve the latest release version.
-    Release,
-    /// Resolve the latest snapshot version.
-    Snapshot,
-    /// Resolve a specific root version from its id.
-    Name(String),
-}
-
-/// An impl so that we can give string-like objects to the builder.
-impl<T: Into<String>> From<T> for RootVersion {
-    fn from(value: T) -> Self {
-        Self::Name(value.into())
-    }
-}
 
 /// This represent the optional Quick Play mode when launching the game. This is usually 
 /// not supported on versions older than 1.20 (23w14a), however a fix exists for 
@@ -777,11 +714,11 @@ pub enum QuickPlay {
 
 /// A handle to the Mojang versions manifest.
 #[derive(Debug)]
-pub struct Repo {
+pub struct Manifest {
     inner: Box<serde::MojangManifest>,
 }
 
-impl Repo {
+impl Manifest {
 
     /// Request the Mojang versions' manifest. It takes a download handler because this 
     /// it will download it in cache and reuse any previous one that is still valid.
@@ -804,46 +741,47 @@ impl Repo {
     /// 
     /// This method currently returns an abstract iterator because the API is not 
     /// stabilized yet.
-    pub fn iter(&self) -> impl Iterator<Item = RepoVersion<'_>> + use<'_> {
+    pub fn iter(&self) -> impl Iterator<Item = ManifestVersion<'_>> + use<'_> {
         self.inner.versions.iter()
-            .map(RepoVersion)
+            .map(ManifestVersion)
     }
 
-    /// Return the latest version for the given channel, only [`VersionChannel::Release`] 
-    /// and [`VersionChannel::Snapshot`] are supported by the manifest as it make no sense
-    /// to have latest alpha or beta versions.
-    pub fn name_of_latest(&self, channel: VersionChannel) -> Option<&str> {
-        match channel {
-            VersionChannel::Release => self.inner.latest.release.as_deref(),
-            VersionChannel::Snapshot => self.inner.latest.snapshot.as_deref(),
-            _ => None,
-        }
+    /// Return the latest release version name.
+    #[inline]
+    pub fn latest_release_name(&self) -> &str {
+        &self.inner.latest.release
+    }
+
+    /// Return the latest snapshot version name.
+    #[inline]
+    pub fn latest_snapshot_name(&self) -> &str {
+        &self.inner.latest.release
     }
 
     /// Find the index of a version given its name.
-    pub fn index_of_name(&self, name: &str) -> Option<usize> {
+    pub fn find_index_of_name(&self, name: &str) -> Option<usize> {
         self.inner.versions.iter().position(|v| v.id == name)
     }
 
     /// Get a version from its index within the manifest.
-    pub fn by_index(&self, index: usize) -> Option<RepoVersion<'_>> {
-        self.inner.versions.get(index).map(RepoVersion)
+    pub fn find_by_index(&self, index: usize) -> Option<ManifestVersion<'_>> {
+        self.inner.versions.get(index).map(ManifestVersion)
     }
 
     /// Get a handle to a version information from its name.
-    pub fn by_name(&self, name: &str) -> Option<RepoVersion<'_>> {
+    pub fn find_by_name(&self, name: &str) -> Option<ManifestVersion<'_>> {
         self.inner.versions.iter()
             .find(|v| v.id == name)
-            .map(RepoVersion)
+            .map(ManifestVersion)
     }
 
 }
 
 /// A handle to a version in the Mojang versions manifest.
 #[derive(Debug)]
-pub struct RepoVersion<'a>(&'a serde::MojangManifestVersion);
+pub struct ManifestVersion<'a>(&'a serde::MojangManifestVersion);
 
-impl<'a> RepoVersion<'a> {
+impl<'a> ManifestVersion<'a> {
 
     /// The name of this version.
     /// 
@@ -897,7 +835,7 @@ struct InternalHandler<'a> {
     /// If there is an error in the handler.
     error: Result<()>,
     /// If fetching is enabled, then this contains the manifest to use.
-    manifest: Option<Repo>,
+    manifest: Option<Manifest>,
     /// Id of the "leaf" version, the last version without inherited version.
     leaf_version: &'a mut String,
 }
@@ -992,11 +930,11 @@ impl InternalHandler<'_> {
         // Only ensure that the manifest is loaded after checking fetch exclude.
         let manifest = match self.manifest {
             Some(ref manifest) => manifest,
-            None => self.manifest.insert(Repo::request(&mut *self.inner)?)
+            None => self.manifest.insert(Manifest::request(&mut *self.inner)?)
         };
 
         // Unwrap because we checked the manifest in the condition.
-        let Some(version) = manifest.by_name(version) else {
+        let Some(version) = manifest.find_by_name(version) else {
             return Ok(());
         };
 
@@ -1019,7 +957,7 @@ impl InternalHandler<'_> {
             return Ok(false);
         };
         
-        let Some(version) = manifest.by_name(version) else {
+        let Some(version) = manifest.find_by_name(version) else {
             return Ok(false);
         };
         
