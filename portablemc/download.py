@@ -76,7 +76,7 @@ class _DownloadEntry:
             url_parsed.scheme == "https",
             url_parsed.netloc,
             url_parsed.port,
-            url_parsed.path,
+            url_parsed.path+("" if url_parsed.query == "" else "?"+url_parsed.query),
             entry,
             redirect=redirect)
 
