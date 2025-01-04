@@ -46,6 +46,7 @@ pub struct Installer {
 /// Internal installer data.
 #[derive(Debug, Clone)]
 struct InstallerInner {
+    version: Version,
     fetch_exclude: Option<Vec<String>>,  // None when fetch is disabled.
     demo: bool,
     quick_play: Option<QuickPlay>,
@@ -71,10 +72,11 @@ impl Installer {
     /// Create a new installer with default configuration, using defaults directories. 
     /// This Mojang installer has all fixes enabled except LWJGL and missing version 
     /// fetching is enabled.
-    pub fn new(version: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(version: impl Into<Version>, main_dir: impl Into<PathBuf>) -> Self {
         Self {
-            standard: standard::Installer::new(version, main_dir),
+            standard: standard::Installer::new(String::new(), main_dir),
             inner: InstallerInner {
+                version: version.into(),
                 fetch_exclude: Some(Vec::new()),  // Enabled by default
                 demo: false,
                 quick_play: None,
@@ -99,7 +101,7 @@ impl Installer {
 
     /// Same as [`Self::new`] but using the default main directory in your system,
     /// returning none if there is no default main directory on your system.
-    pub fn new_with_default(version: impl Into<String>) -> Option<Self> {
+    pub fn new_with_default(version: impl Into<Version>) -> Option<Self> {
         Some(Self::new(version, standard::default_main_dir()?))
     }
 
@@ -123,15 +125,15 @@ impl Installer {
 
     /// Change the version to install and start specified at construction.
     #[inline]
-    pub fn set_version(&mut self, version: impl Into<String>) -> &mut Self {
-        self.standard.set_version(version);  // Simply using standard's version.
+    pub fn set_version(&mut self, version: impl Into<Version>) -> &mut Self {
+        self.inner.version = version.into();
         self
     }
 
     /// See [`set_version`].
     #[inline]
-    pub fn version(&self) -> &str {
-        &self.standard.version()
+    pub fn version(&self) -> &Version {
+        &self.inner.version
     }
 
     /// Clear all versions from being fetch excluded.See [`Self::fetch_exclude`] and 
@@ -470,6 +472,20 @@ impl Installer {
             ref mut standard,
             ref inner,
         } = self;
+
+        let manifest = match self.inner.version {
+            Version::Release | 
+            Version::Snapshot => Some(Manifest::request(&mut *handler)?),
+            _ => None
+        };
+
+        let version = match &self.inner.version {
+            Version::Release => manifest.as_ref().unwrap().latest_release_name(),
+            Version::Snapshot => manifest.as_ref().unwrap().latest_snapshot_name(),
+            Version::Name(name) => name.as_str(),
+        };
+
+        standard.set_version(version);
         
         // Let the handler find the "leaf" version.
         let mut leaf_version = String::new();
@@ -481,7 +497,7 @@ impl Installer {
                 inner: &mut *handler,
                 installer: &inner,
                 error: Ok(()),
-                manifest: None,
+                manifest,
                 leaf_version: &mut leaf_version,
             };
     
@@ -710,6 +726,25 @@ pub enum QuickPlay {
     Realms {
         id: String,
     },
+}
+
+/// The version to install.
+#[derive(Debug, Clone)]
+pub enum Version {
+    /// Install the latest Mojang release.
+    Release,
+    /// Install the latest Mojang snapshot.
+    Snapshot,
+    /// Install this specific game version, if not a Mojang-provided version, it should
+    /// be already installed in the versions directory.
+    Name(String),
+}
+
+/// An impl so that we can give string-like objects to the builder.
+impl<T: Into<String>> From<T> for Version {
+    fn from(value: T) -> Self {
+        Self::Name(value.into())
+    }
 }
 
 /// A handle to the Mojang versions manifest.

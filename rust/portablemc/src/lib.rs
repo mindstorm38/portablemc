@@ -47,7 +47,7 @@ macro_rules! trait_event_handler {
         $vis trait $name $( : $( $super ),+ )? {
 
             /// This special handler function can be used to provide a fallback for every
-            /// function that is not implemented by this function.
+            /// function that is not implemented by the implementor.
             /// 
             /// This function is exposed in the public API but it's unsure if it will be
             /// implemented as-is in the future, so it cannot be implemented nor called 

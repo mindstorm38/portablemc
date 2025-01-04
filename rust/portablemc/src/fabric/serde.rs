@@ -1,7 +1,8 @@
-//! JSON schemas structures for serde deserialization.
+//! Internal module for deserialization of the Fabric-like APIs.
+
+#![allow(unused)]
 
 use crate::maven::Gav;
-
 
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct Game {
@@ -15,7 +16,7 @@ pub struct Loader {
     pub build: u32,
     pub maven: Gav,
     pub version: String,
-    pub stable: Option<bool>,
+    pub stable: Option<bool>,  // Absent for some APIs (quilt)
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]

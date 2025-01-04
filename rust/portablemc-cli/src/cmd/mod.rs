@@ -622,20 +622,6 @@ pub fn log_mojang_error(out: &mut Output, error: mojang::Error) {
 
     match error {
         Error::Standard(error) => log_standard_error(out, error),
-        // Error::AliasRootVersionNotFound { root_version } => {
-            
-        //     let alias_str = match &root_version {
-        //         RootVersion::Release => "release",
-        //         RootVersion::Snapshot => "snapshot",
-        //         RootVersion::Name(_) => panic!()
-        //     };
-
-        //     out.log("error_mojang_alias_root_version_not_found")
-        //         .arg(alias_str)
-        //         .error(format_args!("Failed to resolve Mojang root version '{alias_str}'"))
-        //         .additional("The alias might be missing from manifest, likely an issue on Mojang's side");
-
-        // }
         Error::LwjglFixNotFound { version } => {
             out.log("error_lwjgl_fix_not_found")
                 .arg(&version)
@@ -650,47 +636,32 @@ pub fn log_mojang_error(out: &mut Output, error: mojang::Error) {
 
 pub fn log_fabric_error(out: &mut Output, error: fabric::Error, api_id: &str, api_name: &str) {
 
-    use fabric::{Error, GameVersion, LoaderVersion};
+    use fabric::Error;
 
     match error {
         Error::Mojang(error) => log_mojang_error(out, error),
-        Error::AliasGameVersionNotFound { game_version } => {
+        Error::LatestVersionNotFound { game_version, stable } => {
 
-            let alias_str = match game_version {
-                GameVersion::Stable => "stable",
-                GameVersion::Unstable => "unstable",
-                GameVersion::Name(_) => panic!()
-            };
+            let stable_str = if stable { "stable" } else { "unstable" };
+            let mut log = out.log(format_args!("error_{api_id}_latest_version_not_found"));
+            log.arg(stable_str);
+            log.args(game_version.as_ref());
 
-            let mut log = out.log(format_args!("error_{api_id}_alias_game_version_not_found"));
-            log.arg(alias_str);
-            log.error(format_args!("Failed to resolve {api_name} game version '{alias_str}'"));
-
-            match game_version {
-                GameVersion::Stable => log.additional("The loader might not yet support any stable game version"),
-                GameVersion::Unstable => log.additional("The loader have zero game version supported, likely an issue on their side"),
-                GameVersion::Name(_) => unreachable!()
-            };
-
-        }
-        Error::AliasLoaderVersionNotFound { game_version, loader_version } => {
-
-            let alias_str = match loader_version {
-                LoaderVersion::Stable => "stable",
-                LoaderVersion::Unstable => "unstable",
-                LoaderVersion::Name(_) => panic!()
-            };
-
-            let mut log = out.log(format_args!("error_{api_id}_alias_loader_version_not_found"));
-            log.arg(&game_version);
-            log.arg(alias_str);
-            log.error(format_args!("Failed to resolve {api_name} loader version '{alias_str}' for game version {game_version}"));
-
-            match loader_version {
-                LoaderVersion::Stable => log.additional("The loader might not yet support any stable version for this game version"),
-                LoaderVersion::Unstable => log.additional("The loader have zero version supported for this game version, likely an issue on their side"),
-                LoaderVersion::Name(_) => unreachable!()
-            };
+            if let Some(game_version) = game_version {
+                log.error(format_args!("Failed to resolve {api_name} latest {stable_str} loader version for {game_version}"));
+                if stable {
+                    log.additional("The loader might not yet support any stable version for this game version");
+                } else {
+                    log.additional("The loader have zero version supported for this game version, likely an issue on their side");
+                }
+            } else {
+                log.error(format_args!("Failed to resolve {api_name} latest {stable_str} game version"));
+                if stable {
+                    log.additional("The loader might not yet support any stable game version");
+                } else {
+                    log.additional("The loader have zero game version supported, likely an issue on their side");
+                }
+            }
 
         }
         Error::GameVersionNotFound { game_version } => {
@@ -717,44 +688,16 @@ pub fn log_forge_error(out: &mut Output, error: forge::Error, api_id: &str, api_
 
     match error {
         Error::Mojang(error) => log_mojang_error(out, error),
-        // Error::AliasGameVersionNotFound { game_version } => {
+        Error::LatestVersionNotFound { game_version, stable } => {
 
-        //     let alias_str = match game_version {
-        //         GameVersion::Release => "release",
-        //         GameVersion::Name(_) => panic!()
-        //     };
+            let stable_str = if stable { "stable" } else { "unstable" };
+            let mut log = out.log(format_args!("error_{api_id}_latest_version_not_found"));
+            log.arg(stable_str);
+            log.arg(&game_version);
+            log.error(format_args!("Failed to resolve {api_name} latest {stable_str} loader version for {game_version}"));
+            log.additional("The alias might be missing from manifest, likely an issue on Mojang's side");
 
-        //     let mut log = out.log(format_args!("error_{api_id}_alias_game_version_not_found"));
-        //     log.arg(alias_str);
-        //     log.error(format_args!("Failed to resolve {api_name} game version '{alias_str}'"));
-        //     log.additional("The alias might be missing from manifest, likely an issue on Mojang's side");
-
-        // }
-        // Error::AliasLoaderVersionNotFound { game_version, loader_version } => {
-            
-        //     let alias_str = match loader_version {
-        //         LoaderVersion::Stable => "stable",
-        //         LoaderVersion::Unstable => "unstable",
-        //         LoaderVersion::Name(_) => panic!()
-        //     };
-
-        //     let mut log = out.log(format_args!("error_{api_id}_alias_loader_version_not_found"));
-        //     log.arg(&game_version);
-        //     log.arg(alias_str);
-        //     log.error(format_args!("Failed to resolve {api_name} loader version '{alias_str}' for game version {game_version}"));
-
-        //     match loader_version {
-        //         LoaderVersion::Stable => log.additional("The loader might not yet support any stable version for this game version"),
-        //         LoaderVersion::Unstable => log.additional("The loader have zero version supported for this game version"),
-        //         LoaderVersion::Name(_) => unreachable!()
-        //     };
-
-        // }
-        // Error::GameVersionNotFound { game_version } => {
-        //     out.log(format_args!("error_{api_id}_game_version_not_found"))
-        //         .arg(&game_version)
-        //         .error(format_args!("{api_name} loader has not support for {game_version} game version"));
-        // }
+        }
         Error::InstallerNotFound { version } => {
             out.log(format_args!("error_{api_id}_installer_not_found"))
                 .arg(&version)
