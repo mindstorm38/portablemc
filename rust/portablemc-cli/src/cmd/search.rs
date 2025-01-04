@@ -19,12 +19,12 @@ pub fn main(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     match args.kind {
         SearchKind::Mojang => search_mojang(cli, args),
         SearchKind::Local => search_local(cli, args),
-        SearchKind::Fabric => search_fabric(cli, args, &fabric::FABRIC_API),
-        SearchKind::Quilt => search_fabric(cli, args, &fabric::QUILT_API),
-        SearchKind::LegacyFabric => search_fabric(cli, args, &fabric::LEGACY_FABRIC_API),
-        SearchKind::Babric => search_fabric(cli, args, &fabric::BABRIC_API),
-        SearchKind::Forge => search_forge(cli, args, false),
-        SearchKind::NeoForge => search_forge(cli, args, true),
+        SearchKind::Fabric => search_fabric(cli, args, fabric::Loader::Fabric),
+        SearchKind::Quilt => search_fabric(cli, args, fabric::Loader::Quilt),
+        SearchKind::LegacyFabric => search_fabric(cli, args, fabric::Loader::LegacyFabric),
+        SearchKind::Babric => search_fabric(cli, args, fabric::Loader::Babric),
+        SearchKind::Forge => search_forge(cli, args, forge::Loader::Forge),
+        SearchKind::NeoForge => search_forge(cli, args, forge::Loader::NeoForge),
     }
 
 }
@@ -201,7 +201,7 @@ fn search_local(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
 
 }
 
-fn search_fabric(cli: &mut Cli, args: &SearchArgs, api: &fabric::Api) -> ExitCode {
+fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader) -> ExitCode {
 
     let today = Utc::now();
 
@@ -220,26 +220,16 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, api: &fabric::Api) -> ExitCod
 
 }
 
-fn search_forge(cli: &mut Cli, args: &SearchArgs, neoforge: bool) -> ExitCode {
+fn search_forge(cli: &mut Cli, args: &SearchArgs, loader: forge::Loader) -> ExitCode {
 
     use forge::Repo;
 
     // Start by requesting the repository!
-    let repo = if neoforge {
-        match Repo::request_neoforge() {
-            Ok(repo) => repo,
-            Err(e) => {
-                log_forge_error(&mut cli.out, e, "neoforge", "NeoForge");
-                return ExitCode::FAILURE;
-            }
-        }
-    } else {
-        match Repo::request_forge() {
-            Ok(repo) => repo,
-            Err(e) => {
-                log_forge_error(&mut cli.out, e, "forge", "Forge");
-                return ExitCode::FAILURE;
-            }
+    let  repo = match Repo::request(loader) {
+        Ok(repo) => repo,
+        Err(e) => {
+            log_forge_error(&mut cli.out, e, "neoforge", "NeoForge");
+            return ExitCode::FAILURE;
         }
     };
 

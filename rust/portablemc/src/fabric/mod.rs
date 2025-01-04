@@ -1,10 +1,9 @@
 //! Extension to the Mojang installer to support fetching and installation of 
 //! Fabric-related mod loader versions.
 
-pub mod serde;  // FIXME: Make this pub(crate), but allows accessing the API serde...
+mod serde;
 
 use std::path::{Path, PathBuf};
-use core::fmt;
 
 use reqwest::StatusCode;
 
@@ -21,14 +20,7 @@ pub use mojang::Game;
 pub struct Installer {
     /// The underlying Mojang installer logic.
     mojang: mojang::Installer,
-    /// Inner installer data, put in a sub struct to fix borrow issue.
-    inner: InstallerInner,
-}
-
-/// Internal installer data.
-#[derive(Debug, Clone)]
-struct InstallerInner {
-    api: &'static Api,
+    loader: Loader,
     game_version: GameVersion,
     loader_version: LoaderVersion,
 }
@@ -36,21 +28,19 @@ struct InstallerInner {
 impl Installer {
 
     /// Create a new installer with default configuration.
-    pub fn new(main_dir: impl Into<PathBuf>, api: &'static Api) -> Self {
+    pub fn new(loader: Loader, game_version: impl Into<GameVersion>, loader_version: impl Into<LoaderVersion>, main_dir: impl Into<PathBuf>) -> Self {
         Self {
             mojang: mojang::Installer::new(String::new(), main_dir),
-            inner: InstallerInner {
-                api,
-                game_version: GameVersion::Stable,
-                loader_version: LoaderVersion::Stable,
-            }
+            loader,
+            game_version: game_version.into(),
+            loader_version: loader_version.into(),
         }
     }
 
     /// Same as [`Self::new`] but using the default main directory in your system,
     /// returning none if there is no default main directory on your system.
-    pub fn new_with_default(api: &'static Api) -> Option<Self> {
-        Some(Self::new(standard::default_main_dir()?, api))
+    pub fn new_with_default(loader: Loader, game_version: impl Into<GameVersion>, loader_version: impl Into<LoaderVersion>) -> Option<Self> {
+        Some(Self::new(loader, game_version, loader_version, standard::default_main_dir()?))
     }
 
     /// Execute some callback to alter the mojang installer.
@@ -85,25 +75,25 @@ impl Installer {
     /// (which is an issue on Mojang's side) then a 
     /// [`mojang::Error::RootAliasNotFound`] is returned.
     pub fn set_game_version(&mut self, version: impl Into<GameVersion>) {
-        self.inner.game_version = version.into();
+        self.game_version = version.into();
     }
 
     /// See [`Self::set_game_version`].   
     #[inline]
     pub fn game_version(&self) -> &GameVersion {
-        &self.inner.game_version
+        &self.game_version
     }
 
     /// By default, this Fabric installer targets the latest loader version compatible
     /// with the root version, use this function to override the loader version to use.
     pub fn set_loader_version(&mut self, version: impl Into<LoaderVersion>) {
-        self.inner.loader_version = version.into();
+        self.loader_version = version.into();
     }
 
     /// See [`Self::set_loader_version`].   
     #[inline]
     pub fn loader_version(&self) -> &LoaderVersion {
-        &self.inner.loader_version
+        &self.loader_version
     }
 
     /// Install the currently configured Fabric loader with the given handler.
@@ -117,63 +107,46 @@ impl Installer {
 
         let Self {
             ref mut mojang,
-            ref inner,
-        } = self;
+            loader,
+            ref game_version,
+            ref loader_version,
+        } = *self;
 
-        let game_stable = match self.inner.game_version {
-            GameVersion::Stable => Some(true),
-            GameVersion::Unstable => Some(false),
-            _ => None,
-        };
+        let api = Api::new(loader);
 
-        let game_version = if let Some(game_stable) = game_stable {
-            inner.api.request_game_versions()?
-                .into_iter()
-                .find(|game| game.stable || !game_stable)
-                .map(|game| game.version)
-                .ok_or_else(|| Error::AliasGameVersionNotFound { 
-                    game_version: self.inner.game_version.clone()
-                })?
-        } else {
-            match self.inner.game_version {
-                GameVersion::Name(ref name) => name.clone(),
-                _ => unreachable!()
+        let game_version = match game_version {
+            GameVersion::Stable |
+            GameVersion::Unstable => {
+                let stable = matches!(game_version, GameVersion::Stable);
+                match api.request_game_versions()?.find_latest(stable) {
+                    Some(v) => v.name().to_string(),
+                    None => return Err(Error::LatestVersionNotFound { 
+                        game_version: None, 
+                        stable,
+                    }),
+                }
             }
+            GameVersion::Name(name) => name.clone(),
         };
 
-        let loader_stable = match self.inner.loader_version {
-            LoaderVersion::Stable => Some(true),
-            LoaderVersion::Unstable => Some(false),
-            _ => None,
-        };
-
-        let loader_version = if let Some(loader_stable) = loader_stable {
-            inner.api.request_game_loader_versions(&game_version)?
-                .into_iter()
-                .find(|loader| {
-                    // Some APIs don't provide the 'stable' on loader/intermediary
-                    // versions, so we rely on the version containing a '-beta'.
-                    let stable = loader.loader.stable.unwrap_or_else(|| {
-                        !loader.loader.version.contains("-beta")
-                    });
-                    // Latest stable is always valid, or we want unstable.
-                    stable || !loader_stable
-                })
-                .map(|loader| loader.loader.version)
-                .ok_or_else(|| Error::AliasLoaderVersionNotFound {
-                    game_version: game_version.clone(),
-                    loader_version: self.inner.loader_version.clone(),
-                })?
-        } else {
-            match self.inner.game_version {
-                GameVersion::Name(ref name) => name.clone(),
-                _ => unreachable!()
+        let loader_version = match loader_version {
+            LoaderVersion::Stable |
+            LoaderVersion::Unstable => {
+                let stable = matches!(loader_version, LoaderVersion::Stable);
+                match api.request_loader_versions(Some(&game_version))?.find_latest(stable) {
+                    Some(v) => v.name().to_string(),
+                    None => return Err(Error::LatestVersionNotFound { 
+                        game_version: Some(game_version), 
+                        stable,
+                    }),
+                }
             }
+            LoaderVersion::Name(name) => name.clone(),
         };
 
         // Set the root version for underlying Mojang installer, equal to the name that
         // we'll give to the version.
-        let prefix = inner.api.default_prefix;
+        let prefix = loader.default_prefix();
         let root_version = format!("{prefix}-{game_version}-{loader_version}");
         mojang.set_version(root_version.clone());
 
@@ -182,8 +155,8 @@ impl Installer {
 
             let mut handler = InternalHandler {
                 inner: &mut *handler,
-                installer: &inner,
                 error: Ok(()),
+                api,
                 root_version: &root_version,
                 game_version: &game_version,
                 loader_version: &loader_version,
@@ -216,18 +189,13 @@ pub enum Error {
     /// Error from the standard installer.
     #[error("standard: {0}")]
     Mojang(#[source] mojang::Error),
-    /// An alias game version, `Stable` or `Unstable` has not been found because the 
-    /// no version is matching this criteria.
-    #[error("alias game version not found: {game_version:?}")]
-    AliasGameVersionNotFound {
-        game_version: GameVersion,
-    },
-    /// An alias loader version, `Stable` has not been found because the alias is missing
-    /// from the fabric API's versions.
-    #[error("alias loader version not found: {game_version}/{loader_version:?}")]
-    AliasLoaderVersionNotFound {
-        game_version: String,
-        loader_version: LoaderVersion,
+    /// An alias version, `Stable` or `Unstable` has not been found because the no version
+    /// is matching this criteria. This is used for both game version and loader version,
+    /// when game version is specified it means that the given .
+    #[error("latest version not found (stable: {stable})")]
+    LatestVersionNotFound {
+        game_version: Option<String>,
+        stable: bool,
     },
     /// The given game version as requested to launch Fabric with is not supported by the
     /// selected API.
@@ -252,6 +220,34 @@ impl<T: Into<mojang::Error>> From<T> for Error {
 
 /// Type alias for a result with the standard error type.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Represent the different kind of loaders to install or fetch for versions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Loader {
+    /// This is the original and official Fabric API.
+    Fabric,
+    /// This is the API for the Quilt mod loader, which is a fork of Fabric.
+    Quilt,
+    /// This is the API for the LegacyFabric project which aims to backport the Fabric loader
+    /// to older versions, up to 1.14 snapshots.
+    LegacyFabric,
+    /// This is the API for the LegacyFabric project which aims to backport the Fabric loader
+    /// to older versions, up to 1.14 snapshots.
+    Babric,
+}
+
+impl Loader {
+
+    fn default_prefix(self) -> &'static str {
+        match self {
+            Loader::Fabric => "fabric",
+            Loader::Quilt => "quilt",
+            Loader::LegacyFabric => "legacyfabric",
+            Loader::Babric => "babric",
+        }
+    }
+
+}
 
 /// Specify the fabric game version to start.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -296,21 +292,10 @@ impl<T: Into<String>> From<T> for LoaderVersion {
     }
 }
 
-pub struct Version {
-
-}
-
-impl Version {
-
-
-
-}
-
-/// A fabric-compatible API.
+/// A fabric-compatible API, this can be used to list and retrieve loader versions that
+/// can be given to the installer for installation.
+#[derive(Debug)]
 pub struct Api {
-    /// Default prefix for the full root version id of the format 
-    /// '<default prefix>-<game version>-<loader version>.
-    default_prefix: &'static str,
     /// Base URL for that API, not ending with a '/'. This API must support the following
     /// endpoints supporting the same API as official Fabric API: 
     /// - `/versions/game`
@@ -321,35 +306,29 @@ pub struct Api {
     base_url: &'static str,
 }
 
-pub struct ApiGames {
-    api: &'static Api,
-    versions: Vec<serde::Game>,
-}
-
-pub struct ApiLoaders {
-    api: &'static Api,
-    versions: Vec<serde::Loader>,
-}
-
-pub struct ApiLoader {
-
-}
-
 impl Api {
 
-    pub fn request_games(&'static self) -> reqwest::Result<ApiGames> {
-        self.request_game_versions().map(|versions| ApiGames {
-            api: self,
+    /// Initialize the handle to 
+    pub fn new(loader: Loader) -> Self {
+        Self {
+            base_url: match loader {
+                Loader::Fabric => "https://meta.fabricmc.net/v2",
+                Loader::Quilt => "https://meta.quiltmc.org/v3",
+                Loader::LegacyFabric => "https://meta.legacyfabric.net/v2",
+                Loader::Babric => "https://meta.babric.glass-launcher.net/v2",
+            }
+        }
+    }
+
+    /// Request supported game versions.
+    pub fn request_game_versions(&self) -> reqwest::Result<ApiGameVersions<'_>> {
+        self.raw_request_game_versions().map(|versions| ApiGameVersions {
+            _api: self,
             versions,
         })
     }
 
-    pub fn request_loaders(&'static self) -> reqwest::Result<ApiLoaders> {
-        todo!()
-    }
-
-    /// Request supported game versions.
-    fn request_game_versions(&self) -> reqwest::Result<Vec<serde::Game>> {
+    fn raw_request_game_versions(&self) -> reqwest::Result<Vec<serde::Game>> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/game", self.base_url))
@@ -361,7 +340,21 @@ impl Api {
     }
 
     /// Request supported loader versions.
-    fn request_loader_versions(&self) -> reqwest::Result<Vec<serde::Loader>> {
+    pub fn request_loader_versions(&self, game_version: Option<&str>) -> reqwest::Result<ApiLoaderVersions<'_>> {
+        if let Some(game_version) = game_version {
+            self.raw_request_game_loader_versions(game_version).map(|versions| ApiLoaderVersions {
+                _api: self,
+                versions: versions.into_iter().map(|v| v.loader).collect(),
+            })
+        } else {
+            self.raw_request_loader_versions().map(|versions| ApiLoaderVersions {
+                _api: self,
+                versions,
+            })
+        }
+    }
+
+    fn raw_request_loader_versions(&self) -> reqwest::Result<Vec<serde::Loader>> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader", self.base_url))
@@ -373,7 +366,7 @@ impl Api {
     }
 
     /// Request supported loader versions for the given game version.
-    fn request_game_loader_versions(&self, game_version: &str) -> reqwest::Result<Vec<serde::GameLoader>> {
+    fn raw_request_game_loader_versions(&self, game_version: &str) -> reqwest::Result<Vec<serde::GameLoader>> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader/{game_version}", self.base_url))
@@ -385,7 +378,7 @@ impl Api {
     }
 
     /// Return true if the given game version has any loader versions supported.
-    fn request_has_game_loader_versions(&self, game_version: &str) -> reqwest::Result<bool> {
+    fn raw_request_has_game_loader_versions(&self, game_version: &str) -> reqwest::Result<bool> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader/{game_version}", self.base_url))
@@ -398,7 +391,7 @@ impl Api {
     }
 
     /// Request the prebuilt version metadata for the given game and loader versions.
-    fn request_game_loader_version_metadata(&self, game_version: &str, loader_version: &str) -> reqwest::Result<standard::serde::VersionMetadata> {
+    fn raw_request_game_loader_version_metadata(&self, game_version: &str, loader_version: &str) -> reqwest::Result<standard::serde::VersionMetadata> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader/{game_version}/{loader_version}/profile/json", self.base_url))
@@ -411,53 +404,85 @@ impl Api {
 
 }
 
-impl fmt::Debug for Api {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Api").field(&self.default_prefix).finish()
-    }
+#[derive(Debug)]
+pub struct ApiGameVersions<'a> {
+    _api: &'a Api,
+    versions: Vec<serde::Game>,
 }
 
-impl ApiGames {
+impl ApiGameVersions<'_> {
+
+    /// Create an iterator over all game versions.
+    pub fn iter(&self) -> impl Iterator<Item = ApiGameVersion<'_>> + use<'_> {
+        self.versions.iter().map(|inner| ApiGameVersion { inner })
+    }
 
     /// Get the latest supported version, stable or unstable.
-    pub fn latest(&self, stable: bool) -> Option<&str> {
-        self.versions.iter()
-            .find(|game| game.stable || !stable)
-            .map(|game| &*game.version)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&'_ str, bool)> + use<'_> {
-        self.versions.iter()
-            .map(|version| (&*version.version, version.stable))
+    pub fn find_latest(&self, stable: bool) -> Option<ApiGameVersion<'_>> {
+        self.iter().find(|v| !stable || v.is_stable())
     }
 
 }
 
-/// This is the original and official Fabric API.
-pub static FABRIC_API: Api = Api {
-    default_prefix: "fabric",
-    base_url: "https://meta.fabricmc.net/v2",
-};
+#[derive(Debug)]
+pub struct ApiGameVersion<'d> {
+    inner: &'d serde::Game,
+}
 
-/// This is the API for the Quilt mod loader, which is a fork of Fabric.
-pub static QUILT_API: Api = Api {
-    default_prefix: "quilt",
-    base_url: "https://meta.quiltmc.org/v3",
-};
+impl<'d> ApiGameVersion<'d> {
 
-/// This is the API for the LegacyFabric project which aims to backport the Fabric loader
-/// to older versions, up to 1.14 snapshots.
-pub static LEGACY_FABRIC_API: Api = Api {
-    default_prefix: "legacyfabric",
-    base_url: "https://meta.legacyfabric.net/v2",
-};
+    #[inline]
+    pub fn name(&self) -> &'d str {
+        &self.inner.version
+    }
 
-/// This is the API for the LegacyFabric project which aims to backport the Fabric loader
-/// to older versions, up to 1.14 snapshots.
-pub static BABRIC_API: Api = Api {
-    default_prefix: "babric",
-    base_url: "https://meta.babric.glass-launcher.net/v2",
-};
+    #[inline]
+    pub fn is_stable(&self) -> bool {
+        self.inner.stable
+    }
+
+}
+
+#[derive(Debug)]
+pub struct ApiLoaderVersions<'a> {
+    _api: &'a Api,
+    versions: Vec<serde::Loader>,
+}
+
+impl ApiLoaderVersions<'_> {
+
+    /// Create an iterator over all loader versions.
+    pub fn iter(&self) -> impl Iterator<Item = ApiLoaderVersion<'_>> + use<'_> {
+        self.versions.iter().map(|inner| ApiLoaderVersion { inner })
+    }
+
+    /// Get the latest supported version, stable or unstable.
+    pub fn find_latest(&self, stable: bool) -> Option<ApiLoaderVersion<'_>> {
+        self.iter().find(|v| !stable || v.is_stable())
+    }
+
+}
+
+#[derive(Debug)]
+pub struct ApiLoaderVersion<'d> {
+    inner: &'d serde::Loader,
+}
+
+impl<'d> ApiLoaderVersion<'d> {
+
+    #[inline]
+    pub fn name(&self) -> &'d str {
+        &self.inner.version
+    }
+
+    #[inline]
+    pub fn is_stable(&self) -> bool {
+        self.inner.stable.unwrap_or_else(|| {
+            self.inner.version.contains("-beta")
+        })
+    }
+
+}
 
 // ========================== //
 // Following code is internal //
@@ -467,11 +492,10 @@ pub static BABRIC_API: Api = Api {
 struct InternalHandler<'a> {
     /// Inner handler.
     inner: &'a mut dyn Handler,
-    /// Back-reference to the installer to know its configuration.
-    installer: &'a InstallerInner,
     /// If there is an error in the handler.
     error: Result<()>,
     /// The real version is, as defined 
+    api: Api,
     root_version: &'a str,
     game_version: &'a str,
     loader_version: &'a str,
@@ -526,10 +550,10 @@ impl InternalHandler<'_> {
         // version if he will. But now that we need to request the prebuilt
         // version metadata, in case of error we'll try to understand what's the
         // issue: unknown game version or unknown loader version?
-        let mut metadata = match self.installer.api.request_game_loader_version_metadata(self.game_version, self.loader_version) {
+        let mut metadata = match self.api.raw_request_game_loader_version_metadata(self.game_version, self.loader_version) {
             Ok(metadata) => metadata,
             Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => {
-                if self.installer.api.request_has_game_loader_versions(self.game_version)? {
+                if self.api.raw_request_has_game_loader_versions(self.game_version)? {
                     return Err(Error::LoaderVersionNotFound { 
                         game_version: self.game_version.to_string(),
                         loader_version: self.loader_version.to_string(),

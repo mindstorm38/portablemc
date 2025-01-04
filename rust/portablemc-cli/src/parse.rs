@@ -6,7 +6,7 @@ use std::str::FromStr;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
-use portablemc::fabric;
+use portablemc::{fabric, forge};
 
 
 // ================= //
@@ -278,33 +278,19 @@ pub enum StartVersion {
     MojangRelease,
     MojangSnapshot,
     Fabric {
-        kind: StartFabricLoader,
+        loader: fabric::Loader,
         game_version: fabric::GameVersion,
         loader_version: fabric::LoaderVersion,
     },
     Forge {
-        kind: StartForgeLoader,
+        loader: forge::Loader,
         version: String,
     },
     ForgeLatest {
-        kind: StartForgeLoader,
+        loader: forge::Loader,
         game_version: Option<String>,  // None for targeting "release"
         stable: bool,
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum StartFabricLoader {
-    Fabric,
-    Quilt,
-    LegacyFabric,
-    Babric,
-}
-
-#[derive(Debug, Clone)]
-pub enum StartForgeLoader {
-    Forge,
-    NeoForge,
 }
 
 impl FromStr for StartVersion {
@@ -345,11 +331,11 @@ impl FromStr for StartVersion {
             }
             "fabric" | "quilt" | "legacyfabric" | "babric" => {
                 Self::Fabric { 
-                    kind: match kind {
-                        "fabric" => StartFabricLoader::Fabric,
-                        "quilt" => StartFabricLoader::Quilt,
-                        "legacyfabric" => StartFabricLoader::LegacyFabric,
-                        "babric" => StartFabricLoader::Babric,
+                    loader: match kind {
+                        "fabric" => fabric::Loader::Fabric,
+                        "quilt" => fabric::Loader::Quilt,
+                        "legacyfabric" => fabric::Loader::LegacyFabric,
+                        "babric" => fabric::Loader::Babric,
                         _ => unreachable!(),
                     },
                     game_version: match parts[0] {
@@ -367,9 +353,9 @@ impl FromStr for StartVersion {
             }
             "forge" | "neoforge" => {
 
-                let kind = match kind {
-                    "forge" => StartForgeLoader::Forge,
-                    "neoforge" => StartForgeLoader::NeoForge,
+                let loader = match kind {
+                    "forge" => forge::Loader::Forge,
+                    "neoforge" => forge::Loader::NeoForge,
                     _ => unreachable!(),
                 };
 
@@ -377,7 +363,7 @@ impl FromStr for StartVersion {
                     None | 
                     Some("" | "stable" | "unstable") => {
                         Self::ForgeLatest { 
-                            kind, 
+                            loader, 
                             game_version: match parts[0] {
                                 "" | "release" => None,
                                 id => Some(id.to_string()),
@@ -396,7 +382,7 @@ impl FromStr for StartVersion {
                         }
 
                         Self::Forge { 
-                            kind, 
+                            loader, 
                             version: other.to_string(),
                         }
                         
