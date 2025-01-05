@@ -1129,6 +1129,7 @@ dependencies = [
  "clap",
  "ctrlc",
  "portablemc",
+ "reqwest",
  "uuid",
  "xmlparser",
 ]

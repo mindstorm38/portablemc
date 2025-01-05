@@ -465,15 +465,36 @@ pub struct SearchArgs {
     /// [supported search kinds: mojang]
     #[arg(long, conflicts_with_all = ["filter", "channel"])]
     pub latest: Option<SearchLatestChannel>,
-    /// Only keep loader versions that targets the given game version.
+    /// Only keep loader versions that targets the given game version. 
     /// 
     /// [supported search kinds: forge, neoforge]
     #[arg(long)]
     pub game_version: Vec<String>,
 }
 
+impl SearchArgs {
+
+    /// Return true if the given haystack contains one of the string filters. Return true
+    /// if no string filter.
+    pub fn match_filter(&self, haystack: &str) -> bool {
+        self.filter.is_empty() || self.filter.iter().any(|s| haystack.contains(s))
+    }
+
+    /// Return true if the given search channel is selected. Return true if no filter.
+    pub fn match_channel(&self, channel: SearchChannel) -> bool {
+        self.channel.is_empty() || self.channel.contains(&channel)
+    }
+
+    /// Return true if the given game version is present, exactly, in one of the filter.
+    /// Return true if no filter.
+    pub fn match_game_version(&self, game_version: &str) -> bool {
+        self.game_version.is_empty() || self.game_version.iter().any(|v| v == game_version)
+    }
+
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-#[clap(rename_all = "lower")]
+#[clap(rename_all = "kebab-case")]
 pub enum SearchKind {
     /// Search for official versions released by Mojang, including release and snapshots.
     Mojang,
@@ -481,12 +502,20 @@ pub enum SearchKind {
     Local,
     /// Search for Fabric loader versions.
     Fabric,
+    /// Search for Fabric supported game versions.
+    FabricGame,
     /// Search for Quilt loader versions.
     Quilt,
+    /// Search for Quilt supported game versions.
+    QuiltGame,
     /// Search for LegacyFabric loader versions.
-    LegacyFabric,
+    Legacyfabric,
+    /// Search for LegacyFabric supported game versions.
+    LegacyfabricGame,
     /// Search for Babric loader versions.
     Babric,
+    /// Search for Babric supported game versions.
+    BabricGame,
     /// Search for Forge loader versions.
     Forge,
     /// Search for NeoForge loader versions.
@@ -507,6 +536,18 @@ pub enum SearchChannel {
     Stable,
     /// Filter versions by unstable channel (only for mod loaders).
     Unstable,
+}
+
+impl SearchChannel {
+
+    pub fn new_stable_or_unstable(stable: bool) -> Self {
+        if stable { 
+            SearchChannel::Stable 
+        } else {
+            SearchChannel::Unstable
+        }
+    }
+    
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
