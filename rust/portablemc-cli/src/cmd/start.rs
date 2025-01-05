@@ -56,22 +56,15 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             ref loader_version, 
         } => {
 
-            let (api_id, api_name) = match loader {
-                fabric::Loader::Fabric => ("fabric", "Fabric"),
-                fabric::Loader::Quilt => ("quilt", "Quilt"),
-                fabric::Loader::LegacyFabric => ("legacyfabric", "LegacyFabric"),
-                fabric::Loader::Babric => ("babric", "Babric"),
-            };
-
             let mut inst = fabric::Installer::new(loader, game_version.clone(), loader_version.clone(), cli.main_dir.clone());
             inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
 
             let mut handler = CommonHandler::new(&mut cli.out);
-            handler.set_api(api_id, api_name);
+            handler.set_fabric_loader(loader);
             match inst.install(handler) {
                 Ok(game) => main_game(game, cli, args),
                 Err(e) => {
-                    log_fabric_error(&mut cli.out, e, api_id, api_name);
+                    log_fabric_error(&mut cli.out, e, loader);
                     return ExitCode::FAILURE;
                 }
             }
@@ -81,15 +74,8 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             loader, 
             ref version,
         } => {
-
-            let (api_id, api_name) = match loader {
-                forge::Loader::Forge => ("forge", "Forge"),
-                forge::Loader::NeoForge => ("neoforge", "NeoForge"),
-            };
-
             let inst = forge::Installer::new(loader, version.clone(), cli.main_dir.clone());
-            main_forge(inst, cli, args, api_id, api_name)
-
+            main_forge(inst, cli, args)
         }
         StartVersion::ForgeLatest { 
             loader, 
@@ -115,11 +101,6 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
                 }
             };
 
-            let (api_id, api_name) = match loader {
-                forge::Loader::Forge => ("forge", "Forge"),
-                forge::Loader::NeoForge => ("neoforge", "NeoForge"),
-            };
-
             let version = if stable {
                 forge::Version::Stable(game_version)
             } else {
@@ -127,7 +108,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             };
 
             let inst = forge::Installer::new(loader, version, cli.main_dir.clone());
-            main_forge(inst, cli, args, api_id, api_name)
+            main_forge(inst, cli, args)
 
         }
     }
@@ -152,16 +133,16 @@ fn main_mojang(version: String, cli: &mut Cli, args: &StartArgs) -> ExitCode {
 }
 
 /// Main entrypoint for starting a Forge/NeoForge version from its object.
-fn main_forge(mut inst: forge::Installer, cli: &mut Cli, args: &StartArgs, api_id: &'static str, api_name: &'static str) -> ExitCode {
+fn main_forge(mut inst: forge::Installer, cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
     inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
 
     let mut handler = CommonHandler::new(&mut cli.out);
-    handler.set_api(api_id, api_name);
+    handler.set_forge_loader(inst.loader());
     match inst.install(handler) {
         Ok(game) => main_game(game, cli, args),
         Err(e) => {
-            log_forge_error(&mut cli.out, e, api_id, api_name);
+            log_forge_error(&mut cli.out, e, inst.loader());
             return ExitCode::FAILURE;
         }
     }

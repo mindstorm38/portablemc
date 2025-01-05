@@ -478,7 +478,7 @@ impl<'d> ApiLoaderVersion<'d> {
     #[inline]
     pub fn is_stable(&self) -> bool {
         self.inner.stable.unwrap_or_else(|| {
-            self.inner.version.contains("-beta")
+            !self.inner.version.contains("-beta") && !self.inner.version.contains("-pre")
         })
     }
 

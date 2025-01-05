@@ -13,10 +13,12 @@ portablemc.workspace = true
 
 clap = { version = "4.5.21", features = ["derive", "wrap_help", "env"] }
 
-uuid = { version = "1.11.0", features = [] }
-xmlparser = "0.13.6"  # No deps
 chrono = "0.4.38"
 ctrlc = "3.4.5"
+
+reqwest = "0.12.9"    # Must match the API
+uuid = "1.11.0"       # Must match the API
+xmlparser = "0.13.6"  # Must match the API, No deps
 
 [[bin]]
 name = "portablemc"

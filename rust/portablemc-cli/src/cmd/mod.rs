@@ -3,16 +3,16 @@
 pub mod start;
 pub mod search;
 
-use std::collections::HashSet;
 use std::process::{self, ExitCode};
 use std::path::{Path, PathBuf};
+use std::collections::HashSet;
 use std::time::Instant;
 use std::error::Error;
 use std::io;
 
-use portablemc::maven::Gav;
 use portablemc::standard::{self, LoadedLibrary, LoadedVersion};
 use portablemc::{download, mojang, fabric, forge};
+use portablemc::maven::Gav;
 
 use crate::parse::{CliArgs, CliCmd, CliOutput};
 use crate::output::{Output, LogLevel};
@@ -112,10 +112,20 @@ impl<'a> CommonHandler<'a> {
             api_name: "",
         }
     }
-
-    pub fn set_api(&mut self, api_id: &'static str, api_name: &'static str) {
+    
+    fn set_api(&mut self, api_id: &'static str, api_name: &'static str) {
         self.api_id = api_id;
         self.api_name = api_name;
+    }
+
+    pub fn set_fabric_loader(&mut self, loader: fabric::Loader) {
+        let (api_id, api_name) = fabric_id_name(loader);
+        self.set_api(api_id, api_name);
+    }
+
+    pub fn set_forge_loader(&mut self, loader: forge::Loader) {
+        let (api_id, api_name) = forge_id_name(loader);
+        self.set_api(api_id, api_name);
     }
 
 }
@@ -598,14 +608,7 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
                 .additional(format_args!("At {origin}"));
         }
         Error::Reqwest { error } => {
-            let mut log = out.log("error_reqwest");
-            log.args(error.url());
-            log.args(error.source());
-            log.newline();
-            log.error(format_args!("Reqwest error: {error}"));
-            if let Some(source) = error.source() {
-                log.additional(format_args!("At {source}"));
-            }
+            log_reqwest_error(out, error);
         }
         Error::Download { batch } => {
             log_download_error(out, batch);
@@ -634,9 +637,11 @@ pub fn log_mojang_error(out: &mut Output, error: mojang::Error) {
 
 }
 
-pub fn log_fabric_error(out: &mut Output, error: fabric::Error, api_id: &str, api_name: &str) {
+pub fn log_fabric_error(out: &mut Output, error: fabric::Error, loader: fabric::Loader) {
 
     use fabric::Error;
+
+    let (api_id, api_name) = fabric_id_name(loader);
 
     match error {
         Error::Mojang(error) => log_mojang_error(out, error),
@@ -680,9 +685,11 @@ pub fn log_fabric_error(out: &mut Output, error: fabric::Error, api_id: &str, ap
 
 }
 
-pub fn log_forge_error(out: &mut Output, error: forge::Error, api_id: &str, api_name: &str) {
+pub fn log_forge_error(out: &mut Output, error: forge::Error, loader: forge::Loader) {
 
     use forge::Error;
+
+    let (api_id, api_name) = forge_id_name(loader);
 
     const CONTACT_DEV: &str = "This version of the loader might not be supported by PortableMC, please contact developers on https://github.com/mindstorm38/portablemc/issues";
 
@@ -850,6 +857,18 @@ pub fn log_download_error(out: &mut Output, batch: download::BatchResult) {
 
 }
 
+/// Common function to log a reqwest (HTTP) error.
+pub fn log_reqwest_error(out: &mut Output, error: reqwest::Error) {
+    let mut log = out.log("error_reqwest");
+    log.args(error.url());
+    log.args(error.source());
+    log.newline();
+    log.error(format_args!("Reqwest error: {error}"));
+    if let Some(source) = error.source() {
+        log.additional(format_args!("At {source}"));
+    }
+}
+
 /// Common function to log an I/O error to the user.
 pub fn log_io_error(out: &mut Output, error: io::Error, origin: &str) {
 
@@ -894,4 +913,20 @@ fn io_error_kind_code(error: &io::Error) -> Option<&'static str> {
         ErrorKind::OutOfMemory => "out_of_memory",
         _ => return None,
     })
+}
+
+fn fabric_id_name(loader: fabric::Loader) -> (&'static str, &'static str) {
+    match loader {
+        fabric::Loader::Fabric => ("fabric", "Fabric"),
+        fabric::Loader::Quilt => ("quilt", "Quilt"),
+        fabric::Loader::LegacyFabric => ("legacyfabric", "LegacyFabric"),
+        fabric::Loader::Babric => ("babric", "Babric"),
+    }
+}
+
+fn forge_id_name(loader: forge::Loader) -> (&'static str, &'static str) {
+    match loader {
+        forge::Loader::Forge => ("forge", "Forge"),
+        forge::Loader::NeoForge => ("neoforge", "NeoForge"),
+    }
 }
