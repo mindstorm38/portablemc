@@ -221,14 +221,13 @@ impl standard::Handler for CommonHandler<'_> {
         self.out.log("load_version")
             .arg(version)
             .pending(format_args!("Loading version {version}"))
-            .info(format_args!("Version file: {}", file.display()));
+            .info(format_args!("Loading version metadata: {}", file.display()));
     }
 
-    fn loaded_version(&mut self, version: &str, file: &Path) {
+    fn loaded_version(&mut self, version: &str, _file: &Path) {
         self.out.log("loaded_version")
             .arg(version)
-            .success(format_args!("Loaded version {version}"))
-            .info(format_args!("Version file: {}", file.display()));
+            .success(format_args!("Loaded version {version}"));
     }
 
     fn load_client(&mut self) {
@@ -653,14 +652,14 @@ pub fn log_fabric_error(out: &mut Output, error: fabric::Error, loader: fabric::
             log.args(game_version.as_ref());
 
             if let Some(game_version) = game_version {
-                log.error(format_args!("Failed to resolve {api_name} latest {stable_str} loader version for {game_version}"));
+                log.error(format_args!("Failed to find {api_name} latest {stable_str} loader version for {game_version}"));
                 if stable {
                     log.additional("The loader might not yet support any stable version for this game version");
                 } else {
                     log.additional("The loader have zero version supported for this game version, likely an issue on their side");
                 }
             } else {
-                log.error(format_args!("Failed to resolve {api_name} latest {stable_str} game version"));
+                log.error(format_args!("Failed to find {api_name} latest {stable_str} game version"));
                 if stable {
                     log.additional("The loader might not yet support any stable game version");
                 } else {
@@ -701,8 +700,11 @@ pub fn log_forge_error(out: &mut Output, error: forge::Error, loader: forge::Loa
             let mut log = out.log(format_args!("error_{api_id}_latest_version_not_found"));
             log.arg(stable_str);
             log.arg(&game_version);
-            log.error(format_args!("Failed to resolve {api_name} latest {stable_str} loader version for {game_version}"));
-            log.additional("The alias might be missing from manifest, likely an issue on Mojang's side");
+            log.error(format_args!("Failed to find {api_name} latest {stable_str} loader version for {game_version}"));
+            log.additional("This game version might not yet be supported by the loader");
+            if stable {
+                log.additional(format_args!("You can try to relax this by also targeting unstable loader versions with {api_id}:{game_version}:unstable"));
+            }
 
         }
         Error::InstallerNotFound { version } => {
