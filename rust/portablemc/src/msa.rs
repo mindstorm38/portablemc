@@ -152,6 +152,10 @@ pub struct Account {
 
 impl Account {
 
+    pub fn client_id(&self) -> &str {
+        &self.client_id
+    }
+
     pub fn access_token(&self) -> &str {
         &self.access_token
     }

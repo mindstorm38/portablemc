@@ -580,7 +580,8 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
         }
         Error::JvmNotFound { major_version } => {
             out.log("error_jvm_not_found")
-                .error(format_args!("JVM version {major_version} not found"));
+                .error(format_args!("JVM version {major_version} not found"))
+                .additional("You can enable verbose mode to learn more about potential JVM rejections");
         }
         Error::MainClassNotFound {  } => {
             out.log("error_main_class_not_found")

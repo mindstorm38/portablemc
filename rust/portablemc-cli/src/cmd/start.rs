@@ -6,10 +6,10 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Local, Utc};
 
+use portablemc::standard::{self, Game, JvmPolicy};
 use portablemc::{mojang, fabric, forge};
-use portablemc::standard::{self, Game};
 
-use crate::parse::{StartArgs, StartResolution, StartVersion};
+use crate::parse::{StartArgs, StartResolution, StartVersion, StartJvmPolicy};
 use crate::format::TIME_FORMAT;
 use crate::output::LogLevel;
 
@@ -181,14 +181,32 @@ fn main_game(game: Game, cli: &mut Cli, args: &StartArgs) -> ExitCode {
 fn apply_standard_args<'a>(
     installer: &'a mut standard::Installer, 
     cli: &Cli, 
+    args: &StartArgs,
 ) -> &'a mut standard::Installer {
+
     installer.set_versions_dir(cli.versions_dir.clone());
     installer.set_libraries_dir(cli.libraries_dir.clone());
     installer.set_assets_dir(cli.assets_dir.clone());
     installer.set_jvm_dir(cli.jvm_dir.clone());
     installer.set_bin_dir(cli.bin_dir.clone());
     installer.set_mc_dir(cli.mc_dir.clone());
+
+    if let Some(jvm_file) = &args.jvm {
+        installer.set_jvm_policy(JvmPolicy::Static { 
+            file: jvm_file.into(), 
+            strict_check: true,
+        });
+    } else {
+        installer.set_jvm_policy(match args.jvm_policy {
+            StartJvmPolicy::System => JvmPolicy::System,
+            StartJvmPolicy::Mojang => JvmPolicy::Mojang,
+            StartJvmPolicy::SystemMojang => JvmPolicy::SystemThenMojang,
+            StartJvmPolicy::MojangSystem => JvmPolicy::MojangThenSystem,
+        });
+    }
+
     installer
+
 }
 
 // Internal function to apply args to the mojang installer.
@@ -198,7 +216,7 @@ fn apply_mojang_args<'a>(
     args: &StartArgs,
 ) -> &'a mut mojang::Installer {
 
-    installer.with_standard(|inst| apply_standard_args(inst, cli));
+    installer.with_standard(|inst| apply_standard_args(inst, cli, args));
     installer.set_disable_multiplayer(args.disable_multiplayer);
     installer.set_disable_chat(args.disable_chat);
     installer.set_demo(args.demo);

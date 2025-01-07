@@ -4,6 +4,7 @@ pub mod parse;
 pub mod format;
 pub mod output;
 pub mod cmd;
+// pub mod auth;
 
 use std::process::ExitCode;
 

@@ -238,6 +238,19 @@ pub struct StartArgs {
     /// This argument can be specified multiple times.
     #[arg(long, value_name = "PATH")]
     pub include_bin: Vec<PathBuf>,
+    /// The path to the JVM executable, 'java' (or 'javaw.exe' on Windows).
+    /// 
+    /// This is used to launch the game, it has a special use-case with Forge and NeoForge
+    /// loader versions where that JVM executable is also used to run the installer 
+    /// processors.
+    /// 
+    /// Note that when this argument is specified, you cannot specify the '--jvm-policy'
+    /// argument.
+    #[arg(long, value_name = "PATH")]
+    pub jvm: Option<String>,
+    /// The policy for finding or installing the JVM executable.
+    #[arg(long, value_name = "POLICY", conflicts_with = "jvm", default_value = "system-mojang")]
+    pub jvm_policy: StartJvmPolicy,
     /// Authentication common arguments.
     #[command(flatten)]
     pub auth_common: LoginArgs,
@@ -249,7 +262,7 @@ pub struct StartArgs {
     pub temp_login: bool,
     /// Authenticate into an online session.
     /// 
-    /// This conflicts with both '--username' or `--uuid` arguments.
+    /// This conflicts with both '--username' or '--uuid' arguments.
     #[arg(short, long, env = "PMC_START_LOGIN", conflicts_with_all = ["username", "uuid"])]
     pub login: Option<String>,
     /// Change the default username of the player, for offline-mode.
@@ -397,6 +410,26 @@ impl FromStr for StartVersion {
 
     }
 
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "kebab-case")]
+pub enum StartJvmPolicy {
+    /// The installer will try to find a suitable JVM executable in the path, searching
+    /// a `java` (or `javaw.exe` on Windows) executable. On operating systems where it's
+    /// supported, this will also check for known directories (on Arch for example).
+    /// If the version needs a specific JVM major version, each candidate executable is 
+    /// checked and a warning is triggered to notify that the version is not suited.
+    /// The install fails if none of those versions is valid.
+    System,
+    /// The installer will try to find a suitable JVM to install from Mojang-provided
+    /// distributions, if no JVM is available for the platform and for the required 
+    /// distribution then the install fails.
+    Mojang,
+    /// The installer search system and then mojang as a fallback.
+    SystemMojang,
+    /// The installer search Mojang and then system as a fallback.
+    MojangSystem,
 }
 
 /// Represent an optional initial resolution for the game window.
