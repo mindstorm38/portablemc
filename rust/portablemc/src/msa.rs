@@ -1,11 +1,17 @@
 //! Microsoft Account authentication for Minecraft accounts.
 
+use std::fs::File;
+use std::io::{self, BufReader};
 use std::time::Duration;
+use std::path::PathBuf;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 use uuid::Uuid;
+
+use jsonwebtoken::{DecodingKey, TokenData, Validation};
 
 
 /// Microsoft Account authenticator.
@@ -13,16 +19,16 @@ use uuid::Uuid;
 /// See https://wiki.vg/Microsoft_Authentication_Scheme
 #[derive(Debug, Clone)]
 pub struct Auth {
-    client_id: String,
+    client_id: Arc<str>,
     language_code: Option<String>,
 }
 
 impl Auth {
 
     /// Create a new authenticator with the given application (client) id.
-    pub fn new(client_id: String) -> Self {
+    pub fn new(client_id: &str) -> Self {
         Self {
-            client_id,
+            client_id: Arc::from(client_id),
             language_code: None,
         }
     }
@@ -30,8 +36,8 @@ impl Auth {
     /// Define a specific language code to use for localized messages.
     /// 
     /// See https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes
-    pub fn with_language_code(mut self, code: String) -> Self {
-        self.language_code = Some(code);
+    pub fn with_language_code(&mut self, code: impl Into<String>) -> &mut Self {
+        self.language_code = Some(code.into());
         self
     }
 
@@ -39,13 +45,23 @@ impl Auth {
     /// contains the user code and the verification URI for that, this flow should be
     /// waited in order to get access to a minecraft authenticator that will ultimately
     /// produce the desired username, UUID and its auth token(s).
-    pub fn request_device_code(self) -> Result<DeviceCodeAuth> {
+    /// 
+    /// You can opt-in to also request the account's primary email via OpenID MSA scope.
+    pub fn request_device_code(&self, email: bool) -> Result<DeviceCodeFlow, AuthError> {
 
         crate::tokio::sync(async move {
 
+            // We request the 'XboxLive.signin' and 'offline_access' scopes that are
+            // mandatory for the Minecraft authentication. Also request the email with
+            // the OpenID-related scopes, the OpenID token will be available in the 
+            // 'id_token' field of the token response.
             let req = MsDeviceAuthRequest {
                 client_id: &self.client_id,
-                scope: "XboxLive.signin offline_access",
+                scope: if email {
+                    "XboxLive.signin offline_access openid email"
+                } else {
+                    "XboxLive.signin offline_access"
+                },
                 mkt: self.language_code.as_deref(),
             };
 
@@ -57,9 +73,10 @@ impl Auth {
                 .error_for_status()?
                 .json::<MsDeviceAuthSuccess>().await?;
 
-            Ok(DeviceCodeAuth {
+            Ok(DeviceCodeFlow {
                 client,
-                client_id: self.client_id,
+                client_id: Arc::clone(&self.client_id),
+                email,
                 res,
             })
 
@@ -71,13 +88,14 @@ impl Auth {
 
 /// Microsoft Account device code flow authenticator.
 #[derive(Debug, Clone)]
-pub struct DeviceCodeAuth {
+pub struct DeviceCodeFlow {
     client: Client,
-    client_id: String,
+    client_id: Arc<str>,
+    email: bool,
     res: MsDeviceAuthSuccess,
 }
 
-impl DeviceCodeAuth {
+impl DeviceCodeFlow {
 
     pub fn user_code(&self) -> &str {
         &self.res.user_code
@@ -94,7 +112,7 @@ impl DeviceCodeAuth {
     /// Wait for the user to authorize via the given user code and verification URI.
     /// If successful the authentication continues and the account is authenticated, if
     /// possible.
-    pub fn wait(self) -> Result<Account> {
+    pub fn wait(self) -> Result<Account, AuthError> {
 
         crate::tokio::sync(async move {
 
@@ -111,8 +129,26 @@ impl DeviceCodeAuth {
                 match request_ms_token(&self.client, &req, "XboxLive.signin").await? {
                     Ok(res) => {
 
+                        // FIXME:
+                        let email = if self.email {
+                            
+                            let Some(id_token) = res.id_token.as_deref() else {
+                                return Err(AuthError::UnknownError(format!("Missing 'id_token' from OpenID scope.")));
+                            };
+
+                            let id_token = decode_jwt_without_validation::<OpenIdToken>(id_token)?;
+                            let Some(email) = id_token.claims.email.as_deref() else {
+                                return Err(AuthError::UnknownError(format!("Missing 'email' from OpenID JWT.")));
+                            };
+
+                            Some(email.to_string())
+
+                        } else {
+                            None
+                        };
+
                         let mut account = request_minecraft_account(&self.client, &res.access_token).await?;
-                        account.client_id = self.client_id;
+                        account.client_id = self.client_id.to_string();
                         account.refresh_token = res.refresh_token;
 
                         break Ok(account);
@@ -123,11 +159,11 @@ impl DeviceCodeAuth {
                             "authorization_pending" => 
                                 continue,
                             "authorization_declined" => 
-                                break Err(Error::AuthorizationDeclined),
+                                break Err(AuthError::AuthorizationDeclined),
                             "expired_token" => 
-                                break Err(Error::AuthorizationTimeOut),
+                                break Err(AuthError::AuthorizationTimeOut),
                             "bad_verification_code" | _ => 
-                                break Err(Error::UnknownError(res.error_description)),
+                                break Err(AuthError::UnknownError(res.error_description)),
                         }
                     }
                 }
@@ -178,7 +214,7 @@ impl Account {
     /// account.
     /// 
     /// It's not required to run that on newly authenticated or refreshed accounts.
-    pub fn request_profile(&mut self) -> Result<()> {
+    pub fn request_profile(&mut self) -> Result<(), AuthError> {
         let client = crate::http::builder().build()?;
         let profile = crate::tokio::sync(request_minecraft_profile(&client, &self.access_token))?;
         self.username = profile.name;
@@ -187,7 +223,7 @@ impl Account {
 
     /// Request a token refresh of this account, this will use the internal refresh token,
     /// this will also update the username, uuid and access token.
-    pub fn request_refresh(&mut self) -> Result<()> {
+    pub fn request_refresh(&mut self) -> Result<(), AuthError> {
 
         crate::tokio::sync(async move {
 
@@ -202,7 +238,7 @@ impl Account {
             let res = match request_ms_token(&client, &req, "XboxLive.signin").await? {
                 Ok(res) => res,
                 Err(res) => {
-                    return Err(Error::UnknownError(res.error_description));
+                    return Err(AuthError::UnknownError(res.error_description));
                 }
             };
 
@@ -225,7 +261,7 @@ async fn request_ms_token(
     client: &Client,
     req: &MsTokenRequest<'_>,
     expected_scope: &str,
-) -> Result<std::result::Result<MsTokenSuccess, MsAuthError>> {
+) -> Result<std::result::Result<MsTokenSuccess, MsAuthError>, AuthError> {
 
     let res = client
         .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
@@ -238,9 +274,9 @@ async fn request_ms_token(
             let res = res.json::<MsTokenSuccess>().await?;
 
             if res.token_type != "Bearer" {
-                return Err(Error::UnknownError(format!("Unexpected token type: {}", res.token_type)));
+                return Err(AuthError::UnknownError(format!("Unexpected token type: {}", res.token_type)));
             } else if res.scope != expected_scope {
-                return Err(Error::UnknownError(format!("Unexpected scope: {}", res.scope)));
+                return Err(AuthError::UnknownError(format!("Unexpected scope: {}", res.scope)));
             }
 
             Ok(Ok(res))
@@ -249,17 +285,17 @@ async fn request_ms_token(
         StatusCode::BAD_REQUEST => {
             Ok(Err(res.json::<MsAuthError>().await?))
         }
-        status => Err(Error::UnknownStatus(status.as_u16())),
+        status => Err(AuthError::UnknownStatus(status.as_u16())),
     }
     
 }
 
 /// Full procedure to gain access to a real Minecraft account from a given MSA token.
-/// The returned account has no client id nor refresh token.
+/// The returned account has no client id, no refresh token and no email.
 async fn request_minecraft_account(
     client: &Client,
     ms_auth_token: &str,
-) -> Result<Account> {
+) -> Result<Account, AuthError> {
 
     // XBL authentication and authorization...
     let user_res = request_xbl_user(&client, ms_auth_token).await?;
@@ -268,7 +304,7 @@ async fn request_minecraft_account(
     // Now checking coherency...
     if user_res.display_claims.xui.is_empty() 
     || user_res.display_claims.xui != xsts_res.display_claims.xui {
-        return Err(Error::UnknownError(format!("Invalid or incoherent display claims.")))
+        return Err(AuthError::UnknownError(format!("Invalid or incoherent display claims.")))
     }
 
     let user_hash = xsts_res.display_claims.xui[0].uhs.as_str();
@@ -276,7 +312,6 @@ async fn request_minecraft_account(
 
     // Minecraft with XBL...
     let mc_res = request_minecraft_with_xbl(&client, user_hash, xsts_token).await?;
-
     // Minecraft profile...
     let profile_res = request_minecraft_profile(&client, &mc_res.access_token).await?;
 
@@ -293,7 +328,7 @@ async fn request_minecraft_account(
 async fn request_xbl_user(
     client: &Client, 
     ms_auth_token: &str,
-) -> Result<XblSuccess> {
+) -> Result<XblSuccess, AuthError> {
 
     let req = json!({
         "Properties": {
@@ -312,7 +347,7 @@ async fn request_xbl_user(
 
     match res.status() {
         StatusCode::OK => Ok(res.json::<XblSuccess>().await?),
-        status => return Err(Error::UnknownStatus(status.as_u16())),
+        status => return Err(AuthError::UnknownStatus(status.as_u16())),
     }
 
 }
@@ -320,7 +355,7 @@ async fn request_xbl_user(
 async fn request_xbl_xsts(
     client: &Client, 
     xbl_user_token: &str,
-) -> Result<XblSuccess> {
+) -> Result<XblSuccess, AuthError> {
 
     let req = json!({
         "Properties": {
@@ -340,9 +375,9 @@ async fn request_xbl_xsts(
         StatusCode::OK => Ok(res.json::<XblSuccess>().await?),
         StatusCode::UNAUTHORIZED => {
             let res = res.json::<XblError>().await?;
-            return Err(Error::UnknownError(res.message));
+            return Err(AuthError::UnknownError(res.message));
         }
-        status => return Err(Error::UnknownStatus(status.as_u16())),
+        status => return Err(AuthError::UnknownStatus(status.as_u16())),
     }
 
 }
@@ -351,7 +386,7 @@ async fn request_minecraft_with_xbl(
     client: &Client, 
     user_hash: &str, 
     xsts_token: &str,
-) -> Result<MinecraftWithXblSuccess> {
+) -> Result<MinecraftWithXblSuccess, AuthError> {
 
     let req = json!({
         "identityToken": format!("XBL3.0 x={user_hash};{xsts_token}"),
@@ -361,14 +396,14 @@ async fn request_minecraft_with_xbl(
         .post("https://api.minecraftservices.com/authentication/login_with_xbox")
         .json(&req)
         .send().await?;
-    
+
     let mc_res = match res.status() {
         StatusCode::OK => res.json::<MinecraftWithXblSuccess>().await?,
-        status => return Err(Error::UnknownStatus(status.as_u16())),
+        status => return Err(AuthError::UnknownStatus(status.as_u16())),
     };
 
     if mc_res.token_type != "Bearer" {
-        return Err(Error::UnknownError(format!("Unexpected token type: {}", mc_res.token_type)));
+        return Err(AuthError::UnknownError(format!("Unexpected token type: {}", mc_res.token_type)));
     }
     
     Ok(mc_res)
@@ -378,7 +413,7 @@ async fn request_minecraft_with_xbl(
 async fn request_minecraft_profile(
     client: &Client,
     access_token: &str,
-) -> Result<MinecraftProfileSuccess> {
+) -> Result<MinecraftProfileSuccess, AuthError> {
 
     let res = client
         .get("https://api.minecraftservices.com/minecraft/profile")
@@ -387,20 +422,36 @@ async fn request_minecraft_profile(
 
     match res.status() {
         StatusCode::OK => Ok(res.json::<MinecraftProfileSuccess>().await?),
-        StatusCode::FORBIDDEN => return Err(Error::UnknownError(format!("Forbidden access to api.minecraftservices.com, likely because the application lacks approval from Mojang, see https://wiki.vg/Microsoft_Authentication_Scheme."))),
-        StatusCode::UNAUTHORIZED => return Err(Error::OutdatedToken),
-        StatusCode::NOT_FOUND => return Err(Error::DoesNotOwnGame),
-        status => return Err(Error::UnknownStatus(status.as_u16())),
+        StatusCode::FORBIDDEN => return Err(AuthError::UnknownError(format!("Forbidden access to api.minecraftservices.com, likely because the application lacks approval from Mojang, see https://wiki.vg/Microsoft_Authentication_Scheme."))),
+        StatusCode::UNAUTHORIZED => return Err(AuthError::OutdatedToken),
+        StatusCode::NOT_FOUND => return Err(AuthError::DoesNotOwnGame),
+        status => return Err(AuthError::UnknownStatus(status.as_u16())),
     }
 
 }
 
+fn decode_jwt_without_validation<T>(token: &str) -> jsonwebtoken::errors::Result<TokenData<T>>
+where 
+    T: serde::de::DeserializeOwned,
+{
+    // We don't want to validate the token, just decode its data.
+    // See https://github.com/Keats/jsonwebtoken/issues/277.
+    let key = DecodingKey::from_secret(&[]);
+    let mut validation = Validation::default();
+    validation.insecure_disable_signature_validation();
+    validation.validate_aud = false;
+    jsonwebtoken::decode(token, &key, &validation)
+}
+
 /// The error type containing one error for each failed entry in a download batch.
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+pub enum AuthError {
     /// Reqwest HTTP-related error.
     #[error("reqwest: {0}")]
     Reqwest(#[from] reqwest::Error),
+    /// A JWT decoding error happened.
+    #[error("jwt: {0}")]
+    Jwt(#[from] jsonwebtoken::errors::Error),
     /// An unknown HTTP status has been received.
     #[error("unknown status: {0}")]
     UnknownStatus(u16),
@@ -418,9 +469,6 @@ pub enum Error {
     #[error("does not own the game")]
     DoesNotOwnGame,
 }
-
-/// Type alias for a result of batch download.
-pub type Result<T> = std::result::Result<T, Error>;
 
 /// (URL encoded)
 #[derive(Debug, Clone, serde::Serialize)]
@@ -470,7 +518,6 @@ struct MsTokenSuccess {
     expires_in: u32,
     access_token: String,
     /// Issued if the original scope parameter included the openid scope
-    #[allow(unused)]
     id_token: Option<String>,
     /// Issued if the original scope parameter included offline_access.
     refresh_token: String,
@@ -562,4 +609,97 @@ struct MinecraftProfileCape {
     state: String,
     url: String,
     alias: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct OpenIdToken {
+    #[allow(unused)]
+    nonce: Option<String>,
+    email: Option<String>,
+}
+
+/// A file-backed database for storing accounts. It allows storing and retrieving 
+/// accounts atomically (using shared read and exclusive write property of the underlying
+/// filesystem).
+pub struct Database {
+    file: PathBuf,
+}
+
+impl Database {
+
+    /// Create a new database at the given location, the parent directory may not exists.
+    /// This will not actually load the database contents, but it will 
+    pub fn new<P: Into<PathBuf>>(file: P) -> Self {
+        Self {
+            file: file.into(),
+        }
+    }
+
+    fn load(&self) -> Result<Option<DatabaseData>, DatabaseError> {
+        
+        let reader = match File::open(&self.file) {
+            Ok(reader) => BufReader::new(reader),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+
+        let data = serde_json::from_reader::<_, DatabaseData>(reader)
+            .map_err(|_| DatabaseError::Corrupted)?;
+
+        Ok(Some(data))
+        
+    }
+    
+    pub fn load_from_uuid(&self, uuid: Uuid) -> Result<Option<Account>, DatabaseError> {
+        self.load().map(|data| data.and_then(|data| {
+            data.accounts.into_iter()
+                .find(|acc| acc.uuid == uuid)
+                .map(DatabaseDataAccount::into)
+        }))
+    }
+
+    /// Store the given account in this
+    pub fn store(&self, account: Account) {
+        todo!()
+    }
+
+}
+
+/// The error type containing one error for each failed entry in a download batch.
+#[derive(thiserror::Error, Debug)]
+pub enum DatabaseError {
+    /// An underlying I/O error.
+    #[error("io: {0}")]
+    Io(#[from] io::Error),
+    /// The database is corrupted and nothing can be done about it automatically, you
+    /// can move the file to a backup location before retrying.
+    #[error("corrupted")]
+    Corrupted,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+struct DatabaseData {
+    client_id: String,
+    accounts: Vec<DatabaseDataAccount>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+struct DatabaseDataAccount {
+    client_id: String,
+    refresh_token: String,
+    access_token: String,
+    uuid: Uuid,
+    username: String,
+}
+
+impl From<DatabaseDataAccount> for Account {
+    fn from(value: DatabaseDataAccount) -> Self {
+        Self {
+            client_id: value.client_id,
+            refresh_token: value.refresh_token,
+            access_token: value.access_token,
+            uuid: value.uuid,
+            username: value.username,
+        }
+    }
 }

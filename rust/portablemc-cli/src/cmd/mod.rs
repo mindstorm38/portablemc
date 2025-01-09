@@ -1,7 +1,8 @@
 //! Implementing the logic for the different CLI commands.
 
-pub mod start;
-pub mod search;
+mod start;
+mod search;
+mod login;
 
 use std::process::{self, ExitCode};
 use std::path::{Path, PathBuf};
@@ -66,7 +67,7 @@ pub fn main(args: CliArgs) -> ExitCode {
         CliCmd::Start(start_args) => start::main(&mut cli, start_args),
         CliCmd::Search(search_args) => search::main(&mut cli, search_args),
         CliCmd::Info(_) => todo!(),
-        CliCmd::Login(_) => todo!(),
+        CliCmd::Login(login_args) => login::main(&mut cli, login_args),
         CliCmd::Logout(_) => todo!(),
         CliCmd::Show(_) => todo!(),
     }

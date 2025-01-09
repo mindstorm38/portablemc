@@ -37,5 +37,6 @@ dirs.workspace = true
 
 sha1.workspace = true
 md5.workspace = true
+jsonwebtoken.workspace = true
 
 zip.workspace = true

@@ -608,18 +608,9 @@ pub struct InfoArgs {
 /// Login into your account and save the session.
 #[derive(Debug, Args)]
 pub struct LoginArgs {
-    /// Authentication service.
-    #[arg(long, name = "SERVICE", default_value = "microsoft")]
-    pub auth_service: AuthService,
     /// Use an alternative authentication flow that avoids opening you web browser.
     #[arg(long)]
     pub auth_no_browser: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum AuthService {
-    /// Microsoft authentication for Minecraft.
-    Microsoft,
 }
 
 // ================= //
@@ -629,9 +620,7 @@ pub enum AuthService {
 /// Logout and invalidate a saved session.
 #[derive(Debug, Args)]
 pub struct LogoutArgs {
-    /// Authentication common arguments.
-    #[command(flatten)]
-    pub auth_common: LoginArgs,
+    
 }
 
 // ================= //
