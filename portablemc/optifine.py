@@ -7,33 +7,96 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from hashlib import md5 # check if the file is corrupted after the patch
 from .standard import Version, Watcher, Context, VersionHandle, VersionNotFoundError
-from .http import http_request
+from .http import http_request, HttpError
 from .download import DownloadEntry
 from .util import LibrarySpecifier
+from pathlib import Path
 
-def get_versions_list():
+class OptifineEntryObject:
+    def __init__(self, filename: str, edition: str, mc_version: str, preview: bool =False, date: Optional[str] | None =None, forge: Optional[str] | None =None):
+        self.edition=edition
+        self.mc_version=mc_version
+        self.preview=preview
+        self.date=date
+        self.forge=forge
+        self.filename=filename
+    @classmethod
+    def from_dir_name(cls, name: str):
+        n=name.split("-OptiFine_")
+        mcver=n[0]
+        edition=n[1]
+        filename=""
+        preview=False
+        if re.match(r"pre\d",edition.split("_")[-1]):
+            filename+="preview_"
+            preview=True
+        filename+="OptiFine_"+mcver+"_"+edition
+        return cls(filename,edition,mcver,preview)
+    @classmethod
+    def from_filename(cls, filename: str):
+        split_filename = filename.replace(".jar", "").split("_")
+        preview = (split_filename[0] == "preview")
+        if preview:
+            split_filename.pop(0)  # remove preview prefix in order to parse the rest of the filename
+        edition = "_".join(split_filename[2:])
+        mc_version = split_filename[1]
+        preview = preview
+        return cls(filename, edition, mc_version, preview)
+    @classmethod
+    def from_tuple(cls, match):
+        entry=cls.from_filename(match[0].split("=")[1])
+        entry.date=match[2]
+        entry.forge=match[1]
+        return entry
+    def __repr__(self):
+        return f"<{self.mc_version}-OptiFine_{self.edition}>"
+    
+def get_offline_versions(versions_dir:Optional[Path] | None=None):
+    """
+    When there is no Internet, this list available optifine versions in the current context
+    """
+    versions=[OptifineEntryObject.from_dir_name(dirpath.name) for dirpath in versions_dir.iterdir() if re.match(r"^\d+\.\d+\.\d+-OptiFine_HD_U_[A-Z][0-9](_pre\d)?$",dirpath.name)]
+    out_dict={}
+    for v in versions:
+        if not v.mc_version in out_dict:
+            out_dict[v.mc_version]=[]
+        out_dict[v.mc_version].append(v)
+    return out_dict
+        
+def get_versions_list(work_dir:Optional[Path] | None=None):
     """
     Récupère la liste des versions d'OptiFine.
     Renvoie une liste de noms de fichiers correspondant aux versions d'OptiFine.
     """
     url = 'https://optifine.net/downloads'
-    response = http_request("GET", url)
+    try:
+        response = http_request("GET", url, accept="text/html")
+    except HttpError:
+        response = None
     # Check if the request was successful
-    if response.status == 200:
-        # Download link search
-        pattern = r'<a href="([^"]*)"[^>]*>([^<]*)</a>'
-        # use a regex instead of BS4 to avoid dependencies
-        matches = re.findall(pattern, response.data.decode('utf-8'))
-        download_links = [match for match in matches if '(mirror)' in match[1].lower()]
+    # Download link search
+    pattern = r"<tr class='downloadLine [^']*'>\s*<td class='colFile'>[^<]+</td>\s*<td class='colDownload'><a href=\"[^\"]+\">Download</a></td>\s*<td class='colMirror'><a href=\"([^\"]+)\">\(Mirror\)</a></td>\s*<td class='colChangelog'><a href='[^']+'>Changelog</a></td>\s*<td class='colForge'>([^<>]+)</td>\s*<td class='colDate'>([0-9.]+)</td>\s*</tr>"
+    if response and response.status == 200:
+        data=response.data.decode('utf-8')
+        if work_dir:
+            with open(work_dir/"net.optifine.downloads.html","w") as f:
+                f.write(data) # backup data
+    else: # unable to fetch the web ressource
+        if work_dir:
+            try:
+                with open(work_dir/"net.optifine.downloads.html","rb") as f:
+                    data=f.read().decode("utf-8")
+            except Exception:
+                raise VersionNotFoundError("Unable to fetch optifine version list")
+        else : raise VersionNotFoundError("Unable to fetch optifine version list")
+    # use a regex instead of BS4 to avoid dependencies
+    matches = re.findall(pattern, data)
 
-        # take file names (used as loader version names) by browsing download links
-        versions = [match[0].split('=')[1][:-4] for match in download_links]
-        return versions
+    # take file names (used as loader version names) by browsing download links
+    versions = [OptifineEntryObject.from_tuple(match) for match in matches]
+    return versions
 
-    else:
-        print('Erreur lors de la requête HTTP')
-
-def get_compatible_versions():
+def get_compatible_versions(work_dir:Optional[Path] | None=None):
     """
     Returns a dictionary with the keys being the Minecraft version,
     and the values being a list of compatible Optifine versions.
@@ -43,11 +106,10 @@ def get_compatible_versions():
               a list of compatible Optifine versions as the value.
     """
     versions_compat = dict()
-    for of_version in get_versions_list():
-        mc_version = of_version.replace("preview_OptiFine", "OptiFine").split('_')[1]
-        if not mc_version in versions_compat.keys():
-            versions_compat[mc_version] = list()
-        versions_compat[mc_version].append(of_version.replace(".jar", ""))
+    for of_version in get_versions_list(work_dir):
+        if not of_version.mc_version in versions_compat.keys():
+            versions_compat[of_version.mc_version] = list()
+        versions_compat[of_version.mc_version].append(of_version)
     return versions_compat
 
 def apply_xdelta_patch(source_data: bytes, patch_data: bytes) -> bytes:
@@ -154,8 +216,9 @@ class OptifinePatchEvent:
 
 
 class OptifineEndInstallEvent:
-    __slots__ = tuple()
-
+    __slots__ = tuple(["version"])
+    def __init__(self,version: str):
+        self.version = version
 
 class Patcher:
     CONFIG_FILES = ["patch.cfg", "patch2.cfg", "patch3.cfg"]
@@ -316,12 +379,26 @@ class Patcher:
 
 
 class OptifineVersion(Version):
-    def __init__(self, version="latest", loader="latest",context: Optional[Context] | None = None):
-        """Small override of the Version class to store the loader version"""
-        context = context or Context()
+    def __init__(self, version: str | None = None, *args, context: Optional[Context] | None = None):
+        """
+            This class is a basic implementation of a version class for Optifine.
+            it takes two arguments: version and context.
+            the version can be a string of one of these formats:
+            - "latest"
+            - "recommended"
+            - "<minecraft version>"
+            - "<minecraft version>-<recommended|latest>"
+            - "<minecraft version>:<optifine edition>"
+            - "<minecraft version>-OptiFine_<optifine edition>"
+            - optifine filename without the .jar suffix EG preview_Optifine_1.19.2-HD_U_J6.jar
+            The optifine edition is a string looking like that:
+            - HD_U_J6
+            _ HD_U_I6_pre3
+        """
+        version= version or "recommended"
         super().__init__(version, context=context)
-        self.mcver = version # stores carefully the minecraft version
-        self.loader = loader # and the loader
+
+
 
     def _resolve_version(self, watcher: Watcher) -> None:
         """
@@ -338,30 +415,68 @@ class OptifineVersion(Version):
             Raises:
                 VersionNotFoundError: If no compatible version is found.
         """
-        available_of_vers = get_compatible_versions()
-        if self.mcver == "latest" and self.loader == "latest":
-            try:
-                self.mcver = list(available_of_vers.keys())[0]
-            except IndexError:
-                raise VersionNotFoundError(self.mcver)
-        elif self.mcver == "latest" and self.loader != "latest":
-            self.mcver=self.parse_mcver_from_loader(self.loader)
-        if self.loader == "latest":
-            self.loader = available_of_vers[self.mcver][0]
-
-        self.version = self.get_installed_default_name()
-    @staticmethod
-    def parse_mcver_from_loader(loader):
-        """Takes the loader version (Install jar name)and returns the minecraft version"""
-        spl_v = loader.split("_")
-        spl_v.remove("preview") # in case it's a beta version
-        return spl_v[1]
-    def get_installed_default_name(self):
-        """Get the default name the official Optifine installer would use for the installed version"""
-        spl_v = self.loader.split("_")
-        ver_index_name = spl_v.index(self.mcver)
-        optifine_ed = "_".join(spl_v[ver_index_name + 1:])
-        return self.version + "-OptiFine_" + optifine_ed
+        try:
+            available_of_vers = get_compatible_versions(self.context.work_dir)
+        except VersionNotFoundError:
+            available_of_vers = get_offline_versions(self.context.versions_dir)
+        try:
+            print(self.version)
+            if self.version=="recommended": # when the version is "recommended"
+                mcver = [v for v in available_of_vers.keys() if any(not of.preview for of in available_of_vers[v])][0] # remove preview versions
+                loader = [of.edition for of in available_of_vers[mcver] if not of.preview][0]
+            elif self.version=="latest": # when the version is "latest"
+                mcver=list(available_of_vers.keys())[0]
+                loader = available_of_vers[mcver][0].edition
+            elif self.version == "latest:recommended": # when the version is latest recommended
+                mcver=list(available_of_vers.keys())[0]
+                loaders = ([of.edition for of in available_of_vers[mcver] if not of.preview] or
+                           [of.edition for of in available_of_vers[mcver]])
+                loader=loaders[0]
+            elif re.match(r"^\d+\.\d+(\.\d+)?$",string=self.version):
+                # in case only the minecraft version is provided
+                mcver=self.version
+                loaders = ([of.edition for of in available_of_vers[mcver] if not of.preview] or
+                           [of.edition for of in available_of_vers[mcver]])
+                loader = loaders[0]
+            elif re.match(pattern = r"^\d+\.\d+(\.\d+)?:[a-zA-Z0-9_]+$", string = self.version):
+                # when the version is of the form {minecraft version}:{optifine edition}
+                mcver, loader = self.version.split(":")
+                if loader == "latest":
+                    loader = available_of_vers[mcver][0].edition
+                elif loader == "recommended": # takes the latest non-preview loader, if available, or fallback to a preview
+                    loaders = ([of.edition for of in available_of_vers[mcver] if not of.preview] or
+                               [of.edition for of in available_of_vers[mcver]])
+                    loader=loaders[0]
+            elif re.match(pattern  = r"^\d+\.\d+\.\d+-OptiFine_HD_U_[A-Z][0-9](_pre\d)?$", string = self.version):
+                mcver, loader = self.version.split("-OptiFine_") # the version is already in the correct format
+            elif re.match(pattern = r"^(preview_)?OptiFine_\d+\.\d+\.\d+_[A-Z0-9_]+", string=self.version):
+                # in this case, the user directly chosen a filename on the optifine website
+                split_filename = self.version.split("_")
+                if split_filename[0] == "preview":
+                    split_filename.pop(0)
+                mcver = split_filename[1]
+                loader = "_".join(split_filename[2:])
+            else:
+                # no regex matched
+                raise VersionNotFoundError(self.version)
+        except Exception:
+            raise VersionNotFoundError(self.version)
+        if (not mcver in available_of_vers.keys() or
+            not any(loader==entry.edition for entry in available_of_vers[mcver])):
+            raise VersionNotFoundError(self.version)
+        self.version = mcver+"-OptiFine_"+loader
+    def mcver(self):
+        return self.version.split("-OptiFine_")[0]
+    def loader(self):
+        return self.version.split("-OptiFine_")[1]
+    def dl_url(self):
+        edition=self.version.split("-OptiFine_")[1]
+        mcver=self.version.split("-OptiFine_")[0]
+        filename=""
+        if re.match(r"pre\d",edition.split("_")[-1]):
+            filename+="preview_"
+        filename+="OptiFine_"+mcver+"_"+edition
+        return f"http://optifine.net/download?f={filename}.jar"
 
     def _load_version(self, version: VersionHandle, watcher: Watcher) -> bool:
         """Same as in ForgeVersion"""
@@ -374,7 +489,7 @@ class OptifineVersion(Version):
         """Resolves the Optifine installer jar and the client jar"""
         super()._resolve_jar(watcher)
         if not (self.context.versions_dir / self.version / "ofInstaller.jar").exists():
-            install_jar_url = f'http://optifine.net/download?f={self.loader}.jar'
+            install_jar_url = self.dl_url()
             self._dl.add(DownloadEntry(install_jar_url, self.context.versions_dir / self.version / "ofInstaller.jar"))
         self._download(watcher) # download needed ressources (vanilla client jar, jvms, and optifine installer jar)
         self._finalize_optifine(watcher)
@@ -400,7 +515,7 @@ class OptifineVersion(Version):
         """
         return {
             "id": self.version,
-            "inheritsFrom": self.mcver,
+            "inheritsFrom": self.mcver(),
             "time": datetime.now().strftime("%Y-%m-%dT%H:%M:%S%z"),
             "releaseTime": datetime.now().strftime("%Y-%m-%dT%H:%M:%S%z"),
             "type": "release"
@@ -412,7 +527,7 @@ class OptifineVersion(Version):
         # Update the JSON with the optifine library name and main class
         new_json.update( **{
             "libraries": [
-                {"name": f"optifine:OptiFine:{self.mcver}_{ofedition}"}
+                {"name": f"optifine:OptiFine:{self.mcver()}_{ofedition}"}
             ],
             "mainClass": "net.minecraft.launchwrapper.Launch"
         })
@@ -425,7 +540,7 @@ class OptifineVersion(Version):
         if "minecraftArguments" in parent_data:
             new_json["minecraftArguments"] = parent_data["minecraftArguments"] + " --tweakClass optifine.OptiFineTweaker"
         else:
-            if self.mcver in ["1.7.2", "1.7.10", "1.8.0", "1.8.8", "1.12.2", "1.12.1", "1.12"]:
+            if self.mcver() in ["1.7.2", "1.7.10", "1.8.0", "1.8.8", "1.12.2", "1.12.1", "1.12"]:
                 new_json["minecraftArguments"] = "--tweakClass optifine.OptiFineTweaker"
             else:
                 new_json["minimumLauncherVersion"] = 21
@@ -436,6 +551,7 @@ class OptifineVersion(Version):
     def _finalize_optifine(self, watcher: Watcher) -> None:
         try:
             self._finalize_optifine_internal(watcher)
+            # _finalize_optifine is updating the version metadata, so reload it
             self._resolve_metadata(watcher)
         except Exception as e:
             version = VersionHandle(self.version, self.context.versions_dir / self.version)
@@ -450,15 +566,18 @@ class OptifineVersion(Version):
         """
         if not version.read_metadata_file():
             return False
-        if "inheritsFrom" in version.metadata and version.metadata["inheritsFrom"] == self.mcver:
+        if "inheritsFrom" in version.metadata and version.metadata["inheritsFrom"] == self.mcver():
             if "libraries" in version.metadata:
                 launchwrapperseemscorrect = False # This variable is used to check if the launchwrapper is correct
+                oflibseemscorrect = False
                 for lib in version.metadata["libraries"]:
                     libpath=LibrarySpecifier.from_str(lib["name"])
                     if not (self.context.libraries_dir / libpath.file_path()).exists() and not "url" in lib.keys():
                         return False
                     if lib["name"].startswith("optifine:launchwrapper-of:") or "net.minecraft:launchwrapper:1.12" == lib["name"]:
                         launchwrapperseemscorrect = True
+                    if lib["name"]==f"optifine:OptiFine:{self.mcver()}_{self.loader()}":
+                        oflibseemscorrect = True
                 if ("minecraftArguments" in version.metadata and
                     "--tweakClass optifine.OptiFineTweaker" not in version.metadata["minecraftArguments"]):
                     return False
@@ -469,12 +588,12 @@ class OptifineVersion(Version):
                     return False
                 elif ("minecraftArguments" in version.metadata and
                     "--tweakClass optifine.OptiFineTweaker" in version.metadata["minecraftArguments"]):
-                    return launchwrapperseemscorrect
+                    return launchwrapperseemscorrect and oflibseemscorrect
                 elif ("arguments" in version.metadata and
                     "game" in version.metadata["arguments"] and
                     "--tweakClass" in version.metadata["arguments"]["game"] and
                     "optifine.OptiFineTweaker" in version.metadata["arguments"]["game"]):
-                    return launchwrapperseemscorrect
+                    return launchwrapperseemscorrect and oflibseemscorrect
                 else:
                     return False
         return False
@@ -491,7 +610,7 @@ class OptifineVersion(Version):
                     launchwrapper_version=jar.open("launchwrapper-of.txt").read().decode("utf-8").strip()
                 except KeyError:
                     launchwrapper = "net.minecraft:launchwrapper:1.12"
-                minecraft_ver = VersionHandle(self.mcver, self.context.versions_dir / self.mcver)
+                minecraft_ver = VersionHandle(self.mcver(), self.context.versions_dir / self.mcver())
                 if minecraft_ver.read_metadata_file():
                     parent_data = minecraft_ver.metadata
                 else:
@@ -500,17 +619,15 @@ class OptifineVersion(Version):
                     parent_data = res.json()
                     minecraft_ver.metadata = parent_data
                     minecraft_ver.write_metadata_file()
-                ofver=self.get_optifine_version(jar)
-                ofed="_".join(ofver.split("_")[2:]) # Get optifine edition for library path (EG: HD_U_J5)
-                version.metadata = self._build_optifine_json(launchwrapper, parent_data, ofed)
+                version.metadata = self._build_optifine_json(launchwrapper, parent_data, self.loader())
                 version.write_metadata_file()
                 # patch minecraft version jar to build Optifine library
-                of_lib_dir=self.context.libraries_dir/"optifine"/"OptiFine"/f"{self.mcver}_{ofed}"
+                of_lib_dir=self.context.libraries_dir/"optifine"/"OptiFine"/f"{self.mcver()}_{self.loader()}"
                 if not of_lib_dir.exists(): # makes the library directory
                     of_lib_dir.mkdir(parents=True,exist_ok=True)
                 Patcher.process(self.context.versions_dir / self.version / f"{self.version}.jar",
                                 self.context.versions_dir / self.version / "ofInstaller.jar",
-                                self.context.libraries_dir/"optifine"/"OptiFine"/f"{self.mcver}_{ofed}"/f"OptiFine-{self.mcver}_{ofed}.jar",
+                                self.context.libraries_dir/"optifine"/"OptiFine"/f"{self.mcver()}_{self.loader()}"/f"OptiFine-{self.mcver()}_{self.loader()}.jar",
                                 watcher=watcher)
                 if not launchwrapper=="net.minecraft:launchwrapper:1.12":
                     # install launchwrapper library if it is not default launchwrapper
@@ -519,33 +636,9 @@ class OptifineVersion(Version):
                     file_dest = dir_dest / file_name
                     dir_dest.mkdir(parents=True, exist_ok=True)
                     with jar.open(file_name) as raw_launchwrapper:
+                        launchwrapper_data = raw_launchwrapper.read()
                         with open(file_dest, "wb") as launchwrapper:
-                            launchwrapper.write(raw_launchwrapper.read())
+                            launchwrapper.write(launchwrapper_data)
+                        launchwrapper_checksum = md5(launchwrapper_data).hexdigest()
 
-                watcher.handle(OptifineEndInstallEvent())
-    @staticmethod
-    def get_optifine_version(jar: zipfile.ZipFile) -> str:
-        """Retrieve the OptiFine version from a optifine installer JAR file."""
-        # there are several files in wich the version can be found, depending on the optifine version
-        files_to_check = [
-            "net/optifine/Config.class",
-            "notch/net/optifine/Config.class",
-            "Config.class",
-            "VersionThread.class"
-        ]
-        for file_name in files_to_check:
-            try:
-                with jar.open(file_name) as file:
-                    """Extract OptiFine version from byte data."""
-                    data = file.read()
-                    pattern = "OptiFine_".encode("ascii")
-                    pos = data.find(pattern)
-                    assert pos >= 0, "OptiFine version not found"
-                    end_pos = pos
-                    while end_pos < len(data) and 32 <= data[end_pos] <= 122:
-                        end_pos += 1
-                    return data[pos:end_pos].decode("ascii")
-            except KeyError:
-                continue
-        #in case the version is not found
-        raise FileNotFoundError("OptiFine version not found in the provided JAR")
+                watcher.handle(OptifineEndInstallEvent(self.version))
