@@ -37,8 +37,8 @@ lang = {
     "args._": 
         "  A fast, reliable and cross-platform command-line Minecraft launcher and API\n"
         "  for developers. Including fast and easy installation of common mod loaders such\n"
-        "  as Fabric, LegacyFabric, Forge, NeoForge, Quilt and Babric. This launcher is\n" 
-        "  compatible with the standard Minecraft directories.\n\n",
+        "  as Fabric, LegacyFabric, Forge, NeoForge, Quilt, Babric and Optifine. \n" 
+        "  This launcher is compatible with the standard Minecraft directories.\n\n",
     "args.main_dir": "Set the main directory where libraries, assets and versions.",
     "args.work_dir": "Set the working directory where the game run and place for examples "
         "saves, screenshots (and resources for legacy versions), it also store "
@@ -75,6 +75,7 @@ lang = {
     "args.search.kind.comp.legacyfabric": "Search for LegacyFabric versions.",
     "args.search.kind.comp.quilt": "Search for Quilt versions.",
     "args.search.kind.comp.babric": "Search for Babric versions.",
+    "args.search.kind.comp.optifine": "Search for Optifine versions.",
     "args.search.input": "Search input.",
     "args.search.input.comp.release": "Resolve version of the latest release.",
     "args.search.input.comp.snapshot": "Resolve version of the latest snapshot.",
@@ -88,6 +89,7 @@ lang = {
     "args.start.version.babric": "babric::[<loader-version>]",
     "args.start.version.forge": "forge:[<forge-version>] (forge-version >= 1.5.2)",
     "args.start.version.neoforge": "neoforge:[<neoforge-version>] (neoforge-version >= 1.20.1)",
+    "args.start.version.optifine": "optifine:[<vanilla-version>[:<optifine-version>]]",
     "args.start.version.comp.release": "Start the latest release (default).",
     "args.start.version.comp.snapshot": "Start the latest snapshot.",
     "args.start.version.comp.fabric": "Start Fabric mod loader with latest release.",
@@ -96,6 +98,7 @@ lang = {
     "args.start.version.comp.babric": "Start Babric mod loader with beta 1.7.3.",
     "args.start.version.comp.forge": "Start Forge mod loader with latest release.",
     "args.start.version.comp.neoforge": "Start NeoForge mod loader with latest release.",
+    "args.start.version.comp.optifine": "Start Optifine mod loader with latest recommended release.",
     "args.start.dry": "Simulate game starting.",
     "args.start.disable_multiplayer": "Disable the multiplayer buttons (>= 1.16).",
     "args.start.disable_chat": "Disable the online chat (>= 1.16).",
@@ -189,6 +192,7 @@ lang = {
     "search.flags.local": "local",
     "search.flags.stable": "stable",
     "search.loader_version": "Loader version",
+    "search.OptiFine.ForgeCompatibility": "Forge compatibility",
     # Command login
     "login.tip.remember_start_login": "Remember to start the game with '-l {email}' if you want to be authenticated in-game.",
     # Command logout
@@ -249,6 +253,10 @@ lang = {
     "start.forge.post_processed": "Forge post processing done",
     f"start.forge.install_error.{ForgeInstallError.INSTALL_PROFILE_NOT_FOUND}": "Install profile not found in the forge installer.",
     f"start.forge.install_error.{ForgeInstallError.VERSION_METADATA_NOT_FOUND}": "Version metadata not found in the forge installer.",
+    # Command start (optifine)
+    "start.optifine.install": "Installing OptiFine...",
+    "start.optifine.patching": "Patching OptiFine library {progress}",
+    "start.optifine.installed": "OptiFine Library {version} installed",
     # Pretty download
     "download.threads_count": "Download threads count: {count}",
     "download.start": "Download starting...",

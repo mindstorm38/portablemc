@@ -218,7 +218,7 @@ def get_outputs() -> List[str]:
     return ["human-color", "human", "machine"]
 
 def get_search_kinds() -> List[str]:
-    return ["mojang", "local", "forge", "fabric", "quilt", "legacyfabric", "babric"]
+    return ["mojang", "local", "forge", "fabric", "quilt", "legacyfabric", "babric", "optifine"]
 
 def get_auth_services() -> List[str]:
     return ["microsoft", "yggdrasil"]
