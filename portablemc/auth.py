@@ -2,11 +2,12 @@
 """
 
 from urllib import parse as url_parse
-from uuid import UUID, uuid4, uuid5
+from uuid import UUID, uuid4
 from pathlib import Path
 import platform
 import base64
 import json
+import hashlib
 
 from .http import HttpError, http_request
 
@@ -100,7 +101,15 @@ class OfflineAuthSession(AuthSession):
                 self.username = self.uuid[:8]
             else:
                 self.username = username[:16]
-                self.uuid = uuid5(namespace_hash, self.username).hex
+                self.uuid = self.__offlineUUID(self.username)
+
+    def __offlineUUID(player_name: str) -> str:
+        bytestring = b'OfflinePlayer:' + player_name.encode()
+        md5_hash = hashlib.md5(bytestring, usedforsecurity=False)
+        md5_bytes = bytearray(md5_hash.digest())
+        md5_bytes[6] = md5_bytes[6] & 0x0f | 0x30
+        md5_bytes[8] = md5_bytes[8] & 0x3f | 0x80
+        return md5_bytes.hex()
 
     def format_token_argument(self, legacy: bool) -> str:
         return ""
