@@ -21,6 +21,8 @@ xmlparser.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 
+webbrowser.workspace = true
+
 reqwest.workspace = true
 
 clap.workspace = true

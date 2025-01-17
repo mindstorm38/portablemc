@@ -21,13 +21,13 @@ use super::{Cli, CommonHandler, log_io_error, log_mojang_error, log_fabric_error
 pub static GAME_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 
 
-pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
+pub fn start(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
     match args.version {
         StartVersion::Mojang { 
             ref version,
         } => {
-            main_mojang(version.clone(), cli, args)
+            start_mojang(version.clone(), cli, args)
         }
         StartVersion::MojangRelease |
         StartVersion::MojangSnapshot => {
@@ -36,7 +36,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             let repo = match mojang::Manifest::request(handler) {
                 Ok(repo) => repo,
                 Err(e) => {
-                    log_mojang_error(&mut cli.out, e);
+                    log_mojang_error(cli, e);
                     return ExitCode::FAILURE;
                 }
             };
@@ -47,7 +47,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
                 _ => unreachable!(),
             };
 
-            main_mojang(version.to_string(), cli, args)
+            start_mojang(version.to_string(), cli, args)
 
         }
         StartVersion::Fabric { 
@@ -62,9 +62,9 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             let mut handler = CommonHandler::new(&mut cli.out);
             handler.set_fabric_loader(loader);
             match inst.install(handler) {
-                Ok(game) => main_game(game, cli, args),
+                Ok(game) => start_game(game, cli, args),
                 Err(e) => {
-                    log_fabric_error(&mut cli.out, e, loader);
+                    log_fabric_error(cli, e, loader);
                     return ExitCode::FAILURE;
                 }
             }
@@ -75,7 +75,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             ref version,
         } => {
             let inst = forge::Installer::new(loader, version.clone(), cli.main_dir.clone());
-            main_forge(inst, cli, args)
+            start_forge(inst, cli, args)
         }
         StartVersion::ForgeLatest { 
             loader, 
@@ -91,7 +91,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
                     let repo = match mojang::Manifest::request(handler) {
                         Ok(repo) => repo,
                         Err(e) => {
-                            log_mojang_error(&mut cli.out, e);
+                            log_mojang_error(cli, e);
                             return ExitCode::FAILURE;
                         }
                     };
@@ -108,7 +108,7 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             };
 
             let inst = forge::Installer::new(loader, version, cli.main_dir.clone());
-            main_forge(inst, cli, args)
+            start_forge(inst, cli, args)
 
         }
     }
@@ -116,16 +116,16 @@ pub fn main(cli: &mut Cli, args: &StartArgs) -> ExitCode {
 }
 
 /// Main entrypoint for starting a Mojang version from its name.
-fn main_mojang(version: String, cli: &mut Cli, args: &StartArgs) -> ExitCode {
+fn start_mojang(version: String, cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
     let mut inst = mojang::Installer::new(version, cli.main_dir.clone());
     apply_mojang_args(&mut inst, &cli, args);
 
     let mut handler = CommonHandler::new(&mut cli.out);
     match inst.install(&mut handler) {
-        Ok(game) => main_game(game, cli, args),
+        Ok(game) => start_game(game, cli, args),
         Err(e) => {
-            log_mojang_error(&mut cli.out, e);
+            log_mojang_error(cli, e);
             return ExitCode::FAILURE;
         }
     }
@@ -133,16 +133,16 @@ fn main_mojang(version: String, cli: &mut Cli, args: &StartArgs) -> ExitCode {
 }
 
 /// Main entrypoint for starting a Forge/NeoForge version from its object.
-fn main_forge(mut inst: forge::Installer, cli: &mut Cli, args: &StartArgs) -> ExitCode {
+fn start_forge(mut inst: forge::Installer, cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
     inst.with_mojang(|inst| apply_mojang_args(inst, &cli, args));
 
     let mut handler = CommonHandler::new(&mut cli.out);
     handler.set_forge_loader(inst.loader());
     match inst.install(handler) {
-        Ok(game) => main_game(game, cli, args),
+        Ok(game) => start_game(game, cli, args),
         Err(e) => {
-            log_forge_error(&mut cli.out, e, inst.loader());
+            log_forge_error(cli, e, inst.loader());
             return ExitCode::FAILURE;
         }
     }
@@ -150,7 +150,7 @@ fn main_forge(mut inst: forge::Installer, cli: &mut Cli, args: &StartArgs) -> Ex
 }
 
 /// Main entrypoint for running the installed game.
-fn main_game(game: Game, cli: &mut Cli, args: &StartArgs) -> ExitCode {
+fn start_game(game: Game, cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
     // Build the command here so that we can debug it's arguments without launching.
     let command = game.command();
@@ -170,7 +170,7 @@ fn main_game(game: Game, cli: &mut Cli, args: &StartArgs) -> ExitCode {
     match run_command(cli, command) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            log_io_error(&mut cli.out, e, "run game");
+            log_io_error(cli, e, "run game");
             ExitCode::FAILURE
         }
     }
@@ -184,12 +184,12 @@ fn apply_standard_args<'a>(
     args: &StartArgs,
 ) -> &'a mut standard::Installer {
 
-    installer.set_versions_dir(cli.versions_dir.clone());
-    installer.set_libraries_dir(cli.libraries_dir.clone());
-    installer.set_assets_dir(cli.assets_dir.clone());
-    installer.set_jvm_dir(cli.jvm_dir.clone());
-    installer.set_bin_dir(cli.bin_dir.clone());
-    installer.set_mc_dir(cli.mc_dir.clone());
+    // installer.set_versions_dir(cli.versions_dir.clone());
+    // installer.set_libraries_dir(cli.libraries_dir.clone());
+    // installer.set_assets_dir(cli.assets_dir.clone());
+    // installer.set_jvm_dir(cli.jvm_dir.clone());
+    // installer.set_bin_dir(cli.bin_dir.clone());
+    // installer.set_mc_dir(cli.mc_dir.clone());
 
     if let Some(jvm_file) = &args.jvm {
         installer.set_jvm_policy(JvmPolicy::Static { 
@@ -237,15 +237,21 @@ fn apply_mojang_args<'a>(
         }
     }
 
-    match (&args.username, &args.uuid) {
-        (Some(username), None) => 
-            installer.set_auth_offline_username_authlib(username.clone()),
-        (None, Some(uuid)) =>
-            installer.set_auth_offline_uuid(*uuid),
-        (Some(username), Some(uuid)) =>
-            installer.set_auth_offline(*uuid, username.clone()),
-        (None, None) => installer, // nothing
-    };
+    if args.login {
+
+        
+
+    } else {
+        match (&args.username, args.uuid) {
+            (Some(username), None) => 
+                installer.set_auth_offline_username_authlib(username.clone()),
+            (None, Some(uuid)) =>
+                installer.set_auth_offline_uuid(uuid),
+            (Some(username), Some(uuid)) =>
+                installer.set_auth_offline(uuid, username.clone()),
+            (None, None) => installer, // nothing
+        };
+    }
 
     if let Some(server) = &args.server {
         installer.set_quick_play(mojang::QuickPlay::Multiplayer { 

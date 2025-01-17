@@ -1,11 +1,12 @@
 //! Microsoft Account authentication for Minecraft accounts.
 
-use std::fs::File;
-use std::io::{self, BufReader};
+use std::io::{self, BufReader, BufWriter, Read, Seek};
+use std::iter::FusedIterator;
 use std::time::Duration;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::fs::File;
 
 use reqwest::{Client, StatusCode};
 use serde_json::json;
@@ -16,7 +17,8 @@ use jsonwebtoken::{DecodingKey, TokenData, Validation};
 
 /// Microsoft Account authenticator.
 /// 
-/// See https://wiki.vg/Microsoft_Authentication_Scheme
+/// See https://minecraft.wiki/w/Microsoft_authentication. Shout out to wiki.vg which no 
+/// longer exists: https://wiki.vg/Microsoft_Authentication_Scheme
 #[derive(Debug, Clone)]
 pub struct Auth {
     client_id: Arc<str>,
@@ -47,21 +49,16 @@ impl Auth {
     /// produce the desired username, UUID and its auth token(s).
     /// 
     /// You can opt-in to also request the account's primary email via OpenID MSA scope.
-    pub fn request_device_code(&self, email: bool) -> Result<DeviceCodeFlow, AuthError> {
+    pub fn request_device_code(&self) -> Result<DeviceCodeFlow, AuthError> {
 
         crate::tokio::sync(async move {
 
             // We request the 'XboxLive.signin' and 'offline_access' scopes that are
-            // mandatory for the Minecraft authentication. Also request the email with
-            // the OpenID-related scopes, the OpenID token will be available in the 
-            // 'id_token' field of the token response.
+            // mandatory for the Minecraft authentication.
+            // We could also request email with "openid email" scopes.
             let req = MsDeviceAuthRequest {
                 client_id: &self.client_id,
-                scope: if email {
-                    "XboxLive.signin offline_access openid email"
-                } else {
-                    "XboxLive.signin offline_access"
-                },
+                scope: "XboxLive.signin offline_access",
                 mkt: self.language_code.as_deref(),
             };
 
@@ -76,7 +73,6 @@ impl Auth {
             Ok(DeviceCodeFlow {
                 client,
                 client_id: Arc::clone(&self.client_id),
-                email,
                 res,
             })
 
@@ -91,7 +87,6 @@ impl Auth {
 pub struct DeviceCodeFlow {
     client: Client,
     client_id: Arc<str>,
-    email: bool,
     res: MsDeviceAuthSuccess,
 }
 
@@ -129,23 +124,22 @@ impl DeviceCodeFlow {
                 match request_ms_token(&self.client, &req, "XboxLive.signin").await? {
                     Ok(res) => {
 
-                        // FIXME:
-                        let email = if self.email {
+                        // let email = if self.email {
                             
-                            let Some(id_token) = res.id_token.as_deref() else {
-                                return Err(AuthError::UnknownError(format!("Missing 'id_token' from OpenID scope.")));
-                            };
+                        //     let Some(id_token) = res.id_token.as_deref() else {
+                        //         return Err(AuthError::UnknownError(format!("Missing 'id_token' from OpenID scope.")));
+                        //     };
 
-                            let id_token = decode_jwt_without_validation::<OpenIdToken>(id_token)?;
-                            let Some(email) = id_token.claims.email.as_deref() else {
-                                return Err(AuthError::UnknownError(format!("Missing 'email' from OpenID JWT.")));
-                            };
+                        //     let id_token = decode_jwt_without_validation::<OpenIdToken>(id_token)?;
+                        //     let Some(email) = id_token.claims.email.as_deref() else {
+                        //         return Err(AuthError::UnknownError(format!("Missing 'email' from OpenID JWT.")));
+                        //     };
 
-                            Some(email.to_string())
+                        //     Some(email.to_string())
 
-                        } else {
-                            None
-                        };
+                        // } else {
+                        //     None
+                        // };
 
                         let mut account = request_minecraft_account(&self.client, &res.access_token).await?;
                         account.client_id = self.client_id.to_string();
@@ -184,6 +178,7 @@ pub struct Account {
     access_token: String,
     uuid: Uuid,
     username: String,
+    xuid: String,
 }
 
 impl Account {
@@ -205,7 +200,7 @@ impl Account {
     }
 
     pub fn xuid(&self) -> &str {
-        ""  // FIXME: TODO:
+        &self.xuid
     }
 
     /// Make a request of this account's profile, this function take self by mutable 
@@ -312,6 +307,7 @@ async fn request_minecraft_account(
 
     // Minecraft with XBL...
     let mc_res = request_minecraft_with_xbl(&client, user_hash, xsts_token).await?;
+    let mc_res_token = decode_jwt_without_validation::<MinecraftToken>(&mc_res.access_token)?;
     // Minecraft profile...
     let profile_res = request_minecraft_profile(&client, &mc_res.access_token).await?;
 
@@ -321,6 +317,7 @@ async fn request_minecraft_account(
         access_token: mc_res.access_token,
         uuid: profile_res.id,
         username: profile_res.name,
+        xuid: mc_res_token.claims.xuid,
     })
 
 }
@@ -422,7 +419,7 @@ async fn request_minecraft_profile(
 
     match res.status() {
         StatusCode::OK => Ok(res.json::<MinecraftProfileSuccess>().await?),
-        StatusCode::FORBIDDEN => return Err(AuthError::UnknownError(format!("Forbidden access to api.minecraftservices.com, likely because the application lacks approval from Mojang, see https://wiki.vg/Microsoft_Authentication_Scheme."))),
+        StatusCode::FORBIDDEN => return Err(AuthError::UnknownError(format!("Forbidden access to api.minecraftservices.com, likely because the application lacks approval from Mojang, see https://minecraft.wiki/w/Microsoft_authentication."))),
         StatusCode::UNAUTHORIZED => return Err(AuthError::OutdatedToken),
         StatusCode::NOT_FOUND => return Err(AuthError::DoesNotOwnGame),
         status => return Err(AuthError::UnknownStatus(status.as_u16())),
@@ -518,6 +515,7 @@ struct MsTokenSuccess {
     expires_in: u32,
     access_token: String,
     /// Issued if the original scope parameter included the openid scope
+    #[allow(unused)]
     id_token: Option<String>,
     /// Issued if the original scope parameter included offline_access.
     refresh_token: String,
@@ -612,15 +610,21 @@ struct MinecraftProfileCape {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(unused)]
 struct OpenIdToken {
-    #[allow(unused)]
     nonce: Option<String>,
     email: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct MinecraftToken {
+    xuid: String,
 }
 
 /// A file-backed database for storing accounts. It allows storing and retrieving 
 /// accounts atomically (using shared read and exclusive write property of the underlying
 /// filesystem).
+#[derive(Debug)]
 pub struct Database {
     file: PathBuf,
 }
@@ -635,32 +639,164 @@ impl Database {
         }
     }
 
+    /// Get the file path.
+    pub fn file(&self) -> &Path {
+        &self.file
+    }
+
+    /// Internal function to load the database data.
     fn load(&self) -> Result<Option<DatabaseData>, DatabaseError> {
         
         let reader = match File::open(&self.file) {
-            Ok(reader) => BufReader::new(reader),
+            Ok(reader) => reader,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e.into()),
         };
 
-        let data = serde_json::from_reader::<_, DatabaseData>(reader)
+        let data = serde_json::from_reader::<_, DatabaseData>(BufReader::new(reader))
             .map_err(|_| DatabaseError::Corrupted)?;
 
         Ok(Some(data))
         
     }
+
+    /// Internal function to load the database data
+    fn load_and_store<F, T>(&self, func: F) -> Result<T, DatabaseError>
+    where
+        F: for<'a> FnOnce(&'a mut DatabaseData, &'a mut bool) -> T,
+    {
+
+        let mut rw = File::options().write(true).read(true).create(true).open(&self.file)?;
+        let mut data;
+
+        // If the file is empty, don't try to decode it but create a new empty database!
+        if rw.read(&mut [0; 1])? == 0 {
+            data = DatabaseData { accounts: Vec::new() };
+        } else {
+
+            // Rewind to re-read it from start!
+            rw.rewind()?;
+
+            data = serde_json::from_reader::<_, DatabaseData>(BufReader::new(&mut rw))
+                .map_err(|_| DatabaseError::Corrupted)?;
+
+        }
+
+        let mut save = false;
+        let ret = func(&mut data, &mut save);
+
+        if save {
+
+            rw.rewind()?;
+            rw.set_len(0)?;
+            
+            serde_json::to_writer(BufWriter::new(rw), &data)
+                .map_err(|_| DatabaseError::WriteFailed)?;
+
+        }
+
+        Ok(ret)
+
+    }
+
+    /// Load every account in this database and return an iterator over all of them.
+    pub fn load_iter(&self) -> Result<DatabaseIter, DatabaseError> {
+        self.load().map(|data| {
+            DatabaseIter {
+                raw: data.map(|data| data.accounts)
+                    .unwrap_or_default()
+                    .into_iter(),
+            }
+        })
+    }
     
+    /// Load an account from its UUID.
     pub fn load_from_uuid(&self, uuid: Uuid) -> Result<Option<Account>, DatabaseError> {
         self.load().map(|data| data.and_then(|data| {
             data.accounts.into_iter()
                 .find(|acc| acc.uuid == uuid)
-                .map(DatabaseDataAccount::into)
+                .map(Account::from)
+        }))
+    }
+    
+    /// Load an account from its username, because a username it not guaranteed to be
+    /// unique, in case of non-freshed sessions that keep old .
+    pub fn load_from_username(&self, username: &str) -> Result<Option<Account>, DatabaseError> {
+        self.load().map(|data| data.and_then(|data| {
+            data.accounts.into_iter()
+                .find(|acc| acc.username == username)
+                .map(Account::from)
         }))
     }
 
-    /// Store the given account in this
-    pub fn store(&self, account: Account) {
-        todo!()
+    /// Remove the given account from its UUID, if existing, and save the database without
+    /// it. 
+    /// 
+    /// If the account doesn't exist, the database is not touch, only read.
+    pub fn remove_from_uuid(&self, uuid: Uuid) -> Result<Option<Account>, DatabaseError> {
+        self.load_and_store(|data, save| {
+            let index = data.accounts.iter().position(|acc| acc.uuid == uuid)?;
+            *save = true;
+            Some(data.accounts.remove(index).into())
+        })
+    }
+
+    /// Remove the given account from its username, if existing, and save the database
+    /// without it. Note that a username is not guaranteed to be unique, so only the first
+    /// matching account is removed.
+    /// 
+    /// If the account doesn't exist, the database is not touch, only read.
+    pub fn remove_from_username(&self, username: &str) -> Result<Option<Account>, DatabaseError> {
+        self.load_and_store(|data, save| {
+            let index = data.accounts.iter().position(|acc| acc.username == username)?;
+            *save = true;
+            Some(data.accounts.remove(index).into())
+        })
+    }
+
+    /// Store the given account in this database, overwrite any previously stored account
+    /// with the same UUID.
+    pub fn store(&self, account: Account) -> Result<(), DatabaseError> {
+        self.load_and_store(|data, save| {
+            *save = true;
+            if let Some(index) = data.accounts.iter().position(|acc| acc.uuid == account.uuid) {
+                data.accounts[index] = account.into();
+            } else {
+                data.accounts.push(account.into());
+            }
+        })
+    }
+
+}
+
+/// An iterator over all loader accounts in the database.
+pub struct DatabaseIter {
+    raw: std::vec::IntoIter<DatabaseDataAccount>,
+}
+
+impl FusedIterator for DatabaseIter {  }
+impl ExactSizeIterator for DatabaseIter {  }
+impl Iterator for DatabaseIter {
+
+    type Item = Account;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.raw.next().map(Account::from)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.raw.size_hint()
+    }
+
+}
+
+impl DoubleEndedIterator for DatabaseIter {
+    
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.raw.next_back().map(Account::from)
     }
 
 }
@@ -675,11 +811,12 @@ pub enum DatabaseError {
     /// can move the file to a backup location before retrying.
     #[error("corrupted")]
     Corrupted,
+    #[error("write failed")]
+    WriteFailed,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 struct DatabaseData {
-    client_id: String,
     accounts: Vec<DatabaseDataAccount>,
 }
 
@@ -690,6 +827,7 @@ struct DatabaseDataAccount {
     access_token: String,
     uuid: Uuid,
     username: String,
+    xuid: String,
 }
 
 impl From<DatabaseDataAccount> for Account {
@@ -700,6 +838,20 @@ impl From<DatabaseDataAccount> for Account {
             access_token: value.access_token,
             uuid: value.uuid,
             username: value.username,
+            xuid: value.xuid,
+        }
+    }
+}
+
+impl From<Account> for DatabaseDataAccount {
+    fn from(value: Account) -> Self {
+        Self {
+            client_id: value.client_id,
+            refresh_token: value.refresh_token,
+            access_token: value.access_token,
+            uuid: value.uuid,
+            username: value.username,
+            xuid: value.xuid,
         }
     }
 }

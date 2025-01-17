@@ -2,7 +2,7 @@
 
 mod start;
 mod search;
-mod login;
+mod auth;
 
 use std::process::{self, ExitCode};
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ use std::error::Error;
 use std::io;
 
 use portablemc::standard::{self, LoadedLibrary, LoadedVersion};
-use portablemc::{download, mojang, fabric, forge};
+use portablemc::{download, mojang, fabric, forge, msa};
 use portablemc::maven::Gav;
 
 use crate::parse::{CliArgs, CliCmd, CliOutput};
@@ -20,7 +20,7 @@ use crate::output::{Output, LogLevel};
 use crate::format::{self, BytesFmt};
 
 
-pub fn main(args: CliArgs) -> ExitCode {
+pub fn main(args: &CliArgs) -> ExitCode {
     
     ctrlc::set_handler(|| {
 
@@ -43,33 +43,28 @@ pub fn main(args: CliArgs) -> ExitCode {
         CliOutput::Machine => Output::tab_separated(),
     };
 
-    let Some(main_dir) = args.main_dir.or_else(standard::default_main_dir) else {
+    let Some(main_dir) = args.main_dir.clone().or_else(standard::default_main_dir) else {
         
         out.log("error_missing_main_dir")
-            .error("There is no default main directory for your platform, please specify it using --main-dir");
+            .error("There is no default main directory for your platform, please specify it using --main-dir")
+            .additional("This directory is used to define derived directories for the various commands");
         
         return ExitCode::FAILURE;
 
     };
 
+    let msa_db_file = args.msa_db_file.clone().unwrap_or_else(|| main_dir.join("portablemc_msa.json"));
+
     let mut cli = Cli {
         out,
-        versions_dir: main_dir.join("versions"),
-        libraries_dir: main_dir.join("libraries"),
-        assets_dir: main_dir.join("assets"),
-        jvm_dir: main_dir.join("jvm"),
-        bin_dir: main_dir.join("bin"),
-        mc_dir: main_dir.clone(),
         main_dir,
+        msa_db: msa::Database::new(msa_db_file),
     };
 
     match &args.cmd {
-        CliCmd::Start(start_args) => start::main(&mut cli, start_args),
-        CliCmd::Search(search_args) => search::main(&mut cli, search_args),
-        CliCmd::Info(_) => todo!(),
-        CliCmd::Login(login_args) => login::main(&mut cli, login_args),
-        CliCmd::Logout(_) => todo!(),
-        CliCmd::Show(_) => todo!(),
+        CliCmd::Start(start_args) => start::start(&mut cli, start_args),
+        CliCmd::Search(search_args) => search::search(&mut cli, search_args),
+        CliCmd::Auth(auth_args) => auth::auth(&mut cli, auth_args),
     }
 
 }
@@ -80,12 +75,7 @@ pub fn main(args: CliArgs) -> ExitCode {
 pub struct Cli {
     pub out: Output,
     pub main_dir: PathBuf,
-    pub versions_dir: PathBuf,
-    pub libraries_dir: PathBuf,
-    pub assets_dir: PathBuf,
-    pub jvm_dir: PathBuf,
-    pub bin_dir: PathBuf,
-    pub mc_dir: PathBuf,
+    pub msa_db: msa::Database,
 }
 
 
@@ -556,9 +546,11 @@ impl forge::Handler for CommonHandler<'_> {
 }
 
 /// Log a standard error on the given logger output.
-pub fn log_standard_error(out: &mut Output, error: standard::Error) {
+pub fn log_standard_error(cli: &mut Cli, error: standard::Error) {
     
     use standard::Error;
+
+    let out = &mut cli.out;
 
     match error {
         Error::VersionNotFound { version: id } => {
@@ -589,7 +581,7 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
                 .error("No main class specified in version metadata");
         }
         Error::Io { error, origin } => {
-            log_io_error(out, error, &origin);
+            log_io_error(cli, error, &origin);
         }
         Error::Json { error, origin } => {
             out.log("error_json")
@@ -609,10 +601,10 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
                 .additional(format_args!("At {origin}"));
         }
         Error::Reqwest { error } => {
-            log_reqwest_error(out, error);
+            log_reqwest_error(cli, error);
         }
         Error::Download { batch } => {
-            log_download_error(out, batch);
+            log_download_error(cli, batch);
         }
         _ => todo!(),
     }
@@ -620,12 +612,14 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
 }
 
 /// Log a mojang error on the given logger output.
-pub fn log_mojang_error(out: &mut Output, error: mojang::Error) {
+pub fn log_mojang_error(cli: &mut Cli, error: mojang::Error) {
 
     use mojang::Error;
 
+    let out = &mut cli.out;
+
     match error {
-        Error::Standard(error) => log_standard_error(out, error),
+        Error::Standard(error) => log_standard_error(cli, error),
         Error::LwjglFixNotFound { version } => {
             out.log("error_lwjgl_fix_not_found")
                 .arg(&version)
@@ -638,14 +632,15 @@ pub fn log_mojang_error(out: &mut Output, error: mojang::Error) {
 
 }
 
-pub fn log_fabric_error(out: &mut Output, error: fabric::Error, loader: fabric::Loader) {
+pub fn log_fabric_error(cli: &mut Cli, error: fabric::Error, loader: fabric::Loader) {
 
     use fabric::Error;
 
+    let out = &mut cli.out;
     let (api_id, api_name) = fabric_id_name(loader);
 
     match error {
-        Error::Mojang(error) => log_mojang_error(out, error),
+        Error::Mojang(error) => log_mojang_error(cli, error),
         Error::LatestVersionNotFound { game_version, stable } => {
 
             let stable_str = if stable { "stable" } else { "unstable" };
@@ -686,16 +681,17 @@ pub fn log_fabric_error(out: &mut Output, error: fabric::Error, loader: fabric::
 
 }
 
-pub fn log_forge_error(out: &mut Output, error: forge::Error, loader: forge::Loader) {
+pub fn log_forge_error(cli: &mut Cli, error: forge::Error, loader: forge::Loader) {
 
     use forge::Error;
 
+    let out = &mut cli.out;
     let (api_id, api_name) = forge_id_name(loader);
 
     const CONTACT_DEV: &str = "This version of the loader might not be supported by PortableMC, please contact developers on https://github.com/mindstorm38/portablemc/issues";
 
     match error {
-        Error::Mojang(error) => log_mojang_error(out, error),
+        Error::Mojang(error) => log_mojang_error(cli, error),
         Error::LatestVersionNotFound { game_version, stable } => {
 
             let stable_str = if stable { "stable" } else { "unstable" };
@@ -797,7 +793,7 @@ pub fn log_forge_error(out: &mut Output, error: forge::Error, loader: forge::Loa
 }
 
 /// Common function to log a download error.
-pub fn log_download_error(out: &mut Output, batch: download::BatchResult) {
+pub fn log_download_error(cli: &mut Cli, batch: download::BatchResult) {
 
     use download::EntryErrorKind;
 
@@ -806,7 +802,7 @@ pub fn log_download_error(out: &mut Output, batch: download::BatchResult) {
     }
 
     // error_download <errors_count> <total_count>
-    out.log("error_download")
+    cli.out.log("error_download")
         .arg(batch.errors_count())
         .arg(batch.len())
         .newline()
@@ -815,7 +811,7 @@ pub fn log_download_error(out: &mut Output, batch: download::BatchResult) {
     // error_download_entry <url> <dest> <error> [error_data...]
     for error in batch.iter_errors() {
 
-        let mut log = out.log("error_download_entry");
+        let mut log = cli.out.log("error_download_entry");
         log.arg(error.url());
         log.arg(error.file().display());
 
@@ -862,8 +858,8 @@ pub fn log_download_error(out: &mut Output, batch: download::BatchResult) {
 }
 
 /// Common function to log a reqwest (HTTP) error.
-pub fn log_reqwest_error(out: &mut Output, error: reqwest::Error) {
-    let mut log = out.log("error_reqwest");
+pub fn log_reqwest_error(cli: &mut Cli, error: reqwest::Error) {
+    let mut log = cli.out.log("error_reqwest");
     log.args(error.url());
     log.args(error.source());
     log.newline();
@@ -874,9 +870,9 @@ pub fn log_reqwest_error(out: &mut Output, error: reqwest::Error) {
 }
 
 /// Common function to log an I/O error to the user.
-pub fn log_io_error(out: &mut Output, error: io::Error, origin: &str) {
+pub fn log_io_error(cli: &mut Cli, error: io::Error, origin: &str) {
 
-    let mut log = out.log("error_io");
+    let mut log = cli.out.log("error_io");
 
     if let Some(error_kind_code) = io_error_kind_code(&error) {
         log.arg(error_kind_code);
