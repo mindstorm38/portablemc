@@ -124,23 +124,6 @@ impl DeviceCodeFlow {
                 match request_ms_token(&self.client, &req, "XboxLive.signin").await? {
                     Ok(res) => {
 
-                        // let email = if self.email {
-                            
-                        //     let Some(id_token) = res.id_token.as_deref() else {
-                        //         return Err(AuthError::UnknownError(format!("Missing 'id_token' from OpenID scope.")));
-                        //     };
-
-                        //     let id_token = decode_jwt_without_validation::<OpenIdToken>(id_token)?;
-                        //     let Some(email) = id_token.claims.email.as_deref() else {
-                        //         return Err(AuthError::UnknownError(format!("Missing 'email' from OpenID JWT.")));
-                        //     };
-
-                        //     Some(email.to_string())
-
-                        // } else {
-                        //     None
-                        // };
-
                         let mut account = request_minecraft_account(&self.client, &res.access_token).await?;
                         account.app_id = self.app_id.to_string();
                         account.refresh_token = res.refresh_token;
@@ -537,7 +520,7 @@ struct MsAuthError {
     #[allow(unused)]
     correlation_id: String,
     #[allow(unused)]
-    error_uri: String,
+    error_uri: Option<String>,
 }
 
 /// (JSON) 
