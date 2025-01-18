@@ -264,24 +264,41 @@ pub struct StartArgs {
     pub jvm_policy: StartJvmPolicy,
     /// Enable authentication for the username or UUID.
     /// 
-    /// When enabled, the launcher will look for specified '--uuid' and then '--username'
-    #[arg(short, long)]
-    pub login: bool,
-    /// Change the default username of the player, for offline-mode.
-    #[arg(short, long, value_name = "NAME")]
+    /// When enabled, the launcher will look for specified '--uuid', or '--username' as
+    /// a fallback, it will then pick the matching account and start the game with it,
+    /// the account is refreshed if needed. IT MEANS that you must first login into
+    /// your account using the 'portablemc auth' command before starting the game with
+    /// the account.
+    /// 
+    /// If the account is not found, the launcher won't start the game and will show an
+    /// error.
+    /// 
+    /// Note that '--username' (-u) argument is completely ignored if the '--uuid' (-i)
+    /// is specified, only one of them can be used at the same time with this flag.
+    #[arg(short = 'a', long)]
+    pub auth: bool,
+    /// Change the default username of the player.
+    /// 
+    /// When the '--auth' (-a) is enabled, this argument is used, after the '--uuid' (-i)
+    /// one, to find the authenticated account to start the game with.
+    #[arg(short = 'u', long, value_name = "NAME")]
     pub username: Option<String>,
-    /// Change the default UUID of the player, for offline-mode.
+    /// Change the default UUID of the player.
+    /// 
+    /// When the '--auth' (-a) is enabled, this argument is used, before the '--username' 
+    /// (-u) one, to find the authenticated account to start the game with.
     #[arg(short = 'i', long)]
     pub uuid: Option<Uuid>,
-    /// Immediately tries to connect the given server once the game is started (>= 1.6).
-    /// 
-    /// Note that the client will still be able to disconnect from the server and go back
-    /// to the game's menu and do everything it want.
-    #[arg(short, long)]
-    pub server: Option<String>,
-    /// Change the default port to connect to the server (--server).
-    #[arg(short = 'p', long, value_name = "PORT", requires = "server", default_value_t = 25565)]
-    pub server_port: u16,
+
+    // /// Immediately tries to connect the given server once the game is started (>= 1.6).
+    // /// 
+    // /// Note that the client will still be able to disconnect from the server and go back
+    // /// to the game's menu and do everything it want.
+    // #[arg(short, long)]
+    // pub server: Option<String>,
+    // /// Change the default port to connect to the server (--server).
+    // #[arg(short = 'p', long, value_name = "PORT", requires = "server", default_value_t = 25565)]
+    // pub server_port: u16,
 }
 
 /// Represent all possible version the launcher can start.
@@ -602,6 +619,8 @@ pub enum SearchLatestChannel {
 /// By default, this command will start a new authentication flow with the Microsoft
 /// authentication service, when completed this will add the newly authenticated session
 /// to the authentication database (specified with '--msa-db-file' argument).
+/// 
+/// If this command fails to load and/or store the database, its exit code is 1 (failure).
 #[derive(Debug, Args)]
 pub struct AuthArgs {
     /// Prevent the launcher from opening your system's web browser with the 
@@ -615,9 +634,20 @@ pub struct AuthArgs {
     /// Forget the given authenticated session by its UUID, or username as a fallback.
     /// 
     /// You'll no longer be able to authenticate with this session when starting the
-    /// game, you'll have to authenticate again.
+    /// game, you'll have to authenticate again. If not account is matching the given
+    /// UUID or username, then the database is not rewritten, and a warning message is
+    /// issued, but the exit code is always 0 (success).
     #[arg(short, long, exclusive = true)]
     pub forget: Option<String>,
+    /// Refresh the given account, updating the username if it has been modified.
+    /// 
+    /// If the profile cannot be refreshed, a request for refreshing
+    /// 
+    /// Note that this procedure is automatically done on game's start, so you don't need 
+    /// to run this before starting the game with an account. You may want to use this 
+    /// in order to update the database and list the updated accounts.
+    #[arg(short, long, exclusive = true)]
+    pub refresh: Option<String>,
     /// List all currently authenticated sessions, by username and UUID, that can be used
     /// with the start command to authenticate.
     #[arg(short, long, exclusive = true)]

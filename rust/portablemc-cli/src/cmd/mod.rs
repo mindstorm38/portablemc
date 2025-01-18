@@ -22,6 +22,8 @@ use crate::format::{self, BytesFmt};
 
 pub fn main(args: &CliArgs) -> ExitCode {
     
+    // We can set only one Ctrl-C handler for the whole CLI, so we set it here and access
+    // the various known resources that we should shutdown.
     ctrlc::set_handler(|| {
 
         // No unwrap to avoid panicking if poisoned.
@@ -887,6 +889,62 @@ pub fn log_io_error(cli: &mut Cli, error: io::Error, origin: &str) {
         .error(format_args!("I/O error: {error}"))
         .additional(format_args!("At {origin}"));
 
+}
+
+/// Log a database error.
+pub fn log_msa_auth_error(cli: &mut Cli, error: msa::AuthError) {
+    match error {
+        msa::AuthError::Reqwest(error) => log_reqwest_error(cli, error),
+        msa::AuthError::Jwt(error) => {
+            cli.out.log("error_jwt")
+                .error(format_args!("JWT error: {error}"));
+        }
+        msa::AuthError::InvalidStatus(status) => {
+            cli.out.log("error_auth_invalid_status")
+                .arg(status)
+                .error(format_args!("Invalid status while authenticating: {status}"));
+        }
+        msa::AuthError::Unknown(error) => {
+            cli.out.log("error_auth_unknown")
+                .arg(&error)
+                .error(format_args!("Unknown authentication error: {error}"));
+        }
+        msa::AuthError::AuthorizationDeclined => {
+            cli.out.log("error_auth_authorization_declined")
+                .error("Authorization request has been declined");
+        }
+        msa::AuthError::AuthorizationTimedOut => {
+            cli.out.log("error_auth_authorization_timed_out")
+                .error("Authorization timed out");
+        }
+        msa::AuthError::OutdatedToken => {
+            cli.out.log("error_auth_outdated_token")
+                .error("Outdated authentication token");
+        }
+        msa::AuthError::DoesNotOwnGame => {
+            cli.out.log("error_auth_does_not_own_game")
+                .error("The account you logged in doesn't own Minecraft");
+        }
+        _ => todo!()
+    }
+}
+
+/// Log a database error.
+pub fn log_msa_database_error(cli: &mut Cli, error: msa::DatabaseError) {
+    match error {
+        msa::DatabaseError::Io(error) => log_io_error(cli, error, &format!("{}", cli.msa_db.file().display())),
+        msa::DatabaseError::Corrupted => {
+            cli.out.log("error_msa_database_corrupted")
+                .error("The authentication database is corrupted and cannot be recovered automatically")
+                .additional(format_args!("At {}", cli.msa_db.file().display()));
+        }
+        msa::DatabaseError::WriteFailed => {
+            cli.out.log("error_msa_database_write_failed")
+                .error("Unknown error while writing the authentication database, operation cancelled")
+                .additional(format_args!("At {}", cli.msa_db.file().display()));
+        }
+        _ => todo!()
+    }
 }
 
 fn io_error_kind_code(error: &io::Error) -> Option<&'static str> {

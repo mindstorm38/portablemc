@@ -57,8 +57,8 @@ struct InstallerInner {
     auth_uuid: Uuid,
     auth_username: String,
     auth_token: String,
-    auth_xuid: String,
-    auth_client_id: String,
+    auth_xuid: String,  // Apparently used for Minecraft Telemetry
+    client_id: String,  // Apparently used for Minecraft Telemetry
     fix_legacy_quick_play: bool,
     fix_legacy_proxy: bool,
     fix_legacy_merge_sort: bool,
@@ -88,7 +88,7 @@ impl Installer {
                 auth_username: String::new(),
                 auth_token: String::new(),
                 auth_xuid: String::new(),
-                auth_client_id: String::new(),
+                client_id: String::new(),
                 fix_legacy_quick_play: true,
                 fix_legacy_proxy: true,
                 fix_legacy_merge_sort: true,
@@ -105,6 +105,20 @@ impl Installer {
         Some(Self::new(version, standard::default_main_dir()?))
     }
 
+    /// Get the underlying standard installer.
+    #[inline]
+    pub fn standard(&self) -> &standard::Installer {
+        &self.standard
+    }
+
+    /// Get the underlying standard installer through mutable reference.
+    /// 
+    /// *Note that the `root` property will be overwritten when installing.*
+    #[inline]
+    pub fn standard_mut(&mut self) -> &mut standard::Installer {
+        &mut self.standard
+    }
+
     /// Execute some callback to alter the standard installer.
     /// 
     /// *Note that the `root` property will be overwritten when installing.*
@@ -115,12 +129,6 @@ impl Installer {
     {
         func(&mut self.standard);
         self
-    }
-
-    /// Get the underlying standard installer.
-    #[inline]
-    pub fn standard(&self) -> &standard::Installer {
-        &self.standard
     }
 
     /// Change the version to install and start specified at construction.
@@ -264,7 +272,6 @@ impl Installer {
         self.inner.auth_type = String::new();
         self.inner.auth_token = String::new();
         self.inner.auth_xuid = String::new();
-        self.inner.auth_client_id = String::new();
         self
     }
 
@@ -307,7 +314,7 @@ impl Installer {
     /// uses the UUID derivation embedded in Mojang's authlib, deriving the UUID from the
     /// username, if you want the UUID to be coherent with this derivation, you can use
     /// [`Self::auth_offline_username_authlib`] instead.
-    pub fn set_auth_offline_username(&mut self, username: impl Into<String>) -> &mut Self {
+    pub fn set_auth_offline_username_legacy(&mut self, username: impl Into<String>) -> &mut Self {
         self.inner.auth_username = username.into();
         self.inner.auth_username.truncate(16);
         self.inner.auth_uuid = Uuid::new_v5(&standard::UUID_NAMESPACE, self.inner.auth_username.as_bytes());
@@ -322,7 +329,7 @@ impl Installer {
     /// The advantage of this method is to produce the same UUID as the one that will
     /// be produced by Mojang's authlib when connecting to an offline-mode multiplayer
     /// server.
-    pub fn set_auth_offline_username_authlib(&mut self, username: impl Into<String>) -> &mut Self {
+    pub fn set_auth_offline_username(&mut self, username: impl Into<String>) -> &mut Self {
         
         self.inner.auth_username = username.into();
         self.inner.auth_username.truncate(16);
@@ -344,8 +351,22 @@ impl Installer {
         self.inner.auth_uuid = account.uuid().clone();
         self.inner.auth_username = account.username().to_string();
         self.inner.auth_token = account.access_token().to_string();
-        self.inner.auth_xuid = account.xuid().to_string();
         self.inner.auth_type = "msa".to_string();
+        self.inner.auth_xuid = account.xuid().to_string();
+        self
+    }
+
+    /// See [`Self::set_client_id`].
+    #[inline]
+    pub fn client_id(&self) -> &str {
+        &self.inner.client_id
+    }
+
+    /// Set the client ID used for telemetry of the game. The default client id is empty
+    /// and so the telemetry can't use it.
+    #[inline]
+    pub fn set_client_id(&mut self, client_id: impl Into<String>) -> &mut Self {
+        self.inner.client_id = client_id.into();
         self
     }
 
@@ -521,7 +542,7 @@ impl Installer {
                 "auth_session" => String::new(),
                 "user_type" => inner.auth_type.clone(),
                 "user_properties" => format!("{{}}"),
-                "clientid" => inner.auth_client_id.clone(),
+                "clientid" => inner.client_id.clone(),
                 _ => return None
             })
         });
