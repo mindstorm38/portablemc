@@ -1132,57 +1132,58 @@ impl Installer {
                 _ => return None
             }));
         
-        let major_version_prefix = if major_version <= 8 { 
-            format!("1.{major_version}.")
-        } else {
-            format!("{major_version}.")
-        };
-        
         handler.load_jvm(major_version);
 
-        let mut jvm;
-        
         // We simplify the code with this condition and duplicated match, because in the
         // 'else' case we can simplify any policy that contains Mojang and System to
         // System, because we don't have instructions for finding Mojang version.
-        if let Some(distribution) = distribution {
+        let jvm = if let Some(distribution) = distribution {
             match self.jvm_policy {
-                JvmPolicy::Static { ref file, strict_check } => 
-                    jvm = self.load_static_jvm(handler, file.clone(), strict_check, &major_version_prefix)?,
+                JvmPolicy::Static(ref file) => 
+                    Some(self.load_static_jvm(handler, &file, major_version)?),
                 JvmPolicy::System => 
-                    jvm = self.load_system_jvm(handler, &major_version_prefix)?,
+                    self.load_system_jvm(handler, major_version)?,
                 JvmPolicy::Mojang => 
-                    jvm = self.load_mojang_jvm(handler, distribution, batch)?,
+                    self.load_mojang_jvm(handler, distribution, batch)?,
                 JvmPolicy::SystemThenMojang => {
-                    jvm = self.load_system_jvm(handler, &major_version_prefix)?;
+                    let mut jvm = self.load_system_jvm(handler, major_version)?;
                     if jvm.is_none() {
                         jvm = self.load_mojang_jvm(handler, distribution, batch)?;
                     }
+                    jvm
                 }
                 JvmPolicy::MojangThenSystem => {
-                    jvm = self.load_mojang_jvm(handler, distribution, batch)?;
+                    let mut jvm = self.load_mojang_jvm(handler, distribution, batch)?;
                     if jvm.is_none() {
-                        jvm = self.load_system_jvm(handler, &major_version_prefix)?;
+                        jvm = self.load_system_jvm(handler, major_version)?;
                     }
+                    jvm
                 }
             }
         } else {
-            jvm = match self.jvm_policy {
-                JvmPolicy::Static { ref file, strict_check } => 
-                    self.load_static_jvm(handler, file.clone(), strict_check, &major_version_prefix)?,
+            match self.jvm_policy {
+                JvmPolicy::Static(ref file) => 
+                    Some(self.load_static_jvm(handler, &file, major_version)?),
                 JvmPolicy::System | 
                 JvmPolicy::SystemThenMojang | 
                 JvmPolicy::MojangThenSystem => 
-                    self.load_system_jvm(handler, &major_version_prefix)?,
+                    self.load_system_jvm(handler, major_version)?,
                 JvmPolicy::Mojang => None,
-            };
-        }
+            }
+        };
 
         let Some(jvm) = jvm else {
             return Err(Error::JvmNotFound { major_version });
         };
 
-        handler.loaded_jvm(&jvm.file, jvm.version.as_deref());
+        let version = jvm.version.as_ref()
+            .map(|v| v.full.as_str());
+        
+        let compatible = jvm.version.as_ref()
+            .map(|v| v.major_compatibility.is_some())
+            .unwrap_or(false);
+
+        handler.loaded_jvm(&jvm.file, version, compatible);
 
         Ok(jvm)
 
@@ -1190,47 +1191,26 @@ impl Installer {
 
     /// Load the JVM by checking its version,
     fn load_static_jvm(&self,
-        handler: &mut dyn Handler,
-        file: PathBuf,
-        strict_check: bool,
-        major_version: &str,
-    ) -> Result<Option<Jvm>> {
+        _handler: &mut dyn Handler,
+        file: &Path,
+        major_version: u32,
+    ) -> Result<Jvm> {
 
-        // If the given JVM don't work, this returns None.
-        let Some(jvm) = self.find_jvm_versions(&mut [file.as_path()].into_iter()).next() else {
-            return Ok(None)
+        let mut jvm = Jvm {
+            file: file.to_path_buf(),
+            version: None,
+            mojang: None,
         };
 
-        // Only check if both major version is required and JVM version has been checked.
-        if let Some(jvm_version) = jvm.version.as_deref() {
-            if !jvm_version.starts_with(major_version) {
-
-                handler.reject_jvm_version(&jvm.file, Some(jvm_version));
-
-                // Only return no JVM when strict checking is enabled.
-                if strict_check {
-                    return Ok(None);
-                }
-
-            }
-        } else if strict_check {
-
-            // If the JVM version was not found by running the JVM but strict 
-            // checking is enabled we reject this JVM because we can't guarantee
-            // the JVM version.
-            handler.reject_jvm_version(&jvm.file, None);
-            return Ok(None);
-
-        }
-
-        Ok(Some(jvm))
+        self.find_jvm_versions(std::slice::from_mut(&mut jvm), major_version);
+        Ok(jvm)
 
     }
 
     /// Try to find a JVM executable installed on the system in standard paths.
     fn load_system_jvm(&self,
         handler: &mut dyn Handler,
-        major_version: &str,
+        major_version: u32,
     ) -> Result<Option<Jvm>> {
 
         let mut candidates = IndexSet::new();
@@ -1246,8 +1226,8 @@ impl Installer {
             }
         }
 
-        // On some Linux distributions (Arch) the different JVMs are in /usr/lib/jvm/
-        if cfg!(target_os = "linux") {
+        // On Linux distributions the different JVMs are in '/usr/lib/jvm/'.
+        #[cfg(target_os = "linux")] {
             if let Ok(read_dir) = fs::read_dir("/usr/lib/jvm/") {
                 for entry in read_dir {
                     let Ok(entry) = entry else { continue };
@@ -1261,26 +1241,67 @@ impl Installer {
             }
         }
 
+        // On windows we can search in registry.
+        #[cfg(windows)] {
 
-        for jvm in self.find_jvm_versions(&mut candidates.iter().map(|p| p.as_path())) {
-            
-            // If we have a major version requirement but the JVM version couldn't
-            // be determined, we skip this candidate.
-            let Some(jvm_version) = jvm.version.as_deref() else {
-                handler.reject_jvm_version(&jvm.file, None);
-                continue
-            };
+            const REG_PATHS: [&str; 4] = [
+                "SOFTWARE\\JavaSoft\\Java Development Kit",
+                "SOFTWARE\\JavaSoft\\Java Runtime Environment",
+                "SOFTWARE\\JavaSoft\\JDK",
+                "SOFTWARE\\JavaSoft\\JRE",
+            ];
 
-            if !jvm_version.starts_with(major_version) {
-                handler.reject_jvm_version(&jvm.file, Some(jvm_version));
-                continue;
+            // Here we silently ignore any error.
+            for path in REG_PATHS {
+                let Ok(key) = windows_registry::LOCAL_MACHINE.open(path) else { continue };
+                let Ok(keys) = key.keys() else { continue };
+                for sub_key in keys {
+                    let Ok(sub_key) = key.open(&sub_key) else { continue };
+                    let Ok(java_home) = sub_key.get_string("JavaHome") else { continue };
+                    let path = PathBuf::from(java_home)
+                        .joined("bin")
+                        .joined(exec_name);
+                    if path.is_file() {
+                        candidates.insert(path);
+                    }
+                }
             }
 
-            return Ok(Some(jvm));
-            
         }
 
-        Ok(None)
+        // Convert unique file paths to JVM, to be fed to JVM versions.
+        let mut jvms = candidates.into_iter().map(|file| Jvm {
+            file,
+            version: None,
+            mojang: None,
+        }).collect::<Vec<_>>();
+
+        self.find_jvm_versions(&mut jvms, major_version);
+
+        let mut min_score_jvm = None;
+        for jvm in jvms {
+
+            let Some(version) = &jvm.version else { continue };
+
+            let Some(score) = version.major_compatibility else {
+                handler.found_jvm_system_version(&jvm.file, version.full.as_str(), false);
+                continue;
+            };
+
+            handler.found_jvm_system_version(&jvm.file, version.full.as_str(), true);
+
+            // Don't replace the min score JVM if we are greater or equal.
+            if let Some((_, min_score)) = min_score_jvm {
+                if min_score <= score {
+                    continue;
+                }
+            }
+
+            min_score_jvm = Some((jvm, score));
+
+        }
+
+        Ok(min_score_jvm.map(|(jvm, _score)| jvm))
 
     }
 
@@ -1292,13 +1313,13 @@ impl Installer {
 
         // On Linux, only glibc dynamic linkage is supported by Mojang-provided JVMs.
         if cfg!(target_os = "linux") && cfg!(target_feature = "crt-static") {
-            handler.reject_jvm_unsupported_dynamic_crt();
+            handler.warn_jvm_unsupported_dynamic_crt();
             return Ok(None);
         }
 
         // If we don't have JVM platform this means that we can't load Mojang JVM.
         let Some(jvm_platform) = mojang_jvm_platform() else {
-            handler.reject_jvm_unsupported_platform();
+            handler.warn_jvm_unsupported_platform();
             return Ok(None);
         };
 
@@ -1317,18 +1338,18 @@ impl Installer {
         };
 
         let Some(meta_platform) = meta_manifest.platforms.get(jvm_platform) else {
-            handler.reject_jvm_unsupported_platform();
+            handler.warn_jvm_unsupported_platform();
             return Ok(None);
         };
 
         let Some(meta_distribution) = meta_platform.distributions.get(distribution) else {
-            handler.reject_jvm_missing_distribution();
+            handler.warn_jvm_missing_distribution();
             return Ok(None);
         };
 
         // We take the first variant for now.
         let Some(meta_variant) = meta_distribution.variants.get(0) else {
-            handler.reject_jvm_missing_distribution();
+            handler.warn_jvm_missing_distribution();
             return Ok(None);
         };
 
@@ -1368,7 +1389,7 @@ impl Installer {
         // Here we only check files because it's too early to assert symlinks.
         for (rel_file, manifest_file) in &manifest.files {
 
-            // TODO: We could optimize this repeated allocation maybe.
+            // NOTE: We could optimize this repeated allocation, maybe.
             let rel_file = Path::new(rel_file);
             let file = dir.join(rel_file);
 
@@ -1411,27 +1432,18 @@ impl Installer {
 
         Ok(Some(Jvm {
             file: bin_file,
-            version: Some(meta_variant.version.name.clone()),
+            version: Some(JvmVersion {
+                full: meta_variant.version.name.clone(),
+                major_compatibility: Some(0),  // Likely perfect compact
+            }),
             mojang: Some(mojang_jvm),
         }))
 
     }
 
-    /// Find the version of the given JVMs in parallel and return an iterator for each
-    /// path and the JVM, if found. Executables that produced an unexpected error are
-    /// simply ignored.
-    /// 
-    /// We use a '&mut dyn' iterator for dedup of this method.
-    fn find_jvm_versions<'a>(&self, files: &mut dyn Iterator<Item = &'a Path>) -> impl Iterator<Item = Jvm> + use<'a> {
-
-        struct ChildJvm<'a> {
-            /// Executable file of this JVM.
-            file: &'a Path,
-            /// The child if we are still waiting for its termination.
-            child: Option<Child>,
-            /// This is only set when child has terminated properly.
-            jvm: Option<Jvm>,
-        }
+    /// Given a slice of multiple JVMs, update their detected version when possible, by
+    /// executing '-version' flag command.
+    fn find_jvm_versions(&self, jvms: &mut [Jvm], major_version: u32) {
 
         // We put the resulting JVM inside this vector so that we have the same
         // ordering as the given exec files.
@@ -1441,9 +1453,9 @@ impl Installer {
         // The standard doc says that -version outputs version on stderr. This
         // argument -version is also practical because the version is given between
         // double quotes.
-        for file in files {
+        for jvm in jvms.iter_mut() {
             
-            let child = Command::new(file)
+            let child = Command::new(&jvm.file)
                 .arg("-version")
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
@@ -1454,7 +1466,7 @@ impl Installer {
                 remaining += 1;
             }
 
-            children.push(ChildJvm { file: &file, child, jvm: None });
+            children.push(child);
 
         }
 
@@ -1463,20 +1475,20 @@ impl Installer {
         
         for _ in 0..TRIES_COUNT {
 
-            for child_jvm in &mut children.iter_mut() {
+            for (child_idx, child_opt) in children.iter_mut().enumerate() {
 
-                let Some(child) = &mut child_jvm.child else { continue };
+                let Some(child) = child_opt else { continue };
                 let Ok(status) = child.try_wait() else {
                     // If an error happens we just forget the child: don't check it again.
                     let _ = child.kill();
-                    child_jvm.child = None;
+                    *child_opt = None;
                     remaining -= 1;
                     continue;
                 };
 
                 // If child has terminated, we take child to not check it again.
                 let Some(status) = status else { continue };
-                let child = child_jvm.child.take().unwrap();
+                let child = child_opt.take().unwrap();
                 remaining -= 1;
                 
                 // Not a success, just forget this child.
@@ -1489,17 +1501,22 @@ impl Installer {
                 let Ok(output) = String::from_utf8(output.stderr) else { 
                     continue; // Ignore if stderr is not UTF-8.
                 };
-                
-                child_jvm.jvm = Some(Jvm {
-                    file: child_jvm.file.to_path_buf(),
-                    version: output.lines()
-                        .flat_map(|line| line.split_once('"'))
-                        .flat_map(|(_, line)| line.split_once('"'))
-                        .map(|(version, _)| version)
-                        .next()
-                        .map(str::to_string),
-                    mojang: None,
-                });
+
+                jvms[child_idx].version = output.lines()
+                    .filter_map(|line| line.split_once('"'))
+                    .filter_map(|(_, line)| line.split_once('"'))
+                    .map(|(version, _)| version)
+                    .next()
+                    .and_then(|version| {
+                        
+                        let actual_major_version = parse_jvm_major_version(version)?;
+
+                        Some(JvmVersion {
+                            full: version.to_string(),
+                            major_compatibility: calc_jvm_major_compatibility(major_version, actual_major_version),
+                        })
+
+                    });
                 
             }
 
@@ -1510,8 +1527,6 @@ impl Installer {
             thread::sleep(TRIES_SLEEP);
 
         }
-
-        children.into_iter().flat_map(|ChildJvm { jvm, .. }| jvm)
 
     }
 
@@ -1742,22 +1757,25 @@ crate::trait_event_handler! {
         /// version metadata it defaults to Java 8, because most older versions didn't
         /// specify it.
         fn load_jvm(major_version: u32);
-        /// A JVM has been rejected because its version is invalid or if the version has 
-        /// not been detected but it's required in that context. 
-        fn reject_jvm_version(file: &Path, version: Option<&str>);
+        /// When searching for JVMs in the system standard paths, this event trigger for
+        /// each detected JVM executable, and indicates if this version is compatible and
+        /// therefore is a potential candidate for being used as the JVM. 
+        fn found_jvm_system_version(file: &Path, version: &str, compatible: bool);
         /// The system runs on Linux and has C runtime not dynamically linked (static, 
         /// musl for example), suggesting that your system doesn't provide dynamic C 
         /// runtime (glibc), and such JVM are not provided by Mojang. 
-        fn reject_jvm_unsupported_dynamic_crt();
+        fn warn_jvm_unsupported_dynamic_crt();
         /// When trying to find a Mojang JVM to install, your operating system and 
         /// architecture are not supported.
-        fn reject_jvm_unsupported_platform();
+        fn warn_jvm_unsupported_platform();
         /// When trying to find a Mojang JVM to install, your operating system and 
         /// architecture are supported but the distribution (the java version packaged and
         /// distributed by Mojang) is not found.
-        fn reject_jvm_missing_distribution();
-        /// The JVM has been loaded to the given version.
-        fn loaded_jvm(file: &Path, version: Option<&str>);
+        fn warn_jvm_missing_distribution();
+        /// The JVM has been loaded, if the version is known. The compatible flag 
+        /// indicates if this JVM is **likely** compatible with the game version, 
+        /// when false it indicates that it will likely be incompatible.
+        fn loaded_jvm(file: &Path, version: Option<&str>, compatible: bool);
 
         /// Resources will be downloaded.
         fn download_resources();
@@ -1887,16 +1905,8 @@ impl Error {
 /// the game.
 #[derive(Debug, Clone)]
 pub enum JvmPolicy {
-    /// The path to the JVM executable is given and will be used for sure. If the version
-    /// needs a specific JVM major version, it is checked and a warning is triggered 
-    /// ([`Event::JvmCandidateRejected`]) to notify that the version may not be suited 
-    /// for that version, but this doesn't error out.
-    Static {
-        /// Path to the executable JVM file.
-        file: PathBuf,
-        /// True to error if the JVM version is not matching the one required (if any).
-        strict_check: bool,
-    },
+    /// The path to the JVM executable is given and will be used.
+    Static(PathBuf),
     /// The installer will try to find a suitable JVM executable in the path, searching
     /// a `java` (or `javaw.exe` on Windows) executable. On operating systems where it's
     /// supported, this will also check for known directories (on Arch for example).
@@ -2109,9 +2119,24 @@ struct AssetObject {
 /// Internal resolved JVM.
 #[derive(Debug)]
 struct Jvm {
+    /// The 'java' or 'javaw' executable file.
     file: PathBuf,
-    version: Option<String>,
+    /// The JVM version, if known.
+    version: Option<JvmVersion>,
+    /// If this JVM originate from a mojang JVM, it contains the post-installation infos.
     mojang: Option<MojangJvm>,
+}
+
+/// When a JVM version is known, this contains the information and compatibility score of
+/// that JVM.
+#[derive(Debug)]
+struct JvmVersion {
+    /// The full version string.
+    full: String,
+    /// A compatibility score for the major version of that JVM with the required major
+    /// version, none when the version is **likely** incompatible. The lower the score is,
+    /// the better the JVM is compatible, zero being the **most likely** compatible JVM.
+    major_compatibility: Option<u32>,
 }
 
 /// Internal optional to the resolve JVM in case of Mojang-provided JVM where files
@@ -2227,6 +2252,46 @@ where
 
     }
 
+}
+
+/// Parse a JVM major version, this supports pre-v9 versions.
+fn parse_jvm_major_version(version: &str) -> Option<u32> {
+    
+    // Special case for parsing versions such as '8u51'.
+    if !version.contains('.') {
+        if let Some((major, _patch)) = version.split_once('u') {
+            return major.parse::<u32>().ok();
+        }
+    }
+
+    let mut comp = version.split('.');
+    let mut major = comp.next()?.parse::<u32>().ok()?;
+    if major == 1 {
+        major = comp.next()?.parse::<u32>().ok()?;
+    }
+    Some(major)
+
+}
+
+/// This function compute the compatibility between a given JVM version and the expected
+/// one, returning None if the versions are fully incompatible. If versions are compatible
+/// then a score is returned, the less this score is, the higher if the compatibility,
+/// a score of zero means that the versions are fully compatible.
+fn calc_jvm_major_compatibility(expected_version: u32, version: u32) -> Option<u32> {
+    if expected_version <= 8 {
+        // Because of huge breakings in the internal APIs between Java 8 and 9 (and onward),
+        // we require strict equality for Java 8 and before.
+        (expected_version == version).then_some(0)
+    } else {
+        // After Java 8, we allow any greater JVM version to run, the score is computed
+        // to privilege versions that are close to another, thus reducing potential 
+        // breakings between version, even if it shouldn't happen.
+        if version >= expected_version {
+            Some(version - expected_version)
+        } else {
+            None
+        }
+    }
 }
 
 /// Internal shortcut to canonicalize a file or directory and map error into an 

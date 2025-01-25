@@ -34,6 +34,7 @@ gethostname.workspace = true
 dunce.workspace = true
 os_info.workspace = true
 dirs.workspace = true
+windows-registry.workspace = true
 
 sha1.workspace = true
 md5.workspace = true

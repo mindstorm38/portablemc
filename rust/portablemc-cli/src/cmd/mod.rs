@@ -63,12 +63,40 @@ pub fn main(args: &CliArgs) -> ExitCode {
         msa_db: msa::Database::new(msa_db_file),
     };
 
+    legacy_check(&mut cli);
+
     match &args.cmd {
         CliCmd::Start(start_args) => start::start(&mut cli, start_args),
         CliCmd::Search(search_args) => search::search(&mut cli, search_args),
         CliCmd::Auth(auth_args) => auth::auth(&mut cli, auth_args),
     }
 
+}
+
+fn legacy_check(cli: &mut Cli) {
+
+    const LEGACY_FILES: [&str; 2] = ["portablemc_auth.json", "portablemc_version_manifest.json"];
+
+    // Cleanup any legacy files from the older Python version.
+    let mut files = Vec::new();
+    for file_name in LEGACY_FILES {
+        let file = cli.main_dir.join(file_name);
+        if file.exists() {
+            files.push(file);
+        }
+    }
+
+    if files.is_empty() {
+        return;
+    }
+
+    let mut log = cli.out.log("warn_legacy_file");
+    log.args(files.iter().map(|file| file.display()));
+    log.warning("The following files were used in older versions of the launcher and you can safely delete them:");
+    for file in files {
+        log.additional(file.display());
+    }
+    
 }
 
 
@@ -93,6 +121,8 @@ pub struct CommonHandler<'a> {
     api_id: &'static str,
     /// For the same reason as above, this field is used for human-readable messages.
     api_name: &'static str,
+    /// The JVM major version being loaded.
+    jvm_major_version: u32,
 }
 
 impl<'a> CommonHandler<'a> {
@@ -103,6 +133,7 @@ impl<'a> CommonHandler<'a> {
             download_start: None,
             api_id: "",
             api_name: "",
+            jvm_major_version: 0,
         }
     }
     
@@ -299,54 +330,64 @@ impl standard::Handler for CommonHandler<'_> {
             .success(format_args!("Loaded and verified {count} assets {id}"));
     }
 
-    fn load_jvm(&mut self, major_version:u32) {
+    fn load_jvm(&mut self, major_version: u32) {
+        self.jvm_major_version = major_version;
         self.out.log("load_jvm")
             .arg(major_version)
-            .pending(format_args!("Loading JVM ({major_version})"));
+            .pending(format_args!("Loading JVM (major version {major_version})"));
     }
 
-    fn reject_jvm_version(&mut self, file: &Path, version: Option<&str>) {
+    fn found_jvm_system_version(&mut self, file: &Path, version: &str, compatible: bool) {
 
-        let mut log = self.out.log("reject_jvm_version");
-        log.arg(file.display());
-        log.args(version);
+        let compatible_str = if compatible { "compatible" } else { "incompatible" };
 
-        if let Some(version) = version {
-            log.info(format_args!("Rejected JVM (version {version}) at {}", file.display()));
-        } else {
-            log.info(format_args!("Rejected JVM at {}", file.display()));
-        }
+        self.out.log("found_jvm_system_version")
+            .arg(file.display())
+            .arg(version)
+            .arg(compatible)
+            .info(format_args!("Found system JVM at {}, version {version}, {compatible_str}", file.display()));
 
     }
 
-    fn reject_jvm_unsupported_dynamic_crt(&mut self) {
-        self.out.log("reject_jvm_unsupported_dynamic_crt")
+    fn warn_jvm_unsupported_dynamic_crt(&mut self) {
+        self.out.log("warn_jvm_unsupported_dynamic_crt")
             .info("Couldn't find a Mojang JVM because your launcher is compiled with a static C runtime");
     }
 
-    fn reject_jvm_unsupported_platform(&mut self) {
-        self.out.log("reject_jvm_unsupported_platform")
+    fn warn_jvm_unsupported_platform(&mut self) {
+        self.out.log("warn_jvm_unsupported_platform")
             .info("Couldn't find a Mojang JVM because your platform is not supported");
     }
 
-    fn reject_jvm_missing_distribution(&mut self) {
-        self.out.log("reject_jvm_missing_distribution")
+    fn warn_jvm_missing_distribution(&mut self) {
+        self.out.log("warn_jvm_missing_distribution")
             .info("Couldn't find a Mojang JVM because the required distribution was not found");
     }
 
-    fn loaded_jvm(&mut self, file: &Path, version: Option<&str>) {
+    fn loaded_jvm(&mut self, file: &Path, version: Option<&str>, compatible: bool) {
         
-        let mut log = self.out.log("loaded_jvm");
-        log.arg(file.display());
-        log.args(version);
-        
-        if let Some(version) = version {
-            log.success(format_args!("Loaded JVM ({version})"));
-        } else {
-            log.success(format_args!("Loaded JVM"));
+        {
+            let mut log = self.out.log("loaded_jvm");
+            log.arg(file.display());
+            log.args(version);
+            
+            if let Some(version) = version {
+                log.success(format_args!("Loaded JVM ({version})"));
+            } else {
+                log.success(format_args!("Loaded JVM (unknown version)"));
+            }
+
+            log.info(format_args!("Loaded JVM at {}", file.display()));
+
         }
 
-        log.info(format_args!("Loaded JVM at {}", file.display()));
+        if !compatible {
+            
+            self.out.log("warn_jvm_likely_incompatible")
+                .warning(format_args!("Loaded JVM is likely incompatible with the game version, which requires major version {}", 
+                    self.jvm_major_version));
+            
+        }
         
     }
 
@@ -574,9 +615,12 @@ pub fn log_standard_error(cli: &mut Cli, error: standard::Error) {
                 .error(format_args!("Library {gav} not found and no download information is available"));
         }
         Error::JvmNotFound { major_version } => {
-            out.log("error_jvm_not_found")
-                .error(format_args!("JVM version {major_version} not found"))
-                .additional("You can enable verbose mode to learn more about potential JVM rejections");
+            let mut log = out.log("error_jvm_not_found");
+            log.error(format_args!("No compatible JVM found for the game version, which requires major version {major_version}"));
+            log.additional("You can enable verbose mode to learn more about potential JVM rejections");
+            if major_version <= 8 {
+                log.additional("Note that JVM version 8 and prior versions are not compatible with other versions");
+            }
         }
         Error::MainClassNotFound {  } => {
             out.log("error_main_class_not_found")
