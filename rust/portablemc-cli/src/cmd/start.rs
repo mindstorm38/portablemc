@@ -217,10 +217,7 @@ fn apply_standard_args(
     // installer.set_mc_dir(cli.mc_dir.clone());
 
     if let Some(jvm_file) = &args.jvm {
-        installer.set_jvm_policy(JvmPolicy::Static { 
-            file: jvm_file.into(), 
-            strict_check: true,
-        });
+        installer.set_jvm_policy(JvmPolicy::Static(jvm_file.into()));
     } else {
         installer.set_jvm_policy(match args.jvm_policy {
             StartJvmPolicy::System => JvmPolicy::System,
