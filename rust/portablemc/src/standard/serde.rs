@@ -26,11 +26,11 @@ pub struct VersionMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub r#type: Option<VersionType>,
     /// The last time this version has been updated.
-    #[serde(deserialize_with = "deserialize_date_time_chill")]
-    pub time: DateTime<FixedOffset>,
-    #[serde(deserialize_with = "deserialize_date_time_chill")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time: Option<DateTimeChill>,
     /// The first release time of this version.
-    pub release_time: DateTime<FixedOffset>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_time: Option<DateTimeChill>,
     /// If present, this is the name of another version to resolve after this one and
     /// where fallback values will be taken.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -339,74 +339,92 @@ pub enum SingleOrVec<T> {
     Vec(Vec<T>)
 }
 
-/// Internal parsing function for RFC3339 date time parsing, specifically for 
+/// Internal serde structure for RFC3339 date time parsing, specifically for 
 /// [`VersionMetadata`] because it appears that some metadata might contain malformed
-/// date time. 
+/// date time that we don't want to error. 
 /// 
 /// This as been observed with NeoForge installer embedded version, an example of 
 /// malformed time is "2024-12-09T23:22:49.408008176", where the timezone is missing.
 /// 
 /// On old Forge versions there is also a missing ':' in the timezone offset between
 /// hours and minutes.
-fn deserialize_date_time_chill<'de, D>(deserializer: D) -> Result<DateTime<FixedOffset>, D::Error>
-where 
-    D: serde::Deserializer<'de>,
-{
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DateTimeChill(pub DateTime<FixedOffset>);
 
-    use chrono::format::ParseErrorKind;
+impl<'de> serde::Deserialize<'de> for DateTimeChill {
 
-    struct Visitor;
-    impl serde::de::Visitor<'_> for Visitor {
-
-        type Value = DateTime<FixedOffset>;
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
         
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("an RFC 3339 formatted date and time string")
-        }
+        use chrono::format::ParseErrorKind;
 
-        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
 
-            let err;
-            let mut buf;
+            type Value = DateTimeChill;
+            
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an RFC 3339 formatted date and time string")
+            }
 
-            match DateTime::parse_from_rfc3339(v) {
-                Ok(date) => return Ok(date),
-                Err(e) if e.kind() == ParseErrorKind::TooShort => {
-                    // Try adding a 'Z' at the end, we don't know if this was the issue 
-                    // so we retry.
-                    err = e;
-                    buf = v.to_string();
-                    buf.push('Z');
-                }
-                Err(e) if e.kind() == ParseErrorKind::Invalid => {
-                    if let Some(index) = v.rfind(&['+', '-']) {
-                        // This order avoids overflows.
-                        if v.len() - index == 5 && v[v.len() - 4..].is_ascii() {
-                            err = e;
-                            buf = v.to_string();
-                            buf.insert(v.len() - 2, ':');
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+
+                let err;
+                let mut buf;
+
+                match DateTime::parse_from_rfc3339(v) {
+                    Ok(date) => return Ok(DateTimeChill(date)),
+                    Err(e) if e.kind() == ParseErrorKind::TooShort => {
+                        // Try adding a 'Z' at the end, we don't know if this was the issue 
+                        // so we retry.
+                        err = e;
+                        buf = v.to_string();
+                        buf.push('Z');
+                    }
+                    Err(e) if e.kind() == ParseErrorKind::Invalid => {
+                        if let Some(index) = v.rfind(&['+', '-']) {
+                            // This order avoids overflows.
+                            if v.len() - index == 5 && v[v.len() - 4..].is_ascii() {
+                                err = e;
+                                buf = v.to_string();
+                                buf.insert(v.len() - 2, ':');
+                            } else {
+                                return Err(E::custom(e));
+                            }
                         } else {
                             return Err(E::custom(e));
                         }
-                    } else {
-                        return Err(E::custom(e));
                     }
+                    Err(e) => return Err(E::custom(e)),
+                };
+
+                match DateTime::parse_from_rfc3339(&buf) {
+                    Ok(date) => Ok(DateTimeChill(date)),
+                    Err(_) => Err(E::custom(err)), // Return the original error!!
                 }
-                Err(e) => return Err(E::custom(e)),
-            };
 
-            match DateTime::parse_from_rfc3339(&buf) {
-                Ok(date) => Ok(date),
-                Err(_) => Err(E::custom(err)), // Return the original error!!
             }
-
+            
         }
+
+        deserializer.deserialize_str(Visitor)
         
     }
 
-    deserializer.deserialize_str(Visitor)
+}
+
+impl serde::Serialize for DateTimeChill {
+
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
+    }
 
 }

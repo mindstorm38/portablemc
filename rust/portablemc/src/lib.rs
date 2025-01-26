@@ -58,7 +58,7 @@ macro_rules! trait_event_handler {
             }
 
             $( 
-                $( #[ $func_meta ] )* fn $func ( &mut self $( , $arg : $arg_ty )* ) $( -> $ret_ty )?  {
+                $( #[ $func_meta ] )* fn $func ( &mut self $( , $arg : $arg_ty )* ) $( -> $ret_ty )? {
                     // We expect the fallback call to be inlined every time because the
                     // default functions are statically known, and for the dynamic 
                     // dispatch implementation with '&mut dyn H' (below) all functions 

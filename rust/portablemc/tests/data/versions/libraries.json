@@ -1,0 +1,61 @@
+{
+  "id": "libraries",
+  "libraries": [
+    {
+      "name": "mock:lib0:1.0.0",
+      "url": "https://mock.com/"
+    },
+    {
+      "name": "mock:lib0:1.0.10",
+      "url": "https://mock.com/dir/"
+    },
+    {
+      "name": "mock:lib1:1.0.0",
+      "url": "https://mock.com/",
+      "downloads": {
+        "artifact": {
+          "url": "https://mock.com/non-standard/mock/lib1/1.0.0/lib1-1.0.0.jar"
+        }
+      }
+    },
+    {
+      "name": "mock:lib2:1.0.0",
+      "url": "https://mock.com/",
+      "downloads": {
+        "artifact": {
+          "path": "lib2-non-standard.jar",
+          "url": "https://mock.com/non-standard/mock/lib2/1.0.0/lib2-1.0.0.jar"
+        }
+      }
+    },
+    {
+      "name": "mock:lib3:1.0.0",
+      "url": "https://mock.com/",
+      "rules": []
+    },
+    {
+      "name": "mock:lib3:1.0.0",
+      "url": "https://mock.com/",
+      "rules": [
+        {
+          "action": "allow"
+        }
+      ]
+    },
+    {
+      "name": "mock:lib4:1.0.0",
+      "url": "https://mock.com/",
+      "natives": {
+        "linux": "natives-linux",
+        "osx": "natives-macos",
+        "windows": "natives-windows"
+      }
+    }
+  ],
+  "mainClass": "net.minecraft.client.main.Main",
+  "downloads": {
+    "client": {
+      "url": "https://doesnotwork.theorozier.fr/client.jar"
+    }
+  }
+}

@@ -41,3 +41,6 @@ md5.workspace = true
 jsonwebtoken.workspace = true
 
 zip.workspace = true
+
+[dev-dependencies]
+assert_fs.workspace = true

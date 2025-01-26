@@ -391,9 +391,10 @@ impl standard::Handler for CommonHandler<'_> {
         
     }
 
-    fn download_resources(&mut self) {
+    fn download_resources(&mut self) -> bool {
         self.out.log("download_resources")
             .pending("Downloading");
+        true
     }
 
     fn downloaded_resources(&mut self) {
@@ -596,10 +597,15 @@ pub fn log_standard_error(cli: &mut Cli, error: standard::Error) {
     let out = &mut cli.out;
 
     match error {
-        Error::VersionNotFound { version: id } => {
+        Error::HierarchyLoop { version } => {
+            out.log("error_hierarchy_loop")
+                .arg(&version)
+                .error(format_args!("Version {version} appears twice in the hierarchy, causing an infinite hierarchy loop"));
+        }
+        Error::VersionNotFound { version } => {
             out.log("error_version_not_found")
-                .arg(&id)
-                .error(format_args!("Version {id} not found"));
+                .arg(&version)
+                .error(format_args!("Version {version} not found"));
         }
         Error::AssetsNotFound { id } => {
             out.log("error_assets_not_found")
@@ -625,6 +631,9 @@ pub fn log_standard_error(cli: &mut Cli, error: standard::Error) {
         Error::MainClassNotFound {  } => {
             out.log("error_main_class_not_found")
                 .error("No main class specified in version metadata");
+        }
+        Error::DownloadResourcesCancelled {  } => {
+            panic!("should not happen because the handler does not cancel downloading");
         }
         Error::Io { error, origin } => {
             log_io_error(cli, error, &origin);
