@@ -1,6 +1,6 @@
 [package]
-name = "portablemc-capi"
-description = "The C API to PortableMC."
+name = "portablemc-ffi"
+description = "Bindings to PortableMC for any language."
 categories = ["games"]
 edition.workspace = true
 version.workspace = true

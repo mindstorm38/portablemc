@@ -1,0 +1,18 @@
+[package]
+name = "portablemc-pyapi"
+description = "The Python API to PortableMC."
+categories = ["games"]
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+portablemc.workspace = true
+
+pyo3 = { version = "0.23.4", features = ["extension-module"] }
+
+[lib]
+name = "portablemc"
+crate-type = ["cdylib"]
