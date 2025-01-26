@@ -2,6 +2,7 @@
 
 pub(crate) mod serde;
 
+use core::fmt;
 use std::io::{self, BufReader, BufWriter, Seek, SeekFrom};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::path::{Path, PathBuf};
@@ -347,7 +348,9 @@ impl Installer {
         // module and generally in this crate we transform handlers to a dynamic download
         // handler '&mut dyn download::Handler' to avoid large polymorphism duplications.
         if !batch.is_empty() {
-            handler.download_resources();
+            if !handler.download_resources() {
+                return Err(Error::DownloadResourcesCancelled {  });
+            }
             batch.download(&mut *handler)?.into_result()?;
             handler.downloaded_resources();
         }
@@ -457,14 +460,21 @@ impl Installer {
         handler.load_hierarchy(root_version);
 
         let mut hierarchy = Vec::new();
-        let mut current_id = Some(root_version.to_string());
+        let mut current_name = Some(root_version.to_string());
+        let mut unique_names = HashSet::new();
 
-        while let Some(load_version) = current_id.take() {
-            let version = self.load_version(handler, load_version)?;
-            if let Some(next_id) = &version.metadata.inherits_from {
-                current_id = Some(next_id.clone());
+        while let Some(version_name) = current_name.take() {
+            
+            if !unique_names.insert(version_name.clone()) {
+                return Err(Error::HierarchyLoop { version: version_name });
+            }
+
+            let version = self.load_version(handler, version_name)?;
+            if let Some(next_name) = &version.metadata.inherits_from {
+                current_name = Some(next_name.clone());
             }
             hierarchy.push(version);
+
         }
 
         handler.loaded_hierarchy(&hierarchy);
@@ -1777,8 +1787,9 @@ crate::trait_event_handler! {
         /// when false it indicates that it will likely be incompatible.
         fn loaded_jvm(file: &Path, version: Option<&str>, compatible: bool);
 
-        /// Resources will be downloaded.
-        fn download_resources();
+        /// Resources will be downloaded. This function returns a boolean that indicates
+        /// if the download should proceed, this can be used to abort 
+        fn download_resources() -> bool = true;
         /// Resources have been successfully downloaded.
         fn downloaded_resources();
 
@@ -1792,6 +1803,11 @@ crate::trait_event_handler! {
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
+    /// The given version appears twice in the hierarchy, implying an infinite recursion.
+    #[error("hierarchy loop: {version}")]
+    HierarchyLoop {
+        version: String,
+    },
     /// The given version is not found when trying to fetch it.
     #[error("version not found: {version}")]
     VersionNotFound {
@@ -1818,6 +1834,10 @@ pub enum Error {
     },
     #[error("main class not found")]
     MainClassNotFound {  },
+    /// Returned if the [`Handler::download_resources`] returned false, the installation
+    /// procedure can't continue because it needs resources to be downloaded.
+    #[error("download resources cancelled")]
+    DownloadResourcesCancelled {  },
     /// A generic system's IO error with an origin.
     #[error("io: {error} @ {origin}")]
     Io {
@@ -1927,7 +1947,7 @@ pub enum JvmPolicy {
 }
 
 /// Represent a loaded version.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LoadedVersion {
     /// Name of this version.
     name: String,
@@ -1959,6 +1979,15 @@ impl LoadedVersion {
         self.metadata.r#type.map(VersionChannel::from)
     }
 
+}
+
+impl fmt::Debug for LoadedVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedVersion")
+            .field("name", &self.name)
+            .field("dir", &self.dir)
+            .finish()
+    }
 }
 
 /// The different release channels for versions. Most of the game versions calls this 

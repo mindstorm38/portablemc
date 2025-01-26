@@ -142,7 +142,6 @@ impl Batch {
     /// 
     /// This is internally starting an asynchronous Tokio runtime and block on it, so
     /// this function will just panic if launched inside another runtime!
-    #[must_use]
     pub fn download(&mut self, mut handler: impl Handler) -> reqwest::Result<BatchResult> {
         let client = crate::http::client()?;
         let entries = mem::take(&mut self.entries);

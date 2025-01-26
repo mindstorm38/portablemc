@@ -4,27 +4,6 @@ use std::path::{Path, PathBuf};
 use std::ffi::OsStr;
 
 
-// /// A macro to generate OS-aware path from multiple components, const-compatible. Because
-// /// `std::path::Path` don't support being built are const time, this macro returns a str.
-// #[cfg(windows)]
-// macro_rules! const_path {
-//     ( $first:literal $( , $part:literal )* ) => {
-//         concat!( $first $( , '\\', $part )* )
-//     };
-// }
-
-// /// A macro to generate OS-aware path from multiple components, const-compatible. Because
-// /// `std::path::Path` don't support being built are const time, this macro returns a str.
-// #[cfg(not(windows))]
-// macro_rules! const_path {
-//     ( $first:literal $( , $part:literal )* ) => {
-//         concat!( $first $( , '/', $part )* )
-//     };
-// }
-
-// pub(crate) use const_path;
-
-
 /// Extension to the standard [`Path`].
 pub trait PathExt {
 

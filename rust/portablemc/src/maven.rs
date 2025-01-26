@@ -13,7 +13,7 @@ use std::fmt;
 /// also contains an optional classifier and extension for the pointed file. The memory
 /// footprint of this structure is optimized to contain only one string, its format is the
 /// the following: `group:artifact:version[:classifier][@extension]`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Gav {
     /// Internal buffer.
     raw: String,
@@ -330,6 +330,12 @@ impl FromStr for Gav {
 impl fmt::Display for Gav {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl fmt::Debug for Gav {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Gav").field(&self.raw).finish()
     }
 }
 
