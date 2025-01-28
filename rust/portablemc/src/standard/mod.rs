@@ -48,13 +48,13 @@ pub(crate) const LEGACY_JVM_ARGS: &[&str] = &[
     "${classpath}",
 ];
 
-/// Standard installer handle to install versions, this object is just the configuration
-/// of the installer when a version will be installed, such as directories to install 
-/// into, the installation will not mutate this object.
+/// The installer that supports the minimal standard format for version metadata with
+/// support for libraries, assets and loggers automatic installation. By defaults, it 
+/// also supports finding a suitable JVM for running the game.
 /// 
 /// Note that this installer doesn't provide any fetching of missing versions, enables
-/// no feature by default and provides not fixes for legacy things. This installer just
-/// implement the basics of how Minecraft versions are specified, this is mostly from
+/// no feature by default and provides no fixes for legacy things. This installer just
+/// implements the basics of how Minecraft versions are specified, this is mostly from
 /// reverse engineering. **Most of the time, you don't want to use this directly, instead
 /// you can use the [`mojang::Installer`](crate::mojang::Installer), that provides support
 /// for fetching missing Mojang versions, various fixes and authentication support.**
