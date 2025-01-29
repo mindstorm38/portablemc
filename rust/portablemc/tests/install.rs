@@ -33,9 +33,7 @@ macro_rules! def_install_tests {
 def_install_tests![
     recurse, 
     client_not_found,
-    no_path_lib,
-    moj_1_5_2 = "1.5.2",
-    moj_1_7_10 = "1.7.10",
+    libraries,
 ];
 
 /// Create a path to the data directory.
@@ -100,6 +98,7 @@ fn assert_logs_eq(
         };
 
         // Replace any unprocessed path macro.
+        replace_macro(&mut *expected_log, "os", |_| env::consts::OS.to_string());
         replace_macro(&mut *expected_log, "path", |path| {
             let mut buf = tmp_main_dir.to_path_buf();
             buf.extend(path.split('/'));

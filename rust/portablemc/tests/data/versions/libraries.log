@@ -1,0 +1,17 @@
+standard::filter_features({}, )
+standard::loaded_features({}, )
+standard::load_hierarchy("libraries", )
+standard::load_version("libraries", $path(versions/libraries/libraries.json), )
+standard::loaded_version("libraries", $path(versions/libraries/libraries.json), )
+standard::loaded_hierarchy([LoadedVersion { name: "libraries", dir: $path(versions/libraries) }], )
+standard::load_client()
+standard::loaded_client($path(versions/libraries/libraries.jar), )
+standard::load_libraries()
+$ignore_once ^standard::filter_libraries
+standard::loaded_libraries([LoadedLibrary { gav: Gav("mock:lib0:1.0.0"), path: None, download: Some(LibraryDownload { url: "https://mock.com/mock/lib0/1.0.0/lib0-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib1:1.0.0"), path: None, download: Some(LibraryDownload { url: "https://mock.com/non-standard/mock/lib1/1.0.0/lib1-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib2:1.0.0"), path: Some("lib2-non-standard.jar"), download: Some(LibraryDownload { url: "https://mock.com/non-standard/mock/lib2/1.0.0/lib2-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib3:1.0.0"), path: None, download: Some(LibraryDownload { url: "https://mock.com/mock/lib3/1.0.0/lib3-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib4:1.0.0:natives-$os()"), path: None, download: Some(LibraryDownload { url: "https://mock.com/mock/lib4/1.0.0/lib4-1.0.0-natives-$os().jar", size: None, sha1: None }), natives: true }], )
+$ignore_once ^standard::filter_libraries_files
+standard::loaded_libraries_files([$path(versions/libraries/libraries.jar), $path(libraries/mock/lib0/1.0.0/lib0-1.0.0.jar), $path(libraries/mock/lib1/1.0.0/lib1-1.0.0.jar), $path(libraries/lib2-non-standard.jar), $path(libraries/mock/lib3/1.0.0/lib3-1.0.0.jar)], [$path(libraries/mock/lib4/1.0.0/lib4-1.0.0-natives-$os().jar)], )
+standard::no_logger()
+standard::no_assets()
+standard::load_jvm(8, )
+standard::loaded_jvm("", None, false, )
