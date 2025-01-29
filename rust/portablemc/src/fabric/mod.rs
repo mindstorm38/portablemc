@@ -82,12 +82,7 @@ impl Installer {
     }
 
     /// By default, this Fabric installer targets the latest stable version. To also
-    /// change the fabric loader's version to use, see [`Self::loader`]. 
-    /// 
-    /// If this root version is an alias (`Release` the default, or `Snapshot`), it will 
-    /// require the online version manifest, if the alias is not found in the manifest 
-    /// (which is an issue on Mojang's side) then a 
-    /// [`mojang::Error::RootAliasNotFound`] is returned.
+    /// change the fabric loader's version to use, see [`Self::set_loader_version`]. 
     pub fn set_game_version(&mut self, version: impl Into<GameVersion>) {
         self.game_version = version.into();
     }

@@ -34,7 +34,8 @@ pub(crate) const VERSION_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc
 /// 
 /// Notes about various versions:
 /// - 1.19.3 metadata adds no parameter to specify extract directory for LWJGL (version
-///   3.3.1-build-7), therefore natives are extracted to '/tmp/lwjgl<username>/<version>'.
+///   3.3.1-build-7), therefore natives are extracted to 
+///   '/tmp/lwjgl&lt;username&gt;/&lt;version&gt;'.
 #[derive(Debug, Clone)]
 pub struct Installer {
     /// The underlying standard installer logic.
@@ -138,14 +139,14 @@ impl Installer {
         self
     }
 
-    /// See [`set_version`].
+    /// See [`Self::set_version`].
     #[inline]
     pub fn version(&self) -> &Version {
         &self.inner.version
     }
 
     /// Clear all versions from being fetch excluded.See [`Self::fetch_exclude`] and 
-    /// [`Self::fetch_exclude_all`]. **This is the default state when constructed.**
+    /// [`Self::set_fetch_exclude_all`]. **This is the default state when constructed.**
     #[inline]
     pub fn clear_fetch_exclude(&mut self) -> &mut Self {
         self.inner.fetch_exclude = Some(Vec::new());
@@ -165,8 +166,8 @@ impl Installer {
     }
 
     /// Exclude the given version id from versions that should be fetched, this has no
-    /// effect if [`Self::fetch_exclude_all`] has already been called and not cancelled
-    /// by a [`Self::fetch_exclude_clear`].
+    /// effect if [`Self::set_fetch_exclude_all`] has already been called and not cancelled
+    /// by a [`Self::clear_fetch_exclude`].
     #[inline]
     pub fn add_fetch_exclude(&mut self, id: impl Into<String>) -> &mut Self {
         if let Some(v) = &mut self.inner.fetch_exclude {
@@ -296,7 +297,7 @@ impl Installer {
 
     /// Use offline session with a deterministic UUID, derived from this machine's 
     /// hostname, the username is then derived from the UUID following the same logic
-    /// as for [`Self::auth_offline_uuid`].
+    /// as for [`Self::set_auth_offline_uuid`].
     /// 
     /// **This is the default UUID/username used if no auth is specified, so you don't
     /// need to call this function, except if you want to override previous auth.**
@@ -313,7 +314,7 @@ impl Installer {
     /// arbitrary UUID that is not the one your game has been launched with. Most servers
     /// uses the UUID derivation embedded in Mojang's authlib, deriving the UUID from the
     /// username, if you want the UUID to be coherent with this derivation, you can use
-    /// [`Self::auth_offline_username_authlib`] instead.
+    /// [`Self::set_auth_offline_username`] instead.
     pub fn set_auth_offline_username_legacy(&mut self, username: impl Into<String>) -> &mut Self {
         self.inner.auth_username = username.into();
         self.inner.auth_username.truncate(16);
@@ -379,7 +380,7 @@ impl Installer {
         self
     }
 
-    /// See [`set_fix_legacy_quick_play`].
+    /// See [`Self::set_fix_legacy_quick_play`].
     #[inline]
     pub fn fix_legacy_quick_play(&self) -> bool {
         self.inner.fix_legacy_quick_play
@@ -394,7 +395,7 @@ impl Installer {
         self
     }
 
-    /// See [`set_fix_legacy_proxy`].
+    /// See [`Self::set_fix_legacy_proxy`].
     #[inline]
     pub fn fix_legacy_proxy(&self) -> bool {
         self.inner.fix_legacy_proxy
@@ -409,7 +410,7 @@ impl Installer {
         self
     }
 
-    /// See [`set_fix_legacy_merge_sort`].
+    /// See [`Self::set_fix_legacy_merge_sort`].
     #[inline]
     pub fn fix_legacy_merge_sort(&self) -> bool {
         self.inner.fix_legacy_merge_sort
@@ -423,7 +424,7 @@ impl Installer {
         self
     }
 
-    /// See [`set_fix_legacy_resolution`].
+    /// See [`Self::set_fix_legacy_resolution`].
     #[inline]
     pub fn fix_legacy_resolution(&self) -> bool {
         self.inner.fix_legacy_resolution
@@ -438,7 +439,7 @@ impl Installer {
         self
     }
 
-    /// See [`set_fix_broken_authlib`].
+    /// See [`Self::set_fix_broken_authlib`].
     #[inline]
     pub fn fix_broken_authlib(&self) -> bool {
         self.inner.fix_broken_authlib
@@ -463,7 +464,7 @@ impl Installer {
         self
     }
 
-    /// See [`set_fix_lwjgl`].
+    /// See [`Self::set_fix_lwjgl`].
     #[inline]
     pub fn fix_lwjgl(&self) -> Option<&str> {
         self.inner.fix_lwjgl.as_deref()
@@ -1020,8 +1021,8 @@ impl InternalHandler<'_> {
         self.inner.fetch_version(version.name());
         
         download::single(version.url(), file)
-            .set_expect_size(version.size())
-            .set_expect_sha1(version.sha1().copied())
+            .set_expected_size(version.size())
+            .set_expected_sha1(version.sha1().copied())
             .download(&mut *self.inner)??;
 
         self.inner.fetched_version(version.name());
