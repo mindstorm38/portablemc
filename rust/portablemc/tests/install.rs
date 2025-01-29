@@ -33,6 +33,7 @@ macro_rules! def_install_tests {
 def_install_tests![
     recurse, 
     client_not_found,
+    no_path_lib,
     moj_1_5_2 = "1.5.2",
     moj_1_7_10 = "1.7.10",
 ];

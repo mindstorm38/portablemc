@@ -1,0 +1,23 @@
+{
+  "id": "no_path_lib",
+  "libraries": [
+    {
+      "name": "com.mojang:blocklist:1.0.6",
+      "downloads": {
+        "artifact": {
+          "url": "https://libraries.minecraft.net/com/mojang/blocklist/1.0.6/blocklist-1.0.6.jar",
+          "sha1": "7039c2c6209064ee4132cea7a0737b63b92c725e",
+          "size": 964
+        }
+      }
+    }
+  ],
+  "mainClass": "net.minecraft.client.main.Main",
+  "downloads": {
+    "client": {
+      "url": "https://launcher.mojang.com/v1/objects/7e46fb47609401970e2818989fa584fd467cd036/client.jar",
+      "sha1": "7e46fb47609401970e2818989fa584fd467cd036",
+      "size": 20042090
+    }
+  }
+}

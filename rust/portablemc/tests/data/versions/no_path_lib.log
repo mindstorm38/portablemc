@@ -1,0 +1,17 @@
+standard::filter_features({}, )
+standard::loaded_features({}, )
+standard::load_hierarchy("no_path_lib", )
+standard::load_version("no_path_lib", $path(versions/no_path_lib/no_path_lib.json), )
+standard::loaded_version("no_path_lib", $path(versions/no_path_lib/no_path_lib.json), )
+standard::loaded_hierarchy([LoadedVersion { name: "no_path_lib", dir: $path(versions/no_path_lib) }], )
+standard::load_client()
+standard::loaded_client($path(versions/no_path_lib/no_path_lib.jar), )
+standard::load_libraries()
+$ignore_once ^standard::filter_libraries
+standard::loaded_libraries([LoadedLibrary { gav: Gav("com.mojang:blocklist:1.0.6"), path: None, download: Some(LibraryDownload { url: "https://libraries.minecraft.net/com/mojang/blocklist/1.0.6/blocklist-1.0.6.jar", size: Some(964), sha1: Some([112, 57, 194, 198, 32, 144, 100, 238, 65, 50, 206, 167, 160, 115, 123, 99, 185, 44, 114, 94]) }), natives: false }], )
+$ignore_once ^standard::filter_libraries_files
+$ignore_once ^standard::loaded_libraries_files
+standard::no_logger()
+standard::no_assets()
+standard::load_jvm(8, )
+standard::loaded_jvm("", None, false, )
