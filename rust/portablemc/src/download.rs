@@ -1,6 +1,7 @@
 //! Parallel batch HTTP(S) download implementation.
 //! 
-//! Partially inspired by: https://patshaughnessy.net/2020/1/20/downloading-100000-files-using-async-rust
+//! Partially inspired by: 
+//! <https://patshaughnessy.net/2020/1/20/downloading-100000-files-using-async-rust>
 
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::FusedIterator;
@@ -47,14 +48,14 @@ impl Single {
     }
 
     #[inline]
-    pub fn set_expect_size(&mut self, size: Option<u32>) -> &mut Self {
-        self.0.set_expect_size(size);
+    pub fn set_expected_size(&mut self, size: Option<u32>) -> &mut Self {
+        self.0.set_expected_size(size);
         self
     }
 
     #[inline]
-    pub fn set_expect_sha1(&mut self, sha1: Option<[u8; 20]>) -> &mut Self {
-        self.0.set_expect_sha1(sha1);
+    pub fn set_expected_sha1(&mut self, sha1: Option<[u8; 20]>) -> &mut Self {
+        self.0.set_expected_sha1(sha1);
         self
     }
 
@@ -123,7 +124,6 @@ impl Batch {
     /// It is constructed from a standard cache directory called `portablemc-cache` 
     /// located in a standard user cache directory (or system tmp as a fallback), 
     /// the file name in that directory is the hash of the URL.
-    /// The entry mode is also set to [`Cache`](EntryMode::Cache).
     pub fn push_cached(&mut self, url: impl Into<Box<str>>) -> &mut Entry {
         self.entries.push(Entry::new_cached(url.into()));
         self.entries.last_mut().unwrap()
@@ -167,9 +167,9 @@ pub struct Entry {
     /// Core information.
     core: EntryCore,
     /// Optional expected size of the file.
-    expect_size: Option<u32>,
+    expected_size: Option<u32>,
     /// Optional expected SHA-1 of the file.
-    expect_sha1: Option<[u8; 20]>,
+    expected_sha1: Option<[u8; 20]>,
     /// Download mode for this entry.
     mode: EntryMode,
     /// True to keep the file open after it has been downloaded, and store the handle
@@ -200,8 +200,8 @@ impl Entry {
                 url,
                 file,
             },
-            expect_size: None,
-            expect_sha1: None,
+            expected_size: None,
+            expected_sha1: None,
             mode: EntryMode::Force,
             keep_open: false,
         }
@@ -239,19 +239,19 @@ impl Entry {
     }
 
     #[inline]
-    pub fn set_expect_size(&mut self, size: Option<u32>) -> &mut Self {
-        self.expect_size = size;
+    pub fn set_expected_size(&mut self, size: Option<u32>) -> &mut Self {
+        self.expected_size = size;
         self
     }
 
     #[inline]
-    pub fn set_expect_sha1(&mut self, sha1: Option<[u8; 20]>) -> &mut Self {
-        self.expect_sha1 = sha1;
+    pub fn set_expected_sha1(&mut self, sha1: Option<[u8; 20]>) -> &mut Self {
+        self.expected_sha1 = sha1;
         self
     }
 
     /// After the file has been successfully downloaded, keep the handle opened so it
-    /// can be retrieved via [`CompletedEntry::handle`]-related methods. The file's 
+    /// can be retrieved via [`EntrySuccess::handle`] related methods. The file's 
     /// cursor is rewind to the start.
     #[inline]
     pub fn set_keep_open(&mut self) -> &mut Self {
@@ -524,11 +524,11 @@ pub enum EntryErrorKind {
     #[error("invalid status: {0}")]
     InvalidStatus(reqwest::StatusCode),
     /// Invalid size of the fully downloaded entry compared to the expected size.
-    /// Implies that [`EntrySource::size`] is not none.
+    /// Implies that [`Entry::set_expected_size`] is not none.
     #[error("invalid size")]
     InvalidSize,
     /// Invalid SHA-1 of the fully downloaded entry compared to the expected SHA-1.
-    /// Implies that [`EntrySource::sha1`] is not none.
+    /// Implies that [`Entry::set_expected_sha1`] is not none.
     #[error("invalid sha1")]
     InvalidSha1,
 }
@@ -584,7 +584,7 @@ async fn download_many(
     // indices vector will pop the first index from the end, we put big files at the
     // end, and so sort by ascending size.
     indices.sort_by(|&a_index, &b_index| {
-        match (entries[a_index].expect_size, entries[b_index].expect_size) {
+        match (entries[a_index].expected_size, entries[b_index].expected_size) {
             (Some(a), Some(b)) => Ord::cmp(&a, &b),
             _ => Ordering::Equal,
         }
@@ -593,7 +593,7 @@ async fn download_many(
     // Current downloaded size and total size.
     let mut size = 0;
     let total_size = indices.iter()
-        .map(|&index| entries[index].expect_size.unwrap_or(0))
+        .map(|&index| entries[index].expected_size.unwrap_or(0))
         .sum::<u32>();
 
     // Send a progress update for each 1000 parts of the download.
@@ -703,7 +703,7 @@ async fn download_single(
 ) -> Result<EntrySuccess, EntryError> {
 
     let mut size = 0u32;
-    let total_size = entry.expect_size.unwrap_or(0);
+    let total_size = entry.expected_size.unwrap_or(0);
 
     handler.progress(0, 1, 0, total_size);
 
@@ -826,13 +826,13 @@ async fn download_entry(
     let size = u32::try_from(size).map_err(|_| EntryErrorKind::InvalidSize)?;
     let sha1 = sha1.finalize();
 
-    if let Some(expected_size) = entry.expect_size {
+    if let Some(expected_size) = entry.expected_size {
         if expected_size != size {
             return Err(EntryErrorKind::InvalidSize);
         }
     }
 
-    if let Some(expected_sha1) = &entry.expect_sha1 {
+    if let Some(expected_sha1) = &entry.expected_sha1 {
         if expected_sha1 != sha1.as_slice() {
             return Err(EntryErrorKind::InvalidSha1);
         }

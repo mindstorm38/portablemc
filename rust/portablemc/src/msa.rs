@@ -17,8 +17,8 @@ use jsonwebtoken::{DecodingKey, TokenData, Validation};
 
 /// Microsoft Account authenticator.
 /// 
-/// See https://minecraft.wiki/w/Microsoft_authentication. Shout out to wiki.vg which no 
-/// longer exists: https://wiki.vg/Microsoft_Authentication_Scheme
+/// See <https://minecraft.wiki/w/Microsoft_authentication>. Shout out to wiki.vg which no 
+/// longer exists: <https://wiki.vg/Microsoft_Authentication_Scheme>
 #[derive(Debug, Clone)]
 pub struct Auth {
     app_id: Arc<str>,
@@ -37,7 +37,7 @@ impl Auth {
 
     /// Define a specific language code to use for localized messages.
     /// 
-    /// See https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes
+    /// See <https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes>
     pub fn with_language_code(&mut self, code: impl Into<String>) -> &mut Self {
         self.language_code = Some(code.into());
         self

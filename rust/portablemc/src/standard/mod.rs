@@ -79,7 +79,7 @@ impl Installer {
 
     /// Create a new installer with default configuration and the given main directory.
     /// The given root version and directories can be later changed if needed, 
-    /// using [`Self::root`].
+    /// using [`Self::set_version`].
     /// 
     /// If you're confident a default main directory is available on your system, you
     /// can use [`Self::new_with_default`].
@@ -552,8 +552,8 @@ impl Installer {
             let check_client_sha1 = dl.sha1.as_deref().filter(|_| self.strict_libraries_check);
             if !check_file(&file, dl.size, check_client_sha1)? {
                 batch.push(dl.url.clone(), file.clone())
-                    .set_expect_size(dl.size)
-                    .set_expect_sha1(dl.sha1.as_deref().copied());
+                    .set_expected_size(dl.size)
+                    .set_expected_sha1(dl.sha1.as_deref().copied());
             }
         } else if !file.is_file() {
             return Err(Error::ClientNotFound);
@@ -720,8 +720,8 @@ impl Installer {
                 let check_source_sha1 = download.sha1.as_ref().filter(|_| self.strict_libraries_check);
                 if !check_file(&lib_file, download.size, check_source_sha1)? {
                     batch.push(download.url, lib_file.clone())
-                        .set_expect_size(download.size)
-                        .set_expect_sha1(download.sha1);
+                        .set_expected_size(download.size)
+                        .set_expected_sha1(download.sha1);
                 }
             } else if !lib_file.is_file() {
                 return Err(Error::LibraryNotFound { gav: lib.gav })
@@ -896,8 +896,8 @@ impl Installer {
 
         if !check_file(&file, config.file.download.size, config.file.download.sha1.as_deref())? {
             batch.push(config.file.download.url.clone(), file.clone())
-                .set_expect_size(config.file.download.size)
-                .set_expect_sha1(config.file.download.sha1.as_deref().copied());
+                .set_expected_size(config.file.download.size)
+                .set_expected_sha1(config.file.download.sha1.as_deref().copied());
         }
 
         handler.loaded_logger(&config.file.id);
@@ -961,8 +961,8 @@ impl Installer {
         if let Some(dl) = index_info.download {
             if !check_file(&index_file, dl.size, dl.sha1.as_deref())? {
                 download::single(dl.url.clone(), index_file.clone())
-                    .set_expect_size(dl.size)
-                    .set_expect_sha1(dl.sha1.as_deref().copied())
+                    .set_expected_size(dl.size)
+                    .set_expected_sha1(dl.sha1.as_deref().copied())
                     .download(&mut *handler)??;
                 index_downloaded = true;
             }
@@ -1041,8 +1041,8 @@ impl Installer {
             let check_asset_sha1 = self.strict_assets_check.then_some(&*asset.hash);
             if !check_file(&asset_hash_file, Some(asset.size), check_asset_sha1)? {
                 batch.push(format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_file_name}"), asset_hash_file)
-                    .set_expect_size(Some(asset.size))
-                    .set_expect_sha1(Some(*asset.hash));
+                    .set_expected_size(Some(asset.size))
+                    .set_expected_sha1(Some(*asset.hash));
             }
 
         }
@@ -1378,8 +1378,8 @@ impl Installer {
             
             if !check_file(&manifest_file, meta_variant.manifest.size, meta_variant.manifest.sha1.as_deref())? {
                 download::single(meta_variant.manifest.url.clone(), manifest_file.clone())
-                    .set_expect_size(meta_variant.manifest.size)
-                    .set_expect_sha1(meta_variant.manifest.sha1.as_deref().copied())
+                    .set_expected_size(meta_variant.manifest.size)
+                    .set_expected_sha1(meta_variant.manifest.sha1.as_deref().copied())
                     .set_keep_open()
                     .download(&mut *handler)??;
             }
@@ -1423,8 +1423,8 @@ impl Installer {
                     let check_dl_sha1 = dl.sha1.as_deref().filter(|_| self.strict_jvm_check);
                     if !check_file(&file, dl.size, check_dl_sha1)? {
                         batch.push(dl.url.clone(), file)
-                            .set_expect_size(dl.size)
-                            .set_expect_sha1(dl.sha1.as_deref().copied());
+                            .set_expected_size(dl.size)
+                            .set_expected_sha1(dl.sha1.as_deref().copied());
                     }
 
                 }

@@ -575,7 +575,7 @@ impl<'a> Iterator for RepoIter<'a> {
 
 }
 
-/// Because [`MetadataParser`] also implement this.
+// Because 'MetadataParser' also implement this.
 impl FusedIterator for RepoIter<'_> {  }
 
 /// Reference to a version owned by the requested repository.
@@ -889,8 +889,8 @@ fn try_install(
                 
                 if !lib_dl.download.url.is_empty() {
                     batch.push(lib_dl.download.url.to_string(), lib_file)
-                        .set_expect_size(lib_dl.download.size)
-                        .set_expect_sha1(lib_dl.download.sha1.as_deref().copied());
+                        .set_expected_size(lib_dl.download.size)
+                        .set_expected_sha1(lib_dl.download.sha1.as_deref().copied());
                 } else {
                     extract_installer_maven_artifact(installer_file, &mut installer_zip, &lib.name, &lib_file)?;
                 }
