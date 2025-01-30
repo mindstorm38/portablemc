@@ -8,14 +8,14 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 
-#[pyclass]
-struct StandardInstaller {
+#[pyclass(name = "StandardInstaller")]
+struct PyStandardInstaller {
     #[allow(unused)]
     inner: standard::Installer,
 }
 
 #[pymethods]
-impl StandardInstaller {
+impl PyStandardInstaller {
 
     #[new]
     #[pyo3(signature = (version, main_dir = None))]
@@ -36,8 +36,8 @@ impl StandardInstaller {
 }
 
 #[pymodule]
-#[pyo3(name = "portablemc")]
-fn entry(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<StandardInstaller>()?;
+#[pyo3(name = "_portablemc")]
+fn py_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyStandardInstaller>()?;
     Ok(())
 }

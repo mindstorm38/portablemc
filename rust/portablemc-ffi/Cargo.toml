@@ -1,16 +1,16 @@
 [package]
 name = "portablemc-ffi"
 description = "Bindings to PortableMC for any language."
-categories = ["games"]
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
+publish = false
 
 [dependencies]
 portablemc.workspace = true
 
 [lib]
-name = "portablemc_ffi"  # Named like this for now to avoid name collision of '.pdb'...
+name = "portablemc_ffi"
 crate-type = ["staticlib", "cdylib"]
