@@ -1547,7 +1547,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "portablemc-pyapi"
+name = "portablemc-py"
 version = "5.0.0-beta.0"
 dependencies = [
  "portablemc",
