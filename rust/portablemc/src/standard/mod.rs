@@ -2,13 +2,12 @@
 
 pub(crate) mod serde;
 
-use core::fmt;
 use std::io::{self, BufReader, BufWriter, Seek, SeekFrom};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::fmt::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::fmt::Write as _;
 use std::sync::LazyLock;
 use std::time::Duration;
 use std::{env, thread};
@@ -108,8 +107,8 @@ impl Installer {
     /// Same as [`Self::new`] but using the default main directory in your system,
     /// returning none if there is no default main directory on your system.
     #[inline]
-    pub fn new_with_default(root_id: impl Into<String>) -> Option<Self> {
-        Some(Self::new(root_id, default_main_dir()?))
+    pub fn new_with_default(version: impl Into<String>) -> Option<Self> {
+        Some(Self::new(version, default_main_dir()?))
     }
 
     /// Change the root version id to load and install, this overrides the root version
@@ -133,8 +132,8 @@ impl Installer {
     /// **Note that on Windows**, long NT UNC paths are very likely to be unsupported and
     /// you'll get unsound errors with the JVM or the game itself.
     #[inline]
-    pub fn set_main_dir(&mut self, main_dir: impl Into<PathBuf>) -> &mut Self {
-        let mc_dir = main_dir.into();
+    pub fn set_main_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        let mc_dir = dir.into();
         self.versions_dir = mc_dir.join("versions");
         self.assets_dir = mc_dir.join("assets");
         self.libraries_dir = mc_dir.join("libraries");
@@ -146,8 +145,8 @@ impl Installer {
 
     /// The directory where versions are stored.
     #[inline]
-    pub fn set_versions_dir(&mut self, versions_dir: impl Into<PathBuf>) -> &mut Self {
-        self.versions_dir = versions_dir.into();
+    pub fn set_versions_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.versions_dir = dir.into();
         self
     }
 
@@ -159,8 +158,8 @@ impl Installer {
 
     /// The directory where libraries are stored, organized like a maven repository.
     #[inline]
-    pub fn set_libraries_dir(&mut self, libraries_dir: impl Into<PathBuf>) -> &mut Self {
-        self.libraries_dir = libraries_dir.into();
+    pub fn set_libraries_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.libraries_dir = dir.into();
         self
     }
 
@@ -175,8 +174,8 @@ impl Installer {
     /// directory where the client will need to write, and so it needs the permission
     /// to do so.
     #[inline]
-    pub fn set_assets_dir(&mut self, assets_dir: impl Into<PathBuf>) -> &mut Self {
-        self.assets_dir = assets_dir.into();
+    pub fn set_assets_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.assets_dir = dir.into();
         self
     }
 
@@ -188,8 +187,8 @@ impl Installer {
 
     /// The directory where Mojang-provided JVM has been installed.
     #[inline]
-    pub fn set_jvm_dir(&mut self, jvm_dir: impl Into<PathBuf>) -> &mut Self {
-        self.jvm_dir = jvm_dir.into();
+    pub fn set_jvm_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.jvm_dir = dir.into();
         self
     }
 
@@ -209,8 +208,8 @@ impl Installer {
     /// really heavy and so can be removed after all instances of the game have been 
     /// terminated, it can also be set to something like `/tmp/pmc` on Linux for example.
     #[inline]
-    pub fn set_bin_dir(&mut self, bin_dir: impl Into<PathBuf>) -> &mut Self {
-        self.bin_dir = bin_dir.into();
+    pub fn set_bin_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.bin_dir = dir.into();
         self
     }
 
@@ -224,8 +223,8 @@ impl Installer {
     /// saved (saves, resource packs, options and more). The user launching the
     /// game should have read/write permissions to this directory.
     #[inline]
-    pub fn set_mc_dir(&mut self, mc_dir: impl Into<PathBuf>) -> &mut Self {
-        self.mc_dir = mc_dir.into();
+    pub fn set_mc_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.mc_dir = dir.into();
         self
     }
 
@@ -292,8 +291,8 @@ impl Installer {
 
     /// A specific launcher name to put on the command line, defaults to "portablemc".
     #[inline]
-    pub fn set_launcher_name(&mut self, launcher_name: impl Into<String>) -> &mut Self {
-        self.launcher_name = Some(launcher_name.into());
+    pub fn set_launcher_name(&mut self, name: impl Into<String>) -> &mut Self {
+        self.launcher_name = Some(name.into());
         self
     }
 
@@ -304,8 +303,8 @@ impl Installer {
 
     /// A specific launcher version to put on the command line, defaults to PMC version.
     #[inline]
-    pub fn set_launcher_version(&mut self, launcher_version: impl Into<String>) -> &mut Self {
-        self.launcher_version = Some(launcher_version.into());
+    pub fn set_launcher_version(&mut self, version: impl Into<String>) -> &mut Self {
+        self.launcher_version = Some(version.into());
         self
     }
 

@@ -1,43 +1,25 @@
 //! Python binding for PortableMC.
 
-use std::path::PathBuf;
+mod installer;
 
-use portablemc::standard;
+mod standard;
+mod mojang;
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-
-#[pyclass(name = "StandardInstaller")]
-struct PyStandardInstaller {
-    #[allow(unused)]
-    inner: standard::Installer,
-}
-
-#[pymethods]
-impl PyStandardInstaller {
-
-    #[new]
-    #[pyo3(signature = (version, main_dir = None))]
-    fn __new__(version: &str, main_dir: Option<&str>) -> PyResult<Self> {
-
-        let main_dir = match main_dir {
-            Some(dir) => PathBuf::from(dir.to_string()),
-            None => standard::default_main_dir()
-                .ok_or_else(|| PyValueError::new_err("no default main directory on your system"))?,
-        };
-
-        Ok(Self {
-            inner: standard::Installer::new(version.to_string(), main_dir),
-        })
-
-    }
-
-}
 
 #[pymodule]
 #[pyo3(name = "_portablemc")]
 fn py_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PyStandardInstaller>()?;
+
+    let standard = PyModule::new(m.py(), "standard")?;
+    standard::py_module(&standard)?;
+    m.add_submodule(&standard)?;
+
+    let mojang = PyModule::new(m.py(), "mojang")?;
+    mojang::py_module(&mojang)?;
+    m.add_submodule(&mojang)?;
+    
     Ok(())
+
 }
