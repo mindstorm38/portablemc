@@ -2,7 +2,7 @@
 """
 
 from urllib import parse as url_parse
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 from pathlib import Path
 import platform
 import base64
@@ -88,7 +88,7 @@ class OfflineAuthSession(AuthSession):
     db_type = "offline"
     user_type = ""
 
-    def __init__(self, username: Optional[str], uuid: Optional[str]):
+    def __init__(self, username: Optional[str], uuid: Optional[str], *, _legacy_uuid: bool = False):
         super().__init__()
         if uuid is not None and len(uuid) == 32:
             # If the UUID is already valid.
@@ -101,11 +101,15 @@ class OfflineAuthSession(AuthSession):
                 self.username = self.uuid[:8]
             else:
                 self.username = username[:16]
-                self.uuid = self.__offlineUUID(self.username)
+                if _legacy_uuid:
+                    self.uuid = uuid5(namespace_hash, self.username).hex
+                else:
+                    self.uuid = self._authlib_uuid(self.username)
 
-    def __offlineUUID(player_name: str) -> str:
-        bytestring = b'OfflinePlayer:' + player_name.encode()
-        md5_hash = hashlib.md5(bytestring, usedforsecurity=False)
+    @staticmethod
+    def _authlib_uuid(username: str) -> str:
+        buffer = f"OfflinePlayer:{username}".encode()
+        md5_hash = hashlib.md5(buffer, usedforsecurity = False)
         md5_bytes = bytearray(md5_hash.digest())
         md5_bytes[6] = md5_bytes[6] & 0x0f | 0x30
         md5_bytes[8] = md5_bytes[8] & 0x3f | 0x80
