@@ -283,10 +283,10 @@ class Version:
         self._dl = DownloadList()
         self._applied_fixes: Dict[str, Any] = {}
 
-    def set_auth_offline(self, username: Optional[str], uuid: Optional[str]) -> None:
+    def set_auth_offline(self, username: Optional[str], uuid: Optional[str], *, _legacy_uuid: bool = False) -> None:
         """Shortcut for setting an offline session with the given username/uuid pair.
         """
-        self.auth_session = OfflineAuthSession(username, uuid)
+        self.auth_session = OfflineAuthSession(username, uuid, _legacy_uuid=_legacy_uuid)
 
     def set_quick_play_singleplayer(self, level_name: str) -> None:
         """Configure quick play for entering a singleplayer level after game's launch.
