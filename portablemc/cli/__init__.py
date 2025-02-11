@@ -37,8 +37,12 @@ from portablemc.standard import Context, Version, VersionManifest, SimpleWatcher
 from portablemc.fabric import FabricVersion, FabricResolveEvent
 from portablemc.forge import ForgeVersion, ForgeResolveEvent, ForgePostProcessingEvent, \
     ForgePostProcessedEvent, ForgeInstallError, _NeoForgeVersion
-import portablemc.optifine as optifine
-# import portablemc.optifine_withprefix as optifine # if you want to use optifine with prefix
+from portablemc.optifine import (get_offline_versions as optifine_get_versions_offline,
+                                get_compatible_versions as optifine_get_versions,
+                                OptifineVersion,
+                                 OptifinePatchEvent,
+                                 OptifineStartInstallEvent,
+                                 OptifineEndInstallEvent)
 
 
 from typing import cast, Optional, List, Union, Dict, Callable, Any, Tuple
@@ -303,32 +307,33 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
         for loader in api._request_loaders():
             if search is None or search in loader.version:
                 table.add(loader.version, _("search.flags.stable") if loader.stable else "")
+
     elif kind == "optifine":
-        table.add(_("search.loader_version"), _("search.release_date"), _("search.flags"), _("search.OptiFine.ForgeCompatibility"))
+        table.add(_("search.loader_version"), _("search.release_date"), _("search.flags"), _("search.optifine.forgecompatibility"))
         if not ns.work_dir:
-            c= Context()
-            ns.work_dir=c.work_dir
+            ns.work_dir = ns.context.work_dir
+
         try:
-            v_list=optifine.get_compatible_versions(ns.work_dir)
-        except VersionNotFoundError as e:
-            try:
-                v_list=optifine.get_offline_versions(ns.work_dir/"versions")
-            except Exception as b:
-                print(b)
-        did_lines=True
+            v_list = optifine_get_versions(ns.work_dir)
+        except VersionNotFoundError:
+            v_list = optifine_get_versions_offline(ns.work_dir / "versions")
+        did_lines = True
+
         for k in v_list.keys():
             if did_lines and any((search is None or search in loader.mc_version or search in loader.edition) for loader in v_list[k]):
                 table.separator()
-                did_lines=False
+                did_lines = False
+
             for loader in v_list[k]:
                 if search is None or search in loader.mc_version or search in loader.edition:
-                    did_lines=True
+                    did_lines = True
                     table.add(f"{loader.mc_version}-OptiFine_{loader.edition}", loader.date, _("search.flags.stable") if not loader.preview else "preview", loader.forge if loader.forge else "")
     else:
         raise ValueError()
 
 
 def cmd_start(ns: StartNs):
+
     version_parts = ns.version.split(":")
     
     # If no split, the kind of version is "standard": parts have at least 2 elements.
@@ -519,9 +524,11 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
         constructor = ForgeVersion if kind == "forge" else _NeoForgeVersion
         prefix = ns.forge_prefix if kind == "forge" else ns.neoforge_prefix
         return constructor(version, context=ns.context, prefix=prefix)
+
     elif kind == "optifine":
-        constructor= optifine.OptifineVersion
-        return constructor(":".join(parts) if len(parts) > 0 else "recommended", context=ns.context)
+        constructor = OptifineVersion
+        return constructor(":".join(parts) if len(parts) > 0 else "recommended", context = ns.context)
+
     else:
         return None
 
@@ -825,6 +832,7 @@ class StartWatcher(SimpleWatcher):
 
         def progress_task(key: str, **kwargs) -> None:
             ns.out.task("..", key, **kwargs)
+
         def finish_task(key: str, **kwargs) -> None:
             ns.out.task("OK", key, **kwargs)
             ns.out.finish()
@@ -880,9 +888,9 @@ class StartWatcher(SimpleWatcher):
             DownloadCompleteEvent: self.download_complete,
             # Optifine install logic is particular: it needs to be done after the download of the client and installer jar
             # There is no particular event for the fetching of the version, because the entire json is generated after patch
-            optifine.OptifineStartInstallEvent: lambda e: progress_task("start.optifine.install"),
-            optifine.OptifineEndInstallEvent: lambda e: finish_task("start.optifine.installed", version=e.version),
-            optifine.OptifinePatchEvent: lambda e: progress_task("start.optifine.patching", progress=f"{e.done}/{e.total}"),
+            OptifineStartInstallEvent: lambda e: progress_task("start.optifine.install"),
+            OptifineEndInstallEvent: lambda e: finish_task("start.optifine.installed", version=e.version),
+            OptifinePatchEvent: lambda e: progress_task("start.optifine.patching", progress=f"{e.done}/{e.total}"),
         })
             
         self.ns = ns
