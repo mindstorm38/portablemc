@@ -192,7 +192,7 @@ lang = {
     "search.flags.local": "local",
     "search.flags.stable": "stable",
     "search.loader_version": "Loader version",
-    "search.OptiFine.ForgeCompatibility": "Forge compatibility",
+    "search.optifine.forgecompatibility": "Forge compatibility",
     # Command login
     "login.tip.remember_start_login": "Remember to start the game with '-l {email}' if you want to be authenticated in-game.",
     # Command logout
