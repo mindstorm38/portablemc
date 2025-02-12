@@ -43,18 +43,6 @@ impl Installer {
         Some(Self::new(loader, game_version, loader_version, standard::default_main_dir()?))
     }
 
-    /// Get the underlying standard installer.
-    #[inline]
-    pub fn standard(&self) -> &standard::Installer {
-        self.mojang.standard()
-    }
-
-    /// Get the underlying standard installer through mutable reference.
-    #[inline]
-    pub fn standard_mut(&mut self) -> &mut standard::Installer {
-        self.mojang.standard_mut()
-    }
-
     /// Get the underlying mojang installer.
     #[inline]
     pub fn mojang(&self) -> &mojang::Installer {
@@ -63,46 +51,35 @@ impl Installer {
 
     /// Get the underlying mojang installer through mutable reference.
     /// 
-    /// *Note that the `root` and `fetch` property will be overwritten when installing.*
+    /// *Note that the `version` and `fetch` properties will be overwritten when 
+    /// installing.*
     #[inline]
     pub fn mojang_mut(&mut self) -> &mut mojang::Installer {
         &mut self.mojang
     }
 
-    /// Execute some callback to alter the mojang installer.
-    /// 
-    /// *Note that the `root` and `fetch` property will be overwritten when installing.*
-    #[inline]
-    pub fn with_mojang<F>(&mut self, func: F) -> &mut Self
-    where
-        F: FnOnce(&mut mojang::Installer) -> &mut mojang::Installer,
-    {
-        func(&mut self.mojang);
-        self
-    }
-
-    /// By default, this Fabric installer targets the latest stable version. To also
-    /// change the fabric loader's version to use, see [`Self::set_loader_version`]. 
-    pub fn set_game_version(&mut self, version: impl Into<GameVersion>) {
-        self.game_version = version.into();
-    }
-
-    /// See [`Self::set_game_version`].   
+    /// Get the game version the loader will be installed for.
     #[inline]
     pub fn game_version(&self) -> &GameVersion {
         &self.game_version
     }
 
-    /// By default, this Fabric installer targets the latest loader version compatible
-    /// with the root version, use this function to override the loader version to use.
-    pub fn set_loader_version(&mut self, version: impl Into<LoaderVersion>) {
-        self.loader_version = version.into();
+    /// Set the game version the loader will be installed for.
+    #[inline]
+    pub fn set_game_version(&mut self, version: impl Into<GameVersion>) {
+        self.game_version = version.into();
     }
 
-    /// See [`Self::set_loader_version`].   
+    /// Get the loader version to install.
     #[inline]
     pub fn loader_version(&self) -> &LoaderVersion {
         &self.loader_version
+    }
+
+    /// Set the loader version to install.
+    #[inline]
+    pub fn set_loader_version(&mut self, version: impl Into<LoaderVersion>) {
+        self.loader_version = version.into();
     }
 
     /// Install the currently configured Fabric loader with the given handler.

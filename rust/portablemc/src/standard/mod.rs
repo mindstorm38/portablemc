@@ -111,18 +111,108 @@ impl Installer {
         Some(Self::new(version, default_main_dir()?))
     }
 
-    /// Change the root version id to load and install, this overrides the root version
-    /// given when constructing this installer.
+    /// Get the root version to load with its hierarchy and install.
+    #[inline]
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// Set the root version to load with its hierarchy and install.
     #[inline]
     pub fn set_version(&mut self, version: impl Into<String>) -> &mut Self {
         self.version = version.into();
         self
     }
 
-    /// See [`Self::set_version`].
+    /// The directory where versions are stored.
     #[inline]
-    pub fn version(&self) -> &str {
-        &self.version
+    pub fn versions_dir(&self) -> &Path {
+        &self.versions_dir
+    }
+
+    /// See [`Self::versions_dir`].
+    #[inline]
+    pub fn set_versions_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.versions_dir = dir.into();
+        self
+    }
+
+    /// The directory where libraries are stored, organized like a maven repository.
+    #[inline]
+    pub fn libraries_dir(&self) -> &Path {
+        &self.libraries_dir
+    }
+
+    /// See [`Self::libraries_dir`].
+    #[inline]
+    pub fn set_libraries_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.libraries_dir = dir.into();
+        self
+    }
+
+    /// The directory where assets, assets index, cached skins and logs config are stored.
+    /// Note that this directory stores caches player skins, so this is the only 
+    /// directory where the client will need to write, and so it needs the permission
+    /// to do so.
+    #[inline]
+    pub fn assets_dir(&self) -> &Path {
+        &self.assets_dir
+    }
+
+    /// See [`Self::assets_dir`].
+    #[inline]
+    pub fn set_assets_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.assets_dir = dir.into();
+        self
+    }
+
+    /// The directory where Mojang-provided JVM has been installed.
+    #[inline]
+    pub fn jvm_dir(&self) -> &Path {
+        &self.jvm_dir
+    }
+
+    /// See [`Self::jvm_dir`].
+    #[inline]
+    pub fn set_jvm_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.jvm_dir = dir.into();
+        self
+    }
+
+    /// The directory used to extract natives into (.dll, .so) before startup, in modern
+    /// versions the launcher no longer extract natives itself, instead LWJGL is auto
+    /// extracting its own needed natives into that directory. The user launching the
+    /// game should have read/write permissions to this directory.
+    /// 
+    /// Note that a sub-directory will be created with a name that is kind of a hash of
+    /// class files and natives files paths. This directory is considered temporary, not
+    /// really heavy and so can be removed after all instances of the game have been 
+    /// terminated, it can also be set to something like `/tmp/pmc` on Linux for example.
+    #[inline]
+    pub fn bin_dir(&self) -> &Path {
+        &self.bin_dir
+    }
+
+    /// See [`Self::bin_dir`].
+    #[inline]
+    pub fn set_bin_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.bin_dir = dir.into();
+        self
+    }
+
+    /// The directory where the process' working directory is set and all user stuff is
+    /// saved (saves, resource packs, options and more). The user launching the
+    /// game should have read/write permissions to this directory.
+    #[inline]
+    pub fn mc_dir(&self) -> &Path {
+        &self.mc_dir
+    }
+
+    /// See [`Self::mc_dir`].
+    #[inline]
+    pub fn set_mc_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
+        self.mc_dir = dir.into();
+        self
     }
 
     /// Shortcut for defining the various main directories of the game, by deriving
@@ -143,174 +233,83 @@ impl Installer {
         self
     }
 
-    /// The directory where versions are stored.
-    #[inline]
-    pub fn set_versions_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
-        self.versions_dir = dir.into();
-        self
-    }
-
-    /// See [`Self::set_versions_dir`].
-    #[inline]
-    pub fn versions_dir(&self) -> &Path {
-        &self.versions_dir
-    }
-
-    /// The directory where libraries are stored, organized like a maven repository.
-    #[inline]
-    pub fn set_libraries_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
-        self.libraries_dir = dir.into();
-        self
-    }
-
-    /// See [`Self::set_libraries_dir`].
-    #[inline]
-    pub fn libraries_dir(&self) -> &Path {
-        &self.libraries_dir
-    }
-
-    /// The directory where assets, assets index, cached skins and logs config are stored.
-    /// Note that this directory stores caches player skins, so this is the only 
-    /// directory where the client will need to write, and so it needs the permission
-    /// to do so.
-    #[inline]
-    pub fn set_assets_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
-        self.assets_dir = dir.into();
-        self
-    }
-
-    /// See [`Self::assets_dir`].
-    #[inline]
-    pub fn assets_dir(&self) -> &Path {
-        &self.assets_dir
-    }
-
-    /// The directory where Mojang-provided JVM has been installed.
-    #[inline]
-    pub fn set_jvm_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
-        self.jvm_dir = dir.into();
-        self
-    }
-
-    /// See [`Self::set_jvm_dir`].
-    #[inline]
-    pub fn jvm_dir(&self) -> &Path {
-        &self.jvm_dir
-    }
-
-    /// The directory used to extract natives into (.dll, .so) before startup, in modern
-    /// versions the launcher no longer extract natives itself, instead LWJGL is auto
-    /// extracting its own needed natives into that directory. The user launching the
-    /// game should have read/write permissions to this directory.
-    /// 
-    /// Note that a sub-directory will be created with a name that is kind of a hash of
-    /// class files and natives files paths. This directory is considered temporary, not
-    /// really heavy and so can be removed after all instances of the game have been 
-    /// terminated, it can also be set to something like `/tmp/pmc` on Linux for example.
-    #[inline]
-    pub fn set_bin_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
-        self.bin_dir = dir.into();
-        self
-    }
-
-    /// See [`Self::set_bin_dir`].
-    #[inline]
-    pub fn bin_dir(&self) -> &Path {
-        &self.bin_dir
-    }
-
-    /// The directory where the process' working directory is set and all user stuff is
-    /// saved (saves, resource packs, options and more). The user launching the
-    /// game should have read/write permissions to this directory.
-    #[inline]
-    pub fn set_mc_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
-        self.mc_dir = dir.into();
-        self
-    }
-
-    /// See [`Self::set_mc_dir`].
-    #[inline]
-    pub fn mc_dir(&self) -> &Path {
-        &self.mc_dir
-    }
-
     /// When enabled, all assets are strictly checked against their expected SHA-1,
     /// this is disabled by default because it's heavy on CPU.
+    #[inline]
+    pub fn strict_assets_check(&self) -> bool {
+        self.strict_assets_check
+    }
+
+    /// See [`Self::strict_assets_check`].
     #[inline]
     pub fn set_strict_assets_check(&mut self, strict: bool) -> &mut Self {
         self.strict_assets_check = strict;
         self
     }
 
-    /// See [`Self::set_strict_assets_check`].
-    #[inline]
-    pub fn strict_assets_check(&self) -> bool {
-        self.strict_assets_check
-    }
-
     /// When enabled, all libraries are strictly checked against their expected SHA-1,
     /// this is disabled by default because it's heavy on CPU.
+    #[inline]
+    pub fn strict_libraries_check(&self) -> bool {
+        self.strict_libraries_check
+    }
+
+    /// See [`Self::strict_libraries_check`].
     #[inline]
     pub fn set_strict_libraries_check(&mut self, strict: bool) -> &mut Self {
         self.strict_libraries_check = strict;
         self
     }
 
-    /// See [`Self::set_strict_libraries_check`].
-    #[inline]
-    pub fn strict_libraries_check(&self) -> bool {
-        self.strict_libraries_check
-    }
-
     /// When enabled, all files from Mojang-provided JVMs are strictly checked against
     /// their expected SHA-1, this is disabled by default because it's heavy on CPU.
+    #[inline]
+    pub fn strict_jvm_check(&self) -> bool {
+        self.strict_jvm_check
+    }
+
+    /// See [`Self::set_strict_jvm_check`].
     #[inline]
     pub fn set_strict_jvm_check(&mut self, strict: bool) -> &mut Self {
         self.strict_jvm_check = strict;
         self
     }
 
-    /// See [`Self::set_strict_jvm_check`].
+    /// The policy for finding a JVM to run the game on.
     #[inline]
-    pub fn strict_jvm_check(&self) -> bool {
-        self.strict_jvm_check
+    pub fn jvm_policy(&self) -> &JvmPolicy {
+        &self.jvm_policy
     }
 
-    /// The policy for finding a JVM to run the game on.
+    /// See [`Self::jvm_policy`].
     #[inline]
     pub fn set_jvm_policy(&mut self, policy: JvmPolicy) -> &mut Self {
         self.jvm_policy = policy;
         self
     }
 
-    /// See [`Self::set_jvm_policy`].
-    #[inline]
-    pub fn jvm_policy(&self) -> &JvmPolicy {
-        &self.jvm_policy
+    /// A specific launcher name to put on the command line, defaults to "portablemc".
+    pub fn launcher_name(&self) -> &str {
+        self.launcher_name.as_deref().unwrap_or(env!("CARGO_PKG_NAME"))
     }
 
-    /// A specific launcher name to put on the command line, defaults to "portablemc".
+    /// See [`Self::launcher_name`].
     #[inline]
     pub fn set_launcher_name(&mut self, name: impl Into<String>) -> &mut Self {
         self.launcher_name = Some(name.into());
         self
     }
 
-    /// See [`Self::set_launcher_version`].
-    pub fn launcher_name(&self) -> &str {
-        self.launcher_name.as_deref().unwrap_or(env!("CARGO_PKG_NAME"))
+    /// A specific launcher version to put on the command line, defaults to PMC version.
+    pub fn launcher_version(&self) -> &str {
+        self.launcher_version.as_deref().unwrap_or(env!("CARGO_PKG_VERSION"))
     }
 
-    /// A specific launcher version to put on the command line, defaults to PMC version.
+    /// See [`Self::launcher_version`].
     #[inline]
     pub fn set_launcher_version(&mut self, version: impl Into<String>) -> &mut Self {
         self.launcher_version = Some(version.into());
         self
-    }
-
-    /// See [`Self::set_launcher_version`].
-    pub fn launcher_version(&self) -> &str {
-        self.launcher_version.as_deref().unwrap_or(env!("CARGO_PKG_VERSION"))
     }
 
     /// Ensure that a the given version, from its id, is fully installed and return
