@@ -31,7 +31,7 @@ pub use mojang::Game;
 pub struct Installer {
     /// The underlying Mojang installer logic.
     mojang: mojang::Installer,
-
+    /// The forge loader to install.
     loader: Loader,
     /// The forge installer version description.
     version: Version,
@@ -55,18 +55,6 @@ impl Installer {
         Some(Self::new(loader, version, standard::default_main_dir()?))
     }
 
-    /// Get the underlying standard installer.
-    #[inline]
-    pub fn standard(&self) -> &standard::Installer {
-        self.mojang.standard()
-    }
-
-    /// Get the underlying standard installer through mutable reference.
-    #[inline]
-    pub fn standard_mut(&mut self) -> &mut standard::Installer {
-        self.mojang.standard_mut()
-    }
-
     /// Get the underlying mojang installer.
     #[inline]
     pub fn mojang(&self) -> &mojang::Installer {
@@ -75,47 +63,37 @@ impl Installer {
 
     /// Get the underlying mojang installer through mutable reference.
     /// 
-    /// *Note that the `root` and `fetch` property will be overwritten when installing.*
+    /// *Note that the `version` and `fetch` properties will be overwritten when 
+    /// installing.*
     #[inline]
     pub fn mojang_mut(&mut self) -> &mut mojang::Installer {
         &mut self.mojang
     }
 
-    /// Execute some callback to alter the mojang installer.
-    /// 
-    /// *Note that the `root` and `fetch` property will be overwritten when installing.*
+    /// Get the kind of loader that will be installed.
     #[inline]
-    pub fn with_mojang<F>(&mut self, func: F) -> &mut Self
-    where
-        F: FnOnce(&mut mojang::Installer) -> &mut mojang::Installer,
-    {
-        func(&mut self.mojang);
-        self
+    pub fn loader(&self) -> Loader {
+        self.loader
     }
 
+    /// Set the kind of loader that will be installed.
     #[inline]
     pub fn set_loader(&mut self, loader: Loader) -> &mut Self {
         self.loader = loader;
         self
     }
 
-    /// See [`Self::set_loader`].
+    /// Get the loader version that will be installed.
     #[inline]
-    pub fn loader(&self) -> Loader {
-        self.loader
+    pub fn version(&self) -> &Version {
+        &self.version
     }
 
-    /// Change the version to start provided at construction.
+    /// Change the loader version that will be installed.
     #[inline]
     pub fn set_version(&mut self, version: impl Into<Version>) -> &mut Self {
         self.version = version.into();
         self
-    }
-
-    /// See [`Self::set_version`].
-    #[inline]
-    pub fn version(&self) -> &Version {
-        &self.version
     }
 
     /// Install the currently configured Forge/NeoForge loader with the given handler.

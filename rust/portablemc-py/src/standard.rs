@@ -69,11 +69,6 @@ impl PyInstaller {
         self.inner.set_version(version);
     }
 
-    // No setter because it's a compound function, setting all paths below.
-    fn set_main_dir(&mut self, dir: PathBuf) {
-        self.inner.set_main_dir(dir);
-    }
-
     #[getter]
     fn versions_dir(&self) -> &Path {
         self.inner.versions_dir()
@@ -132,6 +127,11 @@ impl PyInstaller {
     #[setter]
     fn set_mc_dir(&mut self, dir: PathBuf) {
         self.inner.set_mc_dir(dir);
+    }
+
+    // No setter because it's a compound function, setting all paths below.
+    fn set_main_dir(&mut self, dir: PathBuf) {
+        self.inner.set_main_dir(dir);
     }
 
     #[getter]
