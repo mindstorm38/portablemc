@@ -5,9 +5,9 @@ pub(crate) mod http;
 pub(crate) mod tokio;
 pub(crate) mod serde;
 
-pub mod maven;
-
 pub mod download;
+
+pub mod maven;
 
 pub mod msa;
 
@@ -39,7 +39,11 @@ macro_rules! trait_event_handler {
     (
         $( #[ $meta:meta ] )*
         $vis:vis trait $name:ident $( : $( $super:path ),+ $(,)? )? {
-            $( $( #[ $func_meta:meta ] )* fn $func:ident ( $( $arg:ident : $arg_ty:ty ),* ) $( -> $ret_ty:ty = $ret_default:expr )?; )*
+            $( 
+                $( #[ $func_meta:meta ] )* 
+                fn $func:ident ( $( $arg:ident : $arg_ty:ty ),* $(,)? ) 
+                $( -> $ret_ty:ty = $ret_default:expr )?; 
+            )*
         }
     ) => {
 
@@ -52,13 +56,15 @@ macro_rules! trait_event_handler {
             /// This function is exposed in the public API but it's unsure if it will be
             /// implemented as-is in the future, so it cannot be implemented nor called 
             /// by external crates thanks to a "sealed" token type.
+            #[doc(hidden)]
             #[inline(always)]
             fn fallback(&mut self, _token: $crate::sealed::Token) -> Option<&mut dyn $name> {
                 None
             }
 
             $( 
-                $( #[ $func_meta ] )* fn $func ( &mut self $( , $arg : $arg_ty )* ) $( -> $ret_ty )? {
+                $( #[ $func_meta ] )* 
+                fn $func ( &mut self $( , $arg : $arg_ty )* ) $( -> $ret_ty )? {
                     // We expect the fallback call to be inlined every time because the
                     // default functions are statically known, and for the dynamic 
                     // dispatch implementation with '&mut dyn H' (below) all functions 
