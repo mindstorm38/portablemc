@@ -76,16 +76,14 @@ pub struct Installer {
 
 impl Installer {
 
-    /// Create a new installer with default configuration and the given main directory.
-    /// The given root version and directories can be later changed if needed, 
-    /// using [`Self::set_version`].
+    /// Create a new installer with default configuration and the given root version.
     /// 
-    /// If you're confident a default main directory is available on your system, you
-    /// can use [`Self::new_with_default`].
-    pub fn new(version: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
-
-        let mc_dir = main_dir.into();
+    /// If the various directories to be configured are not configured then they will be
+    /// derived from the default main directory.
+    pub fn new(version: impl Into<String>) -> Self {
         
+        let mc_dir = default_main_dir().unwrap_or_else(|| Path::new(""));
+
         Self {
             version: version.into(),
             versions_dir: mc_dir.join("versions"),
@@ -93,7 +91,7 @@ impl Installer {
             assets_dir: mc_dir.join("assets"),
             jvm_dir: mc_dir.join("jvm"),
             bin_dir: mc_dir.join("bin"),
-            mc_dir,
+            mc_dir: mc_dir.to_path_buf(),
             strict_assets_check: false,
             strict_libraries_check: false,
             strict_jvm_check: false,
@@ -102,13 +100,6 @@ impl Installer {
             launcher_version: None,
         }
 
-    }
-
-    /// Same as [`Self::new`] but using the default main directory in your system,
-    /// returning none if there is no default main directory on your system.
-    #[inline]
-    pub fn new_with_default(version: impl Into<String>) -> Option<Self> {
-        Some(Self::new(version, default_main_dir()?))
     }
 
     /// Get the root version to load with its hierarchy and install.
@@ -2425,15 +2416,21 @@ pub(crate) fn write_version_metadata(file: &Path, metadata: &serde::VersionMetad
 }
 
 /// Return the default main directory for Minecraft, so called ".minecraft".
-pub fn default_main_dir() -> Option<PathBuf> {
-    // TODO: Maybe change the main dir to something more standard under Linux.
-    if cfg!(target_os = "windows") {
-        dirs::data_dir().map(|dir| dir.joined(".minecraft"))
-    } else if cfg!(target_os = "macos") {
-        dirs::data_dir().map(|dir| dir.joined("minecraft"))
-    } else {
-        dirs::home_dir().map(|dir| dir.joined(".minecraft"))
-    }
+pub fn default_main_dir() -> Option<&'static Path> {
+
+    static MAIN_DIR: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
+        // TODO: Maybe change the main dir to something more standard under Linux.
+        if cfg!(target_os = "windows") {
+            dirs::data_dir().map(|dir| dir.joined(".minecraft"))
+        } else if cfg!(target_os = "macos") {
+            dirs::data_dir().map(|dir| dir.joined("minecraft"))
+        } else {
+            dirs::home_dir().map(|dir| dir.joined(".minecraft"))
+        }
+    });
+
+    MAIN_DIR.as_deref()
+    
 }
 
 /// Return the default OS name for rules.

@@ -70,12 +70,13 @@ struct InstallerInner {
 
 impl Installer {
 
-    /// Create a new installer with default configuration, using defaults directories. 
+    /// Create a new installer with default configuration, using defaults directories.
+    /// 
     /// This Mojang installer has all fixes enabled except LWJGL and missing version 
     /// fetching is enabled.
-    pub fn new(version: impl Into<Version>, main_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(version: impl Into<Version>) -> Self {
         Self {
-            standard: standard::Installer::new(String::new(), main_dir),
+            standard: standard::Installer::new(String::new()),
             inner: InstallerInner {
                 version: version.into(),
                 fetch_exclude: Some(Vec::new()),  // Enabled by default
@@ -100,10 +101,9 @@ impl Installer {
         }
     }
 
-    /// Same as [`Self::new`] but using the default main directory in your system,
-    /// returning none if there is no default main directory on your system.
-    pub fn new_with_default(version: impl Into<Version>) -> Option<Self> {
-        Some(Self::new(version, standard::default_main_dir()?))
+    /// Same as [`Self::new`] but targets latest release version by default.
+    pub fn new_with_release() -> Self {
+        Self::new(Version::Release)
     }
 
     /// Get the underlying standard installer.

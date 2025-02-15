@@ -40,19 +40,13 @@ pub struct Installer {
 impl Installer {
 
     /// Create a new installer with default configuration.
-    pub fn new(loader: Loader, version: impl Into<Version>, main_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(loader: Loader, version: impl Into<Version>) -> Self {
         Self {
             // Empty version by default, will be set at install.
-            mojang: mojang::Installer::new(String::new(), main_dir),
+            mojang: mojang::Installer::new(String::new()),
             loader,
             version: version.into(),
         }
-    }
-    
-    /// Same as [`Self::new`] but using the default main directory in your system,
-    /// returning none if there is no default main directory on your system.
-    pub fn new_with_default(loader: Loader, version: impl Into<Version>) -> Option<Self> {
-        Some(Self::new(loader, version, standard::default_main_dir()?))
     }
 
     /// Get the underlying mojang installer.
