@@ -1,10 +1,11 @@
-use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use portablemc::mojang::{Installer, Version};
-use portablemc::standard::default_main_dir;
+
+use crate::installer::GenericInstaller;
+
 
 /// Define the `_portablemc.mojang` submodule.
 pub(super) fn py_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -27,35 +28,48 @@ enum PyVersionUnion {
     Name(String),
 }
 
-#[pyclass(name = "Installer", subclass)]
-struct PyInstaller {
-    inner: Installer,
+impl From<PyVersionUnion> for Version {
+    fn from(value: PyVersionUnion) -> Self {
+        match value {
+            PyVersionUnion::Version(PyVersion::Release()) => Version::Release,
+            PyVersionUnion::Version(PyVersion::Snapshot()) => Version::Snapshot,
+            PyVersionUnion::Version(PyVersion::Name(name)) |
+            PyVersionUnion::Name(name) => Version::Name(name),
+        }
+    }
 }
+
+#[pyclass(name = "Installer", frozen, subclass, extends = crate::standard::PyInstaller)]
+pub(crate) struct PyInstaller(pub(crate) Arc<Mutex<GenericInstaller>>);
 
 #[pymethods]
 impl PyInstaller {
 
     #[new]
-    #[pyo3(signature = (version = PyVersionUnion::Version(PyVersion::Release()), main_dir = None))]
-    fn __new__(version: PyVersionUnion, main_dir: Option<&str>) -> PyResult<Self> {
+    #[pyo3(signature = (version = PyVersionUnion::Version(PyVersion::Release())))]
+    fn __new__(version: PyVersionUnion) -> PyClassInitializer<Self> {
 
-        let main_dir = match main_dir {
-            Some(dir) => PathBuf::from(dir.to_string()),
-            None => default_main_dir()
-                .ok_or_else(|| PyValueError::new_err("no default main directory on your system"))?,
-        };
-
-        let version = match version {
-            PyVersionUnion::Version(PyVersion::Release()) => Version::Release,
-            PyVersionUnion::Version(PyVersion::Snapshot()) => Version::Snapshot,
-            PyVersionUnion::Version(PyVersion::Name(name)) |
-            PyVersionUnion::Name(name) => Version::Name(name),
-        };
+        let inst = Arc::new(Mutex::new(
+            GenericInstaller::Mojang(Installer::new(version))
+        ));
         
-        Ok(Self {
-            inner: Installer::new(version, main_dir),
-        })
+        PyClassInitializer::from(crate::standard::PyInstaller(Arc::clone(&inst)))
+            .add_subclass(Self(inst))
 
+    }
+
+    #[getter]
+    fn version(&self) -> PyVersion {
+        match self.0.lock().unwrap().mojang().version() {
+            Version::Release => PyVersion::Release(),
+            Version::Snapshot => PyVersion::Snapshot(),
+            Version::Name(name) => PyVersion::Name(name.clone()),
+        }
+    }
+
+    #[setter]
+    fn set_version(&self, version: PyVersionUnion) {
+        self.0.lock().unwrap().mojang_mut().set_version(version);
     }
 
 }
