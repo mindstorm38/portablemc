@@ -19,17 +19,35 @@ impl GenericInstaller {
         match self {
             GenericInstaller::Standard(installer) => installer,
             GenericInstaller::Mojang(installer) => installer.standard(),
-            GenericInstaller::Fabric(installer) => installer.standard(),
-            GenericInstaller::Forge(installer) => installer.standard(),
+            GenericInstaller::Fabric(installer) => installer.mojang().standard(),
+            GenericInstaller::Forge(installer) => installer.mojang().standard(),
         }
     }
 
-    pub fn standard_mut(&mut self) -> &standard::Installer {
+    pub fn standard_mut(&mut self) -> &mut standard::Installer {
         match self {
             GenericInstaller::Standard(installer) => installer,
             GenericInstaller::Mojang(installer) => installer.standard_mut(),
-            GenericInstaller::Fabric(installer) => installer.standard_mut(),
-            GenericInstaller::Forge(installer) => installer.standard_mut(),
+            GenericInstaller::Fabric(installer) => installer.mojang_mut().standard_mut(),
+            GenericInstaller::Forge(installer) => installer.mojang_mut().standard_mut(),
+        }
+    }
+
+    pub fn mojang(&self) -> &mojang::Installer {
+        match self {
+            GenericInstaller::Standard(_) => panic!("not a mojang installer"),
+            GenericInstaller::Mojang(installer) => installer,
+            GenericInstaller::Fabric(installer) => installer.mojang(),
+            GenericInstaller::Forge(installer) => installer.mojang(),
+        }
+    }
+
+    pub fn mojang_mut(&mut self) -> &mut mojang::Installer {
+        match self {
+            GenericInstaller::Standard(_) => panic!("not a mojang installer"),
+            GenericInstaller::Mojang(installer) => installer,
+            GenericInstaller::Fabric(installer) => installer.mojang_mut(),
+            GenericInstaller::Forge(installer) => installer.mojang_mut(),
         }
     }
     

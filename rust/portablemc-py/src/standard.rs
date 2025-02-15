@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use portablemc::standard::{Installer, JvmPolicy, default_main_dir};
+
+use crate::installer::GenericInstaller;
 
 
 /// Define the `_portablemc.standard` submodule.
@@ -16,7 +18,7 @@ pub(super) fn py_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 #[pyo3(name = "default_main_dir")]
-fn py_default_main_dir() -> Option<PathBuf> {
+fn py_default_main_dir() -> Option<&'static Path> {
     default_main_dir()
 }
 
@@ -35,138 +37,131 @@ enum PyJvmPolicyUnion {
     Policy(PyJvmPolicy),
 }
 
-#[pyclass(name = "Installer", subclass)]
-pub(crate) struct PyInstaller {
-    inner: Installer,
-}
+#[pyclass(name = "Installer", frozen, subclass)]
+pub(crate) struct PyInstaller(pub(crate) Arc<Mutex<GenericInstaller>>);
 
 #[pymethods]
 impl PyInstaller {
 
     #[new]
-    #[pyo3(signature = (version, main_dir = None))]
-    fn __new__(version: &str, main_dir: Option<&str>) -> PyResult<Self> {
+    fn __new__(version: &str) -> PyResult<Self> {
+        
+        let inst = Arc::new(Mutex::new(
+            GenericInstaller::Standard(Installer::new(version.to_string()))
+        ));
 
-        let main_dir = match main_dir {
-            Some(dir) => PathBuf::from(dir.to_string()),
-            None => default_main_dir()
-                .ok_or_else(|| PyValueError::new_err("no default main directory on your system"))?,
-        };
-
-        Ok(Self {
-            inner: Installer::new(version.to_string(), main_dir),
-        })
+        Ok(Self(inst))
 
     }
 
     #[getter]
-    fn version(&self) -> &str {
-        self.inner.version()
+    fn version(&self) -> String {
+        self.0.lock().unwrap().standard().version().to_string()
     }
 
     #[setter]
-    fn set_version(&mut self, version: String) {
-        self.inner.set_version(version);
+    fn set_version(&self, version: String) {
+        self.0.lock().unwrap().standard_mut().set_version(version);
     }
 
     #[getter]
-    fn versions_dir(&self) -> &Path {
-        self.inner.versions_dir()
+    fn versions_dir(&self) -> PathBuf {
+        self.0.lock().unwrap().standard().versions_dir().to_path_buf()
     }
 
     #[setter]
-    fn set_versions_dir(&mut self, dir: PathBuf) {
-        self.inner.set_versions_dir(dir);
+    fn set_versions_dir(&self, dir: PathBuf) {
+        self.0.lock().unwrap().standard_mut().set_versions_dir(dir);
     }
 
     #[getter]
-    fn libraries_dir(&self) -> &Path {
-        self.inner.libraries_dir()
+    fn libraries_dir(&self) -> PathBuf {
+        self.0.lock().unwrap().standard().libraries_dir().to_path_buf()
     }
 
     #[setter]
-    fn set_libraries_dir(&mut self, dir: PathBuf) {
-        self.inner.set_libraries_dir(dir);
+    fn set_libraries_dir(&self, dir: PathBuf) {
+        self.0.lock().unwrap().standard_mut().set_libraries_dir(dir);
     }
 
     #[getter]
-    fn assets_dir(&self) -> &Path {
-        self.inner.assets_dir()
+    fn assets_dir(&self) -> PathBuf {
+        self.0.lock().unwrap().standard().assets_dir().to_path_buf()
     }
 
     #[setter]
-    fn set_assets_dir(&mut self, dir: PathBuf) {
-        self.inner.set_assets_dir(dir);
+    fn set_assets_dir(&self, dir: PathBuf) {
+        self.0.lock().unwrap().standard_mut().set_assets_dir(dir);
     }
 
     #[getter]
-    fn jvm_dir(&self) -> &Path {
-        self.inner.jvm_dir()
+    fn jvm_dir(&self) -> PathBuf {
+        self.0.lock().unwrap().standard().jvm_dir().to_path_buf()
     }
 
     #[setter]
-    fn set_jvm_dir(&mut self, dir: PathBuf) {
-        self.inner.set_jvm_dir(dir);
+    fn set_jvm_dir(&self, dir: PathBuf) {
+        self.0.lock().unwrap().standard_mut().set_jvm_dir(dir);
     }
 
     #[getter]
-    fn bin_dir(&self) -> &Path {
-        self.inner.bin_dir()
+    fn bin_dir(&self) -> PathBuf {
+        self.0.lock().unwrap().standard().bin_dir().to_path_buf()
     }
 
     #[setter]
-    fn set_bin_dir(&mut self, dir: PathBuf) {
-        self.inner.set_bin_dir(dir);
+    fn set_bin_dir(&self, dir: PathBuf) {
+        self.0.lock().unwrap().standard_mut().set_bin_dir(dir);
     }
 
     #[getter]
-    fn mc_dir(&self) -> &Path {
-        self.inner.mc_dir()
+    fn mc_dir(&self) -> PathBuf {
+        self.0.lock().unwrap().standard().mc_dir().to_path_buf()
     }
 
     #[setter]
-    fn set_mc_dir(&mut self, dir: PathBuf) {
-        self.inner.set_mc_dir(dir);
+    fn set_mc_dir(&self, dir: PathBuf) {
+        self.0.lock().unwrap().standard_mut().set_mc_dir(dir);
     }
 
     // No setter because it's a compound function, setting all paths below.
-    fn set_main_dir(&mut self, dir: PathBuf) {
-        self.inner.set_main_dir(dir);
+    fn set_main_dir(&self, dir: PathBuf) {
+        self.0.lock().unwrap().standard_mut().set_main_dir(dir);
     }
 
     #[getter]
     fn strict_assets_check(&self) -> bool {
-        self.inner.strict_assets_check()
+        self.0.lock().unwrap().standard().strict_assets_check()
     }
 
     #[setter]
-    fn set_strict_assets_check(&mut self, strict: bool) {
-        self.inner.set_strict_assets_check(strict);
+    fn set_strict_assets_check(&self, strict: bool) {
+        self.0.lock().unwrap().standard_mut().set_strict_assets_check(strict);
     }
 
     #[getter]
     fn strict_libraries_check(&self) -> bool {
-        self.inner.strict_libraries_check()
+        self.0.lock().unwrap().standard().strict_libraries_check()
     }
 
     #[setter]
-    fn set_strict_libraries_check(&mut self, strict: bool) {
-        self.inner.set_strict_libraries_check(strict);
+    fn set_strict_libraries_check(&self, strict: bool) {
+        self.0.lock().unwrap().standard_mut().set_strict_libraries_check(strict);
     }
 
     #[getter]
     fn strict_jvm_check(&self) -> bool {
-        self.inner.strict_jvm_check()
+        self.0.lock().unwrap().standard().strict_jvm_check()
     }
 
     #[setter]
-    fn set_strict_jvm_check(&mut self, strict: bool) {
-        self.inner.set_strict_jvm_check(strict);
+    fn set_strict_jvm_check(&self, strict: bool) {
+        self.0.lock().unwrap().standard_mut().set_strict_jvm_check(strict);
     }
 
     #[getter]
     fn jvm_policy(&self) -> PyJvmPolicyUnion {
-        match self.inner.jvm_policy() {
+        match self.0.lock().unwrap().standard().jvm_policy() {
             JvmPolicy::Static(file) => PyJvmPolicyUnion::Static(file.clone()),
             JvmPolicy::System => PyJvmPolicyUnion::Policy(PyJvmPolicy::System),
             JvmPolicy::Mojang => PyJvmPolicyUnion::Policy(PyJvmPolicy::Mojang),
@@ -176,8 +171,8 @@ impl PyInstaller {
     }
 
     #[setter]
-    fn set_jvm_policy(&mut self, policy: PyJvmPolicyUnion) {
-        self.inner.set_jvm_policy(match policy {
+    fn set_jvm_policy(&self, policy: PyJvmPolicyUnion) {
+        self.0.lock().unwrap().standard_mut().set_jvm_policy(match policy {
             PyJvmPolicyUnion::Static(file) => JvmPolicy::Static(file),
             PyJvmPolicyUnion::Policy(PyJvmPolicy::System) => JvmPolicy::System,
             PyJvmPolicyUnion::Policy(PyJvmPolicy::Mojang) => JvmPolicy::Mojang,
@@ -187,23 +182,23 @@ impl PyInstaller {
     }
 
     #[getter]
-    fn launcher_name(&self) -> &str {
-        self.inner.launcher_name()
+    fn launcher_name(&self) -> String {
+        self.0.lock().unwrap().standard().launcher_name().to_string()
     }
 
     #[setter]
-    fn set_launcher_name(&mut self, name: String) {
-        self.inner.set_launcher_name(name);
+    fn set_launcher_name(&self, name: String) {
+        self.0.lock().unwrap().standard_mut().set_launcher_name(name);
     }
 
     #[getter]
-    fn launcher_version(&self) -> &str {
-        self.inner.launcher_version()
+    fn launcher_version(&self) -> String {
+        self.0.lock().unwrap().standard().launcher_version().to_string()
     }
     
     #[setter]
-    fn set_launcher_version(&mut self, version: String) {
-        self.inner.set_launcher_version(version);
+    fn set_launcher_version(&self, version: String) {
+        self.0.lock().unwrap().standard_mut().set_launcher_version(version);
     }
 
 }
