@@ -498,9 +498,13 @@ class OptifineVersion(Version):
 
         except Exception:
             raise VersionNotFoundError(self.version)
+
         if (not mcver in available_of_vers.keys() or
                 not any(loader == entry.edition for entry in available_of_vers[mcver])):
             raise VersionNotFoundError(self.version)
+
+        if mcver.endswith(".0"):
+            mcver = mcver[:-2] # remove trailing .0
         self.version = mcver + "-OptiFine_" + loader
 
     def mcver(self):
@@ -514,6 +518,10 @@ class OptifineVersion(Version):
         filename = ""
         if re.match(r"pre\d", edition.split("_")[-1]):
             filename += "preview_"
+        sp_mcver = mcver.split(".") # these 5 lines add leading 0s to the mcver
+        while len(sp_mcver) < 3:
+            sp_mcver.append("0")
+        mcver = ".".join(sp_mcver)
         filename += f"OptiFine_{mcver}_{edition}"
         return f"http://optifine.net/download?f={filename}.jar"
 
