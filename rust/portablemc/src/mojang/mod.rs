@@ -296,16 +296,6 @@ impl Installer {
         self.reset_auth_online()
     }
 
-    /// Use offline session with a deterministic UUID, derived from this machine's 
-    /// hostname, the username is then derived from the UUID following the same logic
-    /// as for [`Self::set_auth_offline_uuid`].
-    /// 
-    /// **This is the default UUID/username used if no auth is specified, so you don't
-    /// need to call this function, except if you want to override previous auth.**
-    pub fn set_auth_offline_hostname(&mut self) -> &mut Self {
-        self.set_auth_offline_uuid(Uuid::new_v5(&standard::UUID_NAMESPACE, gethostname::gethostname().as_encoded_bytes()))
-    }
-
     /// Use offline session with the given username (initially truncated to 16 chars), 
     /// the UUID is then derived from this username using the same derivation used by 
     /// most Mojang clients (versions to be defined), this produces a MD5 (v3) UUID 
@@ -346,6 +336,16 @@ impl Installer {
         self.inner.auth_username.truncate(16);
         self.inner.auth_uuid = Uuid::new_v5(&standard::UUID_NAMESPACE, self.inner.auth_username.as_bytes());
         self.reset_auth_online()
+    }
+
+    /// Use offline session with a deterministic UUID, derived from this machine's 
+    /// hostname, the username is then derived from the UUID following the same logic
+    /// as for [`Self::set_auth_offline_uuid`].
+    /// 
+    /// **This is the default UUID/username used if no auth is specified, so you don't
+    /// need to call this function, except if you want to override previous auth.**
+    pub fn set_auth_offline_hostname(&mut self) -> &mut Self {
+        self.set_auth_offline_uuid(Uuid::new_v5(&standard::UUID_NAMESPACE, gethostname::gethostname().as_encoded_bytes()))
     }
 
     /// Use online authentication with the given Microsoft Account.

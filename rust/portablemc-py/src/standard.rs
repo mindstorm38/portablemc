@@ -22,7 +22,7 @@ fn py_default_main_dir() -> Option<&'static Path> {
     default_main_dir()
 }
 
-#[pyclass(name = "JvmPolicy", eq)]
+#[pyclass(name = "JvmPolicy", module = "portablemc.standard", eq)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PyJvmPolicy {
     System,
@@ -37,20 +37,20 @@ enum PyJvmPolicyUnion {
     Policy(PyJvmPolicy),
 }
 
-#[pyclass(name = "Installer", frozen, subclass)]
+#[pyclass(name = "Installer", module = "portablemc.standard", frozen, subclass)]
 pub(crate) struct PyInstaller(pub(crate) Arc<Mutex<GenericInstaller>>);
 
 #[pymethods]
 impl PyInstaller {
 
     #[new]
-    fn __new__(version: &str) -> PyResult<Self> {
+    fn __new__(version: &str) -> Self {
         
         let inst = Arc::new(Mutex::new(
             GenericInstaller::Standard(Installer::new(version.to_string()))
         ));
 
-        Ok(Self(inst))
+        Self(inst)
 
     }
 

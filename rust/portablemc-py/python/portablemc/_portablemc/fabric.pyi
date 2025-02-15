@@ -1,22 +1,24 @@
 from typing import Self
 from os import PathLike
 
+from . import mojang
+
 
 class GameVersion:
-    class Stable:
+    class Stable(GameVersion):
         def __new__(cls) -> Self: ...
-    class Unstable:
+    class Unstable(GameVersion):
         def __new__(cls) -> Self: ...
-    class Name:
+    class Name(GameVersion):
         def __new__(cls, name: str) -> Self: ...
 
 class LoaderVersion:
-    class Stable:
+    class Stable(LoaderVersion):
         def __new__(cls) -> Self: ...
-    class Unstable:
+    class Unstable(LoaderVersion):
         def __new__(cls) -> Self: ...
-    class Name:
+    class Name(LoaderVersion):
         def __new__(cls, name: str) -> Self: ...
 
-class FabricInstaller:
+class Installer(mojang.Installer):
     def __new__(cls, game_version: str | GameVersion | None = None, loader_version: str | LoaderVersion | None = None, main_dir: str | PathLike[str] | None = None) -> Self: ...
