@@ -107,7 +107,7 @@ fn start_mojang(
     args: &StartArgs,
 ) -> ExitCode {
 
-    let mut inst = mojang::Installer::new(version, cli.main_dir.clone());
+    let mut inst = mojang::Installer::new(version);
     if !apply_mojang_args(&mut inst, &mut *cli, args) {
         return ExitCode::FAILURE;
     }
@@ -132,7 +132,7 @@ fn start_fabric(
     args: &StartArgs,
 ) -> ExitCode {
 
-    let mut inst = fabric::Installer::new(loader, game_version.clone(), loader_version.clone(), cli.main_dir.clone());
+    let mut inst = fabric::Installer::new(loader, game_version.clone(), loader_version.clone());
     if !apply_mojang_args(inst.mojang_mut(), &mut *cli, args) {
         return ExitCode::FAILURE;
     }
@@ -157,7 +157,7 @@ fn start_forge(
     args: &StartArgs,
 ) -> ExitCode {
 
-    let mut inst = forge::Installer::new(loader, version, cli.main_dir.clone());
+    let mut inst = forge::Installer::new(loader, version);
     if !apply_mojang_args(inst.mojang_mut(), &mut *cli, args) {
         return ExitCode::FAILURE;
     }
@@ -205,7 +205,7 @@ fn start_game(game: Game, cli: &mut Cli, args: &StartArgs) -> ExitCode {
 // Internal function to apply args to the standard installer.
 fn apply_standard_args(
     installer: &mut standard::Installer, 
-    _cli: &mut Cli, 
+    cli: &mut Cli, 
     args: &StartArgs,
 ) -> bool {
 
@@ -215,6 +215,8 @@ fn apply_standard_args(
     // installer.set_jvm_dir(cli.jvm_dir.clone());
     // installer.set_bin_dir(cli.bin_dir.clone());
     // installer.set_mc_dir(cli.mc_dir.clone());
+
+    installer.set_main_dir(cli.main_dir.clone());
 
     if let Some(jvm_file) = &args.jvm {
         installer.set_jvm_policy(JvmPolicy::Static(jvm_file.into()));

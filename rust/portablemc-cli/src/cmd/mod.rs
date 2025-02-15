@@ -45,7 +45,7 @@ pub fn main(args: &CliArgs) -> ExitCode {
         CliOutput::Machine => Output::tab_separated(),
     };
 
-    let Some(main_dir) = args.main_dir.clone().or_else(standard::default_main_dir) else {
+    let Some(main_dir) = args.main_dir.as_deref().or_else(|| standard::default_main_dir()).map(Path::to_path_buf) else {
         
         out.log("error_missing_main_dir")
             .error("There is no default main directory for your platform, please specify it using --main-dir")

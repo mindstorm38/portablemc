@@ -3,7 +3,7 @@
 
 mod serde;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use reqwest::StatusCode;
 
@@ -28,19 +28,18 @@ pub struct Installer {
 impl Installer {
 
     /// Create a new installer with default configuration.
-    pub fn new(loader: Loader, game_version: impl Into<GameVersion>, loader_version: impl Into<LoaderVersion>, main_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(loader: Loader, game_version: impl Into<GameVersion>, loader_version: impl Into<LoaderVersion>) -> Self {
         Self {
-            mojang: mojang::Installer::new(String::new(), main_dir),
+            mojang: mojang::Installer::new(String::new()),
             loader,
             game_version: game_version.into(),
             loader_version: loader_version.into(),
         }
     }
 
-    /// Same as [`Self::new`] but using the default main directory in your system,
-    /// returning none if there is no default main directory on your system.
-    pub fn new_with_default(loader: Loader, game_version: impl Into<GameVersion>, loader_version: impl Into<LoaderVersion>) -> Option<Self> {
-        Some(Self::new(loader, game_version, loader_version, standard::default_main_dir()?))
+    /// Same as [`Self::new`] but use the latest stable game and loader versions.
+    pub fn new_with_stable(loader: Loader) -> Self {
+        Self::new(loader, GameVersion::Stable, LoaderVersion::Stable)
     }
 
     /// Get the underlying mojang installer.
@@ -56,6 +55,19 @@ impl Installer {
     #[inline]
     pub fn mojang_mut(&mut self) -> &mut mojang::Installer {
         &mut self.mojang
+    }
+
+    /// Get the kind of loader that will be installed.
+    #[inline]
+    pub fn loader(&self) -> Loader {
+        self.loader
+    }
+
+    /// Set the kind of loader that will be installed.
+    #[inline]
+    pub fn set_loader(&mut self, loader: Loader) -> &mut Self {
+        self.loader = loader;
+        self
     }
 
     /// Get the game version the loader will be installed for.
@@ -217,8 +229,8 @@ pub enum Loader {
     /// This is the API for the LegacyFabric project which aims to backport the Fabric loader
     /// to older versions, up to 1.14 snapshots.
     LegacyFabric,
-    /// This is the API for the LegacyFabric project which aims to backport the Fabric loader
-    /// to older versions, up to 1.14 snapshots.
+    /// This is the API for the Babric project, which aims to support the Fabric loader 
+    /// for Minecraft beta 1.7.3 in particular.
     Babric,
 }
 
@@ -235,7 +247,7 @@ impl Loader {
 
 }
 
-/// Specify the fabric game version to start.
+/// Specify the fabric game version to start the loader version.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GameVersion {
     /// Use the latest stable game version, this is usually equivalent to the 'Release'
