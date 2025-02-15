@@ -14,7 +14,7 @@ from pathlib import Path
 INSTALLER_FILENAME="of_installer.jar"
 
 class OptifineEntryObject:
-    def __init__(self, filename: str, edition: str, mc_version: str, preview: bool =False, date: Optional[str] | None =None, forge: Optional[str] | None =None):
+    def __init__(self, filename: str, edition: str, mc_version: str, preview: bool = False, date: Optional[str] = None, forge: Optional[str] = None):
         self.edition=edition
         self.mc_version=mc_version
         self.preview=preview
@@ -24,7 +24,8 @@ class OptifineEntryObject:
 
     @classmethod
     def from_dir_name(cls, name: str):
-        n = name.split("-OptiFine_")
+        n = name.split("-")
+        n.pop(0) # remove prefix
         mcver = n[0]
         edition = n[1]
         filename = ""
@@ -56,11 +57,11 @@ class OptifineEntryObject:
     def __repr__(self):
         return f"<{self.mc_version}-OptiFine_{self.edition}>"
     
-def get_offline_versions(versions_dir:Optional[Path] | None=None):
+def get_offline_versions(versions_dir: Optional[Path] = None):
     """
     When there is no Internet, this list available optifine versions in the current context
     """
-    versions=[OptifineEntryObject.from_dir_name(dirpath.name) for dirpath in versions_dir.iterdir() if re.match(r"^\d+\.\d+\.\d+-OptiFine_HD_U_[A-Z][0-9](_pre\d)?$",dirpath.name)]
+    versions=[OptifineEntryObject.from_dir_name(dirpath.name) for dirpath in versions_dir.iterdir() if re.match(r"optifine-[0-9.]+-HD_U_[A-Z][0-9](_pre\d)?$",dirpath.name)]
     out_dict = {}
     for v in versions:
         if not v.mc_version in out_dict:
@@ -68,7 +69,7 @@ def get_offline_versions(versions_dir:Optional[Path] | None=None):
         out_dict[v.mc_version].append(v)
     return out_dict
         
-def get_versions_list(work_dir:Optional[Path] | None=None):
+def get_versions_list(work_dir: Optional[Path] = None):
     """
     Récupère la liste des versions d'OptiFine.
     Renvoie une liste de noms de fichiers correspondant aux versions d'OptiFine.
@@ -101,7 +102,7 @@ def get_versions_list(work_dir:Optional[Path] | None=None):
     versions = [OptifineEntryObject.from_tuple(match) for match in matches]
     return versions
 
-def get_compatible_versions(work_dir:Optional[Path] | None=None):
+def get_compatible_versions(work_dir: Optional[Path] = None):
     """
     Returns a dictionary with the keys being the Minecraft version,
     and the values being a list of compatible Optifine versions.
@@ -386,7 +387,7 @@ class Patcher:
 
 
 class OptifineVersion(Version):
-    def __init__(self, version: str = None, *args, context: Optional[Context] = None):
+    def __init__(self, version: str = None, *args, prefix: str = "optifine", context: Optional[Context] = None):
         """
             This class is a basic implementation of a version class for Optifine.
             it takes two arguments: version and context.
@@ -402,6 +403,7 @@ class OptifineVersion(Version):
             - HD_U_J6
             _ HD_U_I6_pre3
         """
+        self.prefix=prefix
         version = version or "recommended"
         super().__init__(version, context = context)
 
@@ -503,26 +505,24 @@ class OptifineVersion(Version):
                 not any(loader == entry.edition for entry in available_of_vers[mcver])):
             raise VersionNotFoundError(self.version)
 
+        self.version = f"{self.prefix}-{mcver}-{loader}"
+
+    def mcver(self) -> str:
+        mcver = self.version.split("-")[1]
         if mcver.endswith(".0"):
-            mcver = mcver[:-2] # remove trailing .0
-        self.version = mcver + "-OptiFine_" + loader
+            mcver = mcver[:-2]  # remove trailing .0
+        return mcver
 
-    def mcver(self):
-        return self.version.split("-OptiFine_")[0]
+    def loader(self) -> str:
+        return self.version.split("-")[2]
 
-    def loader(self):
-        return self.version.split("-OptiFine_")[1]
-
-    def dl_url(self):
-        mcver, edition = self.version.split("-OptiFine_")
+    def dl_url(self) -> str:
+        edition = self.version.split("-")[2]
+        mcver = self.version.split("-")[1]
         filename = ""
         if re.match(r"pre\d", edition.split("_")[-1]):
             filename += "preview_"
-        sp_mcver = mcver.split(".") # these 5 lines add leading 0s to the mcver
-        while len(sp_mcver) < 3:
-            sp_mcver.append("0")
-        mcver = ".".join(sp_mcver)
-        filename += f"OptiFine_{mcver}_{edition}"
+        filename += "OptiFine_" + mcver + "_" + edition
         return f"http://optifine.net/download?f={filename}.jar"
 
     def _load_version(self, version: VersionHandle, watcher: Watcher) -> bool:
