@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::fmt::Write as _;
 
 use pyo3::prelude::*;
 
@@ -99,6 +100,29 @@ impl PyInstaller {
         PyClassInitializer::from(crate::standard::PyInstaller(Arc::clone(&inst)))
             .add_subclass(crate::mojang::PyInstaller(Arc::clone(&inst)))
             .add_subclass(Self(inst))
+
+    }
+
+    fn __repr__(&self) -> String {
+        
+        let guard = self.0.lock().unwrap();
+        let inst = guard.fabric();
+        let mut buf = format!("<portablemc.fabric.Installer loader=Loader.{:?}", inst.loader());
+        
+        match inst.game_version() {
+            GameVersion::Stable => write!(buf, " game_version=GameVersion.Stable").unwrap(),
+            GameVersion::Unstable => write!(buf, " game_version=GameVersion.Unstable").unwrap(),
+            GameVersion::Name(name) => write!(buf, " game_version={name:?}").unwrap(),
+        }
+        
+        match inst.loader_version() {
+            LoaderVersion::Stable => write!(buf, " loader_version=LoaderVersion.Stable").unwrap(),
+            LoaderVersion::Unstable => write!(buf, " loader_version=LoaderVersion.Unstable").unwrap(),
+            LoaderVersion::Name(name) => write!(buf, " loader_version={name:?}").unwrap(),
+        }
+
+        write!(buf, ">").unwrap();
+        buf
 
     }
 

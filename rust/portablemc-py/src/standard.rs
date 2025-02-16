@@ -54,6 +54,11 @@ impl PyInstaller {
 
     }
 
+    fn __repr__(&self) -> String {
+        let guard = self.0.lock().unwrap();
+        format!("<portablemc.standard.Installer version={:?}>", guard.standard().version())
+    }
+
     #[getter]
     fn version(&self) -> String {
         self.0.lock().unwrap().standard().version().to_string()

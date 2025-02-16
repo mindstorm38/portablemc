@@ -68,6 +68,12 @@ impl PyInstaller {
 
     }
 
+    fn __repr__(&self) -> String {
+        let guard = self.0.lock().unwrap();
+        let inst = guard.forge();
+        format!("<portablemc.forge.Installer loader=Loader.{:?} version=Version.{:?}>", inst.loader(), inst.version())
+    }
+
     #[getter]
     fn loader(&self) -> PyLoader {
         match self.0.lock().unwrap().forge().loader() {
