@@ -57,6 +57,19 @@ impl Installer {
         &mut self.mojang
     }
 
+    /// Get the kind of loader that will be installed.
+    #[inline]
+    pub fn loader(&self) -> Loader {
+        self.loader
+    }
+
+    /// Set the kind of loader that will be installed.
+    #[inline]
+    pub fn set_loader(&mut self, loader: Loader) -> &mut Self {
+        self.loader = loader;
+        self
+    }
+
     /// Get the game version the loader will be installed for.
     #[inline]
     pub fn game_version(&self) -> &GameVersion {
@@ -216,8 +229,8 @@ pub enum Loader {
     /// This is the API for the LegacyFabric project which aims to backport the Fabric loader
     /// to older versions, up to 1.14 snapshots.
     LegacyFabric,
-    /// This is the API for the LegacyFabric project which aims to backport the Fabric loader
-    /// to older versions, up to 1.14 snapshots.
+    /// This is the API for the Babric project, which aims to support the Fabric loader 
+    /// for Minecraft beta 1.7.3 in particular.
     Babric,
 }
 
@@ -234,7 +247,7 @@ impl Loader {
 
 }
 
-/// Specify the fabric game version to start.
+/// Specify the fabric game version to start the loader version.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GameVersion {
     /// Use the latest stable game version, this is usually equivalent to the 'Release'
