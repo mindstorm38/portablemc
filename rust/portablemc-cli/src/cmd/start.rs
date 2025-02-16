@@ -7,7 +7,8 @@ use std::sync::Mutex;
 use chrono::{DateTime, Local, Utc};
 
 use portablemc::standard::{self, Game, JvmPolicy};
-use portablemc::{mojang, fabric, forge};
+use portablemc::mojang::{self, QuickPlay};
+use portablemc::{fabric, forge};
 
 use crate::parse::{StartArgs, StartResolution, StartVersion, StartJvmPolicy};
 use crate::format::TIME_FORMAT;
@@ -224,8 +225,8 @@ fn apply_standard_args(
         installer.set_jvm_policy(match args.jvm_policy {
             StartJvmPolicy::System => JvmPolicy::System,
             StartJvmPolicy::Mojang => JvmPolicy::Mojang,
-            StartJvmPolicy::SystemMojang => JvmPolicy::SystemThenMojang,
-            StartJvmPolicy::MojangSystem => JvmPolicy::MojangThenSystem,
+            StartJvmPolicy::SystemThenMojang => JvmPolicy::SystemThenMojang,
+            StartJvmPolicy::MojangThenSystem => JvmPolicy::MojangThenSystem,
         });
     }
 
@@ -324,8 +325,14 @@ fn apply_mojang_args(
         installer.set_resolution(width, height);
     }
 
-    if let Some(lwjgl) = &args.lwjgl {
-        installer.set_fix_lwjgl(lwjgl.to_string());
+    installer.set_fix_legacy_quick_play(!args.no_fix_legacy_quick_play);
+    installer.set_fix_legacy_proxy(!args.no_fix_legacy_proxy);
+    installer.set_fix_legacy_merge_sort(!args.no_fix_legacy_merge_sort);
+    installer.set_fix_legacy_resolution(!args.no_fix_legacy_resolution);
+    installer.set_fix_broken_authlib(!args.no_fix_broken_authlib);
+
+    if let Some(lwjgl_version) = &args.fix_lwjgl {
+        installer.set_fix_lwjgl(lwjgl_version.to_string());
     }
 
     for exclude_id in &args.exclude_fetch {
@@ -336,12 +343,16 @@ fn apply_mojang_args(
         }
     }
 
-    // if let Some(server) = &args.server {
-    //     installer.set_quick_play(mojang::QuickPlay::Multiplayer { 
-    //         host: server.clone(), 
-    //         port: args.server_port,
-    //     });
-    // }
+    if let Some(name) = &args.join_world {
+        installer.set_quick_play(QuickPlay::Singleplayer { name: name.clone() });
+    } else if let Some(host) = &args.join_server {
+        installer.set_quick_play(QuickPlay::Multiplayer { 
+            host: host.clone(), 
+            port: args.join_server_port,
+        });
+    } else if let Some(id) = &args.join_realms {
+        installer.set_quick_play(QuickPlay::Realms { id: id.clone() });
+    }
 
     true
 
