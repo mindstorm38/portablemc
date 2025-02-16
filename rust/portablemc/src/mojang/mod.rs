@@ -389,7 +389,7 @@ impl Installer {
 
     /// When starting older alpha, beta and release up to 1.5, this allows legacy online
     /// resources such as skins to be properly requested. The implementation is currently 
-    /// using `betacraft.uk` proxies.
+    /// using `betacraft.uk` proxies, this is enabled by default.
     #[inline]
     pub fn fix_legacy_proxy(&self) -> bool {
         self.inner.fix_legacy_proxy
@@ -404,7 +404,7 @@ impl Installer {
 
     /// When starting older alpha and beta versions, this adds a JVM argument to use the
     /// legacy merge sort `java.util.Arrays.useLegacyMergeSort=true`, this is required on
-    /// some old versions to avoid crashes.
+    /// some old versions to avoid crashes, this is enabled by default.
     #[inline]
     pub fn fix_legacy_merge_sort(&self) -> bool {
         self.inner.fix_legacy_merge_sort
@@ -418,7 +418,8 @@ impl Installer {
     }
 
     /// When starting older versions that don't support modern resolution arguments, this
-    /// fix will add arguments to force resolution of the initial window.
+    /// fix will add arguments to force resolution of the initial window, this is enabled 
+    /// by default.
     #[inline]
     pub fn fix_legacy_resolution(&self) -> bool {
         self.inner.fix_legacy_resolution
@@ -433,7 +434,7 @@ impl Installer {
 
     /// Versions 1.16.4 and 1.16.5 uses authlib:2.1.28 which cause multiplayer button
     /// (and probably in-game chat) to be disabled, this can be fixed by switching to
-    /// version 2.2.30 of authlib.
+    /// version 2.2.30 of authlib, this is enabled by default.
     #[inline]
     pub fn fix_broken_authlib(&self) -> bool {
         self.inner.fix_broken_authlib

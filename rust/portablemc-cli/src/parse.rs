@@ -200,6 +200,41 @@ pub struct StartArgs {
     /// Change the resolution of the game window (<width>x<height>, >= 1.6).
     #[arg(long)]
     pub resolution: Option<StartResolution>,
+    /// Disable the legacy quick play fix for older versions without Quick Play support.
+    /// 
+    /// When starting versions older than 1.20 (23w14a) where Quick Play was not supported
+    /// by the client, this fix tries to use legacy arguments instead, such as --server
+    /// and --port, this is enabled by default.
+    #[arg(long)]
+    pub no_fix_legacy_quick_play: bool,
+    /// Disable the legacy proxy fix to old online resources.
+    /// 
+    /// When starting older alpha, beta and release up to 1.5, this allows legacy online
+    /// resources such as skins to be properly requested. The implementation is currently 
+    /// using `betacraft.uk` proxies, this is enabled by default.
+    #[arg(long)]
+    pub no_fix_legacy_proxy: bool,
+    /// Disable the legacy merge sort fix on really old versions.
+    /// 
+    /// When starting older alpha and beta versions, this adds a JVM argument to use the
+    /// legacy merge sort `java.util.Arrays.useLegacyMergeSort=true`, this is required on
+    /// some old versions to avoid crashes, this is enabled by default.
+    #[arg(long)]
+    pub no_fix_legacy_merge_sort: bool,
+    /// Disable the legacy resolution fix on older versions without resolution arguments.
+    /// 
+    /// When starting older versions that don't support modern resolution arguments, this
+    /// fix will add arguments to force resolution of the initial window, this is enabled 
+    /// by default.
+    #[arg(long)]
+    pub no_fix_legacy_resolution: bool,
+    /// Disable the broken AuthLib fix on 1.16.4 and 1.16.5.
+    /// 
+    /// Versions 1.16.4 and 1.16.5 uses authlib:2.1.28 which cause multiplayer button
+    /// (and probably in-game chat) to be disabled, this can be fixed by switching to
+    /// version 2.2.30 of authlib, this is enabled by default.
+    #[arg(long)]
+    pub no_fix_broken_authlib: bool,
     /// Change the LWJGL version used by the game (LWJGL >= 3.2.3).
     /// 
     /// This argument will cause all LWJGL libraries of the game to be changed to the
@@ -209,7 +244,7 @@ pub struct StartArgs {
     /// It's not guaranteed to work with every version of Minecraft and downgrading 
     /// LWJGL version is not recommended.
     #[arg(long, value_name = "VERSION")]
-    pub lwjgl: Option<String>,
+    pub fix_lwjgl: Option<String>,
     /// Exclude the given version from validity check and fetch.
     /// 
     /// This is used by the Mojang installer and all installers relying on it to exclude
@@ -262,6 +297,33 @@ pub struct StartArgs {
     /// The policy for finding or installing the JVM executable.
     #[arg(long, value_name = "POLICY", conflicts_with = "jvm", default_value = "system-mojang")]
     pub jvm_policy: StartJvmPolicy,
+    /// Automatically join the given singleplayer world after game has been launched.
+    /// 
+    /// Note that this may not work on older version that did not support the "Quick Play"
+    /// feature. 
+    /// 
+    /// This is incompatible with other Quick Play modes.
+    #[arg(long, value_name = "WORLD_NAME", conflicts_with = "join_server", conflicts_with = "join_realms")]
+    pub join_world: Option<String>,
+    /// Automatically join the given server after game has been launched.
+    /// 
+    /// Note that this may not work on older version that did not support the "Quick Play"
+    /// feature nor the legacy game's `--server` argument.
+    /// 
+    /// This is incompatible with other Quick Play modes.
+    #[arg(long, value_name = "HOST", conflicts_with = "join_world", conflicts_with = "join_realms")]
+    pub join_server: Option<String>,
+    /// Complement to the `--quick-server` argument to specify the server port.
+    #[arg(long, value_name = "PORT", requires = "join_server", default_value_t = 25565)]
+    pub join_server_port: u16,
+    /// Automatically join a Realms server from its id after game has been launched.
+    /// 
+    /// Note that this may not work on older version that did not support the "Quick Play"
+    /// feature.
+    /// 
+    /// This is incompatible with other Quick Play modes.
+    #[arg(long, value_name = "ID", conflicts_with = "join_server", conflicts_with = "join_world")]
+    pub join_realms: Option<String>,
     /// Enable authentication for the username or UUID.
     /// 
     /// When enabled, the launcher will look for specified '--uuid', or '--username' as
@@ -289,16 +351,6 @@ pub struct StartArgs {
     /// (-u) one, to find the authenticated account to start the game with.
     #[arg(short = 'i', long)]
     pub uuid: Option<Uuid>,
-
-    // /// Immediately tries to connect the given server once the game is started (>= 1.6).
-    // /// 
-    // /// Note that the client will still be able to disconnect from the server and go back
-    // /// to the game's menu and do everything it want.
-    // #[arg(short, long)]
-    // pub server: Option<String>,
-    // /// Change the default port to connect to the server (--server).
-    // #[arg(short = 'p', long, value_name = "PORT", requires = "server", default_value_t = 25565)]
-    // pub server_port: u16,
 }
 
 /// Represent all possible version the launcher can start.
