@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
+use std::fmt::Write as _;
 use std::path::PathBuf;
-
 // use uuid::Uuid;
 
 use pyo3::prelude::*;
@@ -76,6 +76,23 @@ impl PyInstaller {
         PyClassInitializer::from(crate::standard::PyInstaller(Arc::clone(&inst)))
             .add_subclass(Self(inst))
 
+    }
+
+    fn __repr__(&self) -> String {
+
+        let guard = self.0.lock().unwrap();
+        let inst = guard.mojang();
+        let mut buf = format!("<portablemc.mojang.Installer");
+        
+        match inst.version() {
+            Version::Release => write!(buf, " version=Version.Release").unwrap(),
+            Version::Snapshot => write!(buf, " version=Version.Snapshot").unwrap(),
+            Version::Name(name) => write!(buf, " version={name:?}").unwrap(),
+        }
+
+        write!(buf, ">").unwrap();
+        buf
+        
     }
 
     #[getter]
