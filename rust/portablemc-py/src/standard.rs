@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use pyo3::prelude::*;
+use pyo3::types::{IntoPyDict, PyList};
+use pyo3::{intern, prelude::*};
 
-use portablemc::standard::{Installer, JvmPolicy, default_main_dir};
+use portablemc::standard::{default_main_dir, Installer, Game, JvmPolicy};
 
 use crate::installer::GenericInstaller;
 
@@ -204,6 +205,47 @@ impl PyInstaller {
     #[setter]
     fn set_launcher_version(&self, version: String) {
         self.0.lock().unwrap().standard_mut().set_launcher_version(version);
+    }
+
+    fn install(&self) -> PyGame {
+        let game = self.0.lock().unwrap().standard_mut().install(())
+            .unwrap();  // Change this!
+        PyGame(game)
+    }
+
+}
+
+#[pyclass(name = "Game", module = "portablemc.standard", frozen)]
+pub(crate) struct PyGame(pub(crate) Game);
+
+#[pymethods]
+impl PyGame {
+
+    fn command<'py>(this: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        
+        let this = this.borrow();
+        let game = &this.0;
+
+        let mod_subprocess = PyModule::import(this.py(), intern!(this.py(), "subprocess"))?;
+        let class_popen = mod_subprocess.getattr(intern!(this.py(), "Popen"))?;
+
+        let mod_functools = PyModule::import(this.py(), intern!(this.py(), "functools"))?;
+        let func_partial = mod_functools.getattr(intern!(this.py(), "partial"))?;
+
+        let args = PyList::empty(this.py());
+        args.append(&game.jvm_file)?;
+        for arg in &game.jvm_args {
+            args.append(arg)?;
+        }
+        args.append(&game.main_class)?;
+        for arg in &game.game_args {
+            args.append(arg)?;
+        }
+
+        let kwargs = [("cwd", &game.mc_dir)].into_py_dict(this.py())?;
+
+        func_partial.call((&class_popen, &args), Some(&kwargs))
+
     }
 
 }

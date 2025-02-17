@@ -1,7 +1,8 @@
 from typing import Self
 from enum import Enum, auto
 
-from . import mojang
+from . import mojang, standard
+
 
 class Loader(Enum):
     Fabric = auto()
@@ -9,13 +10,16 @@ class Loader(Enum):
     LegacyFabric = auto()
     Babric = auto()
 
+
 class GameVersion(Enum):
     Stable = auto()
     Unstable = auto()
 
+
 class LoaderVersion(Enum):
     Stable = auto()
     Unstable = auto()
+
 
 class Installer(mojang.Installer):
 
@@ -35,3 +39,5 @@ class Installer(mojang.Installer):
     def loader_version(self) -> str | LoaderVersion: ...
     @loader_version.setter
     def loader_version(self, loader_version: str | LoaderVersion): ...
+
+    def install(self) -> standard.Game: ...

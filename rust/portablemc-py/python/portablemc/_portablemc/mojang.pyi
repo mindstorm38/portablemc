@@ -5,19 +5,6 @@ from enum import Enum, auto
 
 from . import standard
 
-class Version(Enum):
-    Release = auto()
-    Snapshot = auto()
-
-class QuickPlay:
-    class Path(QuickPlay):
-        def __new__(cls, path: str | PathLike[str]) -> Self: ...
-    class Singleplayer(QuickPlay):
-        def __new__(cls, name: str) -> Self: ...
-    class Multiplayer(QuickPlay):
-        def __new__(cls, host: str, port: int) -> Self: ...
-    class Realms(QuickPlay):
-        def __new__(cls, id: str) -> Self: ...
 
 class Installer(standard.Installer):
 
@@ -100,3 +87,21 @@ class Installer(standard.Installer):
     def fix_lwjgl(self) -> str | None: ...
     @fix_lwjgl.setter
     def fix_lwjgl(self, lwjgl_version: str | None): ...
+
+    def install(self) -> standard.Game: ...
+
+
+class Version(Enum):
+    Release = auto()
+    Snapshot = auto()
+
+
+class QuickPlay:
+    class Path(QuickPlay):
+        def __new__(cls, path: str | PathLike[str]) -> Self: ...
+    class Singleplayer(QuickPlay):
+        def __new__(cls, name: str) -> Self: ...
+    class Multiplayer(QuickPlay):
+        def __new__(cls, host: str, port: int) -> Self: ...
+    class Realms(QuickPlay):
+        def __new__(cls, id: str) -> Self: ...
