@@ -225,8 +225,8 @@ fn apply_standard_args(
         installer.set_jvm_policy(match args.jvm_policy {
             StartJvmPolicy::System => JvmPolicy::System,
             StartJvmPolicy::Mojang => JvmPolicy::Mojang,
-            StartJvmPolicy::SystemMojang => JvmPolicy::SystemThenMojang,
-            StartJvmPolicy::MojangSystem => JvmPolicy::MojangThenSystem,
+            StartJvmPolicy::SystemThenMojang => JvmPolicy::SystemThenMojang,
+            StartJvmPolicy::MojangThenSystem => JvmPolicy::MojangThenSystem,
         });
     }
 

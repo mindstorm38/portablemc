@@ -498,9 +498,9 @@ pub enum StartJvmPolicy {
     /// distribution then the install fails.
     Mojang,
     /// The installer search system and then mojang as a fallback.
-    SystemMojang,
+    SystemThenMojang,
     /// The installer search Mojang and then system as a fallback.
-    MojangSystem,
+    MojangThenSystem,
 }
 
 /// Represent an optional initial resolution for the game window.
