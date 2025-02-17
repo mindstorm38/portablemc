@@ -501,7 +501,7 @@ struct InternalHandler<'a> {
 
 impl download::Handler for InternalHandler<'_> {
 
-    fn fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn download::Handler> {
+    fn __internal_fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn download::Handler> {
         Some(&mut self.inner)
     }
 
@@ -509,7 +509,7 @@ impl download::Handler for InternalHandler<'_> {
 
 impl standard::Handler for InternalHandler<'_> {
     
-    fn fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn standard::Handler> {
+    fn __internal_fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn standard::Handler> {
         Some(&mut self.inner)
     }
 
@@ -526,7 +526,7 @@ impl standard::Handler for InternalHandler<'_> {
 
 impl mojang::Handler for InternalHandler<'_> {
 
-    fn fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn mojang::Handler> {
+    fn __internal_fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn mojang::Handler> {
         Some(&mut self.inner)
     }
 

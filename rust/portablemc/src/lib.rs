@@ -58,7 +58,7 @@ macro_rules! trait_event_handler {
             /// by external crates thanks to a "sealed" token type.
             #[doc(hidden)]
             #[inline(always)]
-            fn fallback(&mut self, _token: $crate::sealed::Token) -> Option<&mut dyn $name> {
+            fn __internal_fallback(&mut self, _token: $crate::sealed::Token) -> Option<&mut dyn $name> {
                 None
             }
 
@@ -70,7 +70,7 @@ macro_rules! trait_event_handler {
                     // dispatch implementation with '&mut dyn H' (below) all functions 
                     // are defined to just forward the call, so the fallback function is
                     // never used.
-                    if let Some(fallback) = $name::fallback(self, $crate::sealed::Token) {
+                    if let Some(fallback) = $name::__internal_fallback(self, $crate::sealed::Token) {
                         $name::$func( fallback $(, $arg)* )
                     } else {
                         $( $ret_default )?
