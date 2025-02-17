@@ -297,4 +297,10 @@ impl PyInstaller {
         }
     }
 
+    fn install(&self) -> crate::standard::PyGame {
+        let game = self.0.lock().unwrap().mojang_mut().install(())
+            .unwrap();  // Change this!
+        crate::standard::PyGame(game)
+    }
+
 }

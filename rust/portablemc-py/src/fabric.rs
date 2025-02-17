@@ -169,4 +169,10 @@ impl PyInstaller {
         self.0.lock().unwrap().fabric_mut().set_loader_version(loader_version);
     }
 
+    fn install(&self) -> crate::standard::PyGame {
+        let game = self.0.lock().unwrap().fabric_mut().install(())
+            .unwrap();  // Change this!
+        crate::standard::PyGame(game)
+    }
+
 }

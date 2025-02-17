@@ -101,4 +101,10 @@ impl PyInstaller {
         self.0.lock().unwrap().forge_mut().set_version(version);
     }
 
+    fn install(&self) -> crate::standard::PyGame {
+        let game = self.0.lock().unwrap().forge_mut().install(())
+            .unwrap();  // Change this!
+        crate::standard::PyGame(game)
+    }
+
 }
