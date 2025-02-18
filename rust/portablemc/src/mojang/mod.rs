@@ -350,7 +350,7 @@ impl Installer {
 
     /// Use online authentication with the given Microsoft Account.
     pub fn set_auth_msa(&mut self, account: &msa::Account) -> &mut Self {
-        self.inner.auth_uuid = account.uuid().clone();
+        self.inner.auth_uuid = account.uuid();
         self.inner.auth_username = account.username().to_string();
         self.inner.auth_token = account.access_token().to_string();
         self.inner.auth_type = "msa".to_string();

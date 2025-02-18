@@ -6,7 +6,7 @@ use portablemc::{standard, mojang, fabric, forge};
 
 /// A generic class that can be shared inside a `Arc<Mutex<T>>` between.
 #[derive(Debug)]
-pub(crate) enum GenericInstaller {
+pub enum GenericInstaller {
     Standard(standard::Installer),
     Mojang(mojang::Installer),
     Fabric(fabric::Installer),

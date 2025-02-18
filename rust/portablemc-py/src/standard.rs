@@ -25,7 +25,7 @@ fn py_default_main_dir() -> Option<&'static Path> {
 
 #[pyclass(name = "JvmPolicy", module = "portablemc.standard", eq)]
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum PyJvmPolicy {
+pub enum PyJvmPolicy {
     System,
     Mojang,
     SystemThenMojang,
@@ -33,13 +33,13 @@ enum PyJvmPolicy {
 }
 
 #[derive(FromPyObject, IntoPyObject)]
-enum PyJvmPolicyUnion {
+pub enum PyJvmPolicyUnion {
     Static(PathBuf),
     Policy(PyJvmPolicy),
 }
 
 #[pyclass(name = "Installer", module = "portablemc.standard", frozen, subclass)]
-pub(crate) struct PyInstaller(pub(crate) Arc<Mutex<GenericInstaller>>);
+pub struct PyInstaller(pub Arc<Mutex<GenericInstaller>>);
 
 #[pymethods]
 impl PyInstaller {
@@ -216,7 +216,7 @@ impl PyInstaller {
 }
 
 #[pyclass(name = "Game", module = "portablemc.standard", frozen)]
-pub(crate) struct PyGame(pub(crate) Game);
+pub struct PyGame(pub Game);
 
 #[pymethods]
 impl PyGame {
@@ -227,7 +227,7 @@ impl PyGame {
         let game = &this.0;
 
         let mod_subprocess = PyModule::import(this.py(), intern!(this.py(), "subprocess"))?;
-        let class_popen = mod_subprocess.getattr(intern!(this.py(), "Popen"))?;
+        let ty_popen = mod_subprocess.getattr(intern!(this.py(), "Popen"))?;
 
         let mod_functools = PyModule::import(this.py(), intern!(this.py(), "functools"))?;
         let func_partial = mod_functools.getattr(intern!(this.py(), "partial"))?;
@@ -244,7 +244,7 @@ impl PyGame {
 
         let kwargs = [("cwd", &game.mc_dir)].into_py_dict(this.py())?;
 
-        func_partial.call((&class_popen, &args), Some(&kwargs))
+        func_partial.call((&ty_popen, &args), Some(&kwargs))
 
     }
 
