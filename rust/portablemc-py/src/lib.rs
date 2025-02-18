@@ -1,7 +1,10 @@
 //! Python binding for PortableMC.
 
-mod installer;
+mod uuid;
 
+mod msa;
+
+mod installer;
 mod standard;
 mod mojang;
 mod fabric;
@@ -13,6 +16,10 @@ use pyo3::prelude::*;
 #[pymodule]
 #[pyo3(name = "_portablemc")]
 fn py_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
+
+    let msa = PyModule::new(m.py(), "msa")?;
+    msa::py_module(&msa)?;
+    m.add_submodule(&msa)?;
 
     let standard = PyModule::new(m.py(), "standard")?;
     standard::py_module(&standard)?;

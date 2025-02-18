@@ -35,10 +35,14 @@ impl Auth {
         }
     }
 
+    pub fn app_id(&self) -> &str {
+        &self.app_id
+    }
+
     /// Define a specific language code to use for localized messages.
     /// 
     /// See <https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes>
-    pub fn with_language_code(&mut self, code: impl Into<String>) -> &mut Self {
+    pub fn set_language_code(&mut self, code: impl Into<String>) -> &mut Self {
         self.language_code = Some(code.into());
         self
     }
@@ -92,6 +96,10 @@ pub struct DeviceCodeFlow {
 
 impl DeviceCodeFlow {
 
+    pub fn app_id(&self) -> &str {
+        &self.app_id
+    }
+
     pub fn user_code(&self) -> &str {
         &self.res.user_code
     }
@@ -107,7 +115,9 @@ impl DeviceCodeFlow {
     /// Wait for the user to authorize via the given user code and verification URI.
     /// If successful the authentication continues and the account is authenticated, if
     /// possible.
-    pub fn wait(self) -> Result<Account, AuthError> {
+    /// 
+    /// After a successful answer, this flow object should not be used again!
+    pub fn wait(&self) -> Result<Account, AuthError> {
 
         crate::tokio::sync(async move {
 
@@ -177,8 +187,8 @@ impl Account {
     }
 
     /// The player's UUID.
-    pub fn uuid(&self) -> &Uuid {
-        &self.uuid
+    pub fn uuid(&self) -> Uuid {
+        self.uuid
     }
 
     /// The player's username.
@@ -575,27 +585,6 @@ struct MinecraftProfileSuccess {
     id: Uuid,
     /// The username of the Minecraft account.
     name: String,
-    // skins: Vec<MinecraftProfileSkin>,
-    // capes: Vec<MinecraftProfileCape>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-#[allow(unused)]
-struct MinecraftProfileSkin {
-    id: Uuid,
-    state: String,
-    url: String,
-    variant: String,
-    alias: String,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-#[allow(unused)]
-struct MinecraftProfileCape {
-    id: Uuid,
-    state: String,
-    url: String,
-    alias: String,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]

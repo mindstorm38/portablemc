@@ -1,13 +1,14 @@
 use std::sync::{Arc, Mutex};
 use std::fmt::Write as _;
 use std::path::PathBuf;
-// use uuid::Uuid;
 
 use pyo3::prelude::*;
 
 use portablemc::mojang::{Installer, QuickPlay, Version};
 
 use crate::installer::GenericInstaller;
+use crate::uuid::PyUuid;
+use crate::msa;
 
 
 /// Define the `_portablemc.mojang` submodule.
@@ -20,13 +21,13 @@ pub(super) fn py_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pyclass(name = "Version", module = "portablemc.mojang", eq)]
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum PyVersion {
+pub enum PyVersion {
     Release,
     Snapshot,
 }
 
 #[derive(FromPyObject, IntoPyObject)]
-enum PyVersionUnion {
+pub enum PyVersionUnion {
     Version(PyVersion),
     Name(String),
 }
@@ -43,7 +44,7 @@ impl From<PyVersionUnion> for Version {
 
 #[pyclass(name = "QuickPlay", module = "portablemc.mojang", eq)]
 #[derive(Clone, PartialEq, Eq)]
-enum PyQuickPlay {
+pub enum PyQuickPlay {
     Path {
         path: PathBuf,
     },
@@ -60,7 +61,7 @@ enum PyQuickPlay {
 }
 
 #[pyclass(name = "Installer", module = "portablemc.mojang", frozen, subclass, extends = crate::standard::PyInstaller)]
-pub(crate) struct PyInstaller(pub(crate) Arc<Mutex<GenericInstaller>>);
+pub struct PyInstaller(pub Arc<Mutex<GenericInstaller>>);
 
 #[pymethods]
 impl PyInstaller {
@@ -187,25 +188,23 @@ impl PyInstaller {
         self.0.lock().unwrap().mojang_mut().set_disable_chat(disable_chat);
     }
 
-    // #[getter]
-    // fn auth_uuid(&self) -> Uuid {
-    //     self.0.lock().unwrap().mojang().auth_uuid()
-    // }
+    #[getter]
+    fn auth_uuid(&self) -> PyUuid {
+        self.0.lock().unwrap().mojang().auth_uuid().into()
+    }
 
     #[getter]
     fn auth_username(&self) -> String {
         self.0.lock().unwrap().mojang().auth_username().to_string()
     }
 
-    // FIXME: wait for uuid support!
+    fn set_auth_offline(&self, uuid: PyUuid, username: String) {
+        self.0.lock().unwrap().mojang_mut().set_auth_offline(uuid.into(), username);
+    }
 
-    // fn set_auth_offline(&self, uuid: Uuid, username: String) {
-    //     self.0.lock().unwrap().mojang_mut().set_auth_offline(uuid, username);
-    // }
-
-    // fn set_auth_offline_uuid(&self, uuid: Uuid) {
-    //     self.0.lock().unwrap().mojang_mut().set_auth_offline_uuid(uuid);
-    // }
+    fn set_auth_offline_uuid(&self, uuid: PyUuid) {
+        self.0.lock().unwrap().mojang_mut().set_auth_offline_uuid(uuid.into());
+    }
 
     fn set_auth_offline_username(&self, username: String) {
         self.0.lock().unwrap().mojang_mut().set_auth_offline_username(username);
@@ -215,8 +214,8 @@ impl PyInstaller {
         self.0.lock().unwrap().mojang_mut().set_auth_offline_hostname();
     }
 
-    fn set_auth_msa(&self) {
-        // TODO:
+    fn set_auth_msa(&self, account: PyRef<'_, msa::PyAccount>) {
+        self.0.lock().unwrap().mojang_mut().set_auth_msa(&account.0);
     }
     
     #[getter]
