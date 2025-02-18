@@ -58,3 +58,23 @@ impl PathBufExt for PathBuf {
     }
 
 }
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn paths() {
+
+        const SEP: &str = std::path::MAIN_SEPARATOR_STR;
+        
+        let path = Path::new("foo");
+        assert_eq!(path.join_with_extension("bar", "json"), PathBuf::from(format!("foo{SEP}bar.json")));
+        assert_eq!(path.append(SEP).appended("bar.json"), PathBuf::from(format!("foo{SEP}bar.json")));
+        assert_eq!(path.join("bar").joined("baz"), PathBuf::from(format!("foo{SEP}bar{SEP}baz")));
+        
+    }
+
+}

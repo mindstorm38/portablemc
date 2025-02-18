@@ -74,8 +74,8 @@ where
 
 /// Compare expected logs and actual logs, also checking for macros in expected string.
 fn assert_logs_eq(
-    mut expected_logs: Vec<String>, 
-    mut actual_logs: Vec<String>,
+    expected_logs: Vec<String>, 
+    actual_logs: Vec<String>,
     tmp_main_dir: &Path,
 ) {
 
@@ -170,7 +170,7 @@ fn install_version(version: &str) {
     let versions_dir = data_dir.join("versions");
     let metadata_file = versions_dir.join(format!("{version}.json"));
 
-    let mut expected_log = {
+    let expected_log = {
         match fs::read_to_string(versions_dir.join(format!("{version}.{}.log", env::consts::OS))) {
             Ok(log) => log,
             Err(e) if e.kind() == io::ErrorKind::NotFound =>
@@ -191,7 +191,8 @@ fn install_version(version: &str) {
 
     // Now run the installer and store its actual logs...
     let mut actual_logs = Vec::new();
-    let mut installer = standard::Installer::new(version, tmp_main_dir.to_path_buf());
+    let mut installer = standard::Installer::new(version);
+    installer.set_main_dir(tmp_main_dir.to_path_buf());
     installer.set_jvm_policy(JvmPolicy::Static(PathBuf::new()));
     match installer.install(TestHandler { logs: &mut actual_logs }) {
         Ok(_game) => {}
@@ -279,7 +280,7 @@ impl standard::Handler for TestHandler<'_> {
         // Ignore.
     }
 
-    fn extracted_binaries(&mut self, dir: &Path) {
+    fn extracted_binaries(&mut self, _dir: &Path) {
         // Ignore.
     }
 
