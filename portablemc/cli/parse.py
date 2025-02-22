@@ -166,7 +166,7 @@ def register_start_arguments(parser: ArgumentParser) -> None:
     version_arg = parser.add_argument("version", nargs="?", default="release", help=_("args.start.version", formats=", ".join(map(lambda s: _(f"args.start.version.{s}"), ("standard", "fabric", "quilt", "legacyfabric", "babric", "forge", "neoforge")))))
     for standard in ("release", "snapshot"):
         add_completion(version_arg, standard, _(f"args.start.version.comp.{standard}"))
-    for loader in ("fabric", "quilt", "legacyfabric", "babric", "forge", "neoforge"):
+    for loader in ("fabric", "quilt", "legacyfabric", "babric", "forge", "neoforge", "optifine"):
         add_completion(version_arg, f"{loader}:", _(f"args.start.version.comp.{loader}"))
 
 
