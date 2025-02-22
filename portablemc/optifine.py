@@ -228,7 +228,7 @@ class OptifineEndInstallEvent:
         self.version = version
 
 
-class Patcher:
+class _Patcher:
     CONFIG_FILES = ["patch.cfg", "patch2.cfg", "patch3.cfg"]
     PREFIX_PATCH = "patch/"
     SUFFIX_DELTA = ".xdelta"
@@ -250,27 +250,27 @@ class Patcher:
                 zipfile.ZipFile(mod_file, 'w') as mod_zip:
 
             # Read the configuration from the diff file
-            cfg_map = Patcher.get_configuration_map(diff_zip)
+            cfg_map = _Patcher.get_configuration_map(diff_zip)
             # Compile regex patterns from the config
-            patterns = Patcher.get_configuration_patterns(cfg_map)
+            patterns = _Patcher.get_configuration_patterns(cfg_map)
             diff_entries=diff_zip.infolist()
             # Iterate over all the files in the diff zip
             for diff_entry in diff_entries:
                 name = diff_entry.filename
-                watcher.handle(OptifinePatchEvent(name[:-len(Patcher.SUFFIX_DELTA)],len(diff_entries),diff_entries.index(diff_entry)))
+                watcher.handle(OptifinePatchEvent(name[:-len(_Patcher.SUFFIX_DELTA)], len(diff_entries), diff_entries.index(diff_entry)))
                 # Read the contents of the file
                 with diff_zip.open(diff_entry) as entry_stream:
                     entry_bytes = entry_stream.read()
 
                 # If it's a xdelta diff file, apply the patch
-                if name.startswith(Patcher.PREFIX_PATCH) and name.endswith(
-                        Patcher.SUFFIX_DELTA):  # it's an xdelta diff file
-                    name = name[len(Patcher.PREFIX_PATCH):-len(Patcher.SUFFIX_DELTA)]
+                if name.startswith(_Patcher.PREFIX_PATCH) and name.endswith(
+                        _Patcher.SUFFIX_DELTA):  # it's an xdelta diff file
+                    name = name[len(_Patcher.PREFIX_PATCH):-len(_Patcher.SUFFIX_DELTA)]
 
                     # Apply the patch
-                    patched_bytes = Patcher.apply_patch(name, entry_bytes, patterns, cfg_map, base_zip)
+                    patched_bytes = _Patcher.apply_patch(name, entry_bytes, patterns, cfg_map, base_zip)
                     # Check for an accompanying .md5 file and verify the hash
-                    md5_name = f"{Patcher.PREFIX_PATCH}{name}{Patcher.SUFFIX_MD5}"
+                    md5_name = f"{_Patcher.PREFIX_PATCH}{name}{_Patcher.SUFFIX_MD5}"
                     if md5_name in diff_zip.namelist():
                         with diff_zip.open(md5_name) as md5_stream:
                             expected_md5 = md5_stream.read().decode("ascii")
@@ -282,7 +282,7 @@ class Patcher:
                     mod_zip.writestr(name, patched_bytes)
 
                 # If it's not a xdelta diff file or an .md5 file, just copy it
-                elif not (name.startswith(Patcher.PREFIX_PATCH) and name.endswith(Patcher.SUFFIX_MD5)):
+                elif not (name.startswith(_Patcher.PREFIX_PATCH) and name.endswith(_Patcher.SUFFIX_MD5)):
                     mod_zip.writestr(name, entry_bytes)
 
     @staticmethod
@@ -308,7 +308,7 @@ class Patcher:
         name = name.lstrip("/")
 
         # Get the base resource name using the configuration map and patterns
-        base_name = Patcher.get_patch_base(name, patterns, cfg_map)
+        base_name = _Patcher.get_patch_base(name, patterns, cfg_map)
         if not base_name:
             raise ValueError(f"No patch base found for {name}")
 
@@ -330,10 +330,10 @@ class Patcher:
     def get_configuration_map(zip_file: zipfile.ZipFile) -> Dict[str, str]:
         """Aggregate configuration from multiple config files."""
         cfg_map = {}
-        for config_file in Patcher.CONFIG_FILES:
+        for config_file in _Patcher.CONFIG_FILES:
             if config_file in zip_file.namelist():
                 with zip_file.open(config_file) as config_stream:
-                    cfg_map.update(Patcher.parse_config_file(config_stream))
+                    cfg_map.update(_Patcher.parse_config_file(config_stream))
         return cfg_map
 
     @staticmethod
@@ -694,10 +694,10 @@ class OptifineVersion(Version):
                 if not of_lib_dir.exists(): # makes the library directory
                     of_lib_dir.mkdir(parents = True,exist_ok = True)
 
-                Patcher.process(version.dir / f"{self.version}.jar",
-                                version.dir / INSTALLER_FILENAME,
-                                self.context.libraries_dir / "optifine" / "OptiFine" / f"{self.mcver()}_{self.loader()}" / f"OptiFine-{self.mcver()}_{self.loader()}.jar",
-                                watcher = watcher)
+                _Patcher.process(version.dir / f"{self.version}.jar",
+                                 version.dir / INSTALLER_FILENAME,
+                                 self.context.libraries_dir / "optifine" / "OptiFine" / f"{self.mcver()}_{self.loader()}" / f"OptiFine-{self.mcver()}_{self.loader()}.jar",
+                                 watcher = watcher)
 
                 launchwrapper_sha1 = None
                 if not launchwrapper == "net.minecraft:launchwrapper:1.12":

@@ -37,8 +37,8 @@ from portablemc.standard import Context, Version, VersionManifest, SimpleWatcher
 from portablemc.fabric import FabricVersion, FabricResolveEvent
 from portablemc.forge import ForgeVersion, ForgeResolveEvent, ForgePostProcessingEvent, \
     ForgePostProcessedEvent, ForgeInstallError, _NeoForgeVersion
-from portablemc.optifine import (get_offline_versions as optifine_get_versions_offline,
-                                get_compatible_versions as optifine_get_versions,
+from portablemc.optifine import (get_offline_versions as optifine_get_offline_versions,
+                                get_compatible_versions as optifine_get_compatible_versions,
                                 OptifineVersion,
                                  OptifinePatchEvent,
                                  OptifineStartInstallEvent,
@@ -314,9 +314,9 @@ def cmd_search_handler(ns: SearchNs, kind: str, table: OutputTable):
             ns.work_dir = ns.context.work_dir
 
         try:
-            v_list = optifine_get_versions(ns.work_dir)
+            v_list = optifine_get_compatible_versions(ns.work_dir)
         except VersionNotFoundError:
-            v_list = optifine_get_versions_offline(ns.work_dir / "versions")
+            v_list = optifine_get_offline_versions(ns.work_dir / "versions")
         did_lines = True
 
         for k in v_list.keys():
@@ -526,8 +526,7 @@ def cmd_start_handler(ns: StartNs, kind: str, parts: List[str]) -> Optional[Vers
         return constructor(version, context=ns.context, prefix=prefix)
 
     elif kind == "optifine":
-        constructor = OptifineVersion
-        return constructor(":".join(parts) if len(parts) > 0 else "recommended", context = ns.context)
+        return OptifineVersion(":".join(parts) if len(parts) > 0 else "recommended", context = ns.context)
 
     else:
         return None
