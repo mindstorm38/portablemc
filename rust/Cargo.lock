@@ -1533,10 +1533,12 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "thiserror 2.0.11",
  "uuid",
  "webbrowser",
  "xmlparser",
+ "zip",
 ]
 
 [[package]]

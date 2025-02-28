@@ -56,7 +56,7 @@ fn auth_account_action(cli: &mut Cli, name: &str, action: AccountAction) -> Exit
 
         }
         Err(error) => {
-            log_msa_database_error(cli, error);
+            log_msa_database_error(cli, &error);
             return ExitCode::FAILURE;
         }
     };
@@ -109,14 +109,14 @@ pub(crate) fn refresh_account(cli: &mut Cli, mut account: Account, silent: bool)
                     refreshed_token = true;
                 }
                 Err(error) => {
-                    log_msa_auth_error(cli, error);
+                    log_msa_auth_error(cli, &error);
                     return false;
                 }
             }
 
         }
         Err(error) => {
-            log_msa_auth_error(cli, error);
+            log_msa_auth_error(cli, &error);
             return false;
         }
     };
@@ -131,7 +131,7 @@ pub(crate) fn refresh_account(cli: &mut Cli, mut account: Account, silent: bool)
     match cli.msa_db.store(account) {
         Ok(()) => true,
         Err(error) => {
-            log_msa_database_error(cli, error);
+            log_msa_database_error(cli, &error);
             false
         }
     }
@@ -143,7 +143,7 @@ fn auth_list(cli: &mut Cli) -> ExitCode {
     let iter = match cli.msa_db.load_iter() {
         Ok(iter) => iter,
         Err(error) => {
-            log_msa_database_error(cli, error);
+            log_msa_database_error(cli, &error);
             return ExitCode::FAILURE;
         }
     };
@@ -179,7 +179,7 @@ fn auth_login(cli: &mut Cli, no_browser: bool) -> ExitCode {
     let code_flow = match auth.request_device_code() {
         Ok(ret) => ret,
         Err(error) => {
-            log_msa_auth_error(cli, error);
+            log_msa_auth_error(cli, &error);
             return ExitCode::FAILURE;
         }
     };
@@ -202,7 +202,7 @@ fn auth_login(cli: &mut Cli, no_browser: bool) -> ExitCode {
     let account = match code_flow.wait() {
         Ok(account) => account,
         Err(error) => {
-            log_msa_auth_error(cli, error);
+            log_msa_auth_error(cli, &error);
             return ExitCode::FAILURE;
         }
     };
@@ -215,7 +215,7 @@ fn auth_login(cli: &mut Cli, no_browser: bool) -> ExitCode {
     match cli.msa_db.store(account) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            log_msa_database_error(cli, error);
+            log_msa_database_error(cli, &error);
             ExitCode::FAILURE
         }
     }

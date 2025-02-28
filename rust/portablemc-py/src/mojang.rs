@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use portablemc::mojang::{Installer, QuickPlay, Version};
@@ -296,10 +297,10 @@ impl PyInstaller {
         }
     }
 
-    fn install(&self) -> crate::standard::PyGame {
-        let game = self.0.lock().unwrap().mojang_mut().install(())
-            .unwrap();  // Change this!
-        crate::standard::PyGame(game)
+    fn install(&self) -> PyResult<crate::standard::PyGame> {
+        self.0.lock().unwrap().mojang_mut().install(())
+            .map(crate::standard::PyGame)
+            .map_err(|e| PyValueError::new_err(format!("{e}")))
     }
 
 }

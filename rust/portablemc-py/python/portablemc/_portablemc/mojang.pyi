@@ -3,7 +3,7 @@ from os import PathLike
 from uuid import UUID
 from enum import Enum, auto
 
-from . import standard
+from . import standard, msa
 
 
 class Installer(standard.Installer):
@@ -53,7 +53,7 @@ class Installer(standard.Installer):
     def set_auth_offline_uuid(self, uuid: UUID) -> None: ...
     def set_auth_offline_username(self, username: str) -> None: ...
     def set_auth_offline_hostname(self) -> None: ...
-    def set_auth_msa(self, account: None) -> None: ...  # TODO:
+    def set_auth_msa(self, account: msa.Account) -> None: ...
 
     @property
     def client_id(self) -> str: ...

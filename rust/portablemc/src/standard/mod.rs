@@ -15,7 +15,6 @@ use std::ffi::OsStr;
 
 use indexmap::IndexSet;
 
-use zip::result::ZipError;
 use zip::ZipArchive;
 
 use sha1::{Digest, Sha1};
@@ -337,11 +336,17 @@ impl Installer {
         // module and generally in this crate we transform handlers to a dynamic download
         // handler '&mut dyn download::Handler' to avoid large polymorphism duplications.
         if !batch.is_empty() {
+            
             if !handler.download_resources() {
                 return Err(Error::DownloadResourcesCancelled {  });
             }
-            batch.download(&mut *handler)?.into_result()?;
+
+            batch.download(&mut *handler)
+                .map_err(|e| Error::new_reqwest(e, "download resources"))?
+                .into_result()?;
+
             handler.downloaded_resources();
+
         }
 
         // Finalization of libraries to create a unique bin dir and extract them into.
@@ -952,7 +957,7 @@ impl Installer {
                 download::single(dl.url.clone(), index_file.clone())
                     .set_expected_size(dl.size)
                     .set_expected_sha1(dl.sha1.as_deref().copied())
-                    .download(&mut *handler)??;
+                    .download(&mut *handler)?;
                 index_downloaded = true;
             }
         }
@@ -1327,7 +1332,7 @@ impl Installer {
 
             let mut entry = download::single_cached(JVM_META_MANIFEST_URL)
                 .set_keep_open()
-                .download(&mut *handler)??;
+                .download(&mut *handler)?;
 
             let reader = BufReader::new(entry.take_handle().unwrap());
             let mut deserializer = serde_json::Deserializer::from_reader(reader);
@@ -1370,7 +1375,7 @@ impl Installer {
                     .set_expected_size(meta_variant.manifest.size)
                     .set_expected_sha1(meta_variant.manifest.sha1.as_deref().copied())
                     .set_keep_open()
-                    .download(&mut *handler)??;
+                    .download(&mut *handler)?;
             }
             
             let reader = File::open(&manifest_file)
@@ -1827,32 +1832,25 @@ pub enum Error {
     /// procedure can't continue because it needs resources to be downloaded.
     #[error("download resources cancelled")]
     DownloadResourcesCancelled {  },
-    /// A generic system's IO error with an origin.
-    #[error("io: {error} @ {origin}")]
-    Io {
-        #[source]
-        error: io::Error,
+    /// A generic error that originates from internal or third-party dependencies. The
+    /// goal of this is to provide a backward-compatible error variant that can be 
+    /// dynamically checked and downcast if needed, the actual error types are not
+    /// guaranteed to be present in future versions.
+    /// 
+    /// The actual error types used are:
+    /// 
+    /// - [`std::io::Error`] for any unexpected I/O error type.
+    /// 
+    /// - [`serde_json::Error`] (or inside a [`serde_path_to_error::Error`]) for any 
+    ///   unexpected parsing error.
+    /// 
+    /// - [`zip::result::ZipError`] for errors related to ZIP extractions.
+    /// 
+    /// - [`reqwest::Error`] for errors related to HTTP requests.
+    #[error("generic: {error} @ {origin}")]
+    Generic {
+        error: Box<dyn std::error::Error>,
         origin: Box<str>,
-    },
-    /// A JSON deserialization error with an origin.
-    #[error("json: {error} @ {origin}")]
-    Json {
-        #[source]
-        error: serde_path_to_error::Error<serde_json::Error>,
-        origin: Box<str>,
-    },
-    /// A Zip error with an origin, this can happen when extracting natives.
-    #[error("zip: {error} @ {origin}")]
-    Zip {
-        #[source]
-        error: ZipError,
-        origin: Box<str>,
-    },
-    /// A standalone reqwest error, usually on initialization but can be used.
-    #[error("reqwest: {error}")]
-    Reqwest {
-        #[from]
-        error: reqwest::Error,
     },
     /// There are some errors in the given download batch.
     #[error("download")]
@@ -1877,34 +1875,39 @@ impl From<download::EntryError> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
-    
+
     #[inline]
-    pub fn new_io(error: io::Error, origin: impl Into<Box<str>>) -> Self {
-        Self::Io { error, origin: origin.into() }
+    pub(crate) fn new_io(error: io::Error, origin: impl Into<Box<str>>) -> Self {
+        Self::Generic { error: Box::new(error), origin: origin.into() }
     }
     
     #[inline]
-    pub fn new_json(error: serde_path_to_error::Error<serde_json::Error>, origin: impl Into<Box<str>>) -> Self {
-        Self::Json { error, origin: origin.into() }
+    pub(crate) fn new_json(error: serde_path_to_error::Error<serde_json::Error>, origin: impl Into<Box<str>>) -> Self {
+        Self::Generic { error: Box::new(error), origin: origin.into() }
     }
     
     #[inline]
-    pub fn new_zip(error: ZipError, origin: impl Into<Box<str>>) -> Self {
-        Self::Zip { error, origin: origin.into() }
+    pub(crate) fn new_zip(error: zip::result::ZipError, origin: impl Into<Box<str>>) -> Self {
+        Self::Generic { error: Box::new(error), origin: origin.into() }
     }
 
     #[inline]
-    pub fn new_io_file(error: io::Error, file: impl AsRef<Path>) -> Self {
+    pub(crate) fn new_reqwest(error: reqwest::Error, origin: impl Into<Box<str>>) -> Self {
+        Self::Generic { error: Box::new(error), origin: origin.into() }
+    }
+
+    #[inline]
+    pub(crate) fn new_io_file(error: io::Error, file: impl AsRef<Path>) -> Self {
         Self::new_io(error, file.as_ref().display().to_string())
     }
     
     #[inline]
-    pub fn new_json_file(error: serde_path_to_error::Error<serde_json::Error>, file: impl AsRef<Path>) -> Self {
+    pub(crate) fn new_json_file(error: serde_path_to_error::Error<serde_json::Error>, file: impl AsRef<Path>) -> Self {
         Self::new_json(error, file.as_ref().display().to_string())
     }
 
     #[inline]
-    pub fn new_zip_file(error: ZipError, file: impl AsRef<Path>) -> Self {
+    pub(crate) fn new_zip_file(error: zip::result::ZipError, file: impl AsRef<Path>) -> Self {
         Self::new_zip(error, file.as_ref().display().to_string())
     }
 

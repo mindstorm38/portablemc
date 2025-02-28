@@ -42,7 +42,7 @@ fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     let manifest = match Manifest::request(&mut handler) {
         Ok(manifest) => manifest,
         Err(e) => {
-            log_mojang_error(cli, e);
+            log_mojang_error(cli, &e);
             return ExitCode::FAILURE;
         }
     };
@@ -134,7 +134,7 @@ fn search_local(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     let reader = match fs::read_dir(&versions_dir) {
         Ok(reader) => reader,
         Err(e) => {
-            log_io_error(cli, e, &format!("{}", versions_dir.display()));
+            log_io_error(cli, &e, &format!("{}", versions_dir.display()));
             return ExitCode::FAILURE;
         }
     };
@@ -194,7 +194,7 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
         let versions = match api.request_game_versions() {
             Ok(v) => v,
             Err(e) => {
-                log_reqwest_error(cli, e);
+                log_reqwest_error(cli, &e, "request fabric game versions");
                 return ExitCode::FAILURE;
             }
         };
@@ -231,7 +231,7 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
         let versions = match api.request_loader_versions(None) {
             Ok(v) => v,
             Err(e) => {
-                log_reqwest_error(cli, e);
+                log_reqwest_error(cli, &e, "request fabric loader versions");
                 return ExitCode::FAILURE;
             }
         };
@@ -277,7 +277,7 @@ fn search_forge(cli: &mut Cli, args: &SearchArgs, loader: forge::Loader) -> Exit
     let repo = match Repo::request(loader) {
         Ok(repo) => repo,
         Err(e) => {
-            log_forge_error(cli, e, loader);
+            log_forge_error(cli, &e, loader);
             return ExitCode::FAILURE;
         }
     };

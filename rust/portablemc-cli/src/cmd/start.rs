@@ -37,7 +37,7 @@ pub fn start(cli: &mut Cli, args: &StartArgs) -> ExitCode {
             let repo = match mojang::Manifest::request(handler) {
                 Ok(repo) => repo,
                 Err(e) => {
-                    log_mojang_error(cli, e);
+                    log_mojang_error(cli, &e);
                     return ExitCode::FAILURE;
                 }
             };
@@ -78,7 +78,7 @@ pub fn start(cli: &mut Cli, args: &StartArgs) -> ExitCode {
                     let manifest = match mojang::Manifest::request(handler) {
                         Ok(repo) => repo,
                         Err(e) => {
-                            log_mojang_error(cli, e);
+                            log_mojang_error(cli, &e);
                             return ExitCode::FAILURE;
                         }
                     };
@@ -117,7 +117,7 @@ fn start_mojang(
     match inst.install(&mut handler) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
-            log_mojang_error(cli, e);
+            log_mojang_error(cli, &e);
             return ExitCode::FAILURE;
         }
     }
@@ -143,7 +143,7 @@ fn start_fabric(
     match inst.install(handler) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
-            log_fabric_error(cli, e, loader);
+            log_fabric_error(cli, &e, loader);
             return ExitCode::FAILURE;
         }
     }
@@ -168,7 +168,7 @@ fn start_forge(
     match inst.install(handler) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
-            log_forge_error(cli, e, inst.loader());
+            log_forge_error(cli, &e, inst.loader());
             return ExitCode::FAILURE;
         }
     }
@@ -196,7 +196,7 @@ fn start_game(game: Game, cli: &mut Cli, args: &StartArgs) -> ExitCode {
     match run_command(cli, command) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            log_io_error(cli, e, "run game");
+            log_io_error(cli, &e, "run game");
             ExitCode::FAILURE
         }
     }
@@ -288,7 +288,7 @@ fn apply_mojang_args(
                 
             }
             Err(error) => {
-                log_msa_database_error(cli, error);
+                log_msa_database_error(cli, &error);
                 return false;
             }
         };

@@ -428,7 +428,7 @@ impl Repo {
         // the resource while being offline.
         let mut main_entry = download::single_cached("https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml")
             .set_keep_open()
-            .download(())??;
+            .download(())?;
 
         let main_xml = main_entry.read_handle_to_string().unwrap()
             .map_err(|e| standard::Error::new_io_file(e, main_entry.file()))?;
@@ -449,7 +449,10 @@ impl Repo {
         let mut batch = download::Batch::new();
         batch.push_cached("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml").set_keep_open();
         batch.push_cached("https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml").set_keep_open();
-        let mut result = batch.download(())?.into_result()?;
+        
+        let mut result = batch.download(())
+            .map_err(|e| standard::Error::new_reqwest(e, "request neoforge repo"))?
+            .into_result()?;
         
         let main_entry = result.entry_mut(0).unwrap();
         let main_xml = main_entry.read_handle_to_string().unwrap()
@@ -741,7 +744,7 @@ fn try_install(
     // Download and check result in case installer is just not found.
     let entry = download::single(installer_url, tmp_dir.join("installer.jar"))
         .set_keep_open()
-        .download(&mut *handler)?;
+        .download(&mut *handler);
 
     let mut entry = match entry {
         Ok(entry) => entry,
@@ -871,7 +874,9 @@ fn try_install(
 
             // Download all libraries just before running post processors.
             if !batch.is_empty() {
-                batch.download(&mut *handler)?.into_result()?;
+                batch.download(&mut *handler)
+                    .map_err(|e| standard::Error::new_reqwest(e, "download forge libraries"))?
+                    .into_result()?;
             }
 
             handler.fetched_installer_libraries();

@@ -15,6 +15,7 @@ portablemc.workspace = true
 thiserror.workspace = true
 
 serde.workspace = true
+serde_path_to_error.workspace = true
 serde_json.workspace = true
 
 xmlparser.workspace = true
@@ -25,6 +26,8 @@ uuid.workspace = true
 webbrowser.workspace = true
 
 reqwest.workspace = true
+
+zip.workspace = true
 
 clap.workspace = true
 ctrlc.workspace = true

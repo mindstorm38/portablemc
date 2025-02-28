@@ -66,8 +66,8 @@ impl Single {
     }
 
     #[inline]
-    pub fn set_cache_mode(&mut self) -> &mut Self {
-        self.0.set_cache_mode();
+    pub fn set_use_cache(&mut self) -> &mut Self {
+        self.0.set_use_cache();
         self
     }
 
@@ -77,9 +77,16 @@ impl Single {
     /// This is internally starting an asynchronous Tokio runtime and block on it, so
     /// this function will just panic if launched inside another runtime!
     #[must_use]
-    pub fn download(&mut self, mut handler: impl Handler) -> reqwest::Result<Result<EntrySuccess, EntryError>> {
-        let client = crate::http::client()?;
-        Ok(crate::tokio::sync(download_single(client, &mut handler, &self.0)))
+    pub fn download(&mut self, mut handler: impl Handler) -> Result<EntrySuccess, EntryError> {
+
+        let client = crate::http::client()
+            .map_err(|e| EntryError { 
+                core: self.0.core.clone(), 
+                kind: EntryErrorKind::Reqwest(e),
+            })?;
+
+        crate::tokio::sync(download_single(client, &mut handler, &self.0))
+
     }
 
 }
@@ -170,26 +177,16 @@ pub struct Entry {
     expected_size: Option<u32>,
     /// Optional expected SHA-1 of the file.
     expected_sha1: Option<[u8; 20]>,
-    /// Download mode for this entry.
-    mode: EntryMode,
-    /// True to keep the file open after it has been downloaded, and store the handle
-    /// in the completed entry.
-    keep_open: bool,
-}
-
-/// Download mode for an entry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum EntryMode {
-    /// The entry is downloaded anyway.
-    #[default]
-    Force,
     /// Use a file next to the entry file to keep track of the last-modified and entity
     /// tag HTTP informations, that will be used in next downloads to actually download
     /// the data only if needed. This means that the entry will not always be downloaded,
     /// and its optional size and SHA-1 will be only checked when actually downloaded.
     /// Also, this implies that if the program has no internet access then it will use
     /// the cached version if existing.
-    Cache,
+    use_cache: bool,
+    /// True to keep the file open after it has been downloaded, and store the handle
+    /// in the completed entry.
+    keep_open: bool,
 }
 
 impl Entry {
@@ -202,7 +199,7 @@ impl Entry {
             },
             expected_size: None,
             expected_sha1: None,
-            mode: EntryMode::Force,
+            use_cache: false,
             keep_open: false,
         }
     }
@@ -223,7 +220,7 @@ impl Entry {
         file.push(url_digest);
 
         let mut ret = Self::new(url, file.into_boxed_path());
-        ret.set_cache_mode();
+        ret.set_use_cache();
         ret
 
     }
@@ -239,9 +236,19 @@ impl Entry {
     }
 
     #[inline]
+    pub fn expected_size(&self) -> Option<u32> {
+        self.expected_size
+    }
+
+    #[inline]
     pub fn set_expected_size(&mut self, size: Option<u32>) -> &mut Self {
         self.expected_size = size;
         self
+    }
+
+    #[inline]
+    pub fn expected_sha1(&self) -> Option<&[u8; 20]> {
+        self.expected_sha1.as_ref()
     }
 
     #[inline]
@@ -268,8 +275,8 @@ impl Entry {
     /// 
     /// This is usually not needed to call this function, prefer [`Batch::push_cached`].
     #[inline]
-    pub fn set_cache_mode(&mut self) -> &mut Self {
-        self.mode = EntryMode::Cache;
+    pub fn set_use_cache(&mut self) -> &mut Self {
+        self.use_cache = true;
         self
     }
 
@@ -315,13 +322,13 @@ impl BatchResult {
     }
 
     #[inline]
-    pub fn errors_count(&self) -> usize {
-        self.errors.len()
+    pub fn successes_count(&self) -> usize {
+        self.entries.len() - self.errors.len()
     }
 
     #[inline]
-    pub fn successes_count(&self) -> usize {
-        self.entries.len() - self.errors.len()
+    pub fn errors_count(&self) -> usize {
+        self.errors.len()
     }
 
     pub fn iter_successes(&self) -> BatchResultSuccessesIter<'_> {
@@ -737,7 +744,7 @@ async fn download_entry(
     let mut req = client.get(&*entry.core.url);
     
     // If we are in cache mode, then we derive the file name.
-    let cache_file = (entry.mode == EntryMode::Cache).then(|| {
+    let cache_file = entry.use_cache.then(|| {
         entry.core.file.to_path_buf().appended(".cache")
     });
 

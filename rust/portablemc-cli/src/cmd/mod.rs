@@ -161,15 +161,6 @@ impl download::Handler for CommonHandler<'_> {
             self.download_start = Some(Instant::now());
         }
 
-        if size == 0 {
-            if count == total_count {
-                // If all entries have been downloaded but the weight nothing, reset the
-                // download start. This is possible with zero-sized files or cache mode.
-                self.download_start = None;
-            }
-            return;
-        }
-
         let elapsed = self.download_start.unwrap().elapsed();
         let speed = size as f32 / elapsed.as_secs_f32();
 
@@ -590,7 +581,7 @@ impl forge::Handler for CommonHandler<'_> {
 }
 
 /// Log a standard error on the given logger output.
-pub fn log_standard_error(cli: &mut Cli, error: standard::Error) {
+pub fn log_standard_error(cli: &mut Cli, error: &standard::Error) {
     
     use standard::Error;
 
@@ -624,7 +615,7 @@ pub fn log_standard_error(cli: &mut Cli, error: standard::Error) {
             let mut log = out.log("error_jvm_not_found");
             log.error(format_args!("No compatible JVM found for the game version, which requires major version {major_version}"));
             log.additional("You can enable verbose mode to learn more about potential JVM rejections");
-            if major_version <= 8 {
+            if *major_version <= 8 {
                 log.additional("Note that JVM version 8 and prior versions are not compatible with other versions");
             }
         }
@@ -635,28 +626,18 @@ pub fn log_standard_error(cli: &mut Cli, error: standard::Error) {
         Error::DownloadResourcesCancelled {  } => {
             panic!("should not happen because the handler does not cancel downloading");
         }
-        Error::Io { error, origin } => {
-            log_io_error(cli, error, &origin);
-        }
-        Error::Json { error, origin } => {
-            out.log("error_json")
-                .arg(error.path())
-                .arg(error.inner())
-                .arg(&origin)
-                .newline()
-                .error(format_args!("JSON error: {error}"))
-                .additional(format_args!("At {origin}"));
-        }
-        Error::Zip { error, origin } => {
-            out.log("error_zip")
-                .arg(&error)
-                .arg(&origin)
-                .newline()
-                .error(format_args!("ZIP error: {error}"))
-                .additional(format_args!("At {origin}"));
-        }
-        Error::Reqwest { error } => {
-            log_reqwest_error(cli, error);
+        Error::Generic { error, origin } => {
+            if let Some(error) = error.downcast_ref::<io::Error>() {
+                log_io_error(cli, error, &origin);
+            } else if let Some(error) = error.downcast_ref::<serde_json::Error>() {
+                log_json_error(cli, error, None, &origin);
+            } else if let Some(error) = error.downcast_ref::<serde_path_to_error::Error<serde_json::Error>>() {
+                log_json_error(cli, error.inner(), Some(error.path()), &origin);
+            } else if let Some(error) = error.downcast_ref::<zip::result::ZipError>() {
+                log_zip_error(cli, error, &origin);
+            } else if let Some(error) = error.downcast_ref::<reqwest::Error>() {
+                log_reqwest_error(cli, error, &origin);
+            }
         }
         Error::Download { batch } => {
             log_download_error(cli, batch);
@@ -667,7 +648,7 @@ pub fn log_standard_error(cli: &mut Cli, error: standard::Error) {
 }
 
 /// Log a mojang error on the given logger output.
-pub fn log_mojang_error(cli: &mut Cli, error: mojang::Error) {
+pub fn log_mojang_error(cli: &mut Cli, error: &mojang::Error) {
 
     use mojang::Error;
 
@@ -687,16 +668,16 @@ pub fn log_mojang_error(cli: &mut Cli, error: mojang::Error) {
 
 }
 
-pub fn log_fabric_error(cli: &mut Cli, error: fabric::Error, loader: fabric::Loader) {
+pub fn log_fabric_error(cli: &mut Cli, error: &fabric::Error, loader: fabric::Loader) {
 
     use fabric::Error;
 
     let out = &mut cli.out;
     let (api_id, api_name) = fabric_id_name(loader);
 
-    match error {
-        Error::Mojang(error) => log_mojang_error(cli, error),
-        Error::LatestVersionNotFound { game_version, stable } => {
+    match *error {
+        Error::Mojang(ref error) => log_mojang_error(cli, error),
+        Error::LatestVersionNotFound { ref game_version, stable } => {
 
             let stable_str = if stable { "stable" } else { "unstable" };
             let mut log = out.log(format_args!("error_{api_id}_latest_version_not_found"));
@@ -720,12 +701,12 @@ pub fn log_fabric_error(cli: &mut Cli, error: fabric::Error, loader: fabric::Loa
             }
 
         }
-        Error::GameVersionNotFound { game_version } => {
+        Error::GameVersionNotFound { ref game_version } => {
             out.log(format_args!("error_{api_id}_game_version_not_found"))
                 .arg(&game_version)
                 .error(format_args!("{api_name} loader has not support for {game_version} game version"));
         }
-        Error::LoaderVersionNotFound { game_version, loader_version } => {
+        Error::LoaderVersionNotFound { ref game_version, ref loader_version } => {
             out.log(format_args!("error_{api_id}_loader_version_not_found"))
                 .arg(&game_version)
                 .arg(&loader_version)
@@ -736,7 +717,7 @@ pub fn log_fabric_error(cli: &mut Cli, error: fabric::Error, loader: fabric::Loa
 
 }
 
-pub fn log_forge_error(cli: &mut Cli, error: forge::Error, loader: forge::Loader) {
+pub fn log_forge_error(cli: &mut Cli, error: &forge::Error, loader: forge::Loader) {
 
     use forge::Error;
 
@@ -745,9 +726,9 @@ pub fn log_forge_error(cli: &mut Cli, error: forge::Error, loader: forge::Loader
 
     const CONTACT_DEV: &str = "This version of the loader might not be supported by PortableMC, please contact developers on https://github.com/mindstorm38/portablemc/issues";
 
-    match error {
-        Error::Mojang(error) => log_mojang_error(cli, error),
-        Error::LatestVersionNotFound { game_version, stable } => {
+    match *error {
+        Error::Mojang(ref error) => log_mojang_error(cli, error),
+        Error::LatestVersionNotFound { ref game_version, stable } => {
 
             let stable_str = if stable { "stable" } else { "unstable" };
             let mut log = out.log(format_args!("error_{api_id}_latest_version_not_found"));
@@ -760,7 +741,7 @@ pub fn log_forge_error(cli: &mut Cli, error: forge::Error, loader: forge::Loader
             }
 
         }
-        Error::InstallerNotFound { version } => {
+        Error::InstallerNotFound { ref version } => {
             out.log(format_args!("error_{api_id}_installer_not_found"))
                 .arg(&version)
                 .error(format_args!("{api_name} loader has no installer for {version}"))
@@ -786,19 +767,19 @@ pub fn log_forge_error(cli: &mut Cli, error: forge::Error, loader: forge::Loader
                 .error(format_args!("{api_name} installer has no embedded version metadata"))
                 .additional(CONTACT_DEV);
         }
-        Error::InstallerFileNotFound { entry } => {
+        Error::InstallerFileNotFound { ref entry } => {
             out.log(format_args!("error_{api_id}_installer_file_not_found"))
                 .arg(&entry)
                 .error(format_args!("{api_name} installer is missing a required file: {entry}"))
                 .additional(CONTACT_DEV);
         }
-        Error::InstallerInvalidProcessor { name } => {
+        Error::InstallerInvalidProcessor { ref name } => {
             out.log(format_args!("error_{api_id}_installer_invalid_processor"))
                 .arg(&name)
                 .error(format_args!("{api_name} installer has an invalid processor: {name}"))
                 .additional(CONTACT_DEV);
         }
-        Error::InstallerProcessorFailed { name, output } => {
+        Error::InstallerProcessorFailed { ref name, ref output } => {
 
             let mut log = out.log(format_args!("error_{api_id}_installer_processor_failed"));
             log.arg(&name);
@@ -833,7 +814,7 @@ pub fn log_forge_error(cli: &mut Cli, error: forge::Error, loader: forge::Loader
             log.additional(CONTACT_DEV);
 
         }
-        Error::InstallerProcessorInvalidOutput { name, file, expected_sha1 } => {
+        Error::InstallerProcessorInvalidOutput { ref name, ref file, ref expected_sha1 } => {
             out.log(format_args!("error_{api_id}_installer_processor_invalid_output"))
                 .arg(&name)
                 .arg(file.display())
@@ -848,7 +829,7 @@ pub fn log_forge_error(cli: &mut Cli, error: forge::Error, loader: forge::Loader
 }
 
 /// Common function to log a download error.
-pub fn log_download_error(cli: &mut Cli, batch: download::BatchResult) {
+pub fn log_download_error(cli: &mut Cli, batch: &download::BatchResult) {
 
     use download::EntryErrorKind;
 
@@ -913,19 +894,21 @@ pub fn log_download_error(cli: &mut Cli, batch: download::BatchResult) {
 }
 
 /// Common function to log a reqwest (HTTP) error.
-pub fn log_reqwest_error(cli: &mut Cli, error: reqwest::Error) {
+pub fn log_reqwest_error(cli: &mut Cli, error: &reqwest::Error, origin: &str) {
     let mut log = cli.out.log("error_reqwest");
     log.args(error.url());
     log.args(error.source());
+    log.arg(origin);
     log.newline();
     log.error(format_args!("Reqwest error: {error}"));
     if let Some(source) = error.source() {
         log.additional(format_args!("At {source}"));
     }
+    log.additional(format_args!("At {origin}"));
 }
 
 /// Common function to log an I/O error to the user.
-pub fn log_io_error(cli: &mut Cli, error: io::Error, origin: &str) {
+pub fn log_io_error(cli: &mut Cli, error: &io::Error, origin: &str) {
 
     let mut log = cli.out.log("error_io");
 
@@ -944,10 +927,39 @@ pub fn log_io_error(cli: &mut Cli, error: io::Error, origin: &str) {
 
 }
 
+/// Common function to log a JSON serde error.
+pub fn log_json_error(cli: &mut Cli, error: &serde_json::Error, path: Option<&serde_path_to_error::Path>, origin: &str) {
+
+    let mut log = cli.out.log("error_json");
+    log.arg(error);
+
+    if let Some(path) = path {
+        log.arg(path);
+    } else {
+        log.arg("");
+    }
+
+    log.arg(origin)
+        .newline()
+        .error(format_args!("JSON error: {error}"))
+        .additional(format_args!("At {origin}"));
+
+}
+
+/// Common function to log a ZIP archive error.
+pub fn log_zip_error(cli: &mut Cli, error: &zip::result::ZipError, origin: &str) {
+    cli.out.log("error_zip")
+        .arg(error)
+        .arg(origin)
+        .newline()
+        .error(format_args!("ZIP error: {error}"))
+        .additional(format_args!("At {origin}"));
+}
+
 /// Log a database error.
-pub fn log_msa_auth_error(cli: &mut Cli, error: msa::AuthError) {
+pub fn log_msa_auth_error(cli: &mut Cli, error: &msa::AuthError) {
     match error {
-        msa::AuthError::Reqwest(error) => log_reqwest_error(cli, error),
+        msa::AuthError::Reqwest(error) => log_reqwest_error(cli, error, "microsoft authentication"),
         msa::AuthError::Jwt(error) => {
             cli.out.log("error_jwt")
                 .error(format_args!("JWT error: {error}"));
@@ -983,7 +995,7 @@ pub fn log_msa_auth_error(cli: &mut Cli, error: msa::AuthError) {
 }
 
 /// Log a database error.
-pub fn log_msa_database_error(cli: &mut Cli, error: msa::DatabaseError) {
+pub fn log_msa_database_error(cli: &mut Cli, error: &msa::DatabaseError) {
     match error {
         msa::DatabaseError::Io(error) => log_io_error(cli, error, &format!("{}", cli.msa_db.file().display())),
         msa::DatabaseError::Corrupted => {

@@ -1,9 +1,9 @@
 //! PortableMC is a library and CLI for programmatically launching Minecraft.
 
-pub(crate) mod path;
-pub(crate) mod http;
-pub(crate) mod tokio;
-pub(crate) mod serde;
+mod path;
+mod http;
+mod tokio;
+mod serde;
 
 pub mod download;
 

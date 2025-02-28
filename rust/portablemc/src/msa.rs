@@ -644,7 +644,12 @@ impl Database {
         F: for<'a> FnOnce(&'a mut DatabaseData, &'a mut bool) -> T,
     {
 
-        let mut rw = File::options().write(true).read(true).create(true).open(&self.file)?;
+        let mut rw = File::options()
+            .write(true)
+            .read(true)
+            .create(true)
+            .open(&self.file)?;
+
         let mut data;
 
         // If the file is empty, don't try to decode it but create a new empty database!
@@ -785,7 +790,7 @@ impl DoubleEndedIterator for DatabaseIter {
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum DatabaseError {
-    /// An underlying I/O error.
+    /// An underlying I/O error when opening the database file.
     #[error("io: {0}")]
     Io(#[from] io::Error),
     /// The database is corrupted and nothing can be done about it automatically, you

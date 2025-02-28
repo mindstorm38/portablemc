@@ -115,14 +115,19 @@ impl Installer {
         let game_version = match game_version {
             GameVersion::Stable |
             GameVersion::Unstable => {
+
                 let stable = matches!(game_version, GameVersion::Stable);
-                match api.request_game_versions()?.find_latest(stable) {
+                let versions = api.request_game_versions()
+                    .map_err(|e| standard::Error::new_reqwest(e, "request fabric game versions"))?;
+
+                match versions.find_latest(stable) {
                     Some(v) => v.name().to_string(),
                     None => return Err(Error::LatestVersionNotFound { 
                         game_version: None, 
                         stable,
                     }),
                 }
+
             }
             GameVersion::Name(name) => name.clone(),
         };
@@ -130,14 +135,19 @@ impl Installer {
         let loader_version = match loader_version {
             LoaderVersion::Stable |
             LoaderVersion::Unstable => {
+                
                 let stable = matches!(loader_version, LoaderVersion::Stable);
-                match api.request_loader_versions(Some(&game_version))?.find_latest(stable) {
+                let versions = api.request_loader_versions(Some(&game_version))
+                    .map_err(|e| standard::Error::new_reqwest(e, "request fabric loader versions"))?;
+                
+                match versions.find_latest(stable) {
                     Some(v) => v.name().to_string(),
                     None => return Err(Error::LatestVersionNotFound { 
                         game_version: Some(game_version), 
                         stable,
                     }),
                 }
+
             }
             LoaderVersion::Name(name) => name.clone(),
         };
@@ -551,7 +561,11 @@ impl InternalHandler<'_> {
         let mut metadata = match self.api.raw_request_game_loader_version_metadata(self.game_version, self.loader_version) {
             Ok(metadata) => metadata,
             Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => {
-                if self.api.raw_request_has_game_loader_versions(self.game_version)? {
+                
+                let has_versions = self.api.raw_request_has_game_loader_versions(self.game_version)
+                    .map_err(|e| standard::Error::new_reqwest(e, "request fabric has game loader versions"))?;
+
+                if has_versions {
                     return Err(Error::LoaderVersionNotFound { 
                         game_version: self.game_version.to_string(),
                         loader_version: self.loader_version.to_string(),
@@ -561,8 +575,9 @@ impl InternalHandler<'_> {
                         game_version: self.game_version.to_string(),
                     });
                 }
+
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(standard::Error::new_reqwest(e, "request fabric game loader version metadata").into()),
         };
 
         // Force the version id, the prebuilt one might not be exact.
