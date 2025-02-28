@@ -239,9 +239,19 @@ impl Entry {
     }
 
     #[inline]
+    pub fn expected_size(&self) -> Option<u32> {
+        self.expected_size
+    }
+
+    #[inline]
     pub fn set_expected_size(&mut self, size: Option<u32>) -> &mut Self {
         self.expected_size = size;
         self
+    }
+
+    #[inline]
+    pub fn expected_sha1(&self) -> Option<&[u8; 20]> {
+        self.expected_sha1.as_ref()
     }
 
     #[inline]
@@ -315,13 +325,13 @@ impl BatchResult {
     }
 
     #[inline]
-    pub fn errors_count(&self) -> usize {
-        self.errors.len()
+    pub fn successes_count(&self) -> usize {
+        self.entries.len() - self.errors.len()
     }
 
     #[inline]
-    pub fn successes_count(&self) -> usize {
-        self.entries.len() - self.errors.len()
+    pub fn errors_count(&self) -> usize {
+        self.errors.len()
     }
 
     pub fn iter_successes(&self) -> BatchResultSuccessesIter<'_> {

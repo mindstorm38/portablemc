@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use pyo3::types::{IntoPyDict, PyList};
+use pyo3::exceptions::PyValueError;
 use pyo3::{intern, prelude::*};
 
 use portablemc::standard::{default_main_dir, Installer, Game, JvmPolicy};
@@ -207,10 +208,10 @@ impl PyInstaller {
         self.0.lock().unwrap().standard_mut().set_launcher_version(version);
     }
 
-    fn install(&self) -> PyGame {
-        let game = self.0.lock().unwrap().standard_mut().install(())
-            .unwrap();  // Change this!
-        PyGame(game)
+    fn install(&self) -> PyResult<PyGame> {
+        self.0.lock().unwrap().standard_mut().install(())
+            .map(PyGame)
+            .map_err(|e| PyValueError::new_err(format!("{e}")))
     }
 
 }

@@ -1827,6 +1827,12 @@ pub enum Error {
     /// procedure can't continue because it needs resources to be downloaded.
     #[error("download resources cancelled")]
     DownloadResourcesCancelled {  },
+    /// A generic error that originates from internal or third-party dependencies.
+    #[error("generic: {error} @ {origin}")]
+    Generic {
+        error: Box<dyn std::error::Error>,
+        origin: Box<str>,
+    },
     /// A generic system's IO error with an origin.
     #[error("io: {error} @ {origin}")]
     Io {
@@ -1877,34 +1883,38 @@ impl From<download::EntryError> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
+
+    pub(crate) fn new_generic(error: impl Into<Box<dyn std::error::Error>>, origin: impl Into<Box<str>>) -> Self {
+        Self::Generic { error: error.into(), origin: origin.into() }
+    }
     
     #[inline]
-    pub fn new_io(error: io::Error, origin: impl Into<Box<str>>) -> Self {
+    pub(crate) fn new_io(error: io::Error, origin: impl Into<Box<str>>) -> Self {
         Self::Io { error, origin: origin.into() }
     }
     
     #[inline]
-    pub fn new_json(error: serde_path_to_error::Error<serde_json::Error>, origin: impl Into<Box<str>>) -> Self {
+    pub(crate) fn new_json(error: serde_path_to_error::Error<serde_json::Error>, origin: impl Into<Box<str>>) -> Self {
         Self::Json { error, origin: origin.into() }
     }
     
     #[inline]
-    pub fn new_zip(error: ZipError, origin: impl Into<Box<str>>) -> Self {
+    pub(crate) fn new_zip(error: ZipError, origin: impl Into<Box<str>>) -> Self {
         Self::Zip { error, origin: origin.into() }
     }
 
     #[inline]
-    pub fn new_io_file(error: io::Error, file: impl AsRef<Path>) -> Self {
+    pub(crate) fn new_io_file(error: io::Error, file: impl AsRef<Path>) -> Self {
         Self::new_io(error, file.as_ref().display().to_string())
     }
     
     #[inline]
-    pub fn new_json_file(error: serde_path_to_error::Error<serde_json::Error>, file: impl AsRef<Path>) -> Self {
+    pub(crate) fn new_json_file(error: serde_path_to_error::Error<serde_json::Error>, file: impl AsRef<Path>) -> Self {
         Self::new_json(error, file.as_ref().display().to_string())
     }
 
     #[inline]
-    pub fn new_zip_file(error: ZipError, file: impl AsRef<Path>) -> Self {
+    pub(crate) fn new_zip_file(error: ZipError, file: impl AsRef<Path>) -> Self {
         Self::new_zip(error, file.as_ref().display().to_string())
     }
 

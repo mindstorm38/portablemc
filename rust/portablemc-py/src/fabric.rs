@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::fmt::Write as _;
 
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use portablemc::fabric::{GameVersion, Installer, Loader, LoaderVersion};
@@ -169,10 +170,10 @@ impl PyInstaller {
         self.0.lock().unwrap().fabric_mut().set_loader_version(loader_version);
     }
 
-    fn install(&self) -> crate::standard::PyGame {
-        let game = self.0.lock().unwrap().fabric_mut().install(())
-            .unwrap();  // Change this!
-        crate::standard::PyGame(game)
+    fn install(&self) -> PyResult<crate::standard::PyGame> {
+        self.0.lock().unwrap().fabric_mut().install(())
+            .map(crate::standard::PyGame)
+            .map_err(|e| PyValueError::new_err(format!("{e}")))
     }
 
 }

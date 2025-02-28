@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use portablemc::forge::{Installer, Loader, Version};
@@ -101,10 +102,10 @@ impl PyInstaller {
         self.0.lock().unwrap().forge_mut().set_version(version);
     }
 
-    fn install(&self) -> crate::standard::PyGame {
-        let game = self.0.lock().unwrap().forge_mut().install(())
-            .unwrap();  // Change this!
-        crate::standard::PyGame(game)
+    fn install(&self) -> PyResult<crate::standard::PyGame> {
+        self.0.lock().unwrap().forge_mut().install(())
+            .map(crate::standard::PyGame)
+            .map_err(|e| PyValueError::new_err(format!("{e}")))
     }
 
 }
