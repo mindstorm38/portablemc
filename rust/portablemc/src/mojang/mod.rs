@@ -785,7 +785,7 @@ impl Manifest {
 
         let mut entry = download::single_cached(VERSION_MANIFEST_URL)
             .set_keep_open()
-            .download(handler)??;
+            .download(handler)?;
 
         let reader = BufReader::new(entry.take_handle().unwrap());
         let mut deserializer = serde_json::Deserializer::from_reader(reader);
@@ -1025,7 +1025,7 @@ impl InternalHandler<'_> {
         download::single(version.url(), file)
             .set_expected_size(version.size())
             .set_expected_sha1(version.sha1().copied())
-            .download(&mut *self.inner)??;
+            .download(&mut *self.inner)?;
 
         self.inner.fetched_version(version.name());
 

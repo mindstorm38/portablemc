@@ -194,7 +194,7 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
         let versions = match api.request_game_versions() {
             Ok(v) => v,
             Err(e) => {
-                log_reqwest_error(cli, &e);
+                log_reqwest_error(cli, &e, "request fabric game versions");
                 return ExitCode::FAILURE;
             }
         };
@@ -231,7 +231,7 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
         let versions = match api.request_loader_versions(None) {
             Ok(v) => v,
             Err(e) => {
-                log_reqwest_error(cli, &e);
+                log_reqwest_error(cli, &e, "request fabric loader versions");
                 return ExitCode::FAILURE;
             }
         };

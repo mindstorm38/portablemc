@@ -161,15 +161,6 @@ impl download::Handler for CommonHandler<'_> {
             self.download_start = Some(Instant::now());
         }
 
-        if size == 0 {
-            if count == total_count {
-                // If all entries have been downloaded but the weight nothing, reset the
-                // download start. This is possible with zero-sized files or cache mode.
-                self.download_start = None;
-            }
-            return;
-        }
-
         let elapsed = self.download_start.unwrap().elapsed();
         let speed = size as f32 / elapsed.as_secs_f32();
 
@@ -638,30 +629,15 @@ pub fn log_standard_error(cli: &mut Cli, error: &standard::Error) {
         Error::Generic { error, origin } => {
             if let Some(error) = error.downcast_ref::<io::Error>() {
                 log_io_error(cli, error, &origin);
+            } else if let Some(error) = error.downcast_ref::<serde_json::Error>() {
+                log_json_error(cli, error, None, &origin);
+            } else if let Some(error) = error.downcast_ref::<serde_path_to_error::Error<serde_json::Error>>() {
+                log_json_error(cli, error.inner(), Some(error.path()), &origin);
+            } else if let Some(error) = error.downcast_ref::<zip::result::ZipError>() {
+                log_zip_error(cli, error, &origin);
+            } else if let Some(error) = error.downcast_ref::<reqwest::Error>() {
+                log_reqwest_error(cli, error, &origin);
             }
-        }
-        Error::Io { error, origin } => {
-            log_io_error(cli, error, &origin);
-        }
-        Error::Json { error, origin } => {
-            out.log("error_json")
-                .arg(error.path())
-                .arg(error.inner())
-                .arg(&origin)
-                .newline()
-                .error(format_args!("JSON error: {error}"))
-                .additional(format_args!("At {origin}"));
-        }
-        Error::Zip { error, origin } => {
-            out.log("error_zip")
-                .arg(&error)
-                .arg(&origin)
-                .newline()
-                .error(format_args!("ZIP error: {error}"))
-                .additional(format_args!("At {origin}"));
-        }
-        Error::Reqwest { error } => {
-            log_reqwest_error(cli, error);
         }
         Error::Download { batch } => {
             log_download_error(cli, batch);
@@ -918,15 +894,17 @@ pub fn log_download_error(cli: &mut Cli, batch: &download::BatchResult) {
 }
 
 /// Common function to log a reqwest (HTTP) error.
-pub fn log_reqwest_error(cli: &mut Cli, error: &reqwest::Error) {
+pub fn log_reqwest_error(cli: &mut Cli, error: &reqwest::Error, origin: &str) {
     let mut log = cli.out.log("error_reqwest");
     log.args(error.url());
     log.args(error.source());
+    log.arg(origin);
     log.newline();
     log.error(format_args!("Reqwest error: {error}"));
     if let Some(source) = error.source() {
         log.additional(format_args!("At {source}"));
     }
+    log.additional(format_args!("At {origin}"));
 }
 
 /// Common function to log an I/O error to the user.
@@ -949,10 +927,39 @@ pub fn log_io_error(cli: &mut Cli, error: &io::Error, origin: &str) {
 
 }
 
+/// Common function to log a JSON serde error.
+pub fn log_json_error(cli: &mut Cli, error: &serde_json::Error, path: Option<&serde_path_to_error::Path>, origin: &str) {
+
+    let mut log = cli.out.log("error_json");
+    log.arg(error);
+
+    if let Some(path) = path {
+        log.arg(path);
+    } else {
+        log.arg("");
+    }
+
+    log.arg(origin)
+        .newline()
+        .error(format_args!("JSON error: {error}"))
+        .additional(format_args!("At {origin}"));
+
+}
+
+/// Common function to log a ZIP archive error.
+pub fn log_zip_error(cli: &mut Cli, error: &zip::result::ZipError, origin: &str) {
+    cli.out.log("error_zip")
+        .arg(error)
+        .arg(origin)
+        .newline()
+        .error(format_args!("ZIP error: {error}"))
+        .additional(format_args!("At {origin}"));
+}
+
 /// Log a database error.
 pub fn log_msa_auth_error(cli: &mut Cli, error: &msa::AuthError) {
     match error {
-        msa::AuthError::Reqwest(error) => log_reqwest_error(cli, error),
+        msa::AuthError::Reqwest(error) => log_reqwest_error(cli, error, "microsoft authentication"),
         msa::AuthError::Jwt(error) => {
             cli.out.log("error_jwt")
                 .error(format_args!("JWT error: {error}"));
