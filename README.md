@@ -1,6 +1,6 @@
 # Portable Minecraft Launcher
 A fast, reliable and cross-platform command-line Minecraft launcher and API for developers.
-Including fast and easy installation of common mod loaders such as Fabric, Forge, NeoForge and Quilt.
+Including fast and easy installation of common mod loaders such as Fabric, Forge, NeoForge, OptiFine and Quilt.
 This launcher is compatible with the standard Minecraft directories. 
 
 [![PyPI - Version](https://img.shields.io/pypi/v/portablemc?label=PyPI%20version&style=flat-square)![PyPI - Downloads](https://img.shields.io/pypi/dm/portablemc?label=PyPI%20downloads&style=flat-square)](https://pypi.org/project/portablemc/)
@@ -112,12 +112,13 @@ loaders:
 [Fabric](https://fabricmc.net/), 
 [Forge](https://minecraftforge.net/), 
 [NeoForge](https://neoforged.net/), 
-[LegacyFabric](https://legacyfabric.net/) and 
+[LegacyFabric](https://legacyfabric.net/), 
+[OptiFine](https://optifine.net/home) and 
 [Quilt](https://quiltmc.org/). 
 To start such versions, you can prefix the version with either `fabric:`, `forge:`, 
-`neoforge:`, `legacyfabric:` or `quilt:` (or `standard:` to explicitly choose a vanilla 
+`neoforge:`, `legacyfabric:`, `optifine:` or `quilt:` (or `standard:` to explicitly choose a vanilla 
 version). Depending on the mod loader, the version you put after the colon is different:
-- For Fabric, LegacyFabric and Quilt, you can directly specify the vanilla version, 
+- For Fabric, LegacyFabric, Quilt and OptiFine, you can directly specify the vanilla version, 
   optionally followed by `:<loader_version>`. Note that legacy fabric start 1.13.2
   by default and does not support more recent version as it's not the goal.
 - For Forge and NeoForge, you can put either a vanilla game version, optionally followed
@@ -134,11 +135,12 @@ portablemc start release
 portablemc start snapshot
 # Start 1.20.1
 portablemc start 1.20.1
-# Start latest Fabric/Quilt/Forge version
+# Start latest Fabric/Quilt/Forge/OptiFine version
 portablemc start fabric:
 portablemc start quilt:
 portablemc start forge:
 portablemc start neoforge:
+portablemc start optifine:
 # Start Fabric for 1.20.1
 portablemc start fabric:1.20.1
 # Start Fabric for 1.20.1 with loader 0.11.2
@@ -150,6 +152,10 @@ portablemc start forge:1.20.1-recommended
 portablemc start forge:1.20-46.0.14
 # Start NeoForge for 1.20.1
 portablemc start neoforge:1.20.1
+# Start recommanded OptiFine for 1.21
+portablemc start optifine:1.21
+# Start latest recommanded OptiFine :
+portablemc start optifine:latest
 ```
 
 #### Authentication
@@ -268,6 +274,7 @@ you can instead search for many kinds of versions using the `-k` (`--kind`) argu
 - `fabric`, show all available Fabric loader versions.
 - `legacyfabric`, show all available LegacyFabric loader versions.
 - `quilt`, show all available Quilt loader versions.
+- `optifine`, show all available optifine version, with date and the forge loader which is compatible with this version (not used in portablemc)
 
 The search string is optional, if not specified no filter is applied on the table shown.
 
@@ -356,7 +363,8 @@ following for their bug reports, suggestions and pull requests to make the launc
 better: 
 [GoodDay360](https://github.com/GoodDay360), 
 [Ristovski](https://github.com/Ristovski),
-[JamiKettunen](https://github.com/JamiKettunen)
+[JamiKettunen](https://github.com/JamiKettunen),
+[pi-dev500](https://github.com/pi-dev500)
 [MisileLaboratory](https://github.com/MisileLab) and
 [GooseDeveloper](https://github.com/GooseDeveloper).
 
