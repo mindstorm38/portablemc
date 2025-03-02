@@ -287,9 +287,9 @@ impl Entry {
 #[derive(Debug)]
 pub struct BatchResult {
     /// Each entry's result.
-    entries: Vec<Result<EntrySuccess, EntryError>>,
+    entries: Box<[Result<EntrySuccess, EntryError>]>,
     /// The index of each entry that has an error.
-    errors: Vec<usize>,
+    errors: Box<[usize]>,
 }
 
 impl BatchResult {
@@ -361,8 +361,8 @@ impl BatchResult {
 impl From<Result<EntrySuccess, EntryError>> for BatchResult {
     fn from(value: Result<EntrySuccess, EntryError>) -> Self {
         Self {
-            errors: if value.is_err() { vec![0] } else { vec![] },
-            entries: vec![value],
+            errors: if value.is_err() { Box::new([0]) } else { Box::new([]) },
+            entries: Box::new([value]),
         }
     }
 }
@@ -370,8 +370,8 @@ impl From<Result<EntrySuccess, EntryError>> for BatchResult {
 impl From<EntrySuccess> for BatchResult {
     fn from(value: EntrySuccess) -> Self {
         Self {
-            entries: vec![Ok(value)],
-            errors: vec![],
+            entries: Box::new([Ok(value)]),
+            errors: Box::new([]),
         }
     }
 }
@@ -379,8 +379,8 @@ impl From<EntrySuccess> for BatchResult {
 impl From<EntryError> for BatchResult {
     fn from(value: EntryError) -> Self {
         Self {
-            entries: vec![Err(value)],
-            errors: vec![0],
+            entries: Box::new([Err(value)]),
+            errors: Box::new([0]),
         }
     }
 }
@@ -666,23 +666,24 @@ async fn download_many(
 
     // Now that every task has terminated we should be able to take back the entries.
     let entries = Arc::into_inner(entries).unwrap();
-    let mut result = BatchResult {
-        entries: Vec::with_capacity(entries.len()),
-        errors: Vec::new(),
-    };
+    let mut ret_entries = Vec::with_capacity(entries.len());
+    let mut ret_errors = Vec::new();
 
     for (entry, res) in entries.into_iter().zip(results) {
         let res = res.expect("all entries should have a result");
         if res.is_err() {
-            result.errors.push(result.entries.len());
+            ret_errors.push(ret_entries.len());
         }
-        result.entries.push(match res {
+        ret_entries.push(match res {
             Ok(inner) => Ok(EntrySuccess { core: entry.core, inner }),
             Err(kind) => Err(EntryError { core: entry.core, kind }),
         });
     }
 
-    result
+    BatchResult {
+        entries: ret_entries.into_boxed_slice(),
+        errors: ret_errors.into_boxed_slice(),
+    }
 
 }
 
