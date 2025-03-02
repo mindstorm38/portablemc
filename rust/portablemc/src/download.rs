@@ -82,7 +82,7 @@ impl Single {
         let client = crate::http::client()
             .map_err(|e| EntryError { 
                 core: self.0.core.clone(), 
-                kind: EntryErrorKind::Reqwest(e),
+                kind: EntryErrorKind::new_reqwest(e),
             })?;
 
         crate::tokio::sync(download_single(client, &mut handler, &self.0))
@@ -393,6 +393,7 @@ pub struct BatchResultSuccessesIter<'a> {
 }
 
 impl FusedIterator for BatchResultSuccessesIter<'_> { }
+impl ExactSizeIterator for BatchResultSuccessesIter<'_> { }
 impl<'a> Iterator for BatchResultSuccessesIter<'a> {
 
     type Item = &'a EntrySuccess;
@@ -420,6 +421,7 @@ pub struct BatchResultErrorsIter<'a> {
 }
 
 impl FusedIterator for BatchResultErrorsIter<'_> { }
+impl ExactSizeIterator for BatchResultErrorsIter<'_> { }
 impl<'a> Iterator for BatchResultErrorsIter<'a> {
 
     type Item = &'a EntryError;
@@ -436,8 +438,7 @@ impl<'a> Iterator for BatchResultErrorsIter<'a> {
 
 }
 
-
-
+/// State of a successfully downloaded entry.
 #[derive(Debug)]
 pub struct EntrySuccess {
     core: EntryCore,
@@ -502,8 +503,9 @@ impl EntrySuccess {
     /// 
     /// For now internal because it's being tested...
     pub(crate) fn read_handle_to_string(&mut self) -> Option<io::Result<String>> {
+        let mut handle = self.take_handle()?;
         let mut buf = String::new();
-        match self.take_handle()?.read_to_string(&mut buf) {
+        match handle.read_to_string(&mut buf) {
             Ok(_) => Some(Ok(buf)),
             Err(e) => Some(Err(e)),
         }
@@ -511,6 +513,7 @@ impl EntrySuccess {
 
 }
 
+/// State of an entry that failed to download, it also acts as a standard error type.
 #[derive(thiserror::Error, Debug)]
 #[error("{core:?}: {kind}")]
 pub struct EntryError {
@@ -521,15 +524,6 @@ pub struct EntryError {
 /// An error for a single entry.
 #[derive(thiserror::Error, Debug)]
 pub enum EntryErrorKind {
-    /// HTTP error while downloading the entry.
-    #[error("reqwest: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    /// System I/O error while writing the downloaded entry.
-    #[error("io: {0}")]
-    Io(#[from] io::Error),
-    /// Invalid HTTP status code while requesting the entry.
-    #[error("invalid status: {0}")]
-    InvalidStatus(reqwest::StatusCode),
     /// Invalid size of the fully downloaded entry compared to the expected size.
     /// Implies that [`Entry::set_expected_size`] is not none.
     #[error("invalid size")]
@@ -538,6 +532,33 @@ pub enum EntryErrorKind {
     /// Implies that [`Entry::set_expected_sha1`] is not none.
     #[error("invalid sha1")]
     InvalidSha1,
+    /// Invalid HTTP status code while requesting the entry.
+    #[error("invalid status: {0}")]
+    InvalidStatus(u16),
+    /// A generic error type for internal and third-party errors that may change depending
+    /// on the actual implementation.
+    /// 
+    /// The current implementation yields the following error types:
+    /// 
+    /// - [`std::io::Error`] for any I/O error related to opening and writing local files.
+    /// 
+    /// - [`reqwest::Error`] for any error related to HTTP requests.
+    #[error("internal: {0}")]
+    Internal(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl EntryErrorKind {
+
+    #[inline]
+    fn new_io(e: io::Error) -> Self {
+        Self::Internal(Box::new(e))
+    }
+
+    #[inline]
+    fn new_reqwest(e: reqwest::Error) -> Self {
+        Self::Internal(Box::new(e))
+    }
+
 }
 
 impl EntryError {
@@ -752,7 +773,8 @@ async fn download_entry(
     // If we are in cache mode, try checking the file, if the file is locally valid.
     let mut cache = None;
     if let Some(cache_file) = cache_file.as_deref() {
-        cache = check_download_cache(&entry.core.file, cache_file).await?;
+        cache = check_download_cache(&entry.core.file, cache_file).await
+            .map_err(EntryErrorKind::new_io)?;
     }
 
     // Then we add corresponding request headers for cache control.
@@ -779,7 +801,7 @@ async fn download_entry(
         }
         Err(e) => {
             // Other unhandled errors are returned and will be present in errored entries.
-            return Err(e.into());
+            return Err(EntryErrorKind::new_reqwest(e));
         }
     };
 
@@ -793,7 +815,7 @@ async fn download_entry(
             handle: entry.keep_open.then_some(handle),
         });
     } else if res.status() != StatusCode::OK {
-        return Err(EntryErrorKind::InvalidStatus(res.status()));
+        return Err(EntryErrorKind::InvalidStatus(res.status().as_u16()));
     }
 
     // Close the possible cached file because we'll need to create it just below. 
@@ -801,7 +823,7 @@ async fn download_entry(
 
     // Create any parent directory so that we can create the file.
     if let Some(parent) = entry.core.file.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        tokio::fs::create_dir_all(parent).await.map_err(EntryErrorKind::new_io)?;
     }
 
     // Only add read capability if the handle needs to be kept.
@@ -810,25 +832,26 @@ async fn download_entry(
         .create(true)
         .truncate(true)
         .read(entry.keep_open)
-        .open(&*entry.core.file).await?;
+        .open(&*entry.core.file).await
+        .map_err(EntryErrorKind::new_io)?;
 
     let mut size = 0usize;
     let mut sha1 = Sha1::new();
     
-    while let Some(chunk) = res.chunk().await? {
+    while let Some(chunk) = res.chunk().await.map_err(EntryErrorKind::new_reqwest)? {
 
         let delta = chunk.len();
         size += delta;
 
-        AsyncWriteExt::write_all(&mut dst, &chunk).await?;
-        Write::write_all(&mut sha1, &chunk)?;
+        AsyncWriteExt::write_all(&mut dst, &chunk).await.map_err(EntryErrorKind::new_io)?;
+        Write::write_all(&mut sha1, &chunk).map_err(EntryErrorKind::new_io)?;
 
         progress_sender.send(delta as u32).await;
 
     }
 
     // Ensure the file is fully written.
-    dst.flush().await?;
+    dst.flush().await.map_err(EntryErrorKind::new_io)?;
 
     // Now check required size and SHA-1.
     let size = u32::try_from(size).map_err(|_| EntryErrorKind::InvalidSize)?;
@@ -858,7 +881,7 @@ async fn download_entry(
         // Only write the cache file if relevant!
         if etag.is_some() || last_modified.is_some() {
 
-            let cache_meta_writer = File::create(cache_file).await?;
+            let cache_meta_writer = File::create(cache_file).await.map_err(EntryErrorKind::new_io)?;
             let cache_meta_writer = BufWriter::new(cache_meta_writer.into_std().await);
 
             let res = serde_json::to_writer(cache_meta_writer, &serde::CacheMeta {
@@ -881,7 +904,7 @@ async fn download_entry(
     let handle;
     if entry.keep_open {
         let mut file = dst.into_std().await;
-        file.rewind()?;
+        file.rewind().map_err(EntryErrorKind::new_io)?;
         handle = Some(file);
     } else {
         handle = None;

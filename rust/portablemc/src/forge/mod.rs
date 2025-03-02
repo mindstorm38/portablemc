@@ -18,7 +18,6 @@ use crate::maven::{Gav, MetadataParser};
 use crate::path::{PathBufExt, PathExt};
 use crate::mojang;
 
-use reqwest::StatusCode;
 use zip::ZipArchive;
 
 use elsa::sync::FrozenMap;
@@ -749,7 +748,7 @@ fn try_install(
     let mut entry = match entry {
         Ok(entry) => entry,
         Err(e) => {
-            if let EntryErrorKind::InvalidStatus(StatusCode::NOT_FOUND) = e.kind() {
+            if let EntryErrorKind::InvalidStatus(404) = e.kind() {
                 return Err(Error::InstallerNotFound { 
                     version: config.gav.version().to_string(),
                 });
