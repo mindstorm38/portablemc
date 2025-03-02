@@ -1832,12 +1832,17 @@ pub enum Error {
     /// procedure can't continue because it needs resources to be downloaded.
     #[error("download resources cancelled")]
     DownloadResourcesCancelled {  },
+    /// There are some errors in the given download batch.
+    #[error("download")]
+    Download {
+        batch: download::BatchResult,
+    },
     /// A generic error that originates from internal or third-party dependencies. The
     /// goal of this is to provide a backward-compatible error variant that can be 
     /// dynamically checked and downcast if needed, the actual error types are not
     /// guaranteed to be present in future versions.
     /// 
-    /// The actual error types used are:
+    /// Currently these are the error types that can be produced by PortableMC:
     /// 
     /// - [`std::io::Error`] for any unexpected I/O error type.
     /// 
@@ -1851,11 +1856,6 @@ pub enum Error {
     Generic {
         error: Box<dyn std::error::Error>,
         origin: Box<str>,
-    },
-    /// There are some errors in the given download batch.
-    #[error("download")]
-    Download {
-        batch: download::BatchResult,
     },
 }
 
