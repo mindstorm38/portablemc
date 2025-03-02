@@ -66,13 +66,22 @@ impl Auth {
                 mkt: self.language_code.as_deref(),
             };
 
-            let client = crate::http::builder().build()?;
+            let client = crate::http::builder().build()
+                .map_err(AuthError::new_reqwest)?;
+
             let res = client
                 .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode")
                 .form(&req)
-                .send().await?
-                .error_for_status()?
-                .json::<MsDeviceAuthSuccess>().await?;
+                .send().await
+                .map_err(AuthError::new_reqwest)?;
+
+            if res.status() != StatusCode::OK {
+                return Err(AuthError::InvalidStatus(res.status().as_u16()));
+            }
+
+            let res = res
+                .json::<MsDeviceAuthSuccess>().await
+                .map_err(AuthError::new_reqwest)?;
 
             Ok(DeviceCodeFlow {
                 client,
@@ -208,10 +217,14 @@ impl Account {
     /// 
     /// It's not required to run that on newly authenticated or refreshed accounts.
     pub fn request_profile(&mut self) -> Result<(), AuthError> {
-        let client = crate::http::builder().build()?;
+        
+        let client = crate::http::builder().build()
+            .map_err(AuthError::new_reqwest)?;
+
         let profile = crate::tokio::sync(request_minecraft_profile(&client, &self.access_token))?;
         self.username = profile.name;
         Ok(())
+
     }
 
     /// Request a token refresh of this account, this will use the internal refresh token,
@@ -220,7 +233,9 @@ impl Account {
 
         crate::tokio::sync(async move {
 
-            let client = crate::http::builder().build()?;
+            let client = crate::http::builder().build()
+                .map_err(AuthError::new_reqwest)?;
+
             let req = MsTokenRequest::RefreshToken { 
                 client_id: &self.app_id, 
                 scope: Some("XboxLive.signin offline_access"), 
@@ -259,12 +274,14 @@ async fn request_ms_token(
     let res = client
         .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
         .form(req)
-        .send().await?;
+        .send().await
+        .map_err(AuthError::new_reqwest)?;
 
     match res.status() {
         StatusCode::OK => {
             
-            let res = res.json::<MsTokenSuccess>().await?;
+            let res = res.json::<MsTokenSuccess>().await
+                .map_err(AuthError::new_reqwest)?;
 
             if res.token_type != "Bearer" {
                 return Err(AuthError::Unknown(format!("Unexpected token type: {}", res.token_type)));
@@ -276,9 +293,9 @@ async fn request_ms_token(
 
         }
         StatusCode::BAD_REQUEST => {
-            Ok(Err(res.json::<MsAuthError>().await?))
+            Ok(Err(res.json::<MsAuthError>().await.map_err(AuthError::new_reqwest)?))
         }
-        status => Err(AuthError::InvalidStatus(status)),
+        status => Err(AuthError::InvalidStatus(status.as_u16())),
     }
     
 }
@@ -305,7 +322,8 @@ async fn request_minecraft_account(
 
     // Minecraft with XBL...
     let mc_res = request_minecraft_with_xbl(&client, user_hash, xsts_token).await?;
-    let mc_res_token = decode_jwt_without_validation::<MinecraftToken>(&mc_res.access_token)?;
+    let mc_res_token = decode_jwt_without_validation::<MinecraftToken>(&mc_res.access_token)
+        .map_err(AuthError::new_jwt)?;
     // Minecraft profile...
     let profile_res = request_minecraft_profile(&client, &mc_res.access_token).await?;
 
@@ -338,11 +356,12 @@ async fn request_xbl_user(
     let res = client
         .post("https://user.auth.xboxlive.com/user/authenticate")
         .json(&req)
-        .send().await?;
+        .send().await
+        .map_err(AuthError::new_reqwest)?;
 
     match res.status() {
-        StatusCode::OK => Ok(res.json::<XblSuccess>().await?),
-        status => return Err(AuthError::InvalidStatus(status)),
+        StatusCode::OK => Ok(res.json::<XblSuccess>().await.map_err(AuthError::new_reqwest)?),
+        status => return Err(AuthError::InvalidStatus(status.as_u16())),
     }
 
 }
@@ -364,15 +383,16 @@ async fn request_xbl_xsts(
     let res = client
         .post("https://xsts.auth.xboxlive.com/xsts/authorize")
         .json(&req)
-        .send().await?;
+        .send().await
+        .map_err(AuthError::new_reqwest)?;
 
     match res.status() {
-        StatusCode::OK => Ok(res.json::<XblSuccess>().await?),
+        StatusCode::OK => Ok(res.json::<XblSuccess>().await.map_err(AuthError::new_reqwest)?),
         StatusCode::UNAUTHORIZED => {
-            let res = res.json::<XblError>().await?;
+            let res = res.json::<XblError>().await.map_err(AuthError::new_reqwest)?;
             return Err(AuthError::Unknown(res.message));
         }
-        status => return Err(AuthError::InvalidStatus(status)),
+        status => return Err(AuthError::InvalidStatus(status.as_u16())),
     }
 
 }
@@ -390,11 +410,12 @@ async fn request_minecraft_with_xbl(
     let res = client
         .post("https://api.minecraftservices.com/authentication/login_with_xbox")
         .json(&req)
-        .send().await?;
+        .send().await
+        .map_err(AuthError::new_reqwest)?;
 
     let mc_res = match res.status() {
-        StatusCode::OK => res.json::<MinecraftWithXblSuccess>().await?,
-        status => return Err(AuthError::InvalidStatus(status)),
+        StatusCode::OK => res.json::<MinecraftWithXblSuccess>().await.map_err(AuthError::new_reqwest)?,
+        status => return Err(AuthError::InvalidStatus(status.as_u16())),
     };
 
     if mc_res.token_type != "Bearer" {
@@ -413,14 +434,15 @@ async fn request_minecraft_profile(
     let res = client
         .get("https://api.minecraftservices.com/minecraft/profile")
         .bearer_auth(access_token)
-        .send().await?;
+        .send().await
+        .map_err(AuthError::new_reqwest)?;
 
     match res.status() {
-        StatusCode::OK => Ok(res.json::<MinecraftProfileSuccess>().await?),
+        StatusCode::OK => Ok(res.json::<MinecraftProfileSuccess>().await.map_err(AuthError::new_reqwest)?),
         StatusCode::FORBIDDEN => return Err(AuthError::Unknown(format!("Forbidden access to api.minecraftservices.com, likely because the application lacks approval from Mojang, see https://minecraft.wiki/w/Microsoft_authentication."))),
         StatusCode::UNAUTHORIZED => return Err(AuthError::OutdatedToken),
         StatusCode::NOT_FOUND => return Err(AuthError::DoesNotOwnGame),
-        status => return Err(AuthError::InvalidStatus(status)),
+        status => return Err(AuthError::InvalidStatus(status.as_u16())),
     }
 
 }
@@ -442,28 +464,48 @@ where
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum AuthError {
-    /// Reqwest HTTP-related error.
-    #[error("reqwest: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    /// A JWT decoding error happened.
-    #[error("jwt: {0}")]
-    Jwt(#[from] jsonwebtoken::errors::Error),
-    /// An unknown HTTP status has been received.
-    #[error("invalid status: {0}")]
-    InvalidStatus(reqwest::StatusCode),
-    /// An unknown, unhandled error happened.
-    #[error("unknown: {0}")]
-    Unknown(String),
     /// Authorization declined by the user.
     #[error("authorization declined")]
     AuthorizationDeclined,
     /// Time out of the authentication flow.
     #[error("authorization timeout")]
     AuthorizationTimedOut,
+    /// When refreshing the Minecraft profile, this tells that the token is outdated, but
+    /// the caller can still try to refresh it.
     #[error("outdated token")]
     OutdatedToken,
     #[error("does not own the game")]
     DoesNotOwnGame,
+    /// An unknown HTTP status has been received.
+    #[error("invalid status: {0}")]
+    InvalidStatus(u16),
+    /// An unknown, unhandled error happened.
+    #[error("unknown: {0}")]
+    Unknown(String),
+    /// A generic error type for internal and third-party errors that may change depending
+    /// on the actual implementation.
+    /// 
+    /// The current implementation yields the following error types:
+    /// 
+    /// - [`reqwest::Error`] for any error related to HTTP requests.
+    /// 
+    /// - [`jsonwebtoken::errors::Error`] for any error related to decoding JWTs.
+    #[error("internal: {0}")]
+    Internal(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl AuthError {
+
+    #[inline]
+    fn new_reqwest(e: reqwest::Error) -> Self {
+        Self::Internal(Box::new(e))
+    }
+
+    #[inline]
+    fn new_jwt(e: jsonwebtoken::errors::Error) -> Self {
+        Self::Internal(Box::new(e))
+    }
+
 }
 
 /// (URL encoded)

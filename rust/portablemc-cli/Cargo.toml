@@ -23,11 +23,13 @@ xmlparser.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 
-webbrowser.workspace = true
-
 reqwest.workspace = true
 
+jsonwebtoken.workspace = true
+
 zip.workspace = true
+
+webbrowser.workspace = true
 
 clap.workspace = true
 ctrlc.workspace = true

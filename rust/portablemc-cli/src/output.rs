@@ -218,7 +218,7 @@ impl<const BG: bool> Log<'_, BG> {
             // we use cursor save/restore position in order to easily support wrapping.
             if mode.log_newline {
                 // If the line is currently empty, save the cursor position!
-                print!("\x1b[s");
+                lock.write_all(b"\x1b[s").unwrap();
             } else {
                 // If the line is not empty, restore saved cursor position and clear line.
                 lock.write_all(b"\x1b[u\x1b[K").unwrap();

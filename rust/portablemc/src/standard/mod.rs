@@ -1833,14 +1833,15 @@ pub enum Error {
     #[error("download resources cancelled")]
     DownloadResourcesCancelled {  },
     /// There are some errors in the given download batch.
-    #[error("download")]
+    #[error("download: {} errors over {} entries", batch.errors_count(), batch.len())]
     Download {
         batch: download::BatchResult,
     },
     /// A generic error that originates from internal or third-party dependencies. The
     /// goal of this is to provide a backward-compatible error variant that can be 
     /// dynamically checked and downcast if needed, the actual error types are not
-    /// guaranteed to be present in future versions.
+    /// guaranteed to be present in future versions. It's associated to an origin 
+    /// string that helps knowing the location of the issue.
     /// 
     /// Currently these are the error types that can be produced by PortableMC:
     /// 
@@ -1852,9 +1853,10 @@ pub enum Error {
     /// - [`zip::result::ZipError`] for errors related to ZIP extractions.
     /// 
     /// - [`reqwest::Error`] for errors related to HTTP requests.
-    #[error("generic: {error} @ {origin}")]
-    Generic {
-        error: Box<dyn std::error::Error>,
+    #[error("internal: {error} @ {origin}")]
+    Internal {
+        #[source]
+        error: Box<dyn std::error::Error + Send + Sync>,
         origin: Box<str>,
     },
 }
@@ -1878,22 +1880,22 @@ impl Error {
 
     #[inline]
     pub(crate) fn new_io(error: io::Error, origin: impl Into<Box<str>>) -> Self {
-        Self::Generic { error: Box::new(error), origin: origin.into() }
+        Self::Internal { error: Box::new(error), origin: origin.into() }
     }
     
     #[inline]
     pub(crate) fn new_json(error: serde_path_to_error::Error<serde_json::Error>, origin: impl Into<Box<str>>) -> Self {
-        Self::Generic { error: Box::new(error), origin: origin.into() }
+        Self::Internal { error: Box::new(error), origin: origin.into() }
     }
     
     #[inline]
     pub(crate) fn new_zip(error: zip::result::ZipError, origin: impl Into<Box<str>>) -> Self {
-        Self::Generic { error: Box::new(error), origin: origin.into() }
+        Self::Internal { error: Box::new(error), origin: origin.into() }
     }
 
     #[inline]
     pub(crate) fn new_reqwest(error: reqwest::Error, origin: impl Into<Box<str>>) -> Self {
-        Self::Generic { error: Box::new(error), origin: origin.into() }
+        Self::Internal { error: Box::new(error), origin: origin.into() }
     }
 
     #[inline]

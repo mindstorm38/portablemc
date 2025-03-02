@@ -168,6 +168,13 @@ impl download::Handler for CommonHandler<'_> {
             self.download_start = None;
         }
 
+        // No logging when no size is actually downloaded, for example when downloading
+        // already cached files. But if these files needs to be re-downloaded, then the
+        // download will be shown.
+        if size == 0 {
+            return;
+        }
+
         let progress = (size as f32 / total_size as f32).min(1.0) * 100.0;
         let (speed_fmt, speed_suffix) = format::number_si_unit(speed);
         let (size_fmt, size_suffix) = format::number_si_unit(size as f32);
@@ -626,21 +633,11 @@ pub fn log_standard_error(cli: &mut Cli, error: &standard::Error) {
         Error::DownloadResourcesCancelled {  } => {
             panic!("should not happen because the handler does not cancel downloading");
         }
-        Error::Generic { error, origin } => {
-            if let Some(error) = error.downcast_ref::<io::Error>() {
-                log_io_error(cli, error, &origin);
-            } else if let Some(error) = error.downcast_ref::<serde_json::Error>() {
-                log_json_error(cli, error, None, &origin);
-            } else if let Some(error) = error.downcast_ref::<serde_path_to_error::Error<serde_json::Error>>() {
-                log_json_error(cli, error.inner(), Some(error.path()), &origin);
-            } else if let Some(error) = error.downcast_ref::<zip::result::ZipError>() {
-                log_zip_error(cli, error, &origin);
-            } else if let Some(error) = error.downcast_ref::<reqwest::Error>() {
-                log_reqwest_error(cli, error, &origin);
-            }
-        }
         Error::Download { batch } => {
             log_download_error(cli, batch);
+        }
+        Error::Internal { error, origin } => {
+            log_internal_error(cli, error, &origin);
         }
         _ => todo!(),
     }
@@ -855,30 +852,6 @@ pub fn log_download_error(cli: &mut Cli, batch: &download::BatchResult) {
         log.additional(format_args!("-> {}", error.file().display()));
         
         match error.kind() {
-            EntryErrorKind::Reqwest(error) => {
-                log.arg("request");
-                log.arg(&error);
-                log.args(error.source());
-                if let Some(source) = error.source() {
-                    log.additional(format_args!("   {error} (source: {source})"));
-                } else {
-                    log.additional(format_args!("   {error}"));
-                }
-            }
-            EntryErrorKind::Io(error) => {
-                log.arg("io");
-                if let Some(error_kind_code) = io_error_kind_code(&error) {
-                    log.arg(error_kind_code);
-                } else {
-                    log.arg(format_args!("unknown:{error}"));
-                }
-                log.additional(format_args!("   I/O error: {error}"));
-            }
-            EntryErrorKind::InvalidStatus(status) => {
-                log.arg("invalid_status");
-                log.arg(status);
-                log.additional(format_args!("   Invalid status: {status}"));
-            }
             EntryErrorKind::InvalidSize => {
                 log.arg("invalid_size");
                 log.additional(format_args!("   Invalid size"));
@@ -887,24 +860,69 @@ pub fn log_download_error(cli: &mut Cli, batch: &download::BatchResult) {
                 log.arg("invalid_size");
                 log.additional(format_args!("   Invalid SHA-1"));
             }
+            EntryErrorKind::InvalidStatus(status) => {
+                log.arg("invalid_status");
+                log.arg(status);
+                log.additional(format_args!("   Invalid status: {status}"));
+            }
+            EntryErrorKind::Internal(error) => {
+                if let Some(error) = error.downcast_ref::<io::Error>() {
+
+                    log.arg("io");
+                    if let Some(error_kind_code) = io_error_kind_code(&error) {
+                        log.arg(error_kind_code);
+                    } else {
+                        log.arg(format_args!("unknown:{error}"));
+                    }
+                    log.additional(format_args!("   I/O error: {error}"));
+
+                } else if let Some(error) = error.downcast_ref::<reqwest::Error>() {
+
+                    log.arg("request");
+                    log.arg(&error);
+                    log.args(error.source());
+                    if let Some(source) = error.source() {
+                        log.additional(format_args!("   {error} (source: {source})"));
+                    } else {
+                        log.additional(format_args!("   {error}"));
+                    }
+
+                } else {
+
+                    log.arg("internal");
+                    log.arg(error);
+                    log.additional(format_args!("   Internal error: {error}"));
+                    
+                }
+            }
         }
 
     }
 
 }
 
-/// Common function to log a reqwest (HTTP) error.
-pub fn log_reqwest_error(cli: &mut Cli, error: &reqwest::Error, origin: &str) {
-    let mut log = cli.out.log("error_reqwest");
-    log.args(error.url());
-    log.args(error.source());
-    log.arg(origin);
-    log.newline();
-    log.error(format_args!("Reqwest error: {error}"));
-    if let Some(source) = error.source() {
-        log.additional(format_args!("At {source}"));
+/// Common function to log an internal and generic error.
+pub fn log_internal_error(cli: &mut Cli, error: &Box<dyn std::error::Error + Send + Sync>, origin: &str) {
+    if let Some(error) = error.downcast_ref::<io::Error>() {
+        log_io_error(cli, error, origin);
+    } else if let Some(error) = error.downcast_ref::<reqwest::Error>() {
+        log_reqwest_error(cli, error, origin);
+    } else if let Some(error) = error.downcast_ref::<serde_json::Error>() {
+        log_json_error(cli, error, None, origin);
+    } else if let Some(error) = error.downcast_ref::<serde_path_to_error::Error<serde_json::Error>>() {
+        log_json_error(cli, error.inner(), Some(error.path()), origin);
+    } else if let Some(error) = error.downcast_ref::<zip::result::ZipError>() {
+        log_zip_error(cli, error, origin);
+    } else if let Some(error) = error.downcast_ref::<jsonwebtoken::errors::Error>() {
+        cli.out.log("error_jwt")
+            .error(format_args!("JWT error: {error}"));
+    } else {
+        cli.out.log("error_internal")
+            .arg(error)
+            .newline()
+            .error(format_args!("Internal error: {error}"))
+            .additional(format_args!("At {origin}"));
     }
-    log.additional(format_args!("At {origin}"));
 }
 
 /// Common function to log an I/O error to the user.
@@ -925,6 +943,20 @@ pub fn log_io_error(cli: &mut Cli, error: &io::Error, origin: &str) {
         .error(format_args!("I/O error: {error}"))
         .additional(format_args!("At {origin}"));
 
+}
+
+/// Common function to log a reqwest (HTTP) error.
+pub fn log_reqwest_error(cli: &mut Cli, error: &reqwest::Error, origin: &str) {
+    let mut log = cli.out.log("error_reqwest");
+    log.args(error.url());
+    log.args(error.source());
+    log.arg(origin);
+    log.newline();
+    log.error(format_args!("Reqwest error: {error}"));
+    if let Some(source) = error.source() {
+        log.additional(format_args!("At {source}"));
+    }
+    log.additional(format_args!("At {origin}"));
 }
 
 /// Common function to log a JSON serde error.
@@ -959,21 +991,6 @@ pub fn log_zip_error(cli: &mut Cli, error: &zip::result::ZipError, origin: &str)
 /// Log a database error.
 pub fn log_msa_auth_error(cli: &mut Cli, error: &msa::AuthError) {
     match error {
-        msa::AuthError::Reqwest(error) => log_reqwest_error(cli, error, "microsoft authentication"),
-        msa::AuthError::Jwt(error) => {
-            cli.out.log("error_jwt")
-                .error(format_args!("JWT error: {error}"));
-        }
-        msa::AuthError::InvalidStatus(status) => {
-            cli.out.log("error_auth_invalid_status")
-                .arg(status)
-                .error(format_args!("Invalid status while authenticating: {status}"));
-        }
-        msa::AuthError::Unknown(error) => {
-            cli.out.log("error_auth_unknown")
-                .arg(&error)
-                .error(format_args!("Unknown authentication error: {error}"));
-        }
         msa::AuthError::AuthorizationDeclined => {
             cli.out.log("error_auth_authorization_declined")
                 .error("Authorization request has been declined");
@@ -989,6 +1006,19 @@ pub fn log_msa_auth_error(cli: &mut Cli, error: &msa::AuthError) {
         msa::AuthError::DoesNotOwnGame => {
             cli.out.log("error_auth_does_not_own_game")
                 .error("The account you logged in doesn't own Minecraft");
+        }
+        msa::AuthError::InvalidStatus(status) => {
+            cli.out.log("error_auth_invalid_status")
+                .arg(status)
+                .error(format_args!("Invalid status while authenticating: {status}"));
+        }
+        msa::AuthError::Unknown(error) => {
+            cli.out.log("error_auth_unknown")
+                .arg(&error)
+                .error(format_args!("Unknown authentication error: {error}"));
+        }
+        msa::AuthError::Internal(error) => {
+            log_internal_error(cli, error, "microsoft authentication");
         }
         _ => todo!()
     }
