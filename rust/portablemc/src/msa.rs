@@ -627,27 +627,6 @@ struct MinecraftProfileSuccess {
     id: Uuid,
     /// The username of the Minecraft account.
     name: String,
-    // skins: Vec<MinecraftProfileSkin>,
-    // capes: Vec<MinecraftProfileCape>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-#[allow(unused)]
-struct MinecraftProfileSkin {
-    id: Uuid,
-    state: String,
-    url: String,
-    variant: String,
-    alias: String,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-#[allow(unused)]
-struct MinecraftProfileCape {
-    id: Uuid,
-    state: String,
-    url: String,
-    alias: String,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
