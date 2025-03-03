@@ -623,6 +623,7 @@ pub enum SearchKind {
     /// Search for Forge loader versions.
     Forge,
     /// Search for NeoForge loader versions.
+    #[value(name = "neoforge")]
     NeoForge,
 }
 
