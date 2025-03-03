@@ -324,6 +324,18 @@ pub struct StartArgs {
     /// This is incompatible with other Quick Play modes.
     #[arg(long, value_name = "ID", conflicts_with = "join_server", conflicts_with = "join_world")]
     pub join_realms: Option<String>,
+    /// Change the default username of the player.
+    /// 
+    /// When the '--auth' (-a) flag is enabled, this argument is used, after the 
+    /// '--uuid' (-i) one, to find the authenticated account to start the game with.
+    #[arg(short = 'u', long, value_name = "NAME")]
+    pub username: Option<String>,
+    /// Change the default UUID of the player.
+    /// 
+    /// When the '--auth' (-a) flag is enabled, this argument is used, before the 
+    /// '--username' (-u) one, to find the authenticated account to start the game with.
+    #[arg(short = 'i', long)]
+    pub uuid: Option<Uuid>,
     /// Enable authentication for the username or UUID.
     /// 
     /// When enabled, the launcher will look for specified '--uuid', or '--username' as
@@ -339,18 +351,6 @@ pub struct StartArgs {
     /// is specified, only one of them can be used at the same time with this flag.
     #[arg(short = 'a', long)]
     pub auth: bool,
-    /// Change the default username of the player.
-    /// 
-    /// When the '--auth' (-a) is enabled, this argument is used, after the '--uuid' (-i)
-    /// one, to find the authenticated account to start the game with.
-    #[arg(short = 'u', long, value_name = "NAME")]
-    pub username: Option<String>,
-    /// Change the default UUID of the player.
-    /// 
-    /// When the '--auth' (-a) is enabled, this argument is used, before the '--username' 
-    /// (-u) one, to find the authenticated account to start the game with.
-    #[arg(short = 'i', long)]
-    pub uuid: Option<Uuid>,
 }
 
 /// Represent all possible version the launcher can start.
