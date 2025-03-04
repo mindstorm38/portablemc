@@ -111,7 +111,7 @@ pub struct Cli {
 
 /// Generic handler for various event handlers type (download and installers).
 #[derive(Debug)]
-pub struct CommonHandler<'a> {
+pub struct LogHandler<'a> {
     /// Handle to the output.
     out: &'a mut Output,
     /// If a download is running, this contains the instant it started, for speed calc.
@@ -123,9 +123,13 @@ pub struct CommonHandler<'a> {
     api_name: &'static str,
     /// The JVM major version being loaded.
     jvm_major_version: u32,
+    /// Class files to add.
+    pub include_class_files: Vec<PathBuf>,
+    /// Natives files to add.
+    pub include_natives_files: Vec<PathBuf>,
 }
 
-impl<'a> CommonHandler<'a> {
+impl<'a> LogHandler<'a> {
 
     pub fn new(out: &'a mut Output) -> Self {
         Self {
@@ -134,6 +138,8 @@ impl<'a> CommonHandler<'a> {
             api_id: "",
             api_name: "",
             jvm_major_version: 0,
+            include_class_files: Vec::new(),
+            include_natives_files: Vec::new(),
         }
     }
     
@@ -154,7 +160,7 @@ impl<'a> CommonHandler<'a> {
 
 }
 
-impl download::Handler for CommonHandler<'_> {
+impl download::Handler for LogHandler<'_> {
     fn progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
         
         if self.download_start.is_none() {
@@ -194,7 +200,7 @@ impl download::Handler for CommonHandler<'_> {
     }
 }
 
-impl standard::Handler for CommonHandler<'_> {
+impl standard::Handler for LogHandler<'_> {
 
     fn loaded_features(&mut self, features: &HashSet<String>) {
         
@@ -268,10 +274,19 @@ impl standard::Handler for CommonHandler<'_> {
             .pending("Loading libraries");
     }
 
+    fn filter_libraries(&mut self, libraries: &mut Vec<LoadedLibrary>) {
+        let _ = libraries;  // FIXME: exclude libs
+    }
+
     fn loaded_libraries(&mut self, libraries: &[LoadedLibrary]) {
         self.out.log("loaded_libraries")
             .args(libraries.iter().map(|lib| &lib.gav))
             .pending(format_args!("Loaded {} libraries, now verifying", libraries.len()));
+    }
+
+    fn filter_libraries_files(&mut self, class_files: &mut Vec<PathBuf>, natives_files: &mut Vec<PathBuf>) {
+        class_files.extend_from_slice(&self.include_class_files);
+        natives_files.extend_from_slice(&self.include_natives_files);
     }
 
     fn loaded_libraries_files(&mut self, class_files: &[PathBuf], natives_files: &[PathBuf]) {
@@ -408,7 +423,7 @@ impl standard::Handler for CommonHandler<'_> {
 
 }
 
-impl mojang::Handler for CommonHandler<'_> {
+impl mojang::Handler for LogHandler<'_> {
     
     fn invalidated_version(&mut self, version: &str) {
         self.out.log("invalidated_version")
@@ -467,7 +482,7 @@ impl mojang::Handler for CommonHandler<'_> {
 
 }
 
-impl fabric::Handler for CommonHandler<'_> {
+impl fabric::Handler for LogHandler<'_> {
 
     fn fetch_loader_version(&mut self, game_version: &str, loader_version: &str) {
         let (api_id, api_name) = (self.api_id, self.api_name);
@@ -487,7 +502,7 @@ impl fabric::Handler for CommonHandler<'_> {
 
 }
 
-impl forge::Handler for CommonHandler<'_> {
+impl forge::Handler for LogHandler<'_> {
 
     fn installing(&mut self, tmp_dir: &Path, reason: forge::InstallReason) {
         

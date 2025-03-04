@@ -271,7 +271,8 @@ pub struct StartArgs {
     /// This argument can be specified multiple times.
     #[arg(long, value_name = "FILTER")]
     pub exclude_lib: Vec<String>,  // TODO: Use a specific type.
-    /// Include files in the binaries directory, usually shared objects.
+    /// Include files in the binaries directory, usually shared objects or archives (ZIP
+    /// or JAR) that contains binaries.
     /// 
     /// Those files are symlinked (or copied if not possible) to the binaries directory 
     /// where the game will check for natives to load. The main use case is for including
@@ -283,7 +284,13 @@ pub struct StartArgs {
     /// 
     /// This argument can be specified multiple times.
     #[arg(long, value_name = "PATH")]
-    pub include_bin: Vec<PathBuf>,
+    pub include_natives: Vec<PathBuf>,
+    /// Include class files in the class path of the launching game, this should usually
+    /// be JAR archives.
+    /// 
+    /// This argument can be specified multiple times.
+    #[arg(long, value_name = "PATH")]
+    pub include_class: Vec<PathBuf>,
     /// The path to the JVM executable, 'java' (or 'javaw.exe' on Windows).
     /// 
     /// This is used to launch the game, it has a special use-case with Forge and NeoForge
