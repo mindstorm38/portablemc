@@ -11,7 +11,7 @@ use portablemc::{mojang, fabric, forge};
 use crate::parse::{SearchArgs, SearchKind, SearchChannel, SearchLatestChannel};
 use crate::format::{TimeDeltaFmt, DATE_FORMAT};
 
-use super::{Cli, CommonHandler, log_mojang_error, log_forge_error, log_reqwest_error, log_io_error};
+use super::{Cli, LogHandler, log_mojang_error, log_forge_error, log_reqwest_error, log_io_error};
 
 
 pub fn search(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
@@ -38,7 +38,7 @@ fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     use mojang::Manifest;
 
     // Initial requests...
-    let mut handler = CommonHandler::new(&mut cli.out);
+    let mut handler = LogHandler::new(&mut cli.out);
     let manifest = match Manifest::request(&mut handler) {
         Ok(manifest) => manifest,
         Err(e) => {

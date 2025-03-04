@@ -90,6 +90,16 @@ macro_rules! trait_event_handler {
             )*
         }
 
+        // Implementation for tuples, calling both handlers each time.
+        impl<H0: $name, H1: $name> $name for (H0, H1) {
+            $( 
+                fn $func ( &mut self $( , $arg : $arg_ty )* ) $( -> $ret_ty )? {
+                    $name::$func( &mut self.0 $(, $arg)* );
+                    $name::$func( &mut self.1 $(, $arg)* )  // We only keep last value.
+                }
+            )*
+        }
+
     };
 }
 

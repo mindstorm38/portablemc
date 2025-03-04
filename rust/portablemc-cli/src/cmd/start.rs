@@ -14,7 +14,7 @@ use crate::parse::{StartArgs, StartResolution, StartVersion, StartJvmPolicy};
 use crate::format::TIME_FORMAT;
 use crate::output::LogLevel;
 
-use super::{Cli, CommonHandler, log_io_error, log_mojang_error, log_fabric_error, log_forge_error, log_msa_database_error};
+use super::{Cli, LogHandler, log_io_error, log_mojang_error, log_fabric_error, log_forge_error, log_msa_database_error};
 
 
 /// The child is shared in order to be properly killed when the launcher exits, because
@@ -33,7 +33,7 @@ pub fn start(cli: &mut Cli, args: &StartArgs) -> ExitCode {
         StartVersion::MojangRelease |
         StartVersion::MojangSnapshot => {
 
-            let handler = CommonHandler::new(&mut cli.out);
+            let handler = LogHandler::new(&mut cli.out);
             let repo = match mojang::Manifest::request(handler) {
                 Ok(repo) => repo,
                 Err(e) => {
@@ -74,7 +74,7 @@ pub fn start(cli: &mut Cli, args: &StartArgs) -> ExitCode {
                 Some(game_version) => game_version.clone(),
                 None => {
                     
-                    let handler = CommonHandler::new(&mut cli.out);
+                    let handler = LogHandler::new(&mut cli.out);
                     let manifest = match mojang::Manifest::request(handler) {
                         Ok(repo) => repo,
                         Err(e) => {
@@ -113,8 +113,11 @@ fn start_mojang(
         return ExitCode::FAILURE;
     }
 
-    let mut handler = CommonHandler::new(&mut cli.out);
-    match inst.install(&mut handler) {
+    let mut handler = LogHandler::new(&mut cli.out);
+    handler.include_class_files.extend_from_slice(&args.include_class);
+    handler.include_natives_files.extend_from_slice(&args.include_natives);
+    
+    match inst.install(handler) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
             log_mojang_error(cli, &e);
@@ -138,8 +141,11 @@ fn start_fabric(
         return ExitCode::FAILURE;
     }
     
-    let mut handler = CommonHandler::new(&mut cli.out);
+    let mut handler = LogHandler::new(&mut cli.out);
     handler.set_fabric_loader(loader);
+    handler.include_class_files.extend_from_slice(&args.include_class);
+    handler.include_natives_files.extend_from_slice(&args.include_natives);
+
     match inst.install(handler) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
@@ -163,8 +169,11 @@ fn start_forge(
         return ExitCode::FAILURE;
     }
 
-    let mut handler = CommonHandler::new(&mut cli.out);
+    let mut handler = LogHandler::new(&mut cli.out);
     handler.set_forge_loader(inst.loader());
+    handler.include_class_files.extend_from_slice(&args.include_class);
+    handler.include_natives_files.extend_from_slice(&args.include_natives);
+    
     match inst.install(handler) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
@@ -432,9 +441,7 @@ fn run_command(cli: &mut Cli, mut command: Command) -> io::Result<()> {
                 }
 
             }
-        }
-
-        if xml.is_none() {
+        } else {
 
             let buffer_str = buffer_str.trim_ascii();
 
