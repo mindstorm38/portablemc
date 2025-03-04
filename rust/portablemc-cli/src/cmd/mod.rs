@@ -123,10 +123,6 @@ pub struct LogHandler<'a> {
     api_name: &'static str,
     /// The JVM major version being loaded.
     jvm_major_version: u32,
-    /// Class files to add.
-    pub include_class_files: Vec<PathBuf>,
-    /// Natives files to add.
-    pub include_natives_files: Vec<PathBuf>,
 }
 
 impl<'a> LogHandler<'a> {
@@ -138,8 +134,6 @@ impl<'a> LogHandler<'a> {
             api_id: "",
             api_name: "",
             jvm_major_version: 0,
-            include_class_files: Vec::new(),
-            include_natives_files: Vec::new(),
         }
     }
     
@@ -274,19 +268,10 @@ impl standard::Handler for LogHandler<'_> {
             .pending("Loading libraries");
     }
 
-    fn filter_libraries(&mut self, libraries: &mut Vec<LoadedLibrary>) {
-        let _ = libraries;  // FIXME: exclude libs
-    }
-
     fn loaded_libraries(&mut self, libraries: &[LoadedLibrary]) {
         self.out.log("loaded_libraries")
             .args(libraries.iter().map(|lib| &lib.gav))
             .pending(format_args!("Loaded {} libraries, now verifying", libraries.len()));
-    }
-
-    fn filter_libraries_files(&mut self, class_files: &mut Vec<PathBuf>, natives_files: &mut Vec<PathBuf>) {
-        class_files.extend_from_slice(&self.include_class_files);
-        natives_files.extend_from_slice(&self.include_natives_files);
     }
 
     fn loaded_libraries_files(&mut self, class_files: &[PathBuf], natives_files: &[PathBuf]) {

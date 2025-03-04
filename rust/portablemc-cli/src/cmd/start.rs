@@ -1,14 +1,15 @@
 //! Implementation of the 'start' command.
 
+use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::io::{self, BufRead, BufReader};
 use std::sync::Mutex;
 
 use chrono::{DateTime, Local, Utc};
 
-use portablemc::standard::{self, Game, JvmPolicy};
+use portablemc::standard::{self, Game, JvmPolicy, LoadedLibrary};
 use portablemc::mojang::{self, QuickPlay};
-use portablemc::{fabric, forge};
+use portablemc::{download, fabric, forge};
 
 use crate::parse::{StartArgs, StartResolution, StartVersion, StartJvmPolicy};
 use crate::format::TIME_FORMAT;
@@ -113,11 +114,10 @@ fn start_mojang(
         return ExitCode::FAILURE;
     }
 
-    let mut handler = LogHandler::new(&mut cli.out);
-    handler.include_class_files.extend_from_slice(&args.include_class);
-    handler.include_natives_files.extend_from_slice(&args.include_natives);
-    
-    match inst.install(handler) {
+    let log_handler = LogHandler::new(&mut cli.out);
+    let start_handler = StartHandler::new(args);
+
+    match inst.install((log_handler, start_handler)) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
             log_mojang_error(cli, &e);
@@ -141,12 +141,11 @@ fn start_fabric(
         return ExitCode::FAILURE;
     }
     
-    let mut handler = LogHandler::new(&mut cli.out);
-    handler.set_fabric_loader(loader);
-    handler.include_class_files.extend_from_slice(&args.include_class);
-    handler.include_natives_files.extend_from_slice(&args.include_natives);
+    let mut log_handler = LogHandler::new(&mut cli.out);
+    log_handler.set_fabric_loader(loader);
+    let start_handler = StartHandler::new(args);
 
-    match inst.install(handler) {
+    match inst.install((log_handler, start_handler)) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
             log_fabric_error(cli, &e, loader);
@@ -169,12 +168,11 @@ fn start_forge(
         return ExitCode::FAILURE;
     }
 
-    let mut handler = LogHandler::new(&mut cli.out);
-    handler.set_forge_loader(inst.loader());
-    handler.include_class_files.extend_from_slice(&args.include_class);
-    handler.include_natives_files.extend_from_slice(&args.include_natives);
+    let mut log_handler = LogHandler::new(&mut cli.out);
+    log_handler.set_forge_loader(inst.loader());
+    let start_handler = StartHandler::new(args);
     
-    match inst.install(handler) {
+    match inst.install((log_handler, start_handler)) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
             log_forge_error(cli, &e, inst.loader());
@@ -496,7 +494,7 @@ fn run_command(cli: &mut Cli, mut command: Command) -> io::Result<()> {
 
 }
 
-
+/// Internal structure used to continuously parse the stream of XML logs out of the game.
 #[derive(Debug, Default)]
 struct XmlLogParser {
     /// The buffer used to stack buffers while we have a parsing error at the end of it.
@@ -694,3 +692,46 @@ impl XmlLogParser {
     }
 
 }
+
+/// The start handler that apply modifications to the game installation.
+struct StartHandler<'a> {
+    args: &'a StartArgs,
+}
+
+impl<'a> StartHandler<'a> {
+
+    pub fn new(args: &'a StartArgs) -> Self {
+        Self {
+            args,
+        }
+    }
+
+}
+
+impl download::Handler for StartHandler<'_> {  }
+impl standard::Handler for StartHandler<'_> {
+
+    fn filter_libraries(&mut self, libraries: &mut Vec<LoadedLibrary>) {
+
+        if self.args.exclude_lib.is_empty() {
+            return;  // When no filter...
+        }
+
+        libraries.retain(|lib| {
+            // If any pattern matches: .any(...) -> !true -> false (don't keep)
+            !self.args.exclude_lib.iter()
+                .any(|pattern| pattern.matches(&lib.gav))
+        });
+
+    }
+
+    fn filter_libraries_files(&mut self, class_files: &mut Vec<PathBuf>, natives_files: &mut Vec<PathBuf>) {
+        class_files.extend_from_slice(&self.args.include_class);
+        natives_files.extend_from_slice(&self.args.include_natives);
+    }
+
+}
+
+impl mojang::Handler for StartHandler<'_> {  }
+impl fabric::Handler for StartHandler<'_> {  }
+impl forge::Handler for StartHandler<'_> {  }

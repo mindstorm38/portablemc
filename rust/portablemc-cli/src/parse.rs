@@ -7,6 +7,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
 use portablemc::{fabric, forge};
+use portablemc::maven::Gav;
 
 
 // ================= //
@@ -145,28 +146,6 @@ pub struct StartArgs {
     /// used to debug installation paths while using verbose output.
     #[arg(long)]
     pub dry: bool,
-
-    // /// Set the versions directory where all version and their metadata are stored.
-    // /// 
-    // /// This is applied after --main-dir has been applied.
-    // #[arg(long, env = "PMC_VERSIONS_DIR", value_name = "PATH")]
-    // pub versions_dir: Option<PathBuf>,
-    // /// Set the libraries directory where all Java libraries are stored.
-    // /// 
-    // /// This is applied after --main-dir has been applied.
-    // #[arg(long, env = "PMC_LIBRARIES_DIR", value_name = "PATH")]
-    // pub libraries_dir: Option<PathBuf>,
-    // /// Set the assets directory where all game assets are stored.
-    // /// 
-    // /// This is applied after --main-dir has been applied.
-    // #[arg(long, env = "PMC_ASSETS_DIR", value_name = "PATH")]
-    // pub assets_dir: Option<PathBuf>,
-    // /// Set the JVM directory where Mojang's Java Virtual Machines are stored if needed.
-    // /// 
-    // /// This is applied after --main-dir has been applied.
-    // #[arg(long, env = "PMC_JVM_DIR", value_name = "PATH")]
-    // pub jvm_dir: Option<PathBuf>,
-
     /// Set the binaries directory where all binary objects are extracted before running
     /// the game, a sub-directory is created inside this directory that is uniquely named
     /// after a hash of the version's libraries.
@@ -259,8 +238,9 @@ pub struct StartArgs {
     /// 
     /// The filter is checked against each GAV (Group-Artifact-Version) of each library
     /// resolved in the version metadata and remove each library matching the filter.
-    /// It's using the following syntax, requiring the artifact name and optionally
-    /// the version and the classifier: <artifact>[:[<version>][:<classifier>]].
+    /// It's using the following syntax, this is almost the same as a standard GAV but
+    /// it allows having an asterisk '*' as a placeholder for any of the 'group', 
+    /// 'artifact' or 'version': <group>:<artifact>:<version>[:<classifier>][@<extension>].
     /// 
     /// A typical use case for this argument would be to exclude some natives-providing
     /// library (such as LWJGL libraries with 'natives' classifier) and then provide 
@@ -270,9 +250,9 @@ pub struct StartArgs {
     /// 
     /// This argument can be specified multiple times.
     #[arg(long, value_name = "FILTER")]
-    pub exclude_lib: Vec<String>,  // TODO: Use a specific type.
-    /// Include files in the binaries directory, usually shared objects or archives (ZIP
-    /// or JAR) that contains binaries.
+    pub exclude_lib: Vec<StartExcludeLibPattern>,
+    /// Include a natives file in the binaries directory, usually shared objects or 
+    /// archives (ZIP or JAR) that contains such files.
     /// 
     /// Those files are symlinked (or copied if not possible) to the binaries directory 
     /// where the game will check for natives to load. The main use case is for including
@@ -285,8 +265,8 @@ pub struct StartArgs {
     /// This argument can be specified multiple times.
     #[arg(long, value_name = "PATH")]
     pub include_natives: Vec<PathBuf>,
-    /// Include class files in the class path of the launching game, this should usually
-    /// be JAR archives.
+    /// Include a class file in the class path of the launching game, this should usually
+    /// be a JAR archive.
     /// 
     /// This argument can be specified multiple times.
     #[arg(long, value_name = "PATH")]
@@ -531,6 +511,83 @@ impl FromStr for StartResolution {
             width: width.parse().map_err(|e| format!("invalid resolution width: {e}"))?,
             height: height.parse().map_err(|e| format!("invalid resolution height: {e}"))?,
         })
+
+    }
+
+}
+
+#[derive(Debug, Clone)]
+pub struct StartExcludeLibPattern(Gav);
+
+impl FromStr for StartExcludeLibPattern {
+
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Gav::from_str(s)
+            .map_err(|()| format!("invalid exclude lib pattern, expected <group>:<artifact>:<version>[:<classifier>][@<extension>]"))
+            .map(Self)
+    }
+
+}
+
+impl StartExcludeLibPattern {
+
+    /// Return true if that pattern matches the given GAV.
+    pub fn matches(&self, gav: &Gav) -> bool {
+
+        /// Internal function to match a haystack against a pattern that may contain an
+        /// asterisk '*' that allows wildcard matching. Only the first asterisk is used.
+        fn match_wildcard(pattern: &str, mut haystack: &str) -> bool {
+            
+            let Some((left, right)) = pattern.split_once('*') else {
+                return pattern == haystack;
+            };
+
+            if left.is_empty() && right.is_empty() {
+                return true;  // Match everything
+            }
+
+            if !left.is_empty() {
+                if haystack.starts_with(left) {
+                    // Strip of the left part from the haystack.
+                    haystack = &haystack[left.len()..];
+                } else {
+                    return false;
+                }
+            }
+
+            right.is_empty() || haystack.ends_with(right)
+
+        }
+
+        if !match_wildcard(self.0.group(), gav.group()) {
+            return false;
+        }
+
+        if !match_wildcard(self.0.artifact(), gav.artifact()) {
+            return false;
+        }
+
+        if !match_wildcard(self.0.version(), gav.version()) {
+            return false;
+        }
+
+        match (self.0.classifier(), gav.classifier()) {
+            (Some(pattern), Some(haystack)) if !match_wildcard(pattern, haystack) => return false,
+            (Some(_), None) |
+            (None, Some(_)) => return false,
+            _ => (),
+        }
+
+        match (self.0.extension(), gav.extension()) {
+            (Some(pattern), Some(haystack)) if !match_wildcard(pattern, haystack) => return false,
+            (Some(_), None) |
+            (None, Some(_)) => return false,
+            _ => (),
+        }
+
+        true
 
     }
 

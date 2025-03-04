@@ -250,31 +250,6 @@ impl Gav {
         &self.raw
     }
 
-    // /// Iterator over standard file path component for this GAV, the iterating
-    // /// component is a cow because most of these are borrowed but the last 
-    // /// file part must be formatted and therefore owned.
-    // /// 
-    // /// To properly join a GAV to a path, prefer [`Self::file`].
-    // pub fn file_components(&self) -> impl Iterator<Item = Cow<'_, str>> + use<'_> {
-
-    //     let artifact = self.artifact();
-    //     let version = self.version();
-
-    //     let mut file_name = format!("{artifact}-{version}");
-    //     if let Some(classifier) = self.classifier() {
-    //         file_name.push('-');
-    //         file_name.push_str(classifier);
-    //     }
-    //     file_name.push('.');
-    //     file_name.push_str(self.extension_or_default());
-
-    //     self.group().split('.')
-    //         .chain([artifact, version])
-    //         .map(Cow::Borrowed)
-    //         .chain([Cow::Owned(file_name)])
-
-    // }
-
     /// Get a URL formatter for this GAV, this can be appended to any full URL.
     /// 
     /// For example, 
