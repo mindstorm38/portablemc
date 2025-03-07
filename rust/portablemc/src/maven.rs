@@ -203,7 +203,7 @@ impl Gav {
             }
         } else if !range.is_empty() {
             self.classifier_len = None;
-            self.raw.replace_range(range, "");
+            self.raw.replace_range(range.start - 1..range.end, "");
         }
     }
 
@@ -236,11 +236,11 @@ impl Gav {
             self.extension_len = Some(NonZeroU16::new(extension.len().try_into().expect("extension too long")).expect("extension empty"));
             self.raw.replace_range(range.clone(), extension);
             if range.is_empty() {
-                self.raw.insert(range.start, ':');
+                self.raw.insert(range.start, '@');
             }
         } else if !range.is_empty() {
             self.extension_len = None;
-            self.raw.replace_range(range, "");
+            self.raw.replace_range(range.start - 1..range.end, "");
         }
     }
 
@@ -546,6 +546,38 @@ mod tests {
         assert_eq!(gav.version(), "0.1.2-beta");
         assert_eq!(gav.classifier(), Some("natives"));
         assert_eq!(gav.extension(), Some("txt"));
+
+    }
+
+    #[test]
+    fn modify() {
+
+        let mut gav = Gav::from_str("foo.bar:baz:0.1.2-beta").unwrap();
+
+        gav.set_group("foo.bar.00");
+        assert_eq!(gav.as_str(), "foo.bar.00:baz:0.1.2-beta");
+        gav.set_group("foo.bar");
+        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta");
+
+        gav.set_artifact("baz00");
+        assert_eq!(gav.as_str(), "foo.bar:baz00:0.1.2-beta");
+        gav.set_artifact("baz");
+        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta");
+
+        gav.set_version("0.1.3-alpha");
+        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.3-alpha");
+        gav.set_version("0.1.2-beta");
+        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta");
+
+        gav.set_classifier(Some("natives"));
+        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta:natives");
+        gav.set_classifier(None);
+        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta");
+
+        gav.set_extension(Some("txt"));
+        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta@txt");
+        gav.set_extension(None);
+        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta");
 
     }
 
