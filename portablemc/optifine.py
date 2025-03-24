@@ -1,26 +1,30 @@
-import re # needed to parse downloads from optifine website and parse the patch config
-import zipfile
-# Libs for binary files processing
-from io import BytesIO
-import struct
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
+from hashlib import md5, sha1  # check if the file is corrupted after the patch
 from datetime import datetime
-from hashlib import md5 ,sha1# check if the file is corrupted after the patch
+from pathlib import Path
+from io import BytesIO
+import zipfile
+import struct
+import re  # needed to parse downloads from optifine website and parse the patch config
+
 from .standard import Version, Watcher, Context, VersionHandle, VersionNotFoundError
 from .http import http_request, HttpError
 from .download import DownloadEntry
 from .util import LibrarySpecifier
-from pathlib import Path
+
+
 INSTALLER_FILENAME="of_installer.jar"
 
+
 class OptifineEntryObject:
+
     def __init__(self, filename: str, edition: str, mc_version: str, preview: bool = False, date: Optional[str] = None, forge: Optional[str] = None):
-        self.edition=edition
-        self.mc_version=mc_version
-        self.preview=preview
-        self.date=date
-        self.forge=forge
-        self.filename=filename
+        self.edition = edition
+        self.mc_version = mc_version
+        self.preview = preview
+        self.date = date
+        self.forge = forge
+        self.filename = filename
 
     @classmethod
     def from_dir_name(cls, name: str):
@@ -56,7 +60,8 @@ class OptifineEntryObject:
 
     def __repr__(self):
         return f"<{self.mc_version}-OptiFine_{self.edition}>"
-    
+
+
 def get_offline_versions(versions_dir: Optional[Path] = None):
     """
     When there is no Internet, this list available optifine versions in the current context
@@ -68,7 +73,8 @@ def get_offline_versions(versions_dir: Optional[Path] = None):
             out_dict[v.mc_version] = []
         out_dict[v.mc_version].append(v)
     return out_dict
-        
+
+
 def get_versions_list(work_dir: Optional[Path] = None):
     """
     Récupère la liste des versions d'OptiFine.
@@ -102,6 +108,7 @@ def get_versions_list(work_dir: Optional[Path] = None):
     versions = [OptifineEntryObject.from_tuple(match) for match in matches]
     return versions
 
+
 def get_compatible_versions(work_dir: Optional[Path] = None):
     """
     Returns a dictionary with the keys being the Minecraft version,
@@ -117,6 +124,7 @@ def get_compatible_versions(work_dir: Optional[Path] = None):
             versions_compat[of_version.mc_version] = list()
         versions_compat[of_version.mc_version].append(of_version)
     return versions_compat
+
 
 def apply_xdelta_patch(source_data: bytes, patch_data: bytes) -> bytes:
 
@@ -213,20 +221,17 @@ def apply_xdelta_patch(source_data: bytes, patch_data: bytes) -> bytes:
 class OptifineStartInstallEvent:
     __slots__ = tuple()
 
-
 class OptifinePatchEvent:
-    __slots__ = "location","total","done"
+    __slots__ = "location", "total", "done"
     def __init__(self, location: str,total: int,done: int):
         self.location = location
         self.total = total
         self.done = done
 
-
 class OptifineEndInstallEvent:
     __slots__ = "version",
     def __init__(self,version: str):
         self.version = version
-
 
 class _Patcher:
     CONFIG_FILES = ["patch.cfg", "patch2.cfg", "patch3.cfg"]
@@ -235,7 +240,7 @@ class _Patcher:
     SUFFIX_MD5 = ".md5"
 
     @staticmethod
-    def process(base_file: Path | str, diff_file: Path | str, mod_file: Path | str, watcher: Watcher) -> None:
+    def process(base_file: Union[Path, str], diff_file: Union[Path, str], mod_file: Union[Path, str], watcher: Watcher) -> None:
         """Process the patching operation by applying xdelta patches from the diff file to the base file and writing the
         result to the mod file.
 
@@ -387,7 +392,8 @@ class _Patcher:
 
 
 class OptifineVersion(Version):
-    def __init__(self, version: str = None, *args, prefix: str = "optifine", context: Optional[Context] = None):
+
+    def __init__(self, version: Optional[str] = None, *, prefix: str = "optifine", context: Optional[Context] = None):
         """
             This class is a basic implementation of a version class for Optifine.
             it takes two arguments: version and context.
@@ -403,9 +409,9 @@ class OptifineVersion(Version):
             - HD_U_J6
             _ HD_U_I6_pre3
         """
-        self.prefix=prefix
+        self.prefix = prefix
         version = version or "recommended"
-        super().__init__(version, context = context)
+        super().__init__(version, context=context)
 
     def _resolve_version(self, watcher: Watcher) -> None:
         """
@@ -570,7 +576,7 @@ class OptifineVersion(Version):
             "type": "release"
         }
 
-    def _build_optifine_json(self, launchwrapper_version: str, parent_data: dict, ofedition: str, ofchecksum: str = None,launchwrapper_checksum: str = None) -> dict:
+    def _build_optifine_json(self, launchwrapper_version: str, parent_data: dict, ofedition: str, ofchecksum: Optional[str] = None, launchwrapper_checksum: Optional[str] = None) -> dict:
         """Update the JSON configuration."""
         new_json = self._of_base_json()
         # Update the JSON with the optifine library name and main class
@@ -667,6 +673,7 @@ class OptifineVersion(Version):
         return False
 
     def _finalize_optifine_internal(self, watcher: Watcher) -> None:
+
         version = self._hierarchy[0]
 
         if not self.check_of_install(version): # if the version is not installed, install it
@@ -683,8 +690,8 @@ class OptifineVersion(Version):
                 if minecraft_ver.read_metadata_file():
                     parent_data = minecraft_ver.metadata
                 else:
-                    mcver_url=self.manifest.get_version(self.mcver)["url"]
-                    res = http_request("GET", mcver_url, accept = "application/json")
+                    mcver_url = self.manifest.get_version(self.mcver)["url"]
+                    res = http_request("GET", mcver_url, accept="application/json")
                     parent_data = res.json()
                     minecraft_ver.metadata = parent_data
                     minecraft_ver.write_metadata_file()
@@ -692,12 +699,12 @@ class OptifineVersion(Version):
                 # patch minecraft version jar to build Optifine library
                 of_lib_dir=self.context.libraries_dir / "optifine" / "OptiFine"/ f"{self.mcver()}_{self.loader()}"
                 if not of_lib_dir.exists(): # makes the library directory
-                    of_lib_dir.mkdir(parents = True,exist_ok = True)
+                    of_lib_dir.mkdir(parents=True, exist_ok=True)
 
                 _Patcher.process(version.dir / f"{self.version}.jar",
                                  version.dir / INSTALLER_FILENAME,
                                  self.context.libraries_dir / "optifine" / "OptiFine" / f"{self.mcver()}_{self.loader()}" / f"OptiFine-{self.mcver()}_{self.loader()}.jar",
-                                 watcher = watcher)
+                                 watcher=watcher)
 
                 launchwrapper_sha1 = None
                 if not launchwrapper == "net.minecraft:launchwrapper:1.12":
@@ -716,6 +723,6 @@ class OptifineVersion(Version):
                 libdata = f.read()
 
             oflibdigest = sha1(libdata).hexdigest()
-            version.metadata = self._build_optifine_json(launchwrapper, parent_data, self.loader(), ofchecksum = oflibdigest, launchwrapper_checksum = launchwrapper_sha1)
+            version.metadata = self._build_optifine_json(launchwrapper, parent_data, self.loader(), ofchecksum=oflibdigest, launchwrapper_checksum=launchwrapper_sha1)
             version.write_metadata_file()
             watcher.handle(OptifineEndInstallEvent(self.version))
