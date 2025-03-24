@@ -18,7 +18,7 @@ jobs:
           - os: Windows
             image: windows-latest
           - os: macOS
-            image: macos-latest-large
+            image: macos-13
     name: ${{ matrix.os }} / ${{ matrix.python-version }} ${{ matrix.suffix }}
     runs-on: ${{ matrix.image }}
     steps:
