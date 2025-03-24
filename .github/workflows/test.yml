@@ -14,11 +14,11 @@ jobs:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
         include:
           - os: Ubuntu
-            image: ubuntu-22.04
+            image: ubuntu-latest
           - os: Windows
-            image: windows-2022
+            image: windows-latest
           - os: macOS
-            image: macos-12
+            image: macos-latest
     name: ${{ matrix.os }} / ${{ matrix.python-version }} ${{ matrix.suffix }}
     runs-on: ${{ matrix.image }}
     steps:
