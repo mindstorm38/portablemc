@@ -16,12 +16,12 @@ serde.workspace = true
 serde_path_to_error.workspace = true
 serde_json.workspace = true
 
-uuid.workspace = true
+uuid = { workspace = true, features = ["v5"] }
 chrono.workspace = true
 xmlparser.workspace = true
 
-reqwest.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "fs", "time", "net", "macros"] }
+reqwest = { workspace = true, features = ["json"] }
 
 indexmap.workspace = true
 elsa.workspace = true

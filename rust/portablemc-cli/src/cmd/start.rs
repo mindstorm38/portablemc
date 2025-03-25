@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use chrono::{DateTime, Local, Utc};
 
 use portablemc::standard::{self, Game, JvmPolicy, LoadedLibrary};
-use portablemc::mojang::{self, QuickPlay};
+use portablemc::mojang::{self, FetchExclude, QuickPlay};
 use portablemc::{download, fabric, forge};
 
 use crate::parse::{StartArgs, StartResolution, StartVersion, StartJvmPolicy};
@@ -342,11 +342,12 @@ fn apply_mojang_args(
         installer.set_fix_lwjgl(lwjgl_version.to_string());
     }
 
-    for exclude_id in &args.exclude_fetch {
-        if exclude_id == "*" {
-            installer.set_fetch_exclude_all();
-        } else {
-            installer.add_fetch_exclude(exclude_id.clone());
+    if args.fetch_exclude_all {
+        installer.add_fetch_exclude(FetchExclude::All);
+    } else {
+        // NOTE: For now we don't support regex patterns!
+        for exclude_name in &args.fetch_exclude {
+            installer.add_fetch_exclude(FetchExclude::Exact(exclude_name.clone()));
         }
     }
 

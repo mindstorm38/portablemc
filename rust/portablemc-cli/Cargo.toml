@@ -31,7 +31,7 @@ zip.workspace = true
 
 webbrowser.workspace = true
 
-clap.workspace = true
+clap = { workspace = true, features = ["derive", "wrap_help", "env"] }
 ctrlc.workspace = true
 
 [[bin]]
