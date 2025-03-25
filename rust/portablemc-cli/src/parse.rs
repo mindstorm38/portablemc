@@ -224,16 +224,21 @@ pub struct StartArgs {
     /// LWJGL version is not recommended.
     #[arg(long, value_name = "VERSION")]
     pub fix_lwjgl: Option<String>,
-    /// Exclude the given version from validity check and fetch.
+    /// Exclude the given version from validity check and fetching.
     /// 
     /// This is used by the Mojang installer and all installers relying on it to exclude
     /// version from being validated and fetched from the Mojang's version manifest, as
-    /// described in 'VERSION' help. You can use '*' a single time to fully disable 
-    /// fetching.
+    /// described in 'VERSION' help. You can use --fetch-exclude-all to exclude all 
+    /// versions and therefore prevent any fetching of the Mojang's manifest.
     /// 
     /// This argument can be specified multiple times.
     #[arg(long, value_name = "VERSION")]
-    pub exclude_fetch: Vec<String>,
+    pub fetch_exclude: Vec<String>,
+    /// Exclude all version from validity check and fetching.
+    /// 
+    /// See --fetch-exclude, note that this is incompatible with --fetch-exclude.
+    #[arg(long, conflicts_with = "fetch-exclude")]
+    pub fetch_exclude_all: bool,
     /// Use a filter to exclude Java libraries from the installation.
     /// 
     /// The filter is checked against each GAV (Group-Artifact-Version) of each library
@@ -516,6 +521,7 @@ impl FromStr for StartResolution {
 
 }
 
+/// Represent a pattern for excluding library.
 #[derive(Debug, Clone)]
 pub struct StartExcludeLibPattern(Gav);
 

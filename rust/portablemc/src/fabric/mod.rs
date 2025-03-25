@@ -157,6 +157,9 @@ impl Installer {
         let prefix = loader.default_prefix();
         let root_version = format!("{prefix}-{game_version}-{loader_version}");
         mojang.set_version(root_version.clone());
+        
+        // NOTE: We don't need to fetch exclude that version because the handler below
+        // already take care of that! 'mojang.add_fetch_exclude(...)'
 
         // Scoping the temporary internal handler.
         let game = {
@@ -550,7 +553,6 @@ impl InternalHandler<'_> {
             return Ok(false);
         }
 
-        // self.inner.fetch_version(self.root_version);
         self.inner.fetch_loader_version(self.game_version, self.loader_version);
 
         // At this point we've not yet checked if either game or loader versions
@@ -584,7 +586,6 @@ impl InternalHandler<'_> {
         metadata.id = version.to_string();
         standard::write_version_metadata(file, &metadata)?;
 
-        // self.inner.fetched_version(self.root_version);
         self.inner.fetched_loader_version(self.game_version, self.loader_version);
 
         Ok(true)

@@ -11,6 +11,7 @@ use std::env;
 use std::fs;
 
 use chrono::{DateTime, FixedOffset};
+use regex_lite::Regex;
 use uuid::Uuid;
 
 use crate::standard::{self, 
@@ -53,7 +54,7 @@ pub struct Installer {
 #[derive(Debug, Clone)]
 struct InstallerInner {
     version: Version,
-    fetch_exclude: Option<Vec<String>>,  // None when fetch is disabled.
+    fetch_excludes: Vec<FetchExclude>,
     demo: bool,
     quick_play: Option<QuickPlay>,
     resolution: Option<(u16, u16)>,
@@ -84,7 +85,7 @@ impl Installer {
             standard: standard::Installer::new(String::new()),
             inner: InstallerInner {
                 version: version.into(),
-                fetch_exclude: Some(Vec::new()),  // Enabled by default
+                fetch_excludes: Vec::new(),  // No exclude by default.
                 demo: false,
                 quick_play: None,
                 resolution: None,
@@ -138,40 +139,22 @@ impl Installer {
         self
     }
 
-    /// Return the list of version ids to be excluded from being fetched from the Mojang 
-    /// manifest, this returns None if all versions are excluded.
-    pub fn fetch_exclude(&self) -> Option<&[String]> {
-        self.inner.fetch_exclude.as_deref()
+    /// Return the list of filters 
+    #[inline]
+    pub fn fetch_excludes(&self) -> &[FetchExclude] {
+        &self.inner.fetch_excludes
     }
 
-    /// Clear all versions from being fetch excluded. See [`Self::fetch_exclude`] and 
-    /// [`Self::set_fetch_exclude_all`]. **This is the default state when constructed.**
-    #[inline]
+    /// Clear all fetch exclude filters. See [`Self::fetch_excludes`] and 
+    /// [`Self::add_fetch_exclude`]. **This is the default state when constructed.**
     pub fn clear_fetch_exclude(&mut self) -> &mut Self {
-        self.inner.fetch_exclude = Some(Vec::new());
+        self.inner.fetch_excludes.clear();
         self
     }
 
-    /// Exclude all version from being fetched from the online versions manifest. This
-    /// online version manifest is used to verify and install if needed each version in
-    /// the hierarchy, by default, so this argument can be used to disable that.
-    /// 
-    /// **To don't use online manifest at all, you must also ensure that the root version
-    /// is not an alias (`Release` or `Snapshot`).**
-    #[inline]
-    pub fn set_fetch_exclude_all(&mut self) -> &mut Self {
-        self.inner.fetch_exclude = None;
-        self
-    }
-
-    /// Exclude the given version id from versions that should be fetched, this has no
-    /// effect if [`Self::set_fetch_exclude_all`] has already been called and not cancelled
-    /// by a [`Self::clear_fetch_exclude`].
-    #[inline]
-    pub fn add_fetch_exclude(&mut self, id: impl Into<String>) -> &mut Self {
-        if let Some(v) = &mut self.inner.fetch_exclude {
-            v.push(id.into());
-        }
+    /// Append the given filter to the fetch exclude list.
+    pub fn add_fetch_exclude(&mut self, exclude: FetchExclude) -> &mut Self {
+        self.inner.fetch_excludes.push(exclude);
         self
     }
 
@@ -274,7 +257,6 @@ impl Installer {
     }
 
     /// Internal function to reset to zero-length all online-related auth variables.
-    #[inline(always)]
     fn reset_auth_online(&mut self) -> &mut Self {
         self.inner.auth_type = String::new();
         self.inner.auth_token = String::new();
@@ -732,6 +714,25 @@ impl<T: Into<standard::Error>> From<T> for Error {
 /// Type alias for a result with the standard error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// The version to install.
+#[derive(Debug, Clone)]
+pub enum Version {
+    /// Install the latest Mojang release.
+    Release,
+    /// Install the latest Mojang snapshot.
+    Snapshot,
+    /// Install this specific game version, if not a Mojang-provided version, it should
+    /// be already installed in the versions directory.
+    Name(String),
+}
+
+/// An impl so that we can give string-like objects to the builder.
+impl<T: Into<String>> From<T> for Version {
+    fn from(value: T) -> Self {
+        Self::Name(value.into())
+    }
+}
+
 /// This represent the optional Quick Play mode when launching the game. This is usually 
 /// not supported on versions older than 1.20 (23w14a), however a fix exists for 
 /// supporting multiplayer Quick Play on older versions, other modes are unsupported.
@@ -757,23 +758,16 @@ pub enum QuickPlay {
     },
 }
 
-/// The version to install.
+/// The different kind of patterns for filtering which versions are fetched or not.
 #[derive(Debug, Clone)]
-pub enum Version {
-    /// Install the latest Mojang release.
-    Release,
-    /// Install the latest Mojang snapshot.
-    Snapshot,
-    /// Install this specific game version, if not a Mojang-provided version, it should
-    /// be already installed in the versions directory.
-    Name(String),
-}
-
-/// An impl so that we can give string-like objects to the builder.
-impl<T: Into<String>> From<T> for Version {
-    fn from(value: T) -> Self {
-        Self::Name(value.into())
-    }
+pub enum FetchExclude {
+    /// Exclude all versions from being fetched from Mojang's manifest. It overrides
+    /// all other excludes.
+    All,
+    /// Exclude a specific version name.
+    Exact(String),
+    /// Exclude a version's name that matches the given regex.
+    Regex(Regex),
 }
 
 /// A handle to the Mojang versions manifest.
@@ -890,13 +884,6 @@ impl<'a> ManifestVersion<'a> {
 // Following code is internal //
 // ========================== //
 
-/// Internal enumeration for fetch exclude rules.
-#[derive(Debug)]
-enum FetchExclude {
-    All,
-    Some(Vec<String>),
-}
-
 /// Internal handler given to the standard installer.
 struct InternalHandler<'a> {
     /// Inner handler.
@@ -989,13 +976,17 @@ impl InternalHandler<'_> {
 
     fn inner_load_version(&mut self, version: &str, file: &Path) -> Result<()> {
 
-        // Ignore the version if excluded.
-        let Some(exclude) = &self.installer.fetch_exclude else {
-            return Ok(());
-        };
-
-        if exclude.iter().any(|excluded_id| excluded_id == version) {
-            return Ok(());
+        // If any pattern matches, return Ok.
+        for pattern in &self.installer.fetch_excludes {
+            match pattern {
+                FetchExclude::All => 
+                    return Ok(()),
+                FetchExclude::Exact(name) if name == version => 
+                    return Ok(()),
+                FetchExclude::Regex(regex) if regex.is_match(version) => 
+                    return Ok(()),
+                _ => (),
+            }
         }
 
         // Only ensure that the manifest is loaded after checking fetch exclude.
