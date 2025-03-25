@@ -32,6 +32,11 @@ pub(crate) const VERSION_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc
 /// standard arguments such as demo mode, window resolution and quick play, it also 
 /// provides various fixes for known issues of old versions.
 /// 
+/// By default, this installer tries to handle every version that is not found in the
+/// hierarchy, if a version with that name exists in the Mojang's versions manifest, then
+/// it is fetched. This means that every missing version will try to fetch the manifest
+/// (using the cached version if relevant). This behavior can be changed by excluding 
+/// 
 /// Notes about various versions:
 /// - 1.19.3 metadata adds no parameter to specify extract directory for LWJGL (version
 ///   3.3.1-build-7), therefore natives are extracted to 
@@ -884,6 +889,13 @@ impl<'a> ManifestVersion<'a> {
 // ========================== //
 // Following code is internal //
 // ========================== //
+
+/// Internal enumeration for fetch exclude rules.
+#[derive(Debug)]
+enum FetchExclude {
+    All,
+    Some(Vec<String>),
+}
 
 /// Internal handler given to the standard installer.
 struct InternalHandler<'a> {

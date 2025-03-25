@@ -27,7 +27,7 @@ indexmap.workspace = true
 elsa.workspace = true
 bytes.workspace = true
 
-regex.workspace = true
+regex-lite.workspace = true
 
 once_cell.workspace = true
 

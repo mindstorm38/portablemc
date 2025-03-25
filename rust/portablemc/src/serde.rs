@@ -3,7 +3,7 @@
 use std::ops::{Deref, DerefMut};
 use std::fmt::Write;
 
-use regex::Regex;
+use regex_lite::Regex;
 
 
 /// A regular expression serialized and deserialized to/from its string representation. 

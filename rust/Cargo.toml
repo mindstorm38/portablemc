@@ -26,7 +26,7 @@ xmlparser = "0.13.6"
 # Data types
 uuid = { version = "1.11.0", features = ["v4", "v5", "serde"] }
 chrono = { version = "0.4.39", features = ["serde"] }
-regex = "1.11.1"
+regex-lite = "0.1.6"
 
 # Crypto
 sha1 = "0.10.6"
