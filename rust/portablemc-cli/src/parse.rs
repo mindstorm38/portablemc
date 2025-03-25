@@ -611,15 +611,22 @@ impl StartExcludeLibPattern {
 /// query string is interpreted depends on the kind.
 #[derive(Debug, Args)]
 pub struct SearchArgs {
-    /// Select the target of the search query.
-    #[arg(short, long, default_value = "mojang")]
-    pub kind: SearchKind,
     /// The search filter string.
     /// 
     /// You can give multiple filters that will apply to various texts depending on the 
     /// search king. In general this will apply to the leftmost column, so the version
     /// name in most of the cases.
     pub filter: Vec<String>,
+    /// Select the target of the search query.
+    #[arg(short, long, default_value = "mojang")]
+    pub kind: SearchKind,
+    /// Limit the number of rows of results.
+    /// 
+    /// Because search results are sorted by descending versions, this will keep only the
+    /// given number of most recent versions. One exception to this are local versions,
+    /// which are in the same order as your OS give them when listing their directories.
+    #[arg(short, long, default_value_t = usize::MAX, hide_default_value = true)]
+    pub limit: usize,
     /// Only keep versions of given channel.
     /// 
     /// This argument can be given multiple times to specify multiple channels to match

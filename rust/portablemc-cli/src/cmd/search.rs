@@ -70,7 +70,7 @@ fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     });
 
     // Finally displaying version(s).
-    for version in manifest.iter() {
+    for version in manifest.iter().take(args.limit) {
 
         if let Some(only_name) = only_name {
             if version.name() != only_name {
@@ -150,7 +150,7 @@ fn search_local(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     
     table.sep();
 
-    for entry in reader {
+    for entry in reader.take(args.limit) {
         
         let Ok(entry) = entry else { continue };
         let Ok(entry_type) = entry.file_type() else { continue };
@@ -209,7 +209,7 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
         
         table.sep();
 
-        for version in versions.iter() {
+        for version in versions.iter().take(args.limit) {
             
             if !args.match_filter(version.name()) {
                 continue;
@@ -246,7 +246,7 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
         
         table.sep();
 
-        for version in versions.iter() {
+        for version in versions.iter().take(args.limit) {
             
             if !args.match_filter(version.name()) {
                 continue;
@@ -294,7 +294,7 @@ fn search_forge(cli: &mut Cli, args: &SearchArgs, loader: forge::Loader) -> Exit
     
     table.sep();
 
-    for version in repo.iter() {
+    for version in repo.iter().take(args.limit) {
         
         if !args.match_filter(version.name()) {
             continue;
