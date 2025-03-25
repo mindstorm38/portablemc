@@ -234,7 +234,7 @@ pub struct StartArgs {
     /// This argument can be specified multiple times.
     #[arg(long, value_name = "VERSION")]
     pub fetch_exclude: Vec<String>,
-    /// Exclude all version from validity check and fetching.
+    /// Exclude all versions from validity check and fetching.
     /// 
     /// See --fetch-exclude, note that this is incompatible with --fetch-exclude.
     #[arg(long, conflicts_with = "fetch_exclude")]
