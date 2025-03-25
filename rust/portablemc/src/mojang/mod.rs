@@ -11,7 +11,7 @@ use std::env;
 use std::fs;
 
 use chrono::{DateTime, FixedOffset};
-use regex_lite::Regex;
+use regex::Regex;
 use uuid::Uuid;
 
 use crate::standard::{self, 

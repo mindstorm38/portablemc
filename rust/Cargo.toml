@@ -24,9 +24,11 @@ serde_json = "1.0.133"
 xmlparser = "0.13.6"
 
 # Data types
-uuid = { version = "1.11.0", features = ["v4", "v5", "serde"] }
+uuid = { version = "1.11.0", features = ["serde"] }
 chrono = { version = "0.4.39", features = ["serde"] }
-regex-lite = "0.1.6"
+
+# Regex, we intentionally disable the Unicode feature to avoid bloating us.
+regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 
 # Crypto
 sha1 = "0.10.6"
@@ -51,11 +53,11 @@ webbrowser = "1.0.3"
 windows-registry = "0.2.0"
 
 # Async
-tokio = { version = "1.41.1", features = ["rt", "rt-multi-thread", "fs", "time", "net", "macros"] }
-reqwest = { version = "0.12.9", features = ["json"] }
+tokio = "1.41.1"
+reqwest = "0.12.9"
 
 # CLI
-clap = { version = "4.5.21", features = ["derive", "wrap_help", "env"] }
+clap = "4.5.21"
 ctrlc = "3.4.5"
 
 # Testing
