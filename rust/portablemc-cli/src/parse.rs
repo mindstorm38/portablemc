@@ -237,7 +237,7 @@ pub struct StartArgs {
     /// Exclude all version from validity check and fetching.
     /// 
     /// See --fetch-exclude, note that this is incompatible with --fetch-exclude.
-    #[arg(long, conflicts_with = "fetch-exclude")]
+    #[arg(long, conflicts_with = "fetch_exclude")]
     pub fetch_exclude_all: bool,
     /// Use a filter to exclude Java libraries from the installation.
     /// 
@@ -305,7 +305,7 @@ pub struct StartArgs {
     /// This is incompatible with other Quick Play modes.
     #[arg(long, value_name = "HOST", conflicts_with = "join_world", conflicts_with = "join_realms")]
     pub join_server: Option<String>,
-    /// Complement to the `--quick-server` argument to specify the server port.
+    /// Complement to the `--join-server` argument to specify the server port.
     #[arg(long, value_name = "PORT", requires = "join_server", default_value_t = 25565)]
     pub join_server_port: u16,
     /// Automatically join a Realms server from its id after game has been launched.
