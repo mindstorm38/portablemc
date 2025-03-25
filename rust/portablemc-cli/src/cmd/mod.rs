@@ -637,7 +637,7 @@ pub fn log_standard_error(cli: &mut Cli, error: &standard::Error) {
             log_download_error(cli, batch);
         }
         Error::Internal { error, origin } => {
-            log_internal_error(cli, error, &origin);
+            log_internal_error(cli, &**error, &origin);
         }
         _ => todo!(),
     }
@@ -902,7 +902,7 @@ pub fn log_download_error(cli: &mut Cli, batch: &download::BatchResult) {
 }
 
 /// Common function to log an internal and generic error.
-pub fn log_internal_error(cli: &mut Cli, error: &Box<dyn std::error::Error + Send + Sync>, origin: &str) {
+pub fn log_internal_error(cli: &mut Cli, error: &(dyn std::error::Error + Send + Sync + 'static), origin: &str) {
     if let Some(error) = error.downcast_ref::<io::Error>() {
         log_io_error(cli, error, origin);
     } else if let Some(error) = error.downcast_ref::<reqwest::Error>() {
@@ -1018,7 +1018,7 @@ pub fn log_msa_auth_error(cli: &mut Cli, error: &msa::AuthError) {
                 .error(format_args!("Unknown authentication error: {error}"));
         }
         msa::AuthError::Internal(error) => {
-            log_internal_error(cli, error, "microsoft authentication");
+            log_internal_error(cli, &**error, "microsoft authentication");
         }
         _ => todo!()
     }

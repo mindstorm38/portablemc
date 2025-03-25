@@ -503,8 +503,9 @@ impl EntrySuccess {
     /// 
     /// For now internal because it's being tested...
     pub(crate) fn read_handle_to_string(&mut self) -> Option<io::Result<String>> {
+        let mut handle = self.take_handle()?;
         let mut buf = String::new();
-        match self.take_handle()?.read_to_string(&mut buf) {
+        match handle.read_to_string(&mut buf) {
             Ok(_) => Some(Ok(buf)),
             Err(e) => Some(Err(e)),
         }
