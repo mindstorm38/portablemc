@@ -121,6 +121,8 @@ pub struct LogHandler<'a> {
     api_id: &'static str,
     /// For the same reason as above, this field is used for human-readable messages.
     api_name: &'static str,
+    /// The LWJGL version loaded.
+    loaded_lwjgl_version: Option<String>,
     /// The JVM major version being loaded.
     jvm_major_version: u32,
 }
@@ -133,6 +135,7 @@ impl<'a> LogHandler<'a> {
             download_start: None,
             api_id: "",
             api_name: "",
+            loaded_lwjgl_version: None,
             jvm_major_version: 0,
         }
     }
@@ -269,9 +272,15 @@ impl standard::Handler for LogHandler<'_> {
     }
 
     fn loaded_libraries(&mut self, libraries: &[LoadedLibrary]) {
+        
         self.out.log("loaded_libraries")
             .args(libraries.iter().map(|lib| &lib.gav))
             .pending(format_args!("Loaded {} libraries, now verifying", libraries.len()));
+        
+        self.loaded_lwjgl_version = libraries.iter()
+            .find(|lib| ("org.lwjgl", "lwjgl") == (lib.gav.group(), lib.gav.artifact()))
+            .map(|lib| lib.gav.version().to_string());
+
     }
 
     fn loaded_libraries_files(&mut self, class_files: &[PathBuf], natives_files: &[PathBuf]) {
@@ -284,6 +293,13 @@ impl standard::Handler for LogHandler<'_> {
         self.out.log("loaded_natives_files")
             .args(natives_files.iter().map(|p| p.display()));
         
+        // Just an information for debug.
+        if let Some(lwjgl_version) = self.loaded_lwjgl_version.as_deref() {
+            self.out.log("loaded_lwjgl_version")
+                .arg(lwjgl_version)
+                .info(format_args!("Loaded LWJGL version: {lwjgl_version}"));
+        }
+
     }
 
     fn no_logger(&mut self) {
