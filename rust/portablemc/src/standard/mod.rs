@@ -2516,3 +2516,62 @@ fn mojang_jvm_platform() -> Option<&'static str> {
         _ => return None
     })
 }
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn replace_string_args() {
+        
+        use super::replace_string_args;
+
+        let mut buf = "${begin}foo${middle}bar${end}".to_string();
+        replace_string_args(&mut buf, |_arg| None);
+        assert_eq!(buf, "${begin}foo${middle}bar${end}");
+        replace_string_args(&mut buf, |arg| if arg == "middle" { Some(".:.".to_string()) } else { None });
+        assert_eq!(buf, "${begin}foo.:.bar${end}");
+        replace_string_args(&mut buf, |arg| Some(format!("[  {arg}  ]")));
+        assert_eq!(buf, "[  begin  ]foo.:.bar[  end  ]");
+
+    }
+
+    #[test]
+    fn parse_jvm_major_version() {
+
+        use super::parse_jvm_major_version;
+
+        assert_eq!(parse_jvm_major_version("7u80"), Some(7));
+        assert_eq!(parse_jvm_major_version("8u51"), Some(8));
+        assert_eq!(parse_jvm_major_version("17"), Some(17));
+        assert_eq!(parse_jvm_major_version("17.0"), Some(17));
+        assert_eq!(parse_jvm_major_version("17.0.2"), Some(17));
+        assert_eq!(parse_jvm_major_version("1.8.0_111"), Some(8));
+        assert_eq!(parse_jvm_major_version("10.0.2"), Some(10));
+
+        // Corner cases
+        assert_eq!(parse_jvm_major_version("10.foo"), Some(10));
+        assert_eq!(parse_jvm_major_version("1.foo"), None);
+        assert_eq!(parse_jvm_major_version("foou51"), None);
+        assert_eq!(parse_jvm_major_version("8ufoo"), Some(8));
+
+    }
+
+    #[test]
+    fn calc_jvm_major_compatibility() {
+
+        use super::calc_jvm_major_compatibility;
+        
+        assert_eq!(calc_jvm_major_compatibility(7, 7), Some(0));
+        assert_eq!(calc_jvm_major_compatibility(8, 8), Some(0));
+        assert_eq!(calc_jvm_major_compatibility(8, 7), None);
+
+        assert_eq!(calc_jvm_major_compatibility(9, 8), None);
+        assert_eq!(calc_jvm_major_compatibility(9, 9), Some(0));
+        assert_eq!(calc_jvm_major_compatibility(9, 11), Some(2));
+        assert_eq!(calc_jvm_major_compatibility(9, 17), Some(8));
+        assert_eq!(calc_jvm_major_compatibility(17, 17), Some(0));
+        assert_eq!(calc_jvm_major_compatibility(17, 11), None);
+
+    }
+
+}
