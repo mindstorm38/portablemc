@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
 use assert_fs::TempDir;
-use regex_lite::Regex;
+use regex::Regex;
 
 use portablemc::standard::{self, JvmPolicy, LoadedLibrary, LoadedVersion};
 use portablemc::download;

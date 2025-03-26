@@ -1236,3 +1236,27 @@ fn parse_game_version(version: &str) -> Option<[u16; 2]> {
     let (version, _rest) = version.split_once("-pre").unwrap_or((version, ""));
     parse_generic_version::<2, 1>(version)
 }
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+    
+    #[test]
+    fn parse_version() {
+
+        assert_eq!(parse_generic_version::<4, 2>("1"), None);
+        assert_eq!(parse_generic_version::<4, 2>("1.2"), Some([1, 2, 0, 0]));
+        assert_eq!(parse_generic_version::<4, 2>("1.2.3"), Some([1, 2, 3, 0]));
+        assert_eq!(parse_generic_version::<4, 2>("1.2.3.4"), Some([1, 2, 3, 4]));
+        assert_eq!(parse_generic_version::<4, 2>("1.2.3.4.5"), Some([1, 2, 3, 4]));
+
+        assert_eq!(parse_game_version("1"), None);
+        assert_eq!(parse_game_version("1.2"), Some([2, 0]));
+        assert_eq!(parse_game_version("1.2-pre3"), Some([2, 0]));
+        assert_eq!(parse_game_version("1.2.5"), Some([2, 5]));
+        assert_eq!(parse_game_version("1.2.5-pre3"), Some([2, 5]));
+
+    }
+
+}
