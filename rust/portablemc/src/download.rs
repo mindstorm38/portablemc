@@ -717,7 +717,7 @@ async fn download_many_entry(
     progress_sender: mpsc::Sender<u32>,
 ) -> (usize, Result<EntrySuccessInner, EntryErrorKind>) {
 
-    let progress_sender = ManyEntryProgressSender {
+    let progress_sender = ChannelEntryProgressSender {
         sender: progress_sender,
     };
 
@@ -736,7 +736,7 @@ async fn download_single(
 
     handler.progress(0, 1, 0, total_size);
 
-    let progress_sender = SingleEntryProgressSender {
+    let progress_sender = DirectEntryProgressSender {
         handler: &mut *handler,
         size: &mut size,
         total_size,
@@ -966,17 +966,25 @@ async fn check_download_cache(file: &Path, cache_file: &Path) -> io::Result<Opti
 
 }
 
-/// Internal abstract progress sender that support sending the progress into a 
+/// Internal abstract progress sender that support sending the progress into either a 
+/// channel or directly to a handler.
+/// 
+/// NOTE: We tried to make this trait into an enum dispatch instead, but it cause issues
+/// because the enum can't directly hold a `&mut dyn Handler` because it's not [`Send`],
+/// therefore we needed to make the handler dynamic and when using the 'Channel' variant
+/// we would use an explicit type annotation `&mut (dyn Handler + Send)` that was not
+/// actually used, but this still caused the actual enum type to be different, and the
+/// monomorphization didn't seem to work, increasing the binary size by 40 kB.
 trait EntryProgressSender {
     async fn send(&mut self, delta: u32);
 }
 
 /// Implementation of the progress sender for the `download_many` function with channel.
-struct ManyEntryProgressSender {
+struct ChannelEntryProgressSender {
     sender: mpsc::Sender<u32>,
 }
 
-impl EntryProgressSender for ManyEntryProgressSender {
+impl EntryProgressSender for ChannelEntryProgressSender {
     async fn send(&mut self, delta: u32) {
         self.sender.send(delta).await.unwrap();
     }
@@ -984,13 +992,13 @@ impl EntryProgressSender for ManyEntryProgressSender {
 
 /// A progress sender specialized when downloading a single progress, we can therefore
 /// directly send any progress directly to the handler!
-struct SingleEntryProgressSender<'a> {
+struct DirectEntryProgressSender<'a> {
     handler: &'a mut dyn Handler,
     size: &'a mut u32,
     total_size: u32,
 }
 
-impl EntryProgressSender for SingleEntryProgressSender<'_> {
+impl EntryProgressSender for DirectEntryProgressSender<'_> {
     async fn send(&mut self, delta: u32) {
         *self.size += delta;
         self.handler.progress(0, 1, *self.size, self.total_size);
