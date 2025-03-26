@@ -287,7 +287,7 @@ pub struct StartArgs {
     #[arg(long, value_name = "PATH")]
     pub jvm: Option<String>,
     /// The policy for finding or installing the JVM executable.
-    #[arg(long, value_name = "POLICY", conflicts_with = "jvm", default_value = "system-mojang")]
+    #[arg(long, value_name = "POLICY", conflicts_with = "jvm", default_value = "system-then-mojang")]
     pub jvm_policy: StartJvmPolicy,
     /// Automatically join the given singleplayer world after game has been launched.
     /// 
@@ -340,7 +340,9 @@ pub struct StartArgs {
     /// error.
     /// 
     /// Note that '--username' (-u) argument is completely ignored if the '--uuid' (-i)
-    /// is specified, only one of them can be used at the same time with this flag.
+    /// is specified, only one of them can be used at the same time with this flag. 
+    /// You can combine this flag with one of these argument, for example '-au <username>'
+    /// or '-ai <uuid>'.
     #[arg(short = 'a', long)]
     pub auth: bool,
 }
