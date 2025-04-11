@@ -12,6 +12,12 @@ publish = false
 [dependencies]
 portablemc.workspace = true
 
+[dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+tempfile.workspace = true
+
 [lib]
 name = "portablemc_ffi"
 crate-type = ["staticlib", "cdylib"]

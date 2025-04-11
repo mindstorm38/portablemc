@@ -45,4 +45,4 @@ jsonwebtoken.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
-assert_fs.workspace = true
+tempfile.workspace = true

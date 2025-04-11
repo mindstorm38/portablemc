@@ -1007,12 +1007,12 @@ pub fn log_zip_error(cli: &mut Cli, error: &zip::result::ZipError, origin: &str)
 /// Log a database error.
 pub fn log_msa_auth_error(cli: &mut Cli, error: &msa::AuthError) {
     match error {
-        msa::AuthError::AuthorizationDeclined => {
-            cli.out.log("error_auth_authorization_declined")
+        msa::AuthError::Declined => {
+            cli.out.log("error_auth_declined")
                 .error("Authorization request has been declined");
         }
-        msa::AuthError::AuthorizationTimedOut => {
-            cli.out.log("error_auth_authorization_timed_out")
+        msa::AuthError::TimedOut => {
+            cli.out.log("error_auth_timed_out")
                 .error("Authorization timed out");
         }
         msa::AuthError::OutdatedToken => {

@@ -1,4 +1,5 @@
 //! PortableMC CLI.
+#![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod parse;
 pub mod format;

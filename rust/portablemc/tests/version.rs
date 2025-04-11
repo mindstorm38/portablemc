@@ -1,10 +1,10 @@
-//! Automated installation tests with verification of the events ordering.
+//! Automated installation tests with verification of the events ordering for various 
+//! specific versions metadata.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
-use assert_fs::TempDir;
 use regex::Regex;
 
 use portablemc::standard::{self, JvmPolicy, LoadedLibrary, LoadedVersion};
@@ -30,18 +30,69 @@ macro_rules! def_install_tests {
     () => {};
 }
 
+// Our data tests are defined here:
 def_install_tests![
     recurse, 
     client_not_found,
     libraries,
 ];
 
-/// Create a path to the data directory.
-fn data_dir() -> PathBuf {
-    let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    dir.push("tests");
-    dir.push("data");
-    dir
+/// Common function to run a test for the given function.
+fn install_version(version: &str) {
+    
+    let version_dir = {
+        let mut buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        buf.push("tests");
+        buf.push("version");
+        buf
+    };
+
+    let metadata_file = version_dir.join(format!("{version}.json"));
+
+    let expected_log = {
+        match fs::read_to_string(version_dir.join(format!("{version}.{}.log", env::consts::OS))) {
+            Ok(log) => log,
+            Err(e) if e.kind() == io::ErrorKind::NotFound =>
+                fs::read_to_string(version_dir.join(format!("{version}.log"))).unwrap(),
+            Err(e) => Err(e).unwrap(),
+        }
+    };
+    let expected_logs = expected_log.lines().map(str::to_string).collect::<Vec<_>>();
+    drop(expected_log);
+    
+    fs::create_dir_all(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let tmp_main_dir = tempfile::Builder::new()
+        .prefix("")
+        .suffix(".main")
+        .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
+        .unwrap()
+        .into_path();
+
+    let tmp_versions_dir = tmp_main_dir.join("versions");
+    let tmp_version_dir = tmp_versions_dir.join(version);
+    let tmp_metadata_file = tmp_version_dir.join(format!("{version}.json"));
+
+    fs::create_dir_all(&tmp_version_dir).unwrap();
+    fs::copy(&metadata_file, &tmp_metadata_file).unwrap();
+
+    // Now run the installer and store its actual logs...
+    let mut actual_logs = Vec::new();
+    let mut installer = standard::Installer::new(version);
+    installer.set_main_dir(tmp_main_dir.to_path_buf());
+    installer.set_jvm_policy(JvmPolicy::Static(PathBuf::new()));
+    match installer.install(TestHandler { logs: &mut actual_logs }) {
+        Ok(_game) => {}
+        Err(standard::Error::DownloadResourcesCancelled {  }) => {}
+        Err(e) => {
+            actual_logs.push(format!("standard::{e:?}"));
+        }
+    }
+
+    assert_logs_eq(expected_logs, actual_logs, &tmp_main_dir);
+
+    // Only remove it here so when the test did not panic.
+    fs::remove_dir_all(&tmp_main_dir).unwrap();
+
 }
 
 /// Replace macro of the form `name!(<content>)` by giving the content to the closure
@@ -160,49 +211,6 @@ fn assert_logs_eq(
     if !valid {
         panic!("Incoherent, read above!");
     }
-
-}
-
-/// Common function to run a test for the given function.
-fn install_version(version: &str) {
-    
-    let data_dir = data_dir();
-    let versions_dir = data_dir.join("versions");
-    let metadata_file = versions_dir.join(format!("{version}.json"));
-
-    let expected_log = {
-        match fs::read_to_string(versions_dir.join(format!("{version}.{}.log", env::consts::OS))) {
-            Ok(log) => log,
-            Err(e) if e.kind() == io::ErrorKind::NotFound =>
-                fs::read_to_string(versions_dir.join(format!("{version}.log"))).unwrap(),
-            Err(e) => Err(e).unwrap(),
-        }
-    };
-    let expected_logs = expected_log.lines().map(str::to_string).collect::<Vec<_>>();
-    drop(expected_log);
-    
-    let tmp_main_dir = TempDir::new().unwrap();
-    let tmp_versions_dir = tmp_main_dir.join("versions");
-    let tmp_version_dir = tmp_versions_dir.join(version);
-    let tmp_metadata_file = tmp_version_dir.join(format!("{version}.json"));
-
-    fs::create_dir_all(&tmp_version_dir).unwrap();
-    fs::copy(&metadata_file, &tmp_metadata_file).unwrap();
-
-    // Now run the installer and store its actual logs...
-    let mut actual_logs = Vec::new();
-    let mut installer = standard::Installer::new(version);
-    installer.set_main_dir(tmp_main_dir.to_path_buf());
-    installer.set_jvm_policy(JvmPolicy::Static(PathBuf::new()));
-    match installer.install(TestHandler { logs: &mut actual_logs }) {
-        Ok(_game) => {}
-        Err(standard::Error::DownloadResourcesCancelled {  }) => {}
-        Err(e) => {
-            actual_logs.push(format!("standard::{e:?}"));
-        }
-    }
-
-    assert_logs_eq(expected_logs, actual_logs, &tmp_main_dir);
 
 }
 
