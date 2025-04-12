@@ -16,9 +16,14 @@ use std::ptr;
 //    +----~~  ~~----+------+---------~~
 //    | PAD/RESERVED | DROP | VALUE   ~~
 //    +----~~  ~~----+------+---------~~
-//
-// VALUE:  T
-// DROP:   fn(*mut T)
+//                          ^ We return that pointer through the FFI
+// 
+// VALUE    | T
+// DROP     | fn(*mut T)
+// PAD      | Depending on the alignment of VALUE and DROP, padding might be needed to 
+//          |  ensure that VALUE and DROP are properly aligned.
+// RESERVED | Any implementation of the extern box is free to use the padding space, or
+//          |  more, for storing any data it wants.
 //
 // The drop function is responsible for dropping the value, in place, given its pointer,
 // and then deallocate the whole structure. Deallocation must happen despite any panics.
