@@ -1,4 +1,5 @@
 //! Python binding for PortableMC.
+
 #![deny(unsafe_op_in_unsafe_fn)]
 
 mod uuid;

@@ -39,7 +39,6 @@ jsonwebtoken = "9.3.0"
 # Data structures
 indexmap = "2.7.0"
 elsa = "1.10"
-bytes = "1.9"
 zip = "2.2.1"
 slab = "0.4.9"
 
