@@ -1,6 +1,6 @@
-// Various C FFI utilities.
+//! Various C characters (nul terminated) utilities.
 
-use std::ffi::{CStr, c_char};
+use std::ffi::{c_char, CStr};
 
 
 /// Load a UTF-8 string from a C nul-terminated pointer, this returns none if the given

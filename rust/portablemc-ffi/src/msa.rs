@@ -1,14 +1,15 @@
 //! MSA bindings for C.
 
-use std::ffi::{CStr, c_char};
-use std::ptr::{self, NonNull};
-use std::borrow::Cow;
+use std::ffi::c_char;
+use std::ptr;
 
-use portablemc::msa::{Auth, DeviceCodeFlow, Account, Database, AuthError, DatabaseError};
+use portablemc::msa::{Auth, DeviceCodeFlow, Account, AuthError, DatabaseError};
 
-use super::err::{self, Err, ExposedError, ExposedErrorData, wrap_error};
-use super::ffi::str_from_cstr_ptr;
+use crate::alloc::extern_box;
 
+use super::err::{self, Err, ExposedError, wrap_error};
+use super::alloc::extern_box_cstr_from_str;
+use super::cstr::str_from_cstr_ptr;
 
 // =======
 // Module errors
@@ -61,22 +62,21 @@ extern "C" fn pmc_msa_auth_new(app_id: *const c_char) -> *mut Auth {
         return ptr::null_mut();
     };
 
-    Box::into_raw(Box::new(Auth::new(app_id)))
+    extern_box(Auth::new(app_id))
 
 }
 
 #[no_mangle]
 extern "C" fn pmc_msa_auth_app_id(auth: *const Auth) -> *const c_char {
     let auth = unsafe { &*auth };
-    // FIXME: Returning nul-terminated str
-    auth.app_id().as_ptr().cast()
+    extern_box_cstr_from_str(auth.app_id())
 }
 
 #[no_mangle]
 extern "C" fn pmc_msa_auth_language_code(auth: *const Auth) -> *const c_char {
     let auth = unsafe { &*auth };
     match auth.language_code() {
-        Some(code) => code.as_ptr().cast(),
+        Some(code) => extern_box_cstr_from_str(code),
         None => ptr::null(),
     }
 }
@@ -98,14 +98,8 @@ extern "C" fn pmc_msa_auth_set_language_code(auth: *mut Auth, code: *const c_cha
 extern "C" fn pmc_msa_auth_request_device_code(auth: *const Auth, err: *mut *mut Err) -> *mut DeviceCodeFlow {
     wrap_error(|| {
         let auth = unsafe { &*auth };
-        auth.request_device_code().map(|flow| Box::into_raw(Box::new(flow)))
+        auth.request_device_code().map(extern_box)
     }, err, ptr::null_mut())
-}
-
-#[no_mangle]
-extern "C" fn pmc_msa_auth_free(auth: *mut Auth) {
-    // SAFETY: Should've been allocated as a Box.
-    unsafe { drop(Box::from_raw(auth)) }
 }
 
 // =======
@@ -115,39 +109,33 @@ extern "C" fn pmc_msa_auth_free(auth: *mut Auth) {
 #[no_mangle]
 extern "C" fn pmc_msa_device_code_flow_app_id(flow: *const DeviceCodeFlow) -> *const c_char {
     let flow = unsafe { &*flow };
-    flow.app_id().as_ptr().cast()
+    extern_box_cstr_from_str(flow.app_id())
 }
 
 #[no_mangle]
 extern "C" fn pmc_msa_device_code_flow_user_code(flow: *const DeviceCodeFlow) -> *const c_char {
     let flow = unsafe { &*flow };
-    flow.user_code().as_ptr().cast()
+    extern_box_cstr_from_str(flow.user_code())
 }
 
 #[no_mangle]
 extern "C" fn pmc_msa_device_code_flow_verification_uri(flow: *const DeviceCodeFlow) -> *const c_char {
     let flow = unsafe { &*flow };
-    flow.verification_uri().as_ptr().cast()
+    extern_box_cstr_from_str(flow.verification_uri())
 }
 
 #[no_mangle]
 extern "C" fn pmc_msa_device_code_flow_message(flow: *const DeviceCodeFlow) -> *const c_char {
     let flow = unsafe { &*flow };
-    flow.message().as_ptr().cast()
+    extern_box_cstr_from_str(flow.message())
 }
 
 #[no_mangle]
 extern "C" fn pmc_msa_device_code_flow_wait(flow: *const DeviceCodeFlow, err: *mut *mut Err) -> *mut Account {
     wrap_error(|| {
         let flow = unsafe { &*flow };
-        flow.wait().map(|acc| Box::into_raw(Box::new(acc)))
+        flow.wait().map(extern_box)
     }, err, ptr::null_mut())
-}
-
-#[no_mangle]
-extern "C" fn pmc_msa_device_code_flow_free(flow: *mut DeviceCodeFlow) {
-    // SAFETY: Should've been allocated as a Box.
-    unsafe { drop(Box::from_raw(flow)) }
 }
 
 // =======
@@ -157,13 +145,13 @@ extern "C" fn pmc_msa_device_code_flow_free(flow: *mut DeviceCodeFlow) {
 #[no_mangle]
 extern "C" fn pmc_msa_account_app_id(acc: *const Account) -> *const c_char {
     let account = unsafe { &*acc };
-    account.app_id().as_ptr().cast()
+    extern_box_cstr_from_str(account.app_id())
 }
 
 #[no_mangle]
 extern "C" fn pmc_msa_account_access_token(acc: *const Account) -> *const c_char {
     let account = unsafe { &*acc };
-    account.access_token().as_ptr().cast()
+    extern_box_cstr_from_str(account.access_token())
 }
 
 #[no_mangle]
@@ -175,13 +163,13 @@ extern "C" fn pmc_msa_account_uuid(acc: *const Account) -> *const u8 {
 #[no_mangle]
 extern "C" fn pmc_msa_account_username(acc: *const Account) -> *const c_char {
     let account = unsafe { &*acc };
-    account.username().as_ptr().cast()
+    extern_box_cstr_from_str(account.username())
 }
 
 #[no_mangle]
 extern "C" fn pmc_msa_account_xuid(acc: *const Account) -> *const c_char {
     let account = unsafe { &*acc };
-    account.xuid().as_ptr().cast()
+    extern_box_cstr_from_str(account.xuid())
 }
 
 #[no_mangle]
@@ -198,12 +186,6 @@ extern "C" fn pmc_msa_account_request_refresh(acc: *mut Account, err: *mut *mut 
         let account = unsafe { &mut *acc };
         account.request_refresh()
     }, err, ())
-} 
-
-#[no_mangle]
-extern "C" fn pmc_msa_account_free(acc: *mut Account) {
-    // SAFETY: Should've been allocated as a Box.
-    unsafe { drop(Box::from_raw(acc)) }
 }
 
 // =======

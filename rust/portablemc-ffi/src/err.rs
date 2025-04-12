@@ -6,7 +6,10 @@ use std::error::Error;
 use std::borrow::Cow;
 use std::ptr;
 
+use crate::alloc::{extern_box, pmc_free};
 
+
+/// This function is a helper for functions that takes an 'pmc_err *err' double pointer.
 #[inline]
 pub fn wrap_error<F, R, E>(func: F, err: *mut *mut Err, default: R) -> R
 where
@@ -19,7 +22,7 @@ where
     // we free the old error first and set it null.
     if !err.is_null() {
         let old_err = unsafe { err.replace(ptr::null_mut()) };
-        pmc_err_free(old_err);
+        pmc_free(old_err.cast());
     }
 
     match func() {
@@ -28,15 +31,14 @@ where
 
             if !err.is_null() {
 
-                let new_err = Box::new(Err {
+                let new_err = extern_box(Err {
                     code: e.code(),
                     message: fmt_arguments_to_cow(format_args!("{e}")),
                     data: e.data(),
                 });
 
-                let new_err = Box::into_raw(new_err);
-
                 unsafe { err.write(new_err); }
+
             }
 
             default
@@ -125,13 +127,4 @@ extern "C" fn pmc_err_data(err: *const Err) -> *const c_void {
 extern "C" fn pmc_err_message(err: *const Err) -> *const c_char {
     let err = unsafe { &*err };
     err.message.as_ptr().cast()
-}
-
-#[no_mangle]
-extern "C" fn pmc_err_free(err: *mut Err) {
-    if !err.is_null() {
-        // SAFETY: The error was initially allocated as a box.
-        let err = unsafe { Box::from_raw(err) };
-        drop(err);
-    }
 }
