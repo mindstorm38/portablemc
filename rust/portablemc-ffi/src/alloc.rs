@@ -6,6 +6,7 @@ use std::fmt::{Arguments, Write};
 use std::ffi::{c_char, c_void};
 use std::mem::offset_of;
 use std::cell::RefCell;
+use std::any::TypeId;
 use std::ptr;
 
 
@@ -13,8 +14,14 @@ use std::ptr;
 type DropFn<T> = unsafe fn(value_ptr: *mut T);
 
 /// A generic C structure for the extern box.
+/// 
+/// This type should never be instantiated, read/write as-is.
 #[repr(C)]
 struct ExternBox<T: 'static> {
+    /// When debug assertions are enabled, this is used to check, before doing unsafe
+    /// stuff, that the interpreted type is correct.
+    #[cfg(debug_assertions)]
+    type_id: TypeId,
     /// The number of values ('value' is also counted).
     len: usize,
     /// The drop function, which is also responsible for deallocating the whole structure,
@@ -50,7 +57,7 @@ fn extern_box_layout<T: 'static>(len: usize) -> Layout {
     //   -> ExternBox<T, E> { size(4), drop(8), _(4), value(N) }
     //   => In this case we move the drop by 4 bytes, it will still be aligned.
     //
-    // With DropFn<T> = (8, 8), T = (N, 32), E = (4, 4)
+    // With DropFn<T> = (8, 8), T = (N, 32), usize = (4, 4)
     //   -> ExternBox<T, E> { size(4), _(4), drop(8), _(16), value(N) }
     //   => We still have the space to put drop at the end of the padding!
     let layout = Layout::new::<ExternBox<T>>();
@@ -63,15 +70,38 @@ fn extern_box_layout<T: 'static>(len: usize) -> Layout {
 
 }
 
+/// This function is only active when debug assert are effective, it checks that the 
+/// type id of the stored type is the same as the given pointer's type.
+/// 
+/// SAFETY: This function is special because its role is to ensure that the stored type
+/// id correspond to the given pointer's type, so if this is not guaranteed by the caller
+/// then either this function will cause UB, panic or segfault (reading unaccessible 
+/// memory). This is a best-effort to catch UB if our logic is flawed.
+#[track_caller]
+unsafe fn extern_box_debug_assert<T: 'static>(value_ptr: *mut T) {
+    #[cfg(debug_assertions)] 
+    unsafe {
+
+        let type_id = value_ptr
+            .wrapping_byte_sub(offset_of!(ExternBox<T>, value))
+            .wrapping_byte_add(offset_of!(ExternBox<T>, type_id))
+            .cast::<TypeId>()
+            .read();
+
+        assert_eq!(type_id, TypeId::of::<T>(), "incoherent type id causing unsafe");
+
+    }
+}
+
 /// Internal function to dealloc the given extern box. This DOES NOT drop the value.
 /// 
 /// SAFETY: The given extern box pointer should be pointing to an initialized and valid
 /// extern box of that exact type!
 unsafe fn extern_box_free_unchecked<T: 'static>(ptr: *mut ExternBox<T>) {
-    // SAFETY: Ensured by the caller.
     unsafe {
 
-        let len = ptr.byte_add(offset_of!(ExternBox<T>, len))
+        let len = ptr
+            .byte_add(offset_of!(ExternBox<T>, len))
             .cast::<usize>()
             .read();
 
@@ -103,6 +133,8 @@ pub unsafe fn extern_box_drop_unchecked<T: 'static>(value_ptr: *mut T) {
     // SAFETY: We know that this points to 'ExternBox<T>.value' and we access the
     // fields safely using offset_of!.
     unsafe { 
+
+        extern_box_debug_assert(value_ptr);
         
         let ptr = value_ptr
             .byte_sub(offset_of!(ExternBox<T>, value))
@@ -124,7 +156,7 @@ pub unsafe fn extern_box_drop_unchecked<T: 'static>(value_ptr: *mut T) {
 /// Allocate a raw extern box, returning the pointer to uninitialized value(s). 
 /// The number of values to put in the allocation must be given by 'len'.
 #[inline]
-pub fn extern_box_raw<T: 'static>(len: usize) -> *mut T {
+fn extern_box_raw<T: 'static>(len: usize) -> *mut T {
 
     let layout = extern_box_layout::<T>(len);
 
@@ -132,6 +164,14 @@ pub fn extern_box_raw<T: 'static>(len: usize) -> *mut T {
     let ptr = unsafe { alloc::alloc(layout).cast::<ExternBox<T>>() };
     if ptr.is_null() {
         handle_alloc_error(layout);
+    }
+
+    // SAFETY: Read below.
+    #[cfg(debug_assertions)] 
+    unsafe {
+        ptr.byte_add(offset_of!(ExternBox<T>, type_id))
+            .cast::<TypeId>()
+            .write(TypeId::of::<T>());
     }
 
     // SAFETY: We point to the different fields safely using offset_of!, read the comment
@@ -193,7 +233,9 @@ pub fn extern_box_cstr_from_str<S: AsRef<str>>(s: S) -> *mut c_char {
     let len = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
 
     // Add 1 for the terminating nul.
-    let ptr = extern_box_raw::<u8>(len + 1);
+    // NOTE: We don't directly allocate a 'u8' type, even if this would be correct,
+    // because we want to put the right type_id in debug, that correspond to the ptr type.
+    let ptr = extern_box_raw::<c_char>(len + 1).cast::<u8>();
 
     // SAFETY: The function has reserved enough space to write the string with nul.
     unsafe {
@@ -239,6 +281,8 @@ pub unsafe fn extern_box_take<T: 'static>(value_ptr: *mut T) -> T {
     // SAFETY: This function pre-condition ensure correctness of the reads.
     unsafe {
 
+        extern_box_debug_assert(value_ptr);
+
         // Start by reading the value, now the value at that position should never be 
         // read again, so we free that function.
         let read = value_ptr.read();
@@ -275,13 +319,100 @@ pub unsafe extern "C" fn pmc_free(value_ptr: *mut c_void) {
         
         // SAFETY: Read the documentation of 'extern_box_layout' to understand the layout 
         // and the reason for why the drop fn pointer is placed just before the value.
-        let free = value_ptr
+        let drop = value_ptr
             .byte_sub(size_of::<DropFn<c_void>>())
             .cast::<DropFn<c_void>>()
             .read();
 
         // This drop function, as defined in 'extern_box_drop'.
-        free(value_ptr);
+        drop(value_ptr);
+
+    }
+
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::fmt::Debug;
+    use super::*;
+
+    
+    #[repr(align(16))]
+    #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+    struct Align16([u8; 16]);
+
+    #[repr(align(32))]
+    #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+    struct Align32([u8; 32]);
+
+    #[test]
+    fn layout() {
+
+        fn for_type<T: 'static>() {
+            assert_eq!(Layout::new::<DropFn<T>>(), Layout::new::<fn()>());
+            assert_eq!(extern_box_layout::<T>(0).size(), offset_of!(ExternBox<T>, value));
+            assert_eq!(extern_box_layout::<T>(1).size(), size_of::<ExternBox<T>>());
+            assert_eq!(extern_box_layout::<T>(9).size(), size_of::<ExternBox<T>>() + size_of::<T>() * 8);
+        }
+
+        for_type::<u8>();
+        for_type::<u16>();
+        for_type::<u32>();
+        for_type::<u64>();
+        for_type::<Align16>();
+        for_type::<Align32>();
+
+    }
+
+    #[test]
+    fn structure() {
+
+        fn for_value<T: Copy + Eq + Debug + 'static>(value: T) {
+            unsafe {
+
+                let ptr = extern_box(value);
+                assert_eq!(ptr.read(), value, "incoherent read value");
+
+                let drop = ptr
+                    .byte_sub(size_of::<DropFn<T>>())
+                    .cast::<DropFn<T>>();
+                assert!(drop.is_aligned(), "unaligned drop function");
+
+                extern_box_drop_unchecked(ptr);
+
+            }
+        }
+
+        for_value(0x12u8);
+        for_value(0x1234u16);
+        for_value(0x12345678u32);
+        for_value(0x123456789ABCDEF0u64);
+        for_value(Align16::default());
+        for_value(Align32::default());
+
+    }
+
+    #[test]
+    fn special() {
+        assert_eq!(extern_box_option(None::<u32>), ptr::null_mut());
+    }
+
+    #[test]
+    fn cstr() {
+
+        /// NOTE: c_len don't count nul.
+        fn for_str(s: &str, c_len: usize) {
+            let cstr = extern_box_cstr_from_str(s);
+            let cstr_slice = unsafe { std::slice::from_raw_parts(cstr.cast::<u8>(), c_len + 1) };
+            assert_eq!(&cstr_slice[..c_len], &s.as_bytes()[..c_len], "incoherent cstr");
+            assert_eq!(cstr_slice[c_len], 0, "missing nul");
+            unsafe { extern_box_drop_unchecked(cstr); }
+        }
+
+        for_str("Hello world!", 12);
+        for_str("Hello world!\0", 12);
+        for_str("Hello world!\0rest", 12);
 
     }
 

@@ -26,7 +26,6 @@ reqwest = { workspace = true, features = ["json"] }
 
 indexmap.workspace = true
 elsa.workspace = true
-bytes.workspace = true
 
 regex.workspace = true
 
