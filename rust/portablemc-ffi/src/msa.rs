@@ -3,13 +3,13 @@
 use std::ffi::c_char;
 use std::ptr;
 
-use portablemc::msa::{Auth, DeviceCodeFlow, Account, AuthError, DatabaseError};
+use portablemc::msa::{Account, Auth, AuthError, Database, DatabaseError, DeviceCodeFlow};
+use uuid::Uuid;
 
-use crate::alloc::extern_box;
+use crate::err::{self, Err, ExposedError, wrap_error};
+use crate::alloc::{extern_box, extern_box_cstr_from_str};
+use crate::ffi::{pmc_uuid, str_from_cstr_ptr};
 
-use super::err::{self, Err, ExposedError, wrap_error};
-use super::alloc::extern_box_cstr_from_str;
-use super::cstr::str_from_cstr_ptr;
 
 // =======
 // Module errors
@@ -56,7 +56,7 @@ impl ExposedError for DatabaseError {
 // =======
 
 #[no_mangle]
-extern "C" fn pmc_msa_auth_new(app_id: *const c_char) -> *mut Auth {
+pub extern "C" fn pmc_msa_auth_new(app_id: *const c_char) -> *mut Auth {
     
     let Some(app_id) = (unsafe { str_from_cstr_ptr(app_id) }) else {
         return ptr::null_mut();
@@ -67,22 +67,19 @@ extern "C" fn pmc_msa_auth_new(app_id: *const c_char) -> *mut Auth {
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_auth_app_id(auth: *const Auth) -> *const c_char {
+pub extern "C" fn pmc_msa_auth_app_id(auth: *const Auth) -> *mut c_char {
     let auth = unsafe { &*auth };
     extern_box_cstr_from_str(auth.app_id())
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_auth_language_code(auth: *const Auth) -> *const c_char {
+pub extern "C" fn pmc_msa_auth_language_code(auth: *const Auth) -> *mut c_char {
     let auth = unsafe { &*auth };
-    match auth.language_code() {
-        Some(code) => extern_box_cstr_from_str(code),
-        None => ptr::null(),
-    }
+    auth.language_code().map(extern_box_cstr_from_str).unwrap_or(ptr::null_mut())
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_auth_set_language_code(auth: *mut Auth, code: *const c_char) {
+pub extern "C" fn pmc_msa_auth_set_language_code(auth: *mut Auth, code: *const c_char) {
     
     let auth = unsafe { &mut *auth };
     
@@ -95,11 +92,13 @@ extern "C" fn pmc_msa_auth_set_language_code(auth: *mut Auth, code: *const c_cha
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_auth_request_device_code(auth: *const Auth, err: *mut *mut Err) -> *mut DeviceCodeFlow {
-    wrap_error(|| {
-        let auth = unsafe { &*auth };
-        auth.request_device_code().map(extern_box)
-    }, err, ptr::null_mut())
+pub extern "C" fn pmc_msa_auth_request_device_code(auth: *const Auth, err: *mut *mut Err) -> *mut DeviceCodeFlow {
+    
+    let auth = unsafe { &*auth };
+    auth.request_device_code()
+        .map(extern_box)
+        .unwrap_or_else(op)
+
 }
 
 // =======
@@ -107,31 +106,31 @@ extern "C" fn pmc_msa_auth_request_device_code(auth: *const Auth, err: *mut *mut
 // =======
 
 #[no_mangle]
-extern "C" fn pmc_msa_device_code_flow_app_id(flow: *const DeviceCodeFlow) -> *const c_char {
+pub extern "C" fn pmc_msa_device_code_flow_app_id(flow: *const DeviceCodeFlow) -> *mut c_char {
     let flow = unsafe { &*flow };
     extern_box_cstr_from_str(flow.app_id())
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_device_code_flow_user_code(flow: *const DeviceCodeFlow) -> *const c_char {
+pub extern "C" fn pmc_msa_device_code_flow_user_code(flow: *const DeviceCodeFlow) -> *mut c_char {
     let flow = unsafe { &*flow };
     extern_box_cstr_from_str(flow.user_code())
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_device_code_flow_verification_uri(flow: *const DeviceCodeFlow) -> *const c_char {
+pub extern "C" fn pmc_msa_device_code_flow_verification_uri(flow: *const DeviceCodeFlow) -> *mut c_char {
     let flow = unsafe { &*flow };
     extern_box_cstr_from_str(flow.verification_uri())
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_device_code_flow_message(flow: *const DeviceCodeFlow) -> *const c_char {
+pub extern "C" fn pmc_msa_device_code_flow_message(flow: *const DeviceCodeFlow) -> *mut c_char {
     let flow = unsafe { &*flow };
     extern_box_cstr_from_str(flow.message())
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_device_code_flow_wait(flow: *const DeviceCodeFlow, err: *mut *mut Err) -> *mut Account {
+pub extern "C" fn pmc_msa_device_code_flow_wait(flow: *const DeviceCodeFlow, err: *mut *mut Err) -> *mut Account {
     wrap_error(|| {
         let flow = unsafe { &*flow };
         flow.wait().map(extern_box)
@@ -143,37 +142,37 @@ extern "C" fn pmc_msa_device_code_flow_wait(flow: *const DeviceCodeFlow, err: *m
 // =======
 
 #[no_mangle]
-extern "C" fn pmc_msa_account_app_id(acc: *const Account) -> *const c_char {
+pub extern "C" fn pmc_msa_account_app_id(acc: *const Account) -> *mut c_char {
     let account = unsafe { &*acc };
     extern_box_cstr_from_str(account.app_id())
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_account_access_token(acc: *const Account) -> *const c_char {
+pub extern "C" fn pmc_msa_account_access_token(acc: *const Account) -> *mut c_char {
     let account = unsafe { &*acc };
     extern_box_cstr_from_str(account.access_token())
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_account_uuid(acc: *const Account) -> *const u8 {
+pub extern "C" fn pmc_msa_account_uuid(acc: *const Account) -> *mut pmc_uuid {
     let account = unsafe { &*acc };
-    account.uuid().as_bytes().as_ptr()
+    extern_box(account.uuid().as_bytes().clone())
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_account_username(acc: *const Account) -> *const c_char {
+pub extern "C" fn pmc_msa_account_username(acc: *const Account) -> *mut c_char {
     let account = unsafe { &*acc };
     extern_box_cstr_from_str(account.username())
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_account_xuid(acc: *const Account) -> *const c_char {
+pub extern "C" fn pmc_msa_account_xuid(acc: *const Account) -> *mut c_char {
     let account = unsafe { &*acc };
     extern_box_cstr_from_str(account.xuid())
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_account_request_profile(acc: *mut Account, err: *mut *mut Err) {
+pub extern "C" fn pmc_msa_account_request_profile(acc: *mut Account, err: *mut *mut Err) {
     wrap_error(|| {
         let account = unsafe { &mut *acc };
         account.request_profile()
@@ -181,7 +180,7 @@ extern "C" fn pmc_msa_account_request_profile(acc: *mut Account, err: *mut *mut 
 }
 
 #[no_mangle]
-extern "C" fn pmc_msa_account_request_refresh(acc: *mut Account, err: *mut *mut Err) {
+pub extern "C" fn pmc_msa_account_request_refresh(acc: *mut Account, err: *mut *mut Err) {
     wrap_error(|| {
         let account = unsafe { &mut *acc };
         account.request_refresh()
@@ -192,3 +191,45 @@ extern "C" fn pmc_msa_account_request_refresh(acc: *mut Account, err: *mut *mut 
 // Binding for Database
 // =======
 
+#[no_mangle]
+pub extern "C" fn pmc_msa_database_new(path: *const c_char) -> *mut Database {
+    
+    let Some(path) = (unsafe { str_from_cstr_ptr(path) }) else {
+        return ptr::null_mut();
+    };
+
+    extern_box(Database::new(path))
+
+}
+
+#[no_mangle]
+pub extern "C" fn pmc_msa_database_file(db: *const Database) -> *mut c_char {
+    let db = unsafe { &*db };
+    let Some(path) = db.file().as_os_str().to_str() else {
+        return ptr::null_mut();
+    };
+    extern_box_cstr_from_str(path)
+}
+
+#[no_mangle]
+pub extern "C" fn pmc_msa_database_load_from_uuid(db: *const Database, uuid: *const pmc_uuid, err: *mut *mut Err) -> *mut Account {
+    wrap_error(|| {
+
+        let db = unsafe { &*db };
+        let uuid = Uuid::from_bytes(unsafe { *uuid });
+
+        db.load_from_uuid(uuid)
+            .map(|acc| acc
+                .map(extern_box).unwrap_or(ptr::null_mut()))
+
+    }, err, ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn pmc_msa_database_load_from_username(db: *const Database, username: *const c_char, err: *mut *mut Err) -> *mut Account {
+    
+
+
+    todo!()
+
+}
