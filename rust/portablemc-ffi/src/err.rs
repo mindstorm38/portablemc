@@ -4,39 +4,8 @@ use std::ffi::{c_char, c_void};
 use std::error::Error;
 use std::ptr;
 
-use crate::alloc::{extern_box, pmc_free, extern_box_cstr_from_fmt};
+use crate::alloc::{extern_box, extern_box_drop_unchecked, extern_box_cstr_from_fmt};
 
-
-/// This function is a helper for functions that takes an 'pmc_err *err' double pointer.
-#[inline]
-pub fn wrap_error<F, R, E>(func: F, err: *mut *mut Err, default: R) -> R
-where
-    F: FnOnce() -> Result<R, E>,
-    R: Copy,
-    E: ExposedError + 'static,
-{
-
-    // If the given pointer isn't null, then we read it, and if this pointer isn't null
-    // we free the old error first and set it null.
-    if !err.is_null() {
-        let old_err = unsafe { err.replace(ptr::null_mut()) };
-        pmc_free(old_err.cast());
-    }
-
-    match func() {
-        Ok(v) => v,
-        Err(e) => {
-
-            if !err.is_null() {
-                unsafe { err.write(extern_err(e)); }
-            }
-
-            default
-
-        }
-    }
-
-}
 
 /// Error codes definitions, shared with C define macros.
 pub mod code {
@@ -72,33 +41,45 @@ pub trait ExposedError: Error {
 
 }
 
-/// Extension trait for a Result<T, E: ExposedError>
-pub trait ResultErrExt<T> {
-    fn with_extern_err(self, err: *mut *mut Err) -> Result<T, ()>;
-}
-
-impl<T, E: ExposedError + 'static> ResultErrExt<T> for Result<T, E> {
-    fn with_extern_err(self, err: *mut *mut Err) -> Result<T, ()> {
-        
-        // If the given pointer isn't null, then we read it, and if this pointer isn't null
-        // we free the old error first and set it null.
-        if !err.is_null() {
-            let old_err = unsafe { err.replace(ptr::null_mut()) };
-            pmc_free(old_err.cast());
-        }
-
-        // if let Err(e) = &self {
-        //     unsafe { err.write(extern_err(e)); }
-        // }
-
-    }
-}
-
 /// Allocate an extern box (see [`crate::alloc::extern_box`]) that contains the given 
 /// error type, returning a pointer to the describing structure.
 #[inline]
 pub fn extern_err<E: ExposedError + 'static>(err: E) -> *mut Err {
     extern_box(Err { inner: Box::new(err) })
+}
+
+/// If this result is an error, then the error is extracted and moved into an extern
+/// error, using [`extern_err`], and written in the pointer. Note that if the pointer
+/// of the error is not null, then it is freed anyway, error or not.
+#[inline]
+pub fn extern_err_with<T, E, F>(err_ptr: *mut *mut Err, func: F) -> Result<T, ()>
+where
+    E: ExposedError + 'static,
+    F: FnOnce() -> Result<T, E>,
+{
+
+    // If the given pointer isn't null, then we read it, and if this pointer isn't null
+    // we free the old error first and set it null.
+    if !err_ptr.is_null() {
+        // SAFETY: A pointer is copy and we requires that it's not null and points to 
+        // an initialized pointer, even if null.
+        let old_err = unsafe { err_ptr.replace(ptr::null_mut()) };
+        if !old_err.is_null() {
+            // SAFETY: The caller ensure that if there was a pointer, it was a Err ptr.
+            unsafe { extern_box_drop_unchecked(old_err); }
+        }
+    }
+
+    match func() {
+        Ok(val) => Ok(val),
+        Err(err) => {
+            // SAFETY: Write the extern error's pointer we just allocated. We are 
+            // replacing the null pointer we stored above.
+            unsafe { err_ptr.write(extern_err(err)); }
+            Err(())
+        }
+    }
+    
 }
 
 /// The opaque `pmc_err` type.
@@ -111,19 +92,19 @@ pub struct Err {
 // =======
 
 #[no_mangle]
-extern "C" fn pmc_err_code(err: *const Err) -> u8 {
+pub unsafe extern "C" fn pmc_err_code(err: *const Err) -> u8 {
     let err = unsafe { &*err };
     err.inner.code()
 }
 
 #[no_mangle]
-extern "C" fn pmc_err_data(err: *const Err) -> *mut c_void {
+pub unsafe extern "C" fn pmc_err_data(err: *const Err) -> *mut c_void {
     let err = unsafe { &*err };
     err.inner.extern_data().cast()
 }
 
 #[no_mangle]
-extern "C" fn pmc_err_message(err: *const Err) -> *mut c_char {
+pub unsafe extern "C" fn pmc_err_message(err: *const Err) -> *mut c_char {
     let err = unsafe { &*err };
     extern_box_cstr_from_fmt(format_args!("{}", err.inner))
 }

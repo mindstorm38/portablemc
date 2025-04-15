@@ -111,7 +111,7 @@ pmc_msa_account     *pmc_msa_database_load_from_uuid(const pmc_msa_database *dat
 pmc_msa_account     *pmc_msa_database_load_from_username(const pmc_msa_database *database, const char *username, pmc_err **err);
 pmc_msa_account     *pmc_msa_database_remove_from_uuid(const pmc_msa_database *database, const pmc_uuid *uuid, pmc_err **err);
 pmc_msa_account     *pmc_msa_database_remove_from_username(const pmc_msa_database *database, const char *username, pmc_err **err);
-void                 pmc_msa_database_store(const pmc_msa_database *database, const pmc_msa_account *acc, pmc_err **err);
+void                 pmc_msa_database_store(const pmc_msa_database *database, pmc_msa_account *acc, pmc_err **err);
 // TODO: pmc_msa_database_iter
 
 #ifdef __cplusplus

@@ -63,25 +63,39 @@ fn extern_box_layout<T: 'static>(len: usize) -> Layout {
 
 }
 
-/// The drop impl for the extern box.
-unsafe fn extern_box_drop<T: 'static>(value_ptr: *mut T) {
+/// Internal function to dealloc the given extern box. This DOES NOT drop the value.
+/// 
+/// SAFETY: The given extern box pointer should be pointing to an initialized and valid
+/// extern box of that exact type!
+unsafe fn extern_box_free_unchecked<T: 'static>(ptr: *mut ExternBox<T>) {
+    // SAFETY: Ensured by the caller.
+    unsafe {
+
+        let len = ptr.byte_add(offset_of!(ExternBox<T>, len))
+            .cast::<usize>()
+            .read();
+
+        // We can reconstruct the layout because we have the length.
+        let layout = extern_box_layout::<T>(len);
+        alloc::dealloc(ptr.cast(), layout);
+
+    }
+}
+
+/// TDrop the given extern-boxed value and then free the full allocation.
+/// 
+/// SAFETY: The given extern box pointer should be pointing to an initialized and valid
+/// extern box's value of that exact type!
+pub unsafe fn extern_box_drop_unchecked<T: 'static>(value_ptr: *mut T) {
 
     /// This guard is internally used to ensure that, despite any panic, the 
     /// allocation will be freed!
-    struct DeallocGuard<T: 'static>(*mut ExternBox<T>);
-    impl<T: 'static> Drop for DeallocGuard<T> {
+    struct FreeGuard<T: 'static>(*mut ExternBox<T>);
+    impl<T: 'static> Drop for FreeGuard<T> {
         fn drop(&mut self) {
-            // SAFETY: We access fields safely using offset_of!.
-            unsafe {
-
-                let len = self.0.byte_add(offset_of!(ExternBox<T>, len))
-                    .cast::<usize>()
-                    .read();
-
-                // We can reconstruct the layout because we have the length.
-                let layout = extern_box_layout::<T>(len);
-                alloc::dealloc(self.0.cast(), layout);
-
+            // SAFETY: The SAFETY conditions of the super method applies here.
+            unsafe { 
+                extern_box_free_unchecked(self.0);
             }
         }
     }
@@ -90,18 +104,17 @@ unsafe fn extern_box_drop<T: 'static>(value_ptr: *mut T) {
     // fields safely using offset_of!.
     unsafe { 
         
-        let ptr = value_ptr.byte_sub(offset_of!(ExternBox<T>, value))
+        let ptr = value_ptr
+            .byte_sub(offset_of!(ExternBox<T>, value))
             .cast::<ExternBox<T>>();
 
-        let len = ptr.byte_add(offset_of!(ExternBox<T>, len))
+        let len = ptr
+            .byte_add(offset_of!(ExternBox<T>, len))
             .cast::<usize>()
             .read();
 
-        let values = std::ptr::slice_from_raw_parts_mut(value_ptr, len);
-
-        // Drop all values, guarded to ensure deallocation.
-        let guard = DeallocGuard(ptr);
-        values.drop_in_place();
+        let guard = FreeGuard(ptr);
+        std::ptr::slice_from_raw_parts_mut(value_ptr, len).drop_in_place();
         drop(guard);
 
     }
@@ -133,7 +146,7 @@ pub fn extern_box_raw<T: 'static>(len: usize) -> *mut T {
         ptr.byte_add(offset_of!(ExternBox<T>, value))
             .byte_sub(size_of::<DropFn<T>>())
             .cast::<DropFn<T>>()
-            .write(extern_box_drop::<T>);
+            .write(extern_box_drop_unchecked::<T>);
 
         ptr.byte_add(offset_of!(ExternBox<T>, value)).cast::<T>()
 
@@ -148,6 +161,15 @@ pub fn extern_box<T: 'static>(value: T) -> *mut T {
     let ptr = extern_box_raw::<T>(1);
     unsafe { ptr.write(value); }
     ptr
+}
+
+/// Allocate the given object in a special box that also embed the drop function.
+#[inline]
+pub fn extern_box_option<T: 'static>(value: Option<T>) -> *mut T {
+    match value {
+        Some(value) => extern_box(value),
+        None => ptr::null_mut(),
+    }
 }
 
 /// Allocate the given slice of object in a special box that also embed the drop function.
@@ -205,12 +227,44 @@ pub fn extern_box_cstr_from_fmt(args: Arguments<'_>) -> *mut c_char {
     
 }
 
+/// Free the extern box pointing to the given value and return the given value.
+/// 
+/// SAFETY: You must ensure that the value does point to an extern-boxed value that has
+/// no yet been freed nor taken, exactly of the given type.
+#[inline]
+pub unsafe fn extern_box_take<T: 'static>(value_ptr: *mut T) -> T {
+    
+    debug_assert!(!value_ptr.is_null());
+
+    // SAFETY: This function pre-condition ensure correctness of the reads.
+    unsafe {
+
+        // Start by reading the value, now the value at that position should never be 
+        // read again, so we free that function.
+        let read = value_ptr.read();
+
+        // Now get the pointer to the extern box we want to free!
+        let ptr = value_ptr
+            .byte_sub(offset_of!(ExternBox<T>, value))
+            .cast::<ExternBox<T>>();
+
+        // We're juste freeing the memory, not dropping the value, because we should not.
+        extern_box_free_unchecked(ptr);
+
+        read
+
+    }
+
+}
+
 // =======
 // Bindings
 // =======
 
+/// SAFETY: You must ensure that the value does point to an extern-boxed value that has
+/// no yet been freed. The pointer may be null, in which case nothing happens.
 #[no_mangle]
-pub extern "C" fn pmc_free(value_ptr: *mut c_void) {
+pub unsafe extern "C" fn pmc_free(value_ptr: *mut c_void) {
 
     // Ignore null pointers, this can be used to simplify some code.
     if value_ptr.is_null() {
@@ -221,13 +275,13 @@ pub extern "C" fn pmc_free(value_ptr: *mut c_void) {
         
         // SAFETY: Read the documentation of 'extern_box_layout' to understand the layout 
         // and the reason for why the drop fn pointer is placed just before the value.
-        let drop = value_ptr
+        let free = value_ptr
             .byte_sub(size_of::<DropFn<c_void>>())
             .cast::<DropFn<c_void>>()
             .read();
 
         // This drop function, as defined in 'extern_box_drop'.
-        drop(value_ptr);
+        free(value_ptr);
 
     }
 
