@@ -101,7 +101,7 @@ impl Installer {
     }
 
     #[inline(never)]
-    pub fn install_dyn(&mut self, handler: &mut dyn Handler) -> Result<Game> {
+    fn install_dyn(&mut self, handler: &mut dyn Handler) -> Result<Game> {
 
         let Self {
             ref mut mojang,
