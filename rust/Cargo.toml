@@ -29,7 +29,7 @@ uuid = { version = "1.11.0", features = ["serde"] }
 chrono = { version = "0.4.39", features = ["serde"] }
 
 # Regex, we intentionally disable the Unicode feature to avoid bloating us.
-regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
+regex = { version = "1.11.1", default-features = false, features = ["std", "perf", "unicode-perl"] }
 
 # Crypto
 sha1 = "0.10.6"
