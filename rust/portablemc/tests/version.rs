@@ -7,8 +7,9 @@ use std::{env, fs, io};
 
 use regex::Regex;
 
-use portablemc::standard::{self, JvmPolicy, LoadedLibrary, LoadedVersion};
+use portablemc::standard::{self, JvmPolicy, LoadedLibrary, LoadedVersion, VersionChannel};
 use portablemc::download;
+use portablemc::mojang::{self, Manifest};
 
 
 /// This macro is used to easily define various version installation tests.
@@ -77,10 +78,10 @@ fn install_version(version: &str) {
 
     // Now run the installer and store its actual logs...
     let mut actual_logs = Vec::new();
-    let mut installer = standard::Installer::new(version);
-    installer.set_main_dir(tmp_main_dir.to_path_buf());
-    installer.set_jvm_policy(JvmPolicy::Static(PathBuf::new()));
-    match installer.install(TestHandler { logs: &mut actual_logs }) {
+    let mut inst = standard::Installer::new(version);
+    inst.set_main_dir(tmp_main_dir.to_path_buf());
+    inst.set_jvm_policy(JvmPolicy::Static(PathBuf::new()));
+    match inst.install(TestHandler { logs: &mut actual_logs }) {
         Ok(_game) => {}
         Err(standard::Error::DownloadResourcesCancelled {  }) => {}
         Err(e) => {
@@ -89,6 +90,48 @@ fn install_version(version: &str) {
     }
 
     assert_logs_eq(expected_logs, actual_logs, &tmp_main_dir);
+
+    // Only remove it here so when the test did not panic.
+    fs::remove_dir_all(&tmp_main_dir).unwrap();
+
+}
+
+/// This test tries to parse all versions (except snapshots).
+#[test]
+#[ignore = "use internet, too long"]
+fn all() {
+
+    fs::create_dir_all(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let tmp_main_dir = tempfile::Builder::new()
+        .prefix("")
+        .suffix(".all_main")
+        .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
+        .unwrap()
+        .into_path();
+
+    let mut all_logs = Vec::new();
+
+    let mut inst = mojang::Installer::new(mojang::Version::Release);
+    inst.standard_mut().set_main_dir(tmp_main_dir.clone());
+    inst.standard_mut().set_jvm_policy(JvmPolicy::Static(PathBuf::new()));
+
+    let manifest = Manifest::request(()).unwrap();
+    for version in manifest.iter() {
+
+        if let VersionChannel::Snapshot = version.channel() {
+            continue;
+        }
+
+        inst.set_version(version.name());
+        match inst.install(TestHandler { logs: &mut all_logs }) {
+            Ok(_game) => {}
+            Err(mojang::Error::Standard(standard::Error::DownloadResourcesCancelled {  })) => {}
+            Err(e) => {
+                all_logs.push(format!("mojang::{e:?}"));
+            }
+        }
+
+    }
 
     // Only remove it here so when the test did not panic.
     fs::remove_dir_all(&tmp_main_dir).unwrap();
@@ -290,6 +333,24 @@ impl standard::Handler for TestHandler<'_> {
 
     fn extracted_binaries(&mut self, _dir: &Path) {
         // Ignore.
+    }
+
+}
+
+impl mojang::Handler for TestHandler<'_> {
+    
+    impl_test_handler! {
+        "mojang":
+        fn invalidated_version(version: &str);
+        fn fetch_version(version: &str);
+        fn fetched_version(version: &str);
+        fn fixed_legacy_quick_play();
+        fn fixed_legacy_proxy(host: &str, port: u16);
+        fn fixed_legacy_merge_sort();
+        fn fixed_legacy_resolution();
+        fn fixed_broken_authlib();
+        fn warn_unsupported_quick_play();
+        fn warn_unsupported_resolution();
     }
 
 }

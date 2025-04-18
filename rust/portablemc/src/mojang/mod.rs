@@ -472,7 +472,7 @@ impl Installer {
     }
 
     #[inline(never)]
-    pub fn install_dyn(&mut self, handler: &mut dyn Handler) -> Result<Game> {
+    fn install_dyn(&mut self, handler: &mut dyn Handler) -> Result<Game> {
         
         // Apply default offline auth, derived from hostname.
         if self.inner.auth_uuid.is_nil() || self.inner.auth_username.is_empty() {
