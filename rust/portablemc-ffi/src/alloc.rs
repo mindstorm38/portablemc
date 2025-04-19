@@ -15,7 +15,7 @@ type DropFn<T> = unsafe fn(value_ptr: *mut T);
 
 /// A generic C structure for the extern box.
 /// 
-/// This type should never be instantiated, read/write as-is.
+/// This type should never be instantiated, nor read/write as-is.
 #[repr(C)]
 struct ExternBox<T: 'static> {
     /// When debug assertions are enabled, this is used to check, before doing unsafe

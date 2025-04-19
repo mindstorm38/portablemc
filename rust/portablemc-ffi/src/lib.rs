@@ -2,8 +2,7 @@
 //! 
 //! In this library, the naming scheme is simple. All functions that are exported and
 //! therefore also defined in the header file are prefixed with `pmc_`, they should use
-//! the extern "C" ABI. The structures that are defined and not anonymous in the include
-//! file should also be defined, for reference 
+//! the extern "C" ABI.
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
