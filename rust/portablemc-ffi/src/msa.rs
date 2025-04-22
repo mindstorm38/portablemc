@@ -6,9 +6,9 @@ use std::ptr;
 use portablemc::msa::{Account, Auth, AuthError, Database, DatabaseError, DeviceCodeFlow};
 use uuid::Uuid;
 
-use crate::err::{self, Err, ExposedError, extern_err_with};
 use crate::alloc::{extern_box, extern_box_option, extern_box_cstr_from_str, extern_box_take};
-use crate::ffi::{pmc_uuid, str_from_cstr_ptr};
+use crate::err::{self, Err, ExposedError, extern_err_with};
+use crate::{pmc_uuid, str_from_cstr_ptr};
 
 
 // =======
@@ -190,9 +190,9 @@ pub unsafe extern "C" fn pmc_msa_account_request_refresh(acc: *mut Account, err:
 // =======
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_database_new(path: *const c_char) -> *mut Database {
+pub unsafe extern "C" fn pmc_msa_database_new(file: *const c_char) -> *mut Database {
     
-    let Some(path) = (unsafe { str_from_cstr_ptr(path) }) else {
+    let Some(path) = (unsafe { str_from_cstr_ptr(file) }) else {
         return ptr::null_mut();
     };
 
