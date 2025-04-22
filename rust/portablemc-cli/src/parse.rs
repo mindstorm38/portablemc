@@ -49,6 +49,13 @@ pub struct CliArgs {
     /// environment variables if more practical.
     #[arg(long, env = "PMC_MSA_DB_FILE", value_name = "PATH")]
     pub msa_db_file: Option<PathBuf>,
+    /// Change the default Azure application ID used by the launcher.
+    /// 
+    /// The Azure application ID is used for interacting with the Microsoft authentication
+    /// API used for authentication of Minecraft accounts. When not specified, the default
+    /// (and hidden) launcher's application ID is used.
+    #[arg(long, env = "PMC_MSA_AZURE_APP_ID", value_name = "APP_ID")]
+    pub msa_azure_app_id: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]

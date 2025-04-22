@@ -171,7 +171,7 @@ fn auth_list(cli: &mut Cli) -> ExitCode {
 
 fn auth_login(cli: &mut Cli, no_browser: bool) -> ExitCode {
 
-    let auth = Auth::new(crate::AZURE_APP_ID);
+    let auth = Auth::new(&cli.msa_azure_app_id);
 
     cli.out.log("auth_request_device_code")
         .pending("Requesting authentication device code...");
