@@ -20,6 +20,10 @@ use crate::output::{Output, LogLevel};
 use crate::format::{self, BytesFmt};
 
 
+const DEFAULT_AZURE_APP_ID: &str = "708e91b5-99f8-4a1d-80ec-e746cbb24771";
+const DEFAULT_MSA_DB_FILE: &str = "portablemc_msa.json";
+
+
 pub fn main(args: &CliArgs) -> ExitCode {
     
     // We can set only one Ctrl-C handler for the whole CLI, so we set it here and access
@@ -37,6 +41,7 @@ pub fn main(args: &CliArgs) -> ExitCode {
         
     }).unwrap();
 
+    // Create the adequate output handle depending on the output and verbose options.
     let mut out = match args.output {
         CliOutput::Human => Output::human(match args.verbose {
             0 => LogLevel::Pending,
@@ -45,7 +50,10 @@ pub fn main(args: &CliArgs) -> ExitCode {
         CliOutput::Machine => Output::tab_separated(),
     };
 
-    let Some(main_dir) = args.main_dir.as_deref().or_else(|| standard::default_main_dir()).map(Path::to_path_buf) else {
+    // Ensure that we can have a main directory for Minecraft, needed for all commands.
+    let Some(main_dir) = args.main_dir.as_deref()
+        .or_else(|| standard::default_main_dir())
+        .map(Path::to_path_buf) else {
         
         out.log("error_missing_main_dir")
             .error("There is no default main directory for your platform, please specify it using --main-dir")
@@ -55,12 +63,16 @@ pub fn main(args: &CliArgs) -> ExitCode {
 
     };
 
-    let msa_db_file = args.msa_db_file.clone().unwrap_or_else(|| main_dir.join("portablemc_msa.json"));
+    let msa_db_file = args.msa_db_file.clone()
+        .unwrap_or_else(|| main_dir.join(DEFAULT_MSA_DB_FILE));
+    let msa_azure_app_id = args.msa_azure_app_id.clone()
+        .unwrap_or_else(|| DEFAULT_AZURE_APP_ID.to_string());
 
     let mut cli = Cli {
         out,
         main_dir,
         msa_db: msa::Database::new(msa_db_file),
+        msa_azure_app_id,
     };
 
     legacy_check(&mut cli);
@@ -106,8 +118,8 @@ pub struct Cli {
     pub out: Output,
     pub main_dir: PathBuf,
     pub msa_db: msa::Database,
+    pub msa_azure_app_id: String,
 }
-
 
 /// Generic handler for various event handlers type (download and installers).
 #[derive(Debug)]
