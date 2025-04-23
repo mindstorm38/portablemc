@@ -7,56 +7,47 @@ use std::{env, fs, io};
 
 use regex::Regex;
 
-use portablemc::standard::{self, JvmPolicy, LoadedLibrary, LoadedVersion, VersionChannel};
+use portablemc::standard::{self, JvmPolicy, LoadedLibrary, LoadedVersion};
 use portablemc::download;
-use portablemc::mojang::{self, Manifest};
+use portablemc::mojang;
 
 
-/// This macro is used to easily define various version installation tests.
-macro_rules! def_install_tests {
-    ( $fn_name:ident = $name:expr, $( $rem:tt )* ) => {
-        #[test]
-        #[cfg_attr(miri, ignore)]
-        fn $fn_name () {
-            install_version( $name );
-        }
-        def_install_tests!( $($rem)* );
-    };
+macro_rules! def_checks {
     ( $fn_name:ident, $( $rem:tt )* ) => {
         #[test]
         #[cfg_attr(miri, ignore)]
         fn $fn_name () {
-            install_version( stringify!($fn_name) );
+            check( stringify!($fn_name) );
         }
-        def_install_tests!( $($rem)* );
+        def_checks!( $($rem)* );
     };
     () => {};
 }
 
-// Our data tests are defined here:
-def_install_tests![
+def_checks![
     recurse, 
     client_not_found,
     libraries,
 ];
 
-/// Common function to run a test for the given function.
-fn install_version(version: &str) {
+/// Common function to check a predefined version, placed in the "data" directory, and
+/// the triggering order of its events.
+fn check(version: &str) {
     
-    let version_dir = {
+    let data_dir = {
         let mut buf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         buf.push("tests");
-        buf.push("version");
+        buf.push("event");
         buf
     };
 
-    let metadata_file = version_dir.join(format!("{version}.json"));
+    let metadata_file = data_dir.join(format!("{version}.json"));
 
     let expected_log = {
-        match fs::read_to_string(version_dir.join(format!("{version}.{}.log", env::consts::OS))) {
+        match fs::read_to_string(data_dir.join(format!("{version}.{}.log", env::consts::OS))) {
             Ok(log) => log,
             Err(e) if e.kind() == io::ErrorKind::NotFound =>
-                fs::read_to_string(version_dir.join(format!("{version}.log"))).unwrap(),
+                fs::read_to_string(data_dir.join(format!("{version}.log"))).unwrap(),
             Err(e) => Err(e).unwrap(),
         }
     };
@@ -66,7 +57,7 @@ fn install_version(version: &str) {
     fs::create_dir_all(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let tmp_main_dir = tempfile::Builder::new()
         .prefix("")
-        .suffix(".main")
+        .suffix(".event")
         .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
         .unwrap()
         .into_path();
@@ -92,48 +83,6 @@ fn install_version(version: &str) {
     }
 
     assert_logs_eq(expected_logs, actual_logs, &tmp_main_dir);
-
-    // Only remove it here so when the test did not panic.
-    fs::remove_dir_all(&tmp_main_dir).unwrap();
-
-}
-
-/// This test tries to parse all versions (except snapshots).
-#[test]
-#[ignore = "use internet, too long"]
-fn all() {
-
-    fs::create_dir_all(env!("CARGO_TARGET_TMPDIR")).unwrap();
-    let tmp_main_dir = tempfile::Builder::new()
-        .prefix("")
-        .suffix(".all_main")
-        .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
-        .unwrap()
-        .into_path();
-
-    let mut all_logs = Vec::new();
-
-    let mut inst = mojang::Installer::new(mojang::Version::Release);
-    inst.standard_mut().set_main_dir(tmp_main_dir.clone());
-    inst.standard_mut().set_jvm_policy(JvmPolicy::Static(PathBuf::new()));
-
-    let manifest = Manifest::request(()).unwrap();
-    for version in manifest.iter() {
-
-        if let VersionChannel::Snapshot = version.channel() {
-            continue;
-        }
-
-        inst.set_version(version.name());
-        match inst.install(TestHandler { logs: &mut all_logs }) {
-            Ok(_game) => {}
-            Err(mojang::Error::Standard(standard::Error::DownloadResourcesCancelled {  })) => {}
-            Err(e) => {
-                all_logs.push(format!("mojang::{e:?}"));
-            }
-        }
-
-    }
 
     // Only remove it here so when the test did not panic.
     fs::remove_dir_all(&tmp_main_dir).unwrap();
