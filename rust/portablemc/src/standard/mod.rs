@@ -431,8 +431,8 @@ impl Installer {
         replace_strings_args(&mut game_args, repl_arg);
 
         Ok(Game {
-            mc_dir,
             jvm_file, 
+            mc_dir,
             main_class, 
             jvm_args, 
             game_args,
@@ -1815,7 +1815,7 @@ pub enum Error {
     /// The version JAR file that is required has no download information and is not 
     /// already existing, is is mandatory to build the class path.
     #[error("client not found")]
-    ClientNotFound,
+    ClientNotFound {  },
     /// A library has no download information and is missing the libraries directory.
     #[error("library not found: {gav}")]
     LibraryNotFound {
@@ -2039,10 +2039,10 @@ pub struct LibraryDownload {
 /// configured in the installer, they are all made absolute before launching the game. 
 #[derive(Debug, Clone)]
 pub struct Game {
-    /// Working directory where the JVM process should be running.
-    pub mc_dir: PathBuf,
     /// Path to the JVM executable file.
     pub jvm_file: PathBuf,
+    /// Working directory where the JVM process should be running.
+    pub mc_dir: PathBuf,
     /// The main class that contains the JVM entrypoint.
     pub main_class: String,
     /// List of JVM arguments (before the main class in the command line).

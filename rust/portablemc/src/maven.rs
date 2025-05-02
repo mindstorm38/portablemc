@@ -474,6 +474,7 @@ impl<'a> Iterator for MetadataParser<'a> {
 /// Valid to implement because we return none forever after any error.
 impl FusedIterator for MetadataParser<'_> {  }
 
+
 #[cfg(test)]
 mod tests {
 
