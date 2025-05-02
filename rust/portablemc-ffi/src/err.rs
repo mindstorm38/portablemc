@@ -12,17 +12,27 @@ pub mod code {
 
     pub const INTERNAL: u8                      = 0x01;
 
-    pub const MSA_AUTH_DECLINED: u8             = 0x40;
-    pub const MSA_AUTH_TIMED_OUT: u8            = 0x41;
-    pub const MSA_AUTH_OUTDATED_TOKEN: u8       = 0x42;
-    pub const MSA_AUTH_DOES_NOT_OWN_GAME: u8    = 0x43;
-    pub const MSA_AUTH_INVALID_STATUS: u8       = 0x44;
-    pub const MSA_AUTH_UNKNOWN: u8              = 0x45;
+    pub const MSA_AUTH_DECLINED: u8             = 0x10;
+    pub const MSA_AUTH_TIMED_OUT: u8            = 0x11;
+    pub const MSA_AUTH_OUTDATED_TOKEN: u8       = 0x12;
+    pub const MSA_AUTH_DOES_NOT_OWN_GAME: u8    = 0x13;
+    pub const MSA_AUTH_INVALID_STATUS: u8       = 0x14;
+    pub const MSA_AUTH_UNKNOWN: u8              = 0x15;
 
-    pub const MSA_DATABASE_IO: u8               = 0x50;
-    pub const MSA_DATABASE_CORRUPTED: u8        = 0x51;
-    pub const MSA_DATABASE_WRITE_FAILED: u8     = 0x52;
+    pub const MSA_DATABASE_IO: u8               = 0x20;
+    pub const MSA_DATABASE_CORRUPTED: u8        = 0x21;
+    pub const MSA_DATABASE_WRITE_FAILED: u8     = 0x22;
     
+    pub const STANDARD_HIERARCHY_LOOP: u8       = 0x30;
+    pub const STANDARD_VERSION_NOT_FOUND: u8    = 0x31;
+    pub const STANDARD_ASSETS_NOT_FOUND: u8     = 0x32;
+    pub const STANDARD_CLIENT_NOT_FOUND: u8     = 0x33;
+    pub const STANDARD_LIBRARY_NOT_FOUND: u8    = 0x34;
+    pub const STANDARD_JVM_NOT_FOUND: u8        = 0x35;
+    pub const STANDARD_MAIN_CLASS_NOT_FOUND: u8 = 0x36;
+    pub const STANDARD_DOWNLOAD_RESOURCES_CANCELLED: u8 = 0x37;
+    pub const STANDARD_DOWNLOAD: u8             = 0x38;
+
 }
 
 /// A trait to implement on all [`Error`] implementors that also can be exposed to C.
