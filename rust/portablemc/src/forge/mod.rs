@@ -12,8 +12,8 @@ use std::fmt::Write;
 use std::{env, fs};
 use std::fs::File;
 
+use crate::standard::{self, Game, LIBRARIES_URL};
 use crate::download::{self, Batch, EntryErrorKind};
-use crate::standard::{self, LIBRARIES_URL};
 use crate::mojang::{self, FetchExclude};
 use crate::maven::{Gav, MetadataParser};
 use crate::path::{PathBufExt, PathExt};
@@ -21,8 +21,6 @@ use crate::path::{PathBufExt, PathExt};
 use zip::ZipArchive;
 
 use elsa::sync::FrozenMap;
-
-pub use mojang::Game;
 
 
 /// An installer that supports Forge and NeoForge mod loaders.

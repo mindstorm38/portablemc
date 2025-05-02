@@ -15,15 +15,10 @@ use regex::Regex;
 use uuid::Uuid;
 
 use crate::standard::{self, 
-    LIBRARIES_URL,
-    check_file_advanced, 
-    LibraryDownload, LoadedLibrary, VersionChannel
-};
+    check_file_advanced, Game, LibraryDownload, LoadedLibrary, VersionChannel, LIBRARIES_URL};
 use crate::maven::Gav;
 use crate::download;
 use crate::msa;
-
-pub use standard::Game;
 
 
 /// Static URL to the version manifest provided by Mojang.

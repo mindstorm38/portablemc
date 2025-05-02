@@ -7,11 +7,9 @@ use std::path::Path;
 
 use reqwest::StatusCode;
 
+use crate::standard::{self, Game};
 use crate::download;
-use crate::standard;
 use crate::mojang;
-
-pub use mojang::Game;
 
 
 /// An installer for supporting mod loaders that are Fabric or like it (Quilt, 
