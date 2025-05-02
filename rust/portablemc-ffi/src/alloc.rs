@@ -11,6 +11,8 @@ use std::ptr;
 #[cfg(debug_assertions)]
 use std::any::TypeId;
 
+use crate::cstr_bytes_from_str;
+
 
 /// Internal type alias for the drop function pointer.
 type DropFn<T> = unsafe fn(value_ptr: *mut T);
@@ -226,24 +228,20 @@ pub fn extern_box_slice<T: Copy + 'static>(slice: &[T]) -> *mut T {
 
 /// Allocate a C-string from some bytes slice representing a UTF-8 string that may contain
 /// a nul byte, any nul byte will truncate early the cstr, the rest will be ignored.
-#[inline]
 pub fn extern_box_cstr_from_str<S: AsRef<str>>(s: S) -> *mut c_char {
     
-    // We immediately treat the input string as bytes, because this is what they are
-    // in C, so if there are interior nul bytes, we truncate them.
-    let s = s.as_ref();
-    let bytes = s.as_bytes();
-    let len = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    // Immediately safely find the CStr from the input UTF-8 string.
+    let cstr = cstr_bytes_from_str(s.as_ref());
 
     // Add 1 for the terminating nul.
     // NOTE: We don't directly allocate a 'u8' type, even if this would be correct,
     // because we want to put the right type_id in debug, that correspond to the ptr type.
-    let ptr = extern_box_raw::<c_char>(len + 1).cast::<u8>();
+    let ptr = extern_box_raw::<c_char>(cstr.len() + 1).cast::<u8>();
 
     // SAFETY: The function has reserved enough space to write the string with nul.
     unsafe {
-        ptr.copy_from_nonoverlapping(bytes.as_ptr(), len);
-        ptr.byte_add(len).write(0);
+        ptr.copy_from_nonoverlapping(cstr.as_ptr(), cstr.len());
+        ptr.byte_add(cstr.len()).write(0);
     }
 
     ptr.cast()
@@ -251,7 +249,6 @@ pub fn extern_box_cstr_from_str<S: AsRef<str>>(s: S) -> *mut c_char {
 }
 
 /// Allocate a C-string from the string bytes that are formatted with the given args.
-#[inline]
 pub fn extern_box_cstr_from_fmt(args: Arguments<'_>) -> *mut c_char {
 
     thread_local! {
