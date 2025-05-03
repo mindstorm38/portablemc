@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, FixedOffset};
 
-use crate::standard;
+use crate::base;
 
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
@@ -24,11 +24,11 @@ pub struct MojangManifestLatest {
 #[serde(rename_all = "camelCase")]
 pub struct MojangManifestVersion {
     pub id: String,
-    pub r#type: standard::serde::VersionType,
+    pub r#type: base::serde::VersionType,
     pub time: DateTime<FixedOffset>,
     pub release_time: DateTime<FixedOffset>,
     #[serde(flatten)]
-    pub download: standard::serde::Download,
+    pub download: base::serde::Download,
     /// Unknown, used by official launcher.
     pub compliance_level: Option<u32>,
 }

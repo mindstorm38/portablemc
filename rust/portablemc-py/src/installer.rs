@@ -1,13 +1,13 @@
 //! Generic installer data that is shared between all kind of installers, this is used
 //! to allow inheritance.
 
-use portablemc::{standard, mojang, fabric, forge};
+use portablemc::{base, mojang, fabric, forge};
 
 
 /// A generic class that can be shared inside a `Arc<Mutex<T>>` between.
 #[derive(Debug)]
 pub enum GenericInstaller {
-    Standard(standard::Installer),
+    Base(base::Installer),
     Mojang(mojang::Installer),
     Fabric(fabric::Installer),
     Forge(forge::Installer),
@@ -15,27 +15,27 @@ pub enum GenericInstaller {
 
 impl GenericInstaller {
 
-    pub fn standard(&self) -> &standard::Installer {
+    pub fn base(&self) -> &base::Installer {
         match self {
-            GenericInstaller::Standard(installer) => installer,
-            GenericInstaller::Mojang(installer) => installer.standard(),
-            GenericInstaller::Fabric(installer) => installer.mojang().standard(),
-            GenericInstaller::Forge(installer) => installer.mojang().standard(),
+            GenericInstaller::Base(installer) => installer,
+            GenericInstaller::Mojang(installer) => installer.base(),
+            GenericInstaller::Fabric(installer) => installer.mojang().base(),
+            GenericInstaller::Forge(installer) => installer.mojang().base(),
         }
     }
 
-    pub fn standard_mut(&mut self) -> &mut standard::Installer {
+    pub fn base_mut(&mut self) -> &mut base::Installer {
         match self {
-            GenericInstaller::Standard(installer) => installer,
-            GenericInstaller::Mojang(installer) => installer.standard_mut(),
-            GenericInstaller::Fabric(installer) => installer.mojang_mut().standard_mut(),
-            GenericInstaller::Forge(installer) => installer.mojang_mut().standard_mut(),
+            GenericInstaller::Base(installer) => installer,
+            GenericInstaller::Mojang(installer) => installer.base_mut(),
+            GenericInstaller::Fabric(installer) => installer.mojang_mut().base_mut(),
+            GenericInstaller::Forge(installer) => installer.mojang_mut().base_mut(),
         }
     }
 
     pub fn mojang(&self) -> &mojang::Installer {
         match self {
-            GenericInstaller::Standard(_) => panic!("not a mojang installer"),
+            GenericInstaller::Base(_) => panic!("not a mojang installer"),
             GenericInstaller::Mojang(installer) => installer,
             GenericInstaller::Fabric(installer) => installer.mojang(),
             GenericInstaller::Forge(installer) => installer.mojang(),
@@ -44,7 +44,7 @@ impl GenericInstaller {
 
     pub fn mojang_mut(&mut self) -> &mut mojang::Installer {
         match self {
-            GenericInstaller::Standard(_) => panic!("not a mojang installer"),
+            GenericInstaller::Base(_) => panic!("not a mojang installer"),
             GenericInstaller::Mojang(installer) => installer,
             GenericInstaller::Fabric(installer) => installer.mojang_mut(),
             GenericInstaller::Forge(installer) => installer.mojang_mut(),

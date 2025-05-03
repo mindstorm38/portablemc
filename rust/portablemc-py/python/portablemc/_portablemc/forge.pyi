@@ -1,7 +1,7 @@
 from typing import Self
 from enum import Enum, auto
 
-from . import mojang, standard
+from . import mojang, base
 
 
 class Loader(Enum):
@@ -34,4 +34,4 @@ class Installer(mojang.Installer):
     @version.setter
     def version(self, version: Version): ...
 
-    def install(self) -> standard.Game: ...
+    def install(self) -> base.Game: ...

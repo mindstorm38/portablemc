@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Local, Utc};
 
-use portablemc::standard::{self, Game, JvmPolicy, LoadedLibrary};
+use portablemc::base::{self, Game, JvmPolicy, LoadedLibrary};
 use portablemc::mojang::{self, FetchExclude, QuickPlay};
 use portablemc::{download, fabric, forge};
 
@@ -210,9 +210,9 @@ fn start_game(game: Game, cli: &mut Cli, args: &StartArgs) -> ExitCode {
 
 }
 
-// Internal function to apply args to the standard installer.
-fn apply_standard_args(
-    installer: &mut standard::Installer, 
+// Internal function to apply args to the base installer.
+fn apply_base_args(
+    installer: &mut base::Installer, 
     cli: &mut Cli, 
     args: &StartArgs,
 ) -> bool {
@@ -320,7 +320,7 @@ fn apply_mojang_args(
         };
     }
 
-    if !apply_standard_args(installer.standard_mut(), &mut *cli, args) {
+    if !apply_base_args(installer.base_mut(), &mut *cli, args) {
         return false;
     }
 
@@ -710,7 +710,7 @@ impl<'a> StartHandler<'a> {
 }
 
 impl download::Handler for StartHandler<'_> {  }
-impl standard::Handler for StartHandler<'_> {
+impl base::Handler for StartHandler<'_> {
 
     fn filter_libraries(&mut self, libraries: &mut Vec<LoadedLibrary>) {
 

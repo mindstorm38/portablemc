@@ -61,7 +61,7 @@ pub enum PyQuickPlay {
     },
 }
 
-#[pyclass(name = "Installer", module = "portablemc.mojang", frozen, subclass, extends = crate::standard::PyInstaller)]
+#[pyclass(name = "Installer", module = "portablemc.mojang", frozen, subclass, extends = crate::base::PyInstaller)]
 pub struct PyInstaller(pub Arc<Mutex<GenericInstaller>>);
 
 #[pymethods]
@@ -75,7 +75,7 @@ impl PyInstaller {
             GenericInstaller::Mojang(Installer::new(version))
         ));
         
-        PyClassInitializer::from(crate::standard::PyInstaller(Arc::clone(&inst)))
+        PyClassInitializer::from(crate::base::PyInstaller(Arc::clone(&inst)))
             .add_subclass(Self(inst))
 
     }
@@ -297,9 +297,9 @@ impl PyInstaller {
         }
     }
 
-    fn install(&self) -> PyResult<crate::standard::PyGame> {
+    fn install(&self) -> PyResult<crate::base::PyGame> {
         self.0.lock().unwrap().mojang_mut().install(())
-            .map(crate::standard::PyGame)
+            .map(crate::base::PyGame)
             .map_err(|e| PyValueError::new_err(format!("{e}")))
     }
 

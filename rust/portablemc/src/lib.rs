@@ -1,5 +1,4 @@
 //! PortableMC is a library and CLI for programmatically launching Minecraft.
-
 #![deny(unsafe_op_in_unsafe_fn)]
 
 mod path;
@@ -13,7 +12,7 @@ pub mod maven;
 
 pub mod msa;
 
-pub mod standard;
+pub mod base;
 pub mod mojang;
 pub mod fabric;
 pub mod forge;

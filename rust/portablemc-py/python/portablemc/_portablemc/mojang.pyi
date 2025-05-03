@@ -3,16 +3,16 @@ from os import PathLike
 from uuid import UUID
 from enum import Enum, auto
 
-from . import standard, msa
+from . import base, msa
 
 
-class Installer(standard.Installer):
+class Installer(base.Installer):
 
     def __new__(cls, version: str | Version = Version.Release) -> Self: ...
 
     def __repr__(self) -> str: ...
 
-    @standard.Installer.version.getter
+    @base.Installer.version.getter
     def version(self) -> str | Version: ...
     @version.setter
     def version(self, version: str | Version): ...
@@ -90,7 +90,7 @@ class Installer(standard.Installer):
     @fix_lwjgl.setter
     def fix_lwjgl(self, lwjgl_version: str | None): ...
 
-    def install(self) -> standard.Game: ...
+    def install(self) -> base.Game: ...
 
 
 class Version(Enum):

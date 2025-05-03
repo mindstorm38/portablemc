@@ -98,7 +98,7 @@ impl PyInstaller {
             GenericInstaller::Fabric(Installer::new(loader.into(), game_version, loader_version))
         ));
         
-        PyClassInitializer::from(crate::standard::PyInstaller(Arc::clone(&inst)))
+        PyClassInitializer::from(crate::base::PyInstaller(Arc::clone(&inst)))
             .add_subclass(crate::mojang::PyInstaller(Arc::clone(&inst)))
             .add_subclass(Self(inst))
 
@@ -170,9 +170,9 @@ impl PyInstaller {
         self.0.lock().unwrap().fabric_mut().set_loader_version(loader_version);
     }
 
-    fn install(&self) -> PyResult<crate::standard::PyGame> {
+    fn install(&self) -> PyResult<crate::base::PyGame> {
         self.0.lock().unwrap().fabric_mut().install(())
-            .map(crate::standard::PyGame)
+            .map(crate::base::PyGame)
             .map_err(|e| PyValueError::new_err(format!("{e}")))
     }
 

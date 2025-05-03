@@ -11,7 +11,7 @@ use std::time::Instant;
 use std::error::Error;
 use std::io;
 
-use portablemc::standard::{self, LoadedLibrary, LoadedVersion};
+use portablemc::base::{self, LoadedLibrary, LoadedVersion};
 use portablemc::{download, mojang, fabric, forge, msa};
 use portablemc::maven::Gav;
 
@@ -52,7 +52,7 @@ pub fn main(args: &CliArgs) -> ExitCode {
 
     // Ensure that we can have a main directory for Minecraft, needed for all commands.
     let Some(main_dir) = args.main_dir.as_deref()
-        .or_else(|| standard::default_main_dir())
+        .or_else(|| base::default_main_dir())
         .map(Path::to_path_buf) else {
         
         out.log("error_missing_main_dir")
@@ -209,7 +209,7 @@ impl download::Handler for LogHandler<'_> {
     }
 }
 
-impl standard::Handler for LogHandler<'_> {
+impl base::Handler for LogHandler<'_> {
 
     fn loaded_features(&mut self, features: &HashSet<String>) {
         
@@ -615,10 +615,10 @@ impl forge::Handler for LogHandler<'_> {
 
 }
 
-/// Log a standard error on the given logger output.
-pub fn log_standard_error(cli: &mut Cli, error: &standard::Error) {
+/// Log a base error on the given logger output.
+pub fn log_base_error(cli: &mut Cli, error: &base::Error) {
     
-    use standard::Error;
+    use base::Error;
 
     let out = &mut cli.out;
 
@@ -638,7 +638,7 @@ pub fn log_standard_error(cli: &mut Cli, error: &standard::Error) {
                 .arg(&id)
                 .error(format_args!("Assets {id} not found although it is needed by the version"));
         }
-        Error::ClientNotFound => {
+        Error::ClientNotFound {  } => {
             out.log("error_client_not_found")
                 .error("Client JAR file not found and no download information is available");
         }
@@ -680,7 +680,7 @@ pub fn log_mojang_error(cli: &mut Cli, error: &mojang::Error) {
     let out = &mut cli.out;
 
     match error {
-        Error::Standard(error) => log_standard_error(cli, error),
+        Error::Base(error) => log_base_error(cli, error),
         Error::LwjglFixNotFound { version } => {
             out.log("error_lwjgl_fix_not_found")
                 .arg(&version)

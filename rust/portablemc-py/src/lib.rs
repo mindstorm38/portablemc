@@ -7,7 +7,7 @@ mod uuid;
 mod msa;
 
 mod installer;
-mod standard;
+mod base;
 mod mojang;
 mod fabric;
 mod forge;
@@ -23,9 +23,9 @@ fn py_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     msa::py_module(&msa)?;
     m.add_submodule(&msa)?;
 
-    let standard = PyModule::new(m.py(), "standard")?;
-    standard::py_module(&standard)?;
-    m.add_submodule(&standard)?;
+    let base = PyModule::new(m.py(), "base")?;
+    base::py_module(&base)?;
+    m.add_submodule(&base)?;
 
     let mojang = PyModule::new(m.py(), "mojang")?;
     mojang::py_module(&mojang)?;

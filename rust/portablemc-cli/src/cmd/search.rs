@@ -5,7 +5,7 @@ use std::fs;
 
 use chrono::{DateTime, Local, TimeDelta, Utc};
 
-use portablemc::standard::VersionChannel;
+use portablemc::base::VersionChannel;
 use portablemc::{mojang, fabric, forge};
 
 use crate::parse::{SearchArgs, SearchKind, SearchChannel, SearchLatestChannel};
