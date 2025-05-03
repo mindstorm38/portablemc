@@ -7,7 +7,7 @@ use std::{env, fs, io};
 
 use regex::Regex;
 
-use portablemc::standard::{self, JvmPolicy, LoadedLibrary, LoadedVersion};
+use portablemc::base::{self, JvmPolicy, LoadedLibrary, LoadedVersion};
 use portablemc::download;
 use portablemc::mojang;
 
@@ -71,14 +71,14 @@ fn check(version: &str) {
 
     // Now run the installer and store its actual logs...
     let mut actual_logs = Vec::new();
-    let mut inst = standard::Installer::new(version);
+    let mut inst = base::Installer::new(version);
     inst.set_main_dir(tmp_main_dir.to_path_buf());
     inst.set_jvm_policy(JvmPolicy::Static(PathBuf::new()));
     match inst.install(TestHandler { logs: &mut actual_logs }) {
         Ok(_game) => {}
-        Err(standard::Error::DownloadResourcesCancelled {  }) => {}
+        Err(base::Error::DownloadResourcesCancelled {  }) => {}
         Err(e) => {
-            actual_logs.push(format!("standard::{e:?}"));
+            actual_logs.push(format!("base::{e:?}"));
         }
     }
 
@@ -240,10 +240,10 @@ impl download::Handler for TestHandler<'_> {
     }
 }
 
-impl standard::Handler for TestHandler<'_> {
+impl base::Handler for TestHandler<'_> {
 
     impl_test_handler! {
-        "standard":
+        "base":
         fn filter_features(features: &mut HashSet<String>);
         fn loaded_features(features: &HashSet<String>);
         fn load_hierarchy(root_version: &str);

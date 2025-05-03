@@ -4,9 +4,9 @@
 use std::fs;
 use std::path::PathBuf;
 
-use portablemc::download;
+use portablemc::base::{self, JvmPolicy, VersionChannel};
 use portablemc::mojang::{self, Manifest};
-use portablemc::standard::{self, JvmPolicy, VersionChannel};
+use portablemc::download;
 
 
 /// This test tries to parse all versions (except snapshots).
@@ -23,8 +23,8 @@ fn all() {
         .into_path();
 
     let mut inst = mojang::Installer::new(mojang::Version::Release);
-    inst.standard_mut().set_main_dir(tmp_main_dir.clone());
-    inst.standard_mut().set_jvm_policy(JvmPolicy::Static(PathBuf::new()));
+    inst.base_mut().set_main_dir(tmp_main_dir.clone());
+    inst.base_mut().set_jvm_policy(JvmPolicy::Static(PathBuf::new()));
 
     let manifest = Manifest::request(()).unwrap();
     for version in manifest.iter() {
@@ -36,7 +36,7 @@ fn all() {
         inst.set_version(version.name());
         match inst.install(NoResourceHandler) {
             Ok(_game) => {}
-            Err(mojang::Error::Standard(standard::Error::DownloadResourcesCancelled {  })) => {}
+            Err(mojang::Error::Base(base::Error::DownloadResourcesCancelled {  })) => {}
             Err(e) => Err(e).unwrap(),
         }
 
@@ -50,7 +50,7 @@ fn all() {
 
 struct NoResourceHandler;
 impl download::Handler for NoResourceHandler { }
-impl standard::Handler for NoResourceHandler {
+impl base::Handler for NoResourceHandler {
     
     fn download_resources(&mut self) -> bool {
         false

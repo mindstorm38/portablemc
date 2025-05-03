@@ -12,8 +12,8 @@ use std::fmt::Write;
 use std::{env, fs};
 use std::fs::File;
 
-use crate::standard::{self, Game, LIBRARIES_URL};
 use crate::download::{self, Batch, EntryErrorKind};
+use crate::base::{self, Game, LIBRARIES_URL};
 use crate::mojang::{self, FetchExclude};
 use crate::maven::{Gav, MetadataParser};
 use crate::path::{PathBufExt, PathExt};
@@ -154,7 +154,7 @@ impl Installer {
                         fs::exists(file).unwrap_or_default()
                     }
 
-                    let libs_dir = mojang.standard().libraries_dir();
+                    let libs_dir = mojang.base().libraries_dir();
                     
                     // Start by checking patched client and universal client.
                     if !check_exists(&config.gav.with_classifier(Some("client")).file(libs_dir)) {
@@ -237,11 +237,11 @@ impl Installer {
                 }
 
             }
-            Err(mojang::Error::Standard(standard::Error::VersionNotFound { version })) 
+            Err(mojang::Error::Base(base::Error::VersionNotFound { version })) 
             if version == root_version => {
                 InstallReason::MissingVersionMetadata
             }
-            Err(mojang::Error::Standard(standard::Error::LibraryNotFound { gav })) 
+            Err(mojang::Error::Base(base::Error::LibraryNotFound { gav })) 
             if gav.group() == "net.minecraftforge" && gav.artifact() == "forge" => {
                 InstallReason::MissingCoreLibrary
             }
@@ -285,12 +285,12 @@ crate::trait_event_handler! {
     }
 }
 
-/// The standard installer could not proceed to the installation of a version.
+/// The Forge installer could not proceed to the installation of a version.
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// Error from the standard installer.
-    #[error("standard: {0}")]
+    /// Error from the Mojang installer.
+    #[error("mojang: {0}")]
     Mojang(#[source] mojang::Error),
     /// If the latest stable or unstable version is requested but doesn't exists.
     #[error("latest version not found for {game_version} (stable: {stable})")]
@@ -349,7 +349,7 @@ impl<T: Into<mojang::Error>> From<T> for Error {
     }
 }
 
-/// Type alias for a result with the standard error type.
+/// Type alias for a result with the Forge error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// The reason for (re)installing the mod loader.
@@ -430,7 +430,7 @@ impl Repo {
             .download(())?;
 
         let main_xml = main_entry.read_handle_to_string().unwrap()
-            .map_err(|e| standard::Error::new_io_file(e, main_entry.file()))?;
+            .map_err(|e| base::Error::new_io_file(e, main_entry.file()))?;
 
         Ok(Self {
             main_xml,
@@ -450,16 +450,16 @@ impl Repo {
         batch.push_cached("https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml").set_keep_open();
         
         let mut result = batch.download(())
-            .map_err(|e| standard::Error::new_reqwest(e, "request neoforge repo"))?
+            .map_err(|e| base::Error::new_reqwest(e, "request neoforge repo"))?
             .into_result()?;
         
         let main_entry = result.entry_mut(0).unwrap();
         let main_xml = main_entry.read_handle_to_string().unwrap()
-            .map_err(|e| standard::Error::new_io_file(e, main_entry.file()))?;
+            .map_err(|e| base::Error::new_io_file(e, main_entry.file()))?;
 
         let legacy_entry = result.entry_mut(1).unwrap();
         let legacy_xml = legacy_entry.read_handle_to_string().unwrap()
-            .map_err(|e| standard::Error::new_io_file(e, legacy_entry.file()))?;
+            .map_err(|e| base::Error::new_io_file(e, legacy_entry.file()))?;
     
         Ok(Self {
             main_xml,
@@ -623,7 +623,7 @@ struct InstallConfig {
     repo_url: &'static str,
     /// The game version this loader version is patching.
     game_version: String,
-    /// If the [`standard::Installer`] runs successfully, this bool is used to determine
+    /// If the [`base::Installer`] runs successfully, this bool is used to determine
     /// if some important libraries should be checked anyway, if those libraries are 
     /// absent the installer tries to reinstall.
     check_libraries: bool,
@@ -761,7 +761,7 @@ fn try_install(
     let installer_reader = BufReader::new(entry.take_handle().unwrap());
     let installer_file = entry.file();
     let mut installer_zip = ZipArchive::new(installer_reader)
-        .map_err(|e| standard::Error::new_zip_file(e, installer_file))?;
+        .map_err(|e| base::Error::new_zip_file(e, installer_file))?;
 
     handler.fetched_installer(config.gav.version());
     
@@ -790,7 +790,7 @@ fn try_install(
                     .map(InstallProfileKind::Modern)
             };
 
-            res.map_err(|e| standard::Error::new_json(e, format!("entry: {}, from: {}", 
+            res.map_err(|e| base::Error::new_json(e, format!("entry: {}, from: {}", 
                 PROFILE_ENTRY, 
                 installer_file.display())))?
 
@@ -800,10 +800,10 @@ fn try_install(
 
     // The installer directly installs libraries to these directories.
     // We canonicalize the libs path here, this avoids doing it after each join.
-    let libraries_dir = standard::canonicalize_file(mojang.standard().libraries_dir())?;
-    let game_version_dir = mojang.standard().versions_dir().join(&config.game_version);
+    let libraries_dir = base::canonicalize_file(mojang.base().libraries_dir())?;
+    let game_version_dir = mojang.base().versions_dir().join(&config.game_version);
     let game_client_file = game_version_dir.join_with_extension(&config.game_version, "jar");
-    let root_version_dir = mojang.standard().versions_dir().join(&root_version);
+    let root_version_dir = mojang.base().versions_dir().join(&root_version);
     let metadata_file = root_version_dir.join_with_extension(&root_version, "json");
     let mut metadata;
 
@@ -820,8 +820,8 @@ fn try_install(
             metadata = match installer_zip.by_name(metadata_entry) {
                 Ok(reader) => {
                     let mut deserializer = serde_json::Deserializer::from_reader(reader);
-                    serde_path_to_error::deserialize::<_, Box<standard::serde::VersionMetadata>>(&mut deserializer)
-                        .map_err(|e| standard::Error::new_json(e, format!("entry: {}, from: {}",
+                    serde_path_to_error::deserialize::<_, Box<base::serde::VersionMetadata>>(&mut deserializer)
+                        .map_err(|e| base::Error::new_json(e, format!("entry: {}, from: {}",
                             metadata_entry,
                             installer_file.display())))?
                 }
@@ -874,7 +874,7 @@ fn try_install(
             // Download all libraries just before running post processors.
             if !batch.is_empty() {
                 batch.download(&mut *handler)
-                    .map_err(|e| standard::Error::new_reqwest(e, "download forge libraries"))?
+                    .map_err(|e| base::Error::new_reqwest(e, "download forge libraries"))?
                     .into_result()?;
             }
 
@@ -978,7 +978,7 @@ fn try_install(
                 }
 
                 let output = command.output()
-                    .map_err(|e| standard::Error::new_io(e, format!("spawn: {}", jvm_file.display())))?;
+                    .map_err(|e| base::Error::new_io(e, format!("spawn: {}", jvm_file.display())))?;
 
                 if !output.status.success() {
                     return Err(Error::InstallerProcessorFailed {
@@ -994,7 +994,7 @@ fn try_install(
                         let Some(sha1) = format_processor_arg(&sha1, &libraries_dir, &data) else { continue };
                         let Some(sha1) = crate::serde::parse_hex_bytes::<20>(&sha1) else { continue };
                         let file = Path::new(&file);
-                        if !standard::check_file(file, None, Some(&sha1))? {
+                        if !base::check_file(file, None, Some(&sha1))? {
                             return Err(Error::InstallerProcessorInvalidOutput {
                                 name: processor.jar.clone(),
                                 file: file.to_path_buf().into_boxed_path(),
@@ -1035,7 +1035,7 @@ fn try_install(
     }
 
     metadata.id = root_version.to_string();
-    standard::write_version_metadata(&metadata_file, &metadata)?;
+    base::write_version_metadata(&metadata_file, &metadata)?;
 
     handler.installed();
 
@@ -1161,14 +1161,14 @@ fn extract_installer_file<R: Read + Seek>(
 
     let parent_dir = dst_file.parent().unwrap();
     fs::create_dir_all(parent_dir)
-        .map_err(|e| standard::Error::new_io_file(e, parent_dir))?;
+        .map_err(|e| base::Error::new_io_file(e, parent_dir))?;
 
     let mut writer = File::create(dst_file)
-        .map_err(|e| standard::Error::new_io_file(e, dst_file))
+        .map_err(|e| base::Error::new_io_file(e, dst_file))
         .map(BufWriter::new)?;
 
     io::copy(&mut reader, &mut writer)
-        .map_err(|e| standard::Error::new_io(e, format!("extract: {}, from: {}", 
+        .map_err(|e| base::Error::new_io(e, format!("extract: {}, from: {}", 
             src_entry, 
             installer_file.display())))?;
 
@@ -1180,11 +1180,11 @@ fn extract_installer_file<R: Read + Seek>(
 fn find_jar_main_class(jar_file: &Path) -> Result<Option<String>> {
 
     let jar_reader = File::open(jar_file)
-        .map_err(|e| standard::Error::new_io_file(e, jar_file))
+        .map_err(|e| base::Error::new_io_file(e, jar_file))
         .map(BufReader::new)?;
 
     let mut jar_zip = ZipArchive::new(jar_reader)
-        .map_err(|e| standard::Error::new_zip_file(e, jar_file))?;
+        .map_err(|e| base::Error::new_zip_file(e, jar_file))?;
 
     let Ok(mut manifest_reader) = jar_zip.by_name("META-INF/MANIFEST.MF")
         .map(BufReader::new) else {

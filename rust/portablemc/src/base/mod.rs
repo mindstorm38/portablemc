@@ -1,4 +1,4 @@
-//! Standard installation procedure.
+//! The base installation procedure.
 
 pub(crate) mod serde;
 
@@ -46,9 +46,10 @@ pub(crate) const LEGACY_JVM_ARGS: &[&str] = &[
     "${classpath}",
 ];
 
-/// The installer that supports the minimal standard format for version metadata with
+/// The installer that supports the minimal basic format for version metadata with
 /// support for libraries, assets and loggers automatic installation. By defaults, it 
-/// also supports finding a suitable JVM for running the game.
+/// also supports finding a suitable JVM for running the game and installs one provided
+/// by Mojang as a fallback.
 /// 
 /// Note that this installer doesn't provide any fetching of missing versions, enables
 /// no feature by default and provides no fixes for legacy things. This installer just
@@ -550,7 +551,7 @@ impl Installer {
                     .set_expected_sha1(dl.sha1.as_deref().copied());
             }
         } else if !file.is_file() {
-            return Err(Error::ClientNotFound);
+            return Err(Error::ClientNotFound {  });
         }
 
         handler.loaded_client(&file);
@@ -1211,7 +1212,8 @@ impl Installer {
 
     }
 
-    /// Try to find a JVM executable installed on the system in standard paths.
+    /// Try to find a JVM executable installed on the system in standard paths, depending
+    /// on the OS.
     fn load_system_jvm(&self,
         handler: &mut dyn Handler,
         major_version: u32,
@@ -1793,7 +1795,7 @@ crate::trait_event_handler! {
     }
 }
 
-/// The standard installer could not proceed to the installation of a version.
+/// The base installer could not proceed to the installation of a version.
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -1873,7 +1875,7 @@ impl From<download::EntryError> for Error {
     }
 }
 
-/// Type alias for a result with the standard error type.
+/// Type alias for a result with the base error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {

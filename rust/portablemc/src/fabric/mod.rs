@@ -7,7 +7,7 @@ use std::path::Path;
 
 use reqwest::StatusCode;
 
-use crate::standard::{self, Game};
+use crate::base::{self, Game};
 use crate::download;
 use crate::mojang;
 
@@ -116,7 +116,7 @@ impl Installer {
 
                 let stable = matches!(game_version, GameVersion::Stable);
                 let versions = api.request_game_versions()
-                    .map_err(|e| standard::Error::new_reqwest(e, "request fabric game versions"))?;
+                    .map_err(|e| base::Error::new_reqwest(e, "request fabric game versions"))?;
 
                 match versions.find_latest(stable) {
                     Some(v) => v.name().to_string(),
@@ -136,7 +136,7 @@ impl Installer {
                 
                 let stable = matches!(loader_version, LoaderVersion::Stable);
                 let versions = api.request_loader_versions(Some(&game_version))
-                    .map_err(|e| standard::Error::new_reqwest(e, "request fabric loader versions"))?;
+                    .map_err(|e| base::Error::new_reqwest(e, "request fabric loader versions"))?;
                 
                 match versions.find_latest(stable) {
                     Some(v) => v.name().to_string(),
@@ -191,12 +191,12 @@ crate::trait_event_handler! {
     }
 }
 
-/// The standard installer could not proceed to the installation of a version.
+/// The base installer could not proceed to the installation of a version.
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// Error from the standard installer.
-    #[error("standard: {0}")]
+    /// Error from the mojang installer.
+    #[error("mojang: {0}")]
     Mojang(#[source] mojang::Error),
     /// An alias version, `Stable` or `Unstable` has not been found because the no version
     /// is matching this criteria. This is used for both game version and loader version,
@@ -227,7 +227,7 @@ impl<T: Into<mojang::Error>> From<T> for Error {
     }
 }
 
-/// Type alias for a result with the standard error type.
+/// Type alias for a result with the fabric error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Represent the different kind of loaders to install or fetch for versions.
@@ -400,7 +400,7 @@ impl Api {
     }
 
     /// Request the prebuilt version metadata for the given game and loader versions.
-    fn raw_request_game_loader_version_metadata(&self, game_version: &str, loader_version: &str) -> reqwest::Result<standard::serde::VersionMetadata> {
+    fn raw_request_game_loader_version_metadata(&self, game_version: &str, loader_version: &str) -> reqwest::Result<base::serde::VersionMetadata> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader/{game_version}/{loader_version}/profile/json", self.base_url))
@@ -497,7 +497,7 @@ impl<'d> ApiLoaderVersion<'d> {
 // Following code is internal //
 // ========================== //
 
-/// Internal handler given to the standard installer.
+/// Internal handler given to the mojang installer.
 struct InternalHandler<'a> {
     /// Inner handler.
     inner: &'a mut dyn Handler,
@@ -518,9 +518,9 @@ impl download::Handler for InternalHandler<'_> {
 
 }
 
-impl standard::Handler for InternalHandler<'_> {
+impl base::Handler for InternalHandler<'_> {
     
-    fn __internal_fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn standard::Handler> {
+    fn __internal_fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn base::Handler> {
         Some(&mut self.inner)
     }
 
@@ -563,7 +563,7 @@ impl InternalHandler<'_> {
             Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => {
                 
                 let has_versions = self.api.raw_request_has_game_loader_versions(self.game_version)
-                    .map_err(|e| standard::Error::new_reqwest(e, "request fabric has game loader versions"))?;
+                    .map_err(|e| base::Error::new_reqwest(e, "request fabric has game loader versions"))?;
 
                 if has_versions {
                     return Err(Error::LoaderVersionNotFound { 
@@ -577,12 +577,12 @@ impl InternalHandler<'_> {
                 }
 
             }
-            Err(e) => return Err(standard::Error::new_reqwest(e, "request fabric game loader version metadata").into()),
+            Err(e) => return Err(base::Error::new_reqwest(e, "request fabric game loader version metadata").into()),
         };
 
         // Force the version id, the prebuilt one might not be exact.
         metadata.id = version.to_string();
-        standard::write_version_metadata(file, &metadata)?;
+        base::write_version_metadata(file, &metadata)?;
 
         self.inner.fetched_loader_version(self.game_version, self.loader_version);
 

@@ -1,4 +1,4 @@
-//! Extension to the standard installer with verification and installation of missing
+//! Extension to the base installer with verification and installation of missing
 //! Mojang versions, it also provides support for common arguments and fixes on legacy
 //! versions.
 
@@ -14,7 +14,7 @@ use chrono::{DateTime, FixedOffset};
 use regex::Regex;
 use uuid::Uuid;
 
-use crate::standard::{self, 
+use crate::base::{self, 
     check_file_advanced, Game, LibraryDownload, LoadedLibrary, VersionChannel, LIBRARIES_URL};
 use crate::maven::Gav;
 use crate::download;
@@ -39,8 +39,8 @@ pub(crate) const VERSION_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc
 ///   '/tmp/lwjgl&lt;username&gt;/&lt;version&gt;'.
 #[derive(Debug, Clone)]
 pub struct Installer {
-    /// The underlying standard installer logic.
-    standard: standard::Installer,
+    /// The underlying base installer logic.
+    base: base::Installer,
     /// Inner installer data, put in a sub struct to fix borrow issue.
     inner: InstallerInner,
 }
@@ -77,7 +77,7 @@ impl Installer {
     /// fetching is enabled.
     pub fn new(version: impl Into<Version>) -> Self {
         Self {
-            standard: standard::Installer::new(String::new()),
+            base: base::Installer::new(String::new()),
             inner: InstallerInner {
                 version: version.into(),
                 fetch_excludes: Vec::new(),  // No exclude by default.
@@ -107,18 +107,18 @@ impl Installer {
         Self::new(Version::Release)
     }
 
-    /// Get the underlying standard installer.
+    /// Get the underlying base installer.
     #[inline]
-    pub fn standard(&self) -> &standard::Installer {
-        &self.standard
+    pub fn base(&self) -> &base::Installer {
+        &self.base
     }
 
-    /// Get the underlying standard installer through mutable reference.
+    /// Get the underlying base installer through mutable reference.
     /// 
     /// *Note that the `version` property will be overwritten when installing.*
     #[inline]
-    pub fn standard_mut(&mut self) -> &mut standard::Installer {
-        &mut self.standard
+    pub fn base_mut(&mut self) -> &mut base::Installer {
+        &mut self.base
     }
 
     /// Get the mojang version to install.
@@ -316,7 +316,7 @@ impl Installer {
     pub fn set_auth_offline_username_legacy(&mut self, username: impl Into<String>) -> &mut Self {
         self.inner.auth_username = username.into();
         self.inner.auth_username.truncate(16);
-        self.inner.auth_uuid = Uuid::new_v5(&standard::UUID_NAMESPACE, self.inner.auth_username.as_bytes());
+        self.inner.auth_uuid = Uuid::new_v5(&base::UUID_NAMESPACE, self.inner.auth_username.as_bytes());
         self.reset_auth_online()
     }
 
@@ -327,7 +327,7 @@ impl Installer {
     /// **This is the default UUID/username used if no auth is specified, so you don't
     /// need to call this function, except if you want to override previous auth.**
     pub fn set_auth_offline_hostname(&mut self) -> &mut Self {
-        self.set_auth_offline_uuid(Uuid::new_v5(&standard::UUID_NAMESPACE, gethostname::gethostname().as_encoded_bytes()))
+        self.set_auth_offline_uuid(Uuid::new_v5(&base::UUID_NAMESPACE, gethostname::gethostname().as_encoded_bytes()))
     }
 
     /// Use online authentication with the given Microsoft Account.
@@ -475,7 +475,7 @@ impl Installer {
         }
 
         let Self {
-            ref mut standard,
+            ref mut base,
             ref inner,
         } = self;
 
@@ -491,7 +491,7 @@ impl Installer {
             Version::Name(name) => name.as_str(),
         };
 
-        standard.set_version(version);
+        base.set_version(version);
         
         // Let the handler find the "leaf" version.
         let mut leaf_version = String::new();
@@ -508,7 +508,7 @@ impl Installer {
             };
     
             // Same as above, we are giving a &mut dyn ref to avoid huge monomorphization.
-            let res = standard.install(&mut handler);
+            let res = base.install(&mut handler);
             handler.error?;
             res?
 
@@ -653,7 +653,7 @@ impl Installer {
 
 crate::trait_event_handler! {
     /// Handler for events happening when installing.
-    pub trait Handler: standard::Handler {
+    pub trait Handler: base::Handler {
         
         /// When the given version is being loaded but the file has an invalid size,
         /// SHA-1, or any other invalidating reason, it has been removed in order to 
@@ -685,13 +685,13 @@ crate::trait_event_handler! {
     }
 }
 
-/// The standard installer could not proceed to the installation of a version.
+/// The Mojang installer could not proceed to the installation of a version.
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// Error from the standard installer.
-    #[error("standard: {0}")]
-    Standard(#[source] standard::Error),
+    /// Error from the base installer.
+    #[error("base: {0}")]
+    Base(#[source] base::Error),
     /// The LWJGL fix is enabled with a version that is not supported, maybe because
     /// it is too old (< 3.2.3) or because of your system not being supported.
     #[error("lwjgl fix not found: {version}")]
@@ -700,13 +700,13 @@ pub enum Error {
     },
 }
 
-impl<T: Into<standard::Error>> From<T> for Error {
+impl<T: Into<base::Error>> From<T> for Error {
     fn from(value: T) -> Self {
-        Error::Standard(value.into())
+        Error::Base(value.into())
     }
 }
 
-/// Type alias for a result with the standard error type.
+/// Type alias for a result with the Mojang error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// The version to install.
@@ -784,7 +784,7 @@ impl Manifest {
         let reader = BufReader::new(entry.take_handle().unwrap());
         let mut deserializer = serde_json::Deserializer::from_reader(reader);
         let manifest = serde_path_to_error::deserialize::<_, Box<serde::MojangManifest>>(&mut deserializer)
-            .map_err(|e| standard::Error::new_json_file(e, entry.file()))?;
+            .map_err(|e| base::Error::new_json_file(e, entry.file()))?;
 
         Ok(Self { inner: manifest })
 
@@ -838,7 +838,7 @@ impl<'a> ManifestVersion<'a> {
 
     /// The name of this version.
     /// 
-    /// See [`standard::LoadedVersion::name`] for more information on the naming.
+    /// See [`base::LoadedVersion::name`] for more information on the naming.
     pub fn name(&self) -> &'a str {
         &self.0.id
     }
@@ -901,9 +901,9 @@ impl download::Handler for InternalHandler<'_> {
 
 }
 
-impl standard::Handler for InternalHandler<'_> {
+impl base::Handler for InternalHandler<'_> {
 
-    fn __internal_fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn standard::Handler> {
+    fn __internal_fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn base::Handler> {
         Some(&mut self.inner)
     }
 
@@ -928,7 +928,7 @@ impl standard::Handler for InternalHandler<'_> {
 
     }
 
-    fn loaded_hierarchy(&mut self, hierarchy: &[standard::LoadedVersion]) {
+    fn loaded_hierarchy(&mut self, hierarchy: &[base::LoadedVersion]) {
         *self.leaf_version = hierarchy.last().unwrap().name().to_string();
         self.inner.loaded_hierarchy(hierarchy);
     }
@@ -998,7 +998,7 @@ impl InternalHandler<'_> {
         if !check_file_advanced(file, version.size(), version.sha1(), true)? {
             
             fs::remove_file(file)
-                .map_err(|e| standard::Error::new_io_file(e, file))?;
+                .map_err(|e| base::Error::new_io_file(e, file))?;
             
             self.inner.invalidated_version(version.name());
         

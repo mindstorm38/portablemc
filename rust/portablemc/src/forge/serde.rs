@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use crate::maven::Gav;
 
-use crate::standard;
+use crate::base;
 
 
 /// For loader >= 1.12.2-14.23.5.2851
@@ -40,7 +40,7 @@ pub struct InstallLibrary {
 
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct InstallLibraryDownloads {
-    pub artifact: standard::serde::VersionLibraryDownload,
+    pub artifact: base::serde::VersionLibraryDownload,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -78,7 +78,7 @@ impl InstallDataEntry {
 #[serde(rename_all = "camelCase")]
 pub struct LegacyInstallProfile {
     pub install: LegacyInstall,
-    pub version_info: Box<standard::serde::VersionMetadata>,
+    pub version_info: Box<base::serde::VersionMetadata>,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
