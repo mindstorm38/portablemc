@@ -7,13 +7,54 @@ use portablemc::msa::{Account, Auth, AuthError, Database, DatabaseError, DeviceC
 use uuid::Uuid;
 
 use crate::alloc::{extern_box, extern_box_option, extern_box_cstr_from_str, extern_box_take};
-use crate::err::{self, Err, ExposedError, extern_err_with};
-use crate::{pmc_uuid, str_from_cstr_ptr};
+use crate::err::{extern_err_with, extern_err_static, extern_err, IntoExternErr};
+use crate::str_from_cstr_ptr;
+use crate::raw;
 
 
 // =======
 // Module errors
 // =======
+
+impl IntoExternErr for AuthError {
+    
+    fn into(self) -> *mut raw::pmc_err {
+
+        use raw::pmc_err_tag::*;
+
+        let (tag, message) = match self {
+            AuthError::Declined => (
+                PMC_ERR_MSA_AUTH_DECLINED, 
+                c"Declined"),
+            AuthError::TimedOut => (
+                PMC_ERR_MSA_AUTH_TIMED_OUT, 
+                c"Timed out"),
+            AuthError::OutdatedToken => (
+                PMC_ERR_MSA_AUTH_OUTDATED_TOKEN, 
+                c"Minecraft profile token is outdated, you can try to refresh the profile"),
+            AuthError::DoesNotOwnGame => (
+                PMC_ERR_MSA_AUTH_DOES_NOT_OWN_GAME,
+                c"This Microsoft account does not own Minecraft"),
+            AuthError::InvalidStatus(status) => return extern_err(
+                PMC_ERR_MSA_AUTH_INVALID_STATUS,
+                raw::pmc_err_data_msa_auth_invalid_status { status }.into(),
+                format!("An unknown HTTP status has been received: {status}")),
+            AuthError::Unknown(message) => return extern_err(
+                PMC_ERR_MSA_AUTH_UNKNOWN, 
+                raw::pmc_err_data_msa_auth_unknown { message:  }, 
+                format!("An unknown error happened: {message}")),
+            AuthError::Internal(e) => return extern_err(
+                PMC_ERR_INTERNAL, 
+                raw::pmc_err_data_internal { origin: ptr::null() }, 
+                e.to_string()),
+            _ => todo!(),
+        };
+
+        extern_err_static(tag, raw::pmc_err_data::default(), message)
+
+    }
+
+}
 
 impl ExposedError for AuthError {
 

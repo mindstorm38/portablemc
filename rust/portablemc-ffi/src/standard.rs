@@ -5,7 +5,7 @@ use std::ffi::c_char;
 use std::pin::Pin;
 use std::ptr;
 
-use portablemc::standard::{Installer, JvmPolicy, Game, Error};
+use portablemc::base::{Installer, JvmPolicy, Game, Error};
 
 use crate::alloc::{extern_box, extern_box_cstr_from_fmt, extern_box_cstr_from_str};
 use crate::{str_lossy_from_cstr_ptr, cstr_bytes_from_string};
