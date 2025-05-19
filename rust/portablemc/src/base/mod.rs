@@ -697,7 +697,7 @@ impl Installer {
 
             // Construct the library path depending on its presence.
             let lib_file = if let Some(lib_rel_path) = lib.path.as_deref() {
-                // NOTE: Unsafe path joining.
+                // FIXME: Insecure path joining.
                 self.libraries_dir.join(lib_rel_path)
             } else {
                 lib.gav.file(&self.libraries_dir)

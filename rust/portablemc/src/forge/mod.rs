@@ -853,7 +853,7 @@ fn try_install(
                 let lib_dl = &lib.downloads.artifact;
 
                 let lib_file = if let Some(lib_path) = &lib_dl.path {
-                    // NOTE: Unsafe joining!
+                    // FIXME: Insecure joining!
                     libraries_dir.join(lib_path)
                 } else {
                     lib.name.file(&libraries_dir)
@@ -898,7 +898,7 @@ fn try_install(
                     }
                     _ => {
                         // This is a file that we should extract to the temp directory.
-                        // NOTE: Unsafe joining.
+                        // FIXME: Insecure joining.
                         let entry = entry.strip_prefix('/').unwrap_or(entry);
                         let tmp_file = tmp_dir.join(entry);
                         extract_installer_file(installer_file, &mut installer_zip, entry, &tmp_file)?;

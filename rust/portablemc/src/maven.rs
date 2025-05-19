@@ -262,7 +262,7 @@ impl Gav {
 
     /// Create a file path of this GAV from a base directory.
     /// 
-    /// NOTE: Unsafe path joining if any component as a '..'!
+    /// FIXME: Insecure path joining if any component as a '..'!
     pub fn file<P: AsRef<Path>>(&self, dir: P) -> PathBuf {
 
         let mut buf = dir.as_ref().to_path_buf();
