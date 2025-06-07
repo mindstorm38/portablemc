@@ -1,8 +1,8 @@
-base::filter_features({}, )
-base::loaded_features({}, )
-base::load_hierarchy("client_not_found", )
-base::load_version("client_not_found", $path(versions/client_not_found/client_not_found.json), )
-base::loaded_version("client_not_found", $path(versions/client_not_found/client_not_found.json), )
-base::loaded_hierarchy([LoadedVersion { name: "client_not_found", dir: $path(versions/client_not_found) }], )
-base::load_client()
-base::ClientNotFound
+FilterFeatures { features: {} }
+LoadedFeatures { features: {} }
+LoadHierarchy { root_version: "client_not_found" }
+LoadVersion { version: "client_not_found", file: $path(versions/client_not_found/client_not_found.json) }
+LoadedVersion { version: "client_not_found", file: $path(versions/client_not_found/client_not_found.json) }
+LoadedHierarchy { hierarchy: [LoadedVersion { name: "client_not_found", dir: $path(versions/client_not_found) }] }
+LoadClient
+ClientNotFound

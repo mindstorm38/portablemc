@@ -580,14 +580,26 @@ impl EntryError {
 
 }
 
-crate::trait_event_handler! {
-    /// A handle for watching a batch download progress.
-    pub trait Handler {
-        /// Notification of a download progress, the download should be considered done when
-        /// 'count' is equal to 'total_count'. This is called anyway at the beginning and at 
-        /// the end of the download. Note that the final given 'size' may be greater than
-        /// 'total_size' in case of unknown expected size, which 'total_size' is the sum.
-        fn progress(count: u32, total_count: u32, size: u32, total_size: u32);
+/// A handle for watching a batch download progress.
+pub trait Handler {
+    /// Notification of a download progress, the download should be considered done when
+    /// 'count' is equal to 'total_count'. This is called anyway at the beginning and at 
+    /// the end of the download. Note that the final given 'size' may be greater than
+    /// 'total_size' in case of unknown expected size, which 'total_size' is the sum.
+    fn on_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32);
+}
+
+// Mutable implementation.
+impl<H: Handler + ?Sized> Handler for &mut H {
+    #[inline]
+    fn on_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        Handler::on_progress(&mut **self, count, total_count, size, total_size)
+    }
+}
+
+impl Handler for () {
+    fn on_progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        let _ = (count, total_count, size, total_size);
     }
 }
 
@@ -628,7 +640,7 @@ async fn download_many(
     let progress_size_interval = total_size / 1000;
     let mut last_size = 0u32;
 
-    handler.progress(0, entries.len() as u32, size, total_size);
+    handler.on_progress(0, entries.len() as u32, size, total_size);
 
     let mut completed = 0;
     let mut futures = JoinSet::new();
@@ -675,7 +687,7 @@ async fn download_many(
         };
         
         if force_progress || size - last_size >= progress_size_interval {
-            handler.progress(completed as u32, entries.len() as u32, size, total_size);
+            handler.on_progress(completed as u32, entries.len() as u32, size, total_size);
             last_size = size;
         }
 
@@ -734,7 +746,7 @@ async fn download_single(
     let mut size = 0u32;
     let total_size = entry.expected_size.unwrap_or(0);
 
-    handler.progress(0, 1, 0, total_size);
+    handler.on_progress(0, 1, 0, total_size);
 
     let progress_sender = DirectEntryProgressSender {
         handler: &mut *handler,
@@ -744,7 +756,7 @@ async fn download_single(
 
     let res = download_entry(client, entry, progress_sender).await;
 
-    handler.progress(1, 1, size, total_size);
+    handler.on_progress(1, 1, size, total_size);
 
     match res {
         Ok(inner) => Ok(EntrySuccess { core: entry.core.clone(), inner }),
@@ -1001,7 +1013,7 @@ struct DirectEntryProgressSender<'a> {
 impl EntryProgressSender for DirectEntryProgressSender<'_> {
     async fn send(&mut self, delta: u32) {
         *self.size += delta;
-        self.handler.progress(0, 1, *self.size, self.total_size);
+        self.handler.on_progress(0, 1, *self.size, self.total_size);
     }
 }
 

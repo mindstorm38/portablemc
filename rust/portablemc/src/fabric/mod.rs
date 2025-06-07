@@ -7,9 +7,9 @@ use std::path::Path;
 
 use reqwest::StatusCode;
 
+use crate::moj::{self, HandlerInto as _};
 use crate::base::{self, Game};
 use crate::download;
-use crate::mojang;
 
 
 /// An installer for supporting mod loaders that are Fabric or like it (Quilt, 
@@ -17,7 +17,7 @@ use crate::mojang;
 #[derive(Debug, Clone)]
 pub struct Installer {
     /// The underlying Mojang installer logic.
-    mojang: mojang::Installer,
+    mojang: moj::Installer,
     loader: Loader,
     game_version: GameVersion,
     loader_version: LoaderVersion,
@@ -28,7 +28,7 @@ impl Installer {
     /// Create a new installer with default configuration.
     pub fn new(loader: Loader, game_version: impl Into<GameVersion>, loader_version: impl Into<LoaderVersion>) -> Self {
         Self {
-            mojang: mojang::Installer::new(String::new()),
+            mojang: moj::Installer::new(String::new()),
             loader,
             game_version: game_version.into(),
             loader_version: loader_version.into(),
@@ -42,7 +42,7 @@ impl Installer {
 
     /// Get the underlying mojang installer.
     #[inline]
-    pub fn mojang(&self) -> &mojang::Installer {
+    pub fn mojang(&self) -> &moj::Installer {
         &self.mojang
     }
 
@@ -51,7 +51,7 @@ impl Installer {
     /// *Note that the `version` and `fetch` properties will be overwritten when 
     /// installing.*
     #[inline]
-    pub fn mojang_mut(&mut self) -> &mut mojang::Installer {
+    pub fn mojang_mut(&mut self) -> &mut moj::Installer {
         &mut self.mojang
     }
 
@@ -184,12 +184,64 @@ impl Installer {
 
 }
 
-crate::trait_event_handler! {
-    pub trait Handler: mojang::Handler {
-        fn fetch_loader_version(game_version: &str, loader_version: &str);
-        fn fetched_loader_version(game_version: &str, loader_version: &str);
+/// Events happening when installing.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Event<'a> {
+    /// Forwarding a mojang event.
+    Mojang(moj::Event<'a>),
+    FetchVersion { game_version: &'a str, loader_version: &'a str },
+    FetchedVersion { game_version: &'a str, loader_version: &'a str },
+}
+
+/// A handle for watching an installation.
+pub trait Handler {
+    /// Handle a single event.
+    fn on_event(&mut self, event: Event);
+}
+
+// Mutable implementation.
+impl<H: Handler + ?Sized> Handler for &mut H {
+    #[inline]
+    fn on_event(&mut self, event: Event) {
+        (**self).on_event(event)
     }
 }
+
+impl Handler for () {
+    fn on_event(&mut self, event: Event) {
+        let _ = event;
+    }
+}
+
+/// Internal adapter trait for using it like other handlers.
+#[allow(unused)]
+pub(crate) trait HandlerInto: Handler + Sized {
+    
+    #[inline]
+    fn into_mojang(self) -> impl moj::Handler {
+        pub(crate) struct Adapter<H: Handler>(pub H);
+        impl<H: Handler> moj::Handler for Adapter<H> {
+            fn on_event(&mut self, event: moj::Event) {
+                self.0.on_event(Event::Mojang(event));
+            }
+        }
+        Adapter(self)
+    }
+
+    #[inline]
+    fn into_base(self) -> impl base::Handler {
+        self.into_mojang().into_base()
+    }
+
+    #[inline]
+    fn into_download(self) -> impl download::Handler {
+        self.into_mojang().into_download()
+    }
+
+}
+
+impl<H: Handler> HandlerInto for H {}
 
 /// The base installer could not proceed to the installation of a version.
 #[derive(thiserror::Error, Debug)]
@@ -197,10 +249,10 @@ crate::trait_event_handler! {
 pub enum Error {
     /// Error from the mojang installer.
     #[error("mojang: {0}")]
-    Mojang(#[source] mojang::Error),
+    Mojang(#[source] moj::Error),
     /// An alias version, `Stable` or `Unstable` has not been found because the no version
     /// is matching this criteria. This is used for both game version and loader version,
-    /// when game version is specified it means that the given .
+    /// when game version is specified it means that this is concerning loader version..
     #[error("latest version not found (stable: {stable})")]
     LatestVersionNotFound {
         game_version: Option<String>,
@@ -221,7 +273,7 @@ pub enum Error {
     },
 }
 
-impl<T: Into<mojang::Error>> From<T> for Error {
+impl<T: Into<moj::Error>> From<T> for Error {
     fn from(value: T) -> Self {
         Self::Mojang(value.into())
     }
@@ -510,35 +562,35 @@ struct InternalHandler<'a> {
     loader_version: &'a str,
 }
 
-impl download::Handler for InternalHandler<'_> {
+impl moj::Handler for InternalHandler<'_> {
 
-    fn __internal_fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn download::Handler> {
-        Some(&mut self.inner)
-    }
+    fn on_event(&mut self, mut event: moj::Event) {
 
-}
+        let ret = match event {
+            moj::Event::Base(base::Event::NeedVersion { 
+                version, 
+                file, 
+                ref mut retry, 
+            }) => {
+                match self.inner_need_version(version, file) {
+                    Ok(true) => {
+                        **retry = true;
+                        Ok(())
+                    }
+                    Ok(false) => Ok(()),
+                    Err(e) => Err(e),
+                }
+            }
+            _ => Ok(())
+        };
 
-impl base::Handler for InternalHandler<'_> {
-    
-    fn __internal_fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn base::Handler> {
-        Some(&mut self.inner)
-    }
-
-    fn need_version(&mut self, version: &str, file: &Path) -> bool {
-        match self.inner_need_version(version, file) {
-            Ok(true) => return true,
-            Ok(false) => (),
-            Err(e) => self.error = Err(e),
+        if let Err(e) = ret {
+            self.error = Err(e);
+            return;
         }
-        self.inner.need_version(version, file)
-    }
 
-}
+        self.inner.on_event(Event::Mojang(event));
 
-impl mojang::Handler for InternalHandler<'_> {
-
-    fn __internal_fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn mojang::Handler> {
-        Some(&mut self.inner)
     }
 
 }
@@ -551,7 +603,10 @@ impl InternalHandler<'_> {
             return Ok(false);
         }
 
-        self.inner.fetch_loader_version(self.game_version, self.loader_version);
+        self.inner.on_event(Event::FetchVersion { 
+            game_version: self.game_version, 
+            loader_version: self.loader_version,
+        });
 
         // At this point we've not yet checked if either game or loader versions
         // are known by the API, we just wanted to allow the user to input any
@@ -584,7 +639,10 @@ impl InternalHandler<'_> {
         metadata.id = version.to_string();
         base::write_version_metadata(file, &metadata)?;
 
-        self.inner.fetched_loader_version(self.game_version, self.loader_version);
+        self.inner.on_event(Event::FetchedVersion { 
+            game_version: self.game_version, 
+            loader_version: self.loader_version,
+        });
 
         Ok(true)
 

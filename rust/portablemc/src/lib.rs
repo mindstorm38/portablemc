@@ -1,4 +1,5 @@
 //! PortableMC is a library and CLI for programmatically launching Minecraft.
+
 #![deny(unsafe_op_in_unsafe_fn)]
 
 mod path;
@@ -6,14 +7,14 @@ mod http;
 mod tokio;
 mod serde;
 
-pub mod download;
-
 pub mod maven;
 
 pub mod msa;
 
+pub mod download;
+
 pub mod base;
-pub mod mojang;
+pub mod moj;
 pub mod fabric;
 pub mod forge;
 
@@ -33,6 +34,7 @@ mod sealed {
 }
 
 
+/*
 /// This macro help defining an event handler trait, this macro automatically implements 
 /// the trait for any `&mut impl Self`, every function has a default empty body so that
 /// any addition of method is backward compatible and valid for minor version increment.
@@ -105,3 +107,4 @@ macro_rules! trait_event_handler {
 }
 
 pub(crate) use trait_event_handler;
+*/

@@ -1,15 +1,12 @@
 //! Automated installation tests with verification of the events ordering for various 
 //! specific versions metadata.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
 use regex::Regex;
 
-use portablemc::base::{self, JvmPolicy, LoadedLibrary, LoadedVersion};
-use portablemc::download;
-use portablemc::mojang;
+use portablemc::base::{self, JvmPolicy};
 
 
 macro_rules! def_checks {
@@ -78,7 +75,7 @@ fn check(version: &str) {
         Ok(_game) => {}
         Err(base::Error::DownloadResourcesCancelled {  }) => {}
         Err(e) => {
-            actual_logs.push(format!("base::{e:?}"));
+            actual_logs.push(format!("{e:?}"));
         }
     }
 
@@ -89,7 +86,7 @@ fn check(version: &str) {
 
 }
 
-/// Replace macro of the form `name!(<content>)` by giving the content to the closure
+/// Replace macro of the form `$<name>(<content>)` by giving the content to the closure
 /// and replacing the whole macro by the returned content.
 fn replace_macro<F>(s: &mut String, name: &str, mut func: F)
 where
@@ -160,8 +157,8 @@ fn assert_logs_eq(
         let actual_log = &*actual_log;
 
         eprintln!("==");
-        eprintln!("    {expected_log}");
-        eprintln!("    {actual_log}");
+        eprintln!("exp: {expected_log}");
+        eprintln!("act: {actual_log}");
 
         if let Some(regex_str) = expected_log.strip_prefix("$ignore_many ") {
             
@@ -216,92 +213,20 @@ struct TestHandler<'a> {
     logs: &'a mut Vec<String>,
 }
 
-macro_rules! impl_test_handler {
-    (
-        $prefix:literal :
-        $( fn $func:ident ( $( $arg:ident : $arg_ty:ty ),* ) $( -> $ret_ty:ty = $ret_value:expr )?; )*
-    ) => {
-        $(
-            fn $func ( &mut self $(, $arg : $arg_ty )* ) $( -> $ret_ty )? {
-                self.logs.push(format!(
-                    concat!($prefix, "::", stringify!($func), "(", $( "{", stringify!($arg), ":?}, ", )* ")")
-                    $( , $arg = $arg )*
-                ));
-                $( $ret_value )?
-            }
-        )*
-    };
-}
-
-impl download::Handler for TestHandler<'_> {
-    impl_test_handler! {
-        "download":
-        fn progress(count: u32, total_count: u32, size: u32, total_size: u32);
-    }
-}
-
 impl base::Handler for TestHandler<'_> {
-
-    impl_test_handler! {
-        "base":
-        fn filter_features(features: &mut HashSet<String>);
-        fn loaded_features(features: &HashSet<String>);
-        fn load_hierarchy(root_version: &str);
-        fn loaded_hierarchy(hierarchy: &[LoadedVersion]);
-        fn load_version(version: &str, file: &Path);
-        fn need_version(version: &str, file: &Path) -> bool = false;
-        fn loaded_version(version: &str, file: &Path);
-        fn load_client();
-        fn loaded_client(file: &Path);
-        fn load_libraries();
-        fn filter_libraries(libraries: &mut Vec<LoadedLibrary>);
-        fn loaded_libraries(libraries: &[LoadedLibrary]);
-        fn filter_libraries_files(class_files: &mut Vec<PathBuf>, natives_files: &mut Vec<PathBuf>);
-        fn loaded_libraries_files(class_files: &[PathBuf], natives_files: &[PathBuf]);
-        fn no_logger();
-        fn load_logger(id: &str);
-        fn loaded_logger(id: &str);
-        fn no_assets();
-        fn load_assets(id: &str);
-        fn loaded_assets(id: &str, count: usize);
-        fn verified_assets(id: &str, count: usize);
-        fn load_jvm(major_version: u32);
-        fn found_jvm_system_version(file: &Path, version: &str, compatible: bool);
-        fn warn_jvm_unsupported_dynamic_crt();
-        fn warn_jvm_unsupported_platform();
-        fn warn_jvm_missing_distribution();
-        fn loaded_jvm(file: &Path, version: Option<&str>, compatible: bool);
+    fn on_event(&mut self, event: base::Event) {
+        match event {
+            base::Event::DownloadResources { cancel } => {
+                *cancel = true;
+            }
+            base::Event::DownloadProgress { .. } |
+            base::Event::DownloadedResources { .. } |
+            base::Event::ExtractedBinaries { .. } => {
+                return;
+            }
+            event => {
+                self.logs.push(format!("{event:?}"))
+            }
+        }
     }
-
-    fn download_resources(&mut self) -> bool {
-        // Just skip download resources.
-        false
-    }
-
-    fn downloaded_resources(&mut self) {
-        // Ignore.
-    }
-
-    fn extracted_binaries(&mut self, _dir: &Path) {
-        // Ignore.
-    }
-
-}
-
-impl mojang::Handler for TestHandler<'_> {
-    
-    impl_test_handler! {
-        "mojang":
-        fn invalidated_version(version: &str);
-        fn fetch_version(version: &str);
-        fn fetched_version(version: &str);
-        fn fixed_legacy_quick_play();
-        fn fixed_legacy_proxy(host: &str, port: u16);
-        fn fixed_legacy_merge_sort();
-        fn fixed_legacy_resolution();
-        fn fixed_broken_authlib();
-        fn warn_unsupported_quick_play();
-        fn warn_unsupported_resolution();
-    }
-
 }

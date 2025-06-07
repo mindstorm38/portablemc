@@ -1,15 +1,14 @@
 //! Implementation of the 'start' command.
 
-use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::io::{self, BufRead, BufReader};
 use std::sync::Mutex;
 
 use chrono::{DateTime, Local, Utc};
 
-use portablemc::base::{self, Game, JvmPolicy, LoadedLibrary};
-use portablemc::mojang::{self, FetchExclude, QuickPlay};
-use portablemc::{download, fabric, forge};
+use portablemc::moj::{self, FetchExclude, QuickPlay};
+use portablemc::base::{self, Game, JvmPolicy};
+use portablemc::{fabric, forge};
 
 use crate::parse::{StartArgs, StartResolution, StartVersion, StartJvmPolicy};
 use crate::format::TIME_FORMAT;
@@ -35,7 +34,7 @@ pub fn start(cli: &mut Cli, args: &StartArgs) -> ExitCode {
         StartVersion::MojangSnapshot => {
 
             let handler = LogHandler::new(&mut cli.out);
-            let repo = match mojang::Manifest::request(handler) {
+            let repo = match moj::Manifest::request(handler) {
                 Ok(repo) => repo,
                 Err(e) => {
                     log_mojang_error(cli, &e);
@@ -76,7 +75,7 @@ pub fn start(cli: &mut Cli, args: &StartArgs) -> ExitCode {
                 None => {
                     
                     let handler = LogHandler::new(&mut cli.out);
-                    let manifest = match mojang::Manifest::request(handler) {
+                    let manifest = match moj::Manifest::request(handler) {
                         Ok(repo) => repo,
                         Err(e) => {
                             log_mojang_error(cli, &e);
@@ -109,15 +108,15 @@ fn start_mojang(
     args: &StartArgs,
 ) -> ExitCode {
 
-    let mut inst = mojang::Installer::new(version);
+    let mut inst = moj::Installer::new(version);
     if !apply_mojang_args(&mut inst, &mut *cli, args) {
         return ExitCode::FAILURE;
     }
 
     let log_handler = LogHandler::new(&mut cli.out);
-    let start_handler = StartHandler::new(args);
+    let start_handler = StartHandler::new(args, log_handler);
 
-    match inst.install((log_handler, start_handler)) {
+    match inst.install(start_handler) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
             log_mojang_error(cli, &e);
@@ -143,9 +142,9 @@ fn start_fabric(
     
     let mut log_handler = LogHandler::new(&mut cli.out);
     log_handler.set_fabric_loader(loader);
-    let start_handler = StartHandler::new(args);
+    let start_handler = StartHandler::new(args, log_handler);
 
-    match inst.install((log_handler, start_handler)) {
+    match inst.install(start_handler) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
             log_fabric_error(cli, &e, loader);
@@ -170,9 +169,9 @@ fn start_forge(
 
     let mut log_handler = LogHandler::new(&mut cli.out);
     log_handler.set_forge_loader(inst.loader());
-    let start_handler = StartHandler::new(args);
+    let start_handler = StartHandler::new(args, log_handler);
     
-    match inst.install((log_handler, start_handler)) {
+    match inst.install(start_handler) {
         Ok(game) => start_game(game, cli, args),
         Err(e) => {
             log_forge_error(cli, &e, inst.loader());
@@ -243,7 +242,7 @@ fn apply_base_args(
 
 // Internal function to apply args to the mojang installer.
 fn apply_mojang_args(
-    installer: &mut mojang::Installer,
+    installer: &mut moj::Installer,
     cli: &mut Cli, 
     args: &StartArgs,
 ) -> bool {
@@ -697,42 +696,75 @@ impl XmlLogParser {
 /// The start handler that apply modifications to the game installation.
 struct StartHandler<'a> {
     args: &'a StartArgs,
+    log_handler: LogHandler<'a>,
 }
 
 impl<'a> StartHandler<'a> {
 
-    pub fn new(args: &'a StartArgs) -> Self {
+    pub fn new(args: &'a StartArgs, log_handler: LogHandler<'a>) -> Self {
         Self {
             args,
+            log_handler,
+        }
+    }
+
+    fn on_event_inner(&mut self, event: &mut base::Event) {
+        match event {
+            base::Event::FilterLibraries { libraries } => {
+
+                if !self.args.exclude_lib.is_empty() {
+                    libraries.retain(|lib| {
+                        // If any pattern matches: .any(...) -> !true -> false (don't keep)
+                        !self.args.exclude_lib.iter()
+                            .any(|pattern| pattern.matches(&lib.name))
+                    });
+                }
+
+            }
+            base::Event::FilterLibrariesFiles { class_files, natives_files } => {
+
+                class_files.extend_from_slice(&self.args.include_class);
+                natives_files.extend_from_slice(&self.args.include_natives);
+
+            }
+            _ => {}
         }
     }
 
 }
 
-impl download::Handler for StartHandler<'_> {  }
-impl base::Handler for StartHandler<'_> {
-
-    fn filter_libraries(&mut self, libraries: &mut Vec<LoadedLibrary>) {
-
-        if self.args.exclude_lib.is_empty() {
-            return;  // When no filter...
+impl moj::Handler for StartHandler<'_> {
+    fn on_event(&mut self, mut event: moj::Event) {
+        
+        if let moj::Event::Base(event) = &mut event {
+            self.on_event_inner(event);
         }
 
-        libraries.retain(|lib| {
-            // If any pattern matches: .any(...) -> !true -> false (don't keep)
-            !self.args.exclude_lib.iter()
-                .any(|pattern| pattern.matches(&lib.gav))
-        });
+        self.log_handler.on_event(event);
 
     }
-
-    fn filter_libraries_files(&mut self, class_files: &mut Vec<PathBuf>, natives_files: &mut Vec<PathBuf>) {
-        class_files.extend_from_slice(&self.args.include_class);
-        natives_files.extend_from_slice(&self.args.include_natives);
-    }
-
 }
 
-impl mojang::Handler for StartHandler<'_> {  }
-impl fabric::Handler for StartHandler<'_> {  }
-impl forge::Handler for StartHandler<'_> {  }
+impl fabric::Handler for StartHandler<'_> {
+    fn on_event(&mut self, mut event: fabric::Event) {
+        
+        if let fabric::Event::Mojang(moj::Event::Base(event)) = &mut event {
+            self.on_event_inner(event);
+        }
+
+        self.log_handler.on_event(event);
+
+    }
+}
+
+impl forge::Handler for StartHandler<'_> {
+    fn on_event(&mut self, mut event: forge::Event) {
+        
+        if let forge::Event::Mojang(moj::Event::Base(event)) = &mut event {
+            self.on_event_inner(event);
+        }
+
+        self.log_handler.on_event(event);
+
+    }
+}

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use portablemc::mojang::{Installer, QuickPlay, Version};
+use portablemc::moj::{Installer, QuickPlay, Version};
 
 use crate::installer::GenericInstaller;
 use crate::uuid::PyUuid;

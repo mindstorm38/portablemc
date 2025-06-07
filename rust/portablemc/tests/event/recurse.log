@@ -1,6 +1,6 @@
-base::filter_features({}, )
-base::loaded_features({}, )
-base::load_hierarchy("recurse", )
-base::load_version("recurse", $path(versions/recurse/recurse.json), )
-base::loaded_version("recurse", $path(versions/recurse/recurse.json), )
-base::HierarchyLoop { version: "recurse" }
+FilterFeatures { features: {} }
+LoadedFeatures { features: {} }
+LoadHierarchy { root_version: "recurse" }
+LoadVersion { version: "recurse", file: $path(versions/recurse/recurse.json) }
+LoadedVersion { version: "recurse", file: $path(versions/recurse/recurse.json) }
+HierarchyLoop { version: "recurse" }
