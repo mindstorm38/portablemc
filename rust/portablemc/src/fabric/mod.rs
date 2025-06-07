@@ -511,11 +511,9 @@ struct InternalHandler<'a> {
 }
 
 impl download::Handler for InternalHandler<'_> {
-
-    fn __internal_fallback(&mut self, _token: crate::sealed::Token) -> Option<&mut dyn download::Handler> {
-        Some(&mut self.inner)
+    fn progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        self.inner.progress(count, total_count, size, total_size);
     }
-
 }
 
 impl base::Handler for InternalHandler<'_> {

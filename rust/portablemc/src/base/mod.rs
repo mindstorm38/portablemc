@@ -4,11 +4,11 @@ pub(crate) mod serde;
 
 use std::io::{self, BufReader, BufWriter, Seek, SeekFrom};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::fmt::{self, Write as _};
+use std::fmt::{self, Debug, Write as _};
 use std::path::{Path, PathBuf};
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use std::{env, thread};
 use std::ffi::OsStr;
@@ -316,8 +316,7 @@ impl Installer {
         
         // Start by setting up features.
         let mut features = HashSet::new();
-        handler.filter_features(&mut features);
-        handler.loaded_features(&features);
+        handler.handle(Event::FilterFeatures { features: &mut features });
         
         // Then we have a sequence of steps that may add entries to the download batch.
         let mut batch = Batch::new();
@@ -338,7 +337,10 @@ impl Installer {
         // handler '&mut dyn download::Handler' to avoid large polymorphism duplications.
         if !batch.is_empty() {
             
-            if !handler.download_resources() {
+            let mut cancel = false;
+            handler.handle(Event::DownloadResources { cancel: &mut cancel });
+
+            if cancel {
                 return Err(Error::DownloadResourcesCancelled {  });
             }
 
@@ -346,7 +348,7 @@ impl Installer {
                 .map_err(|e| Error::new_reqwest(e, "download resources"))?
                 .into_result()?;
 
-            handler.downloaded_resources();
+            handler.handle(Event::DownloadedResources);
 
         }
 
@@ -452,7 +454,7 @@ impl Installer {
             return Err(Error::VersionNotFound { version: String::new() });
         }
 
-        handler.load_hierarchy(root_version);
+        handler.handle(Event::LoadHierarchy { root_version });
 
         let mut hierarchy = Vec::new();
         let mut current_name = Some(root_version.to_string());
@@ -472,7 +474,7 @@ impl Installer {
 
         }
 
-        handler.loaded_hierarchy(&hierarchy);
+        handler.handle(Event::LoadedHierarchy { hierarchy: &hierarchy });
 
         Ok(hierarchy)
 
@@ -491,15 +493,19 @@ impl Installer {
         let dir = self.versions_dir.join(&version);
         let file = dir.join_with_extension(&version, "json");
 
-        handler.load_version(&version, &file);
+        handler.handle(Event::LoadVersion { version: &version, file: &file });
 
         // Try a second time if retry is requested...
-        for _ in 0..2 {
+        for i in 0..2 {
 
             let reader = match File::open(&file) {
                 Ok(reader) => BufReader::new(reader),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                    if handler.need_version(&version, &file) {
+                    let mut retry = false;
+                    if i == 0 {
+                        handler.handle(Event::NeedVersion { version: &version, file: &file, retry: &mut retry });
+                    }
+                    if retry {
                         continue;
                     } else {
                         break;
@@ -512,13 +518,9 @@ impl Installer {
             let metadata = serde_path_to_error::deserialize::<_, Box<serde::VersionMetadata>>(&mut deserializer)
                 .map_err(|e| Error::new_json_file(e, &file))?;
 
-            handler.loaded_version(&version, &file);
+            handler.handle(Event::LoadedVersion { version: &version, file: &file });
 
-            return Ok(LoadedVersion {
-                name: version,
-                dir,
-                metadata,
-            });
+            return Ok(LoadedVersion { name: version, dir, metadata });
 
         }
 
@@ -537,7 +539,7 @@ impl Installer {
         let root_version = &hierarchy[0];
         let file = root_version.dir.join_with_extension(&root_version.name, "jar");
 
-        handler.load_client();
+        handler.handle(Event::LoadClient);
 
         let dl = hierarchy.iter()
             .filter_map(|version| version.metadata.downloads.get("client"))
@@ -554,7 +556,7 @@ impl Installer {
             return Err(Error::ClientNotFound {  });
         }
 
-        handler.loaded_client(&file);
+        handler.handle(Event::LoadedClient { file: &file });
         
         Ok(file)
 
@@ -570,7 +572,7 @@ impl Installer {
 
         let client_file = self.load_client(&mut *handler, &hierarchy, &mut *batch)?;
 
-        handler.load_libraries();
+        handler.handle(Event::LoadLibraries);
 
         // Tracking libraries that are already defined and should not be overridden.
         let mut libraries_set = HashSet::new();
@@ -683,8 +685,8 @@ impl Installer {
 
         }
 
-        handler.filter_libraries(&mut libraries);
-        handler.loaded_libraries(&libraries);
+        handler.handle(Event::FilterLibraries { libraries: &mut libraries });
+        handler.handle(Event::LoadedLibraries { libraries: &libraries });
 
         // Old versions seems to prefer having the main class first in class path, so by
         // default here we put it first, but it may be modified by later versions.
@@ -730,8 +732,12 @@ impl Installer {
 
         }
 
-        handler.filter_libraries_files(&mut lib_files.class_files, &mut lib_files.natives_files);
-        handler.loaded_libraries_files(&lib_files.class_files, &lib_files.natives_files);
+        handler.handle(Event::FilterLibrariesFiles { 
+            class_files: &mut lib_files.class_files, 
+            natives_files: &mut lib_files.natives_files });
+        handler.handle(Event::LoadedLibrariesFiles { 
+            class_files: &lib_files.class_files, 
+            natives_files: &lib_files.natives_files });
 
         Ok(lib_files)
 
@@ -861,7 +867,7 @@ impl Installer {
             
         }
 
-        handler.extracted_binaries(&bin_dir);
+        handler.handle(Event::ExtractedBinaries { dir: &bin_dir });
 
         Ok(bin_dir)
 
@@ -879,11 +885,11 @@ impl Installer {
             .next();
 
         let Some(config) = config else {
-            handler.no_logger();
+            handler.handle(Event::NoLogger);
             return Ok(None);
         };
 
-        handler.load_logger(&config.file.id);
+        handler.handle(Event::LoadLogger { id: &config.file.id });
 
         let file = self.assets_dir
             .join("log_configs")
@@ -895,7 +901,7 @@ impl Installer {
                 .set_expected_sha1(config.file.download.sha1.as_deref().copied());
         }
 
-        handler.loaded_logger(&config.file.id);
+        handler.handle(Event::LoadedLogger { id: &config.file.id });
 
         Ok(Some(LoggerConfig {
             kind: config.r#type,
@@ -939,10 +945,11 @@ impl Installer {
             });
 
         let Some(index_info) = index_info else {
-            handler.no_assets();
+            handler.handle(Event::NoAssets);
             return Ok(None);
         };
 
+        handler.handle(Event::LoadAssets { id: index_info.id });
         handler.load_assets(index_info.id);
 
         // Resolve all used directories and files...
@@ -1319,13 +1326,13 @@ impl Installer {
 
         // On Linux, only glibc dynamic linkage is supported by Mojang-provided JVMs.
         if cfg!(target_os = "linux") && cfg!(target_feature = "crt-static") {
-            handler.warn_jvm_unsupported_dynamic_crt();
+            handler.handle(Event::WarnJvmUnsupportedDynamicCrt);
             return Ok(None);
         }
 
         // If we don't have JVM platform this means that we can't load Mojang JVM.
         let Some(jvm_platform) = mojang_jvm_platform() else {
-            handler.warn_jvm_unsupported_platform();
+            handler.handle(Event::WarnJvmUnsupportedPlatform);
             return Ok(None);
         };
 
@@ -1344,18 +1351,18 @@ impl Installer {
         };
 
         let Some(meta_platform) = meta_manifest.platforms.get(jvm_platform) else {
-            handler.warn_jvm_unsupported_platform();
+            handler.handle(Event::WarnJvmUnsupportedPlatform);
             return Ok(None);
         };
 
         let Some(meta_distribution) = meta_platform.distributions.get(distribution) else {
-            handler.warn_jvm_missing_distribution();
+            handler.handle(Event::WarnJvmMissingDistribution);
             return Ok(None);
         };
 
         // We take the first variant for now.
         let Some(meta_variant) = meta_distribution.variants.get(0) else {
-            handler.warn_jvm_missing_distribution();
+            handler.handle(Event::WarnJvmMissingDistribution);
             return Ok(None);
         };
 
@@ -1693,106 +1700,204 @@ impl Installer {
 
 }
 
-crate::trait_event_handler! {
-    /// Handler for events happening when installing.
-    pub trait Handler: download::Handler {
+// crate::trait_event_handler! {
+//     /// Handler for events happening when installing.
+//     pub trait Handler: download::Handler {
 
-        /// Filter the features that will be later used to filter rules using them.
-        fn filter_features(features: &mut HashSet<String>);
-        /// Notification of all features that have been selected after filtering.
-        fn loaded_features(features: &HashSet<String>);
+//         // /// Filter the features that will be later used to filter rules using them.
+//         // fn filter_features(features: &mut HashSet<String>);
+//         // /// Notification of all features that have been selected after filtering.
+//         // fn loaded_features(features: &HashSet<String>);
 
-        /// The version hierarchy will be loaded, starting from the given root version.
-        fn load_hierarchy(root_version: &str);
-        /// The given version hierarchy has been successfully loaded.
-        fn loaded_hierarchy(hierarchy: &[LoadedVersion]);
+//         /// The version hierarchy will be loaded, starting from the given root version.
+//         fn load_hierarchy(root_version: &str);
+//         /// The given version hierarchy has been successfully loaded.
+//         fn loaded_hierarchy(hierarchy: &[LoadedVersion]);
 
-        /// A version will be loaded, at this point you can check the file for its 
-        /// validity, and delete it if relevant, in this case [`Self::need_version`]
-        /// is called just after to possibly install the version metadata.
-        fn load_version(version: &str, file: &Path);
-        /// This event is called if the given version is missing a metadata file, in this
-        /// case its path is given and this handler has the possibility of installing it
-        /// before retrying. If the handler actually wants the loading to be retried after
-        /// it as handled it, it should return true.
-        fn need_version(version: &str, file: &Path) -> bool = false;
-        /// The given version in the hierarchy has been successfully loaded, the metadata
-        /// file path is also given.
-        fn loaded_version(version: &str, file: &Path);
+//         /// A version will be loaded, at this point you can check the file for its 
+//         /// validity, and delete it if relevant, in this case [`Self::need_version`]
+//         /// is called just after to possibly install the version metadata.
+//         fn load_version(version: &str, file: &Path);
+//         // /// This event is called if the given version is missing a metadata file, in this
+//         // /// case its path is given and this handler has the possibility of installing it
+//         // /// before retrying. If the handler actually wants the loading to be retried after
+//         // /// it as handled it, it should return true.
+//         // fn need_version(version: &str, file: &Path) -> bool = false;
+//         /// The given version in the hierarchy has been successfully loaded, the metadata
+//         /// file path is also given.
+//         fn loaded_version(version: &str, file: &Path);
 
-        /// The client JAR file will be loaded.
-        fn load_client();
-        /// The client JAR file has been loaded successfully at the given path.
-        fn loaded_client(file: &Path);
+//         /// The client JAR file will be loaded.
+//         fn load_client();
+//         /// The client JAR file has been loaded successfully at the given path.
+//         fn loaded_client(file: &Path);
 
-        /// The game required libraries are going to be loaded.
-        fn load_libraries();
-        /// Filter versions before their verification.
-        fn filter_libraries(libraries: &mut Vec<LoadedLibrary>);
-        /// Libraries have been loaded. After that, the libraries will be verified and 
-        /// added to the downloads list if missing.
-        fn loaded_libraries(libraries: &[LoadedLibrary]);
-        /// Libraries have been verified, the class files includes the client JAR file as 
-        /// first path in the vector. Note that all paths will be canonicalized, 
-        /// relatively to the current process' working dir, before being added to the 
-        /// command line, so the files must exists.
-        fn filter_libraries_files(class_files: &mut Vec<PathBuf>, natives_files: &mut Vec<PathBuf>);
-        /// The final version of class and natives files has been loaded.
-        fn loaded_libraries_files(class_files: &[PathBuf], natives_files: &[PathBuf]);
+//         /// The game required libraries are going to be loaded.
+//         fn load_libraries();
+//         // /// Filter versions before their verification.
+//         // fn filter_libraries(libraries: &mut Vec<LoadedLibrary>);
+//         /// Libraries have been loaded. After that, the libraries will be verified and 
+//         /// added to the downloads list if missing.
+//         fn loaded_libraries(libraries: &[LoadedLibrary]);
+//         // /// Libraries have been verified, the class files includes the client JAR file as 
+//         // /// first path in the vector. Note that all paths will be canonicalized, 
+//         // /// relatively to the current process' working dir, before being added to the 
+//         // /// command line, so the files must exists.
+//         // fn filter_libraries_files(class_files: &mut Vec<PathBuf>, natives_files: &mut Vec<PathBuf>);
+//         /// The final version of class and natives files has been loaded.
+//         fn loaded_libraries_files(class_files: &[PathBuf], natives_files: &[PathBuf]);
 
-        /// No logger configuration will be loaded because version doesn't specify any.
-        fn no_logger();
-        /// The logger configuration will be loaded.
-        fn load_logger(id: &str);
-        /// Logger configuration has been loaded successfully.
-        fn loaded_logger(id: &str);
+//         /// No logger configuration will be loaded because version doesn't specify any.
+//         fn no_logger();
+//         /// The logger configuration will be loaded.
+//         fn load_logger(id: &str);
+//         /// Logger configuration has been loaded successfully.
+//         fn loaded_logger(id: &str);
 
-        /// Assets will not be loaded because version doesn't specify any.
-        fn no_assets();
-        /// Assets will be loaded.
-        fn load_assets(id: &str);
-        /// Assets have been loaded, and are going to be verified in order to add missing 
-        /// ones to the download batch.
-        fn loaded_assets(id: &str, count: usize);
-        /// Assets have been verified and missing assets have been added to the download
-        /// batch.
-        fn verified_assets(id: &str, count: usize);
+//         /// Assets will not be loaded because version doesn't specify any.
+//         fn no_assets();
+//         /// Assets will be loaded.
+//         fn load_assets(id: &str);
+//         /// Assets have been loaded, and are going to be verified in order to add missing 
+//         /// ones to the download batch.
+//         fn loaded_assets(id: &str, count: usize);
+//         /// Assets have been verified and missing assets have been added to the download
+//         /// batch.
+//         fn verified_assets(id: &str, count: usize);
 
-        /// The JVM will be loaded, depending on the policy configured in the installer. 
-        /// The major version that is required is given, when not specified by any
-        /// version metadata it defaults to Java 8, because most older versions didn't
-        /// specify it.
-        fn load_jvm(major_version: u32);
-        /// When searching for JVMs in the system standard paths, this event trigger for
-        /// each detected JVM executable, and indicates if this version is compatible and
-        /// therefore is a potential candidate for being used as the JVM. 
-        fn found_jvm_system_version(file: &Path, version: &str, compatible: bool);
-        /// The system runs on Linux and has C runtime not dynamically linked (static, 
-        /// musl for example), suggesting that your system doesn't provide dynamic C 
-        /// runtime (glibc), and such JVM are not provided by Mojang. 
-        fn warn_jvm_unsupported_dynamic_crt();
-        /// When trying to find a Mojang JVM to install, your operating system and 
-        /// architecture are not supported.
-        fn warn_jvm_unsupported_platform();
-        /// When trying to find a Mojang JVM to install, your operating system and 
-        /// architecture are supported but the distribution (the java version packaged and
-        /// distributed by Mojang) is not found.
-        fn warn_jvm_missing_distribution();
-        /// The JVM has been loaded, if the version is known. The compatible flag 
-        /// indicates if this JVM is **likely** compatible with the game version, 
-        /// when false it indicates that it will likely be incompatible.
-        fn loaded_jvm(file: &Path, version: Option<&str>, compatible: bool);
+//         /// The JVM will be loaded, depending on the policy configured in the installer. 
+//         /// The major version that is required is given, when not specified by any
+//         /// version metadata it defaults to Java 8, because most older versions didn't
+//         /// specify it.
+//         fn load_jvm(major_version: u32);
+//         /// When searching for JVMs in the system standard paths, this event trigger for
+//         /// each detected JVM executable, and indicates if this version is compatible and
+//         /// therefore is a potential candidate for being used as the JVM. 
+//         fn found_jvm_system_version(file: &Path, version: &str, compatible: bool);
+//         /// The system runs on Linux and has C runtime not dynamically linked (static, 
+//         /// musl for example), suggesting that your system doesn't provide dynamic C 
+//         /// runtime (glibc), and such JVM are not provided by Mojang. 
+//         fn warn_jvm_unsupported_dynamic_crt();
+//         /// When trying to find a Mojang JVM to install, your operating system and 
+//         /// architecture are not supported.
+//         fn warn_jvm_unsupported_platform();
+//         /// When trying to find a Mojang JVM to install, your operating system and 
+//         /// architecture are supported but the distribution (the java version packaged and
+//         /// distributed by Mojang) is not found.
+//         fn warn_jvm_missing_distribution();
+//         /// The JVM has been loaded, if the version is known. The compatible flag 
+//         /// indicates if this JVM is **likely** compatible with the game version, 
+//         /// when false it indicates that it will likely be incompatible.
+//         fn loaded_jvm(file: &Path, version: Option<&str>, compatible: bool);
 
-        /// Resources will be downloaded. This function returns a boolean that indicates
-        /// if the download should proceed, this can be used to abort 
-        fn download_resources() -> bool = true;
-        /// Resources have been successfully downloaded.
-        fn downloaded_resources();
+//         /// Resources will be downloaded. This function returns a boolean that indicates
+//         /// if the download should proceed, this can be used to abort 
+//         fn download_resources() -> bool = true;
+//         /// Resources have been successfully downloaded.
+//         fn downloaded_resources();
 
-        /// All binaries has been successfully extracted to the given binary directory.
-        fn extracted_binaries(dir: &Path);
+//         /// All binaries has been successfully extracted to the given binary directory.
+//         fn extracted_binaries(dir: &Path);
 
-    }
+//     }
+// }
+
+
+/// A generic handler for events when installing.
+pub trait Handler: download::Handler {
+    /// Handle a single event.
+    fn handle(&mut self, event: Event);
+}
+
+/// Events happening when installing.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Event<'a> {
+    /// Filter the features that will be later used to filter rules using them.
+    FilterFeatures { features: &'a mut HashSet<String> },
+    /// Notification of all features that have been selected after filtering.
+    LoadedFeatures { features: &'a HashSet<String> },
+    /// The version hierarchy will be loaded, starting from the given root version.
+    LoadHierarchy { root_version: &'a str },
+    /// The given version hierarchy has been successfully loaded.
+    LoadedHierarchy { hierarchy: &'a [LoadedVersion] },
+    /// A version will be loaded, at this point you can check the file for its 
+    /// validity, and delete it if relevant, in this case [`Self::need_version`]
+    /// is called just after to possibly install the version metadata.
+    LoadVersion { version: &'a str, file: &'a Path },
+    /// This event is called if the given version is missing a metadata file, in this
+    /// case its path is given and this handler has the possibility of installing it
+    /// before retrying. If the handler actually wants the loading to be retried after
+    /// it as handled it, it should return true.
+    NeedVersion { version: &'a str, file: &'a Path, retry: &'a mut bool },
+    /// The given version in the hierarchy has been successfully loaded, the metadata
+    /// file path is also given.
+    LoadedVersion { version: &'a str, file: &'a Path },
+    /// The client JAR file will be loaded.
+    LoadClient,
+    /// The client JAR file has been loaded successfully at the given path.
+    LoadedClient { file: &'a Path },
+    /// The game required libraries are going to be loaded.
+    LoadLibraries,
+    /// Filter versions before their verification.
+    FilterLibraries { libraries: &'a mut Vec<LoadedLibrary> },
+    /// Libraries have been loaded. After that, the libraries will be verified and 
+    /// added to the downloads list if missing.
+    LoadedLibraries { libraries: &'a [LoadedLibrary] },
+    /// Libraries have been verified, the class files includes the client JAR file as 
+    /// first path in the vector. Note that all paths will be canonicalized, 
+    /// relatively to the current process' working dir, before being added to the 
+    /// command line, so the files must exists.
+    FilterLibrariesFiles { class_files: &'a mut Vec<PathBuf>, natives_files: &'a mut Vec<PathBuf> },
+    /// The final version of class and natives files has been loaded.
+    LoadedLibrariesFiles { class_files: &'a [PathBuf], natives_files: &'a [PathBuf] },
+    /// No logger configuration will be loaded because version doesn't specify any.
+    NoLogger,
+    /// The logger configuration will be loaded.
+    LoadLogger { id: &'a str },
+    /// Logger configuration has been loaded successfully.
+    LoadedLogger { id: &'a str },
+    /// Assets will not be loaded because version doesn't specify any.
+    NoAssets,
+    /// Assets will be loaded.
+    LoadAssets { id: &'a str },
+    /// Assets have been loaded, and are going to be verified in order to add missing 
+    /// ones to the download batch.
+    LoadedAssets { id: &'a str, count: usize },
+    /// Assets have been verified and missing assets have been added to the download
+    /// batch.
+    VerifiedAssets { id: &'a str, count: usize },
+    /// The JVM will be loaded, depending on the policy configured in the installer. 
+    /// The major version that is required is given, when not specified by any
+    /// version metadata it defaults to Java 8, because most older versions didn't
+    /// specify it.
+    LoadJvm { major_version: u32 },
+    /// When searching for JVMs in the system standard paths, this event trigger for
+    /// each detected JVM executable, and indicates if this version is compatible and
+    /// therefore is a potential candidate for being used as the JVM. 
+    FoundJvmSystemVersion { file: &'a Path, version: &'a str, compatible: bool },
+    /// The system runs on Linux and has C runtime not dynamically linked (static, 
+    /// musl for example), suggesting that your system doesn't provide dynamic C 
+    /// runtime (glibc), and such JVM are not provided by Mojang. 
+    WarnJvmUnsupportedDynamicCrt,
+    /// When trying to find a Mojang JVM to install, your operating system and 
+    /// architecture are not supported.
+    WarnJvmUnsupportedPlatform,
+    /// When trying to find a Mojang JVM to install, your operating system and 
+    /// architecture are supported but the distribution (the java version packaged and
+    /// distributed by Mojang) is not found.
+    WarnJvmMissingDistribution,
+    /// The JVM has been loaded, if the version is known. The compatible flag 
+    /// indicates if this JVM is **likely** compatible with the game version, 
+    /// when false it indicates that it will likely be incompatible.
+    LoadedJvm { file: &'a Path, version: Option<&'a str>, compatible: bool },
+    /// Resources will be downloaded. This function returns a boolean that indicates
+    /// if the download should proceed, this can be used to abort 
+    DownloadResources { cancel: &'a mut bool },
+    /// Resources have been successfully downloaded.
+    DownloadedResources,
+    /// All binaries has been successfully extracted to the given binary directory.
+    ExtractedBinaries { dir: &'a Path },
 }
 
 /// The base installer could not proceed to the installation of a version.
@@ -2000,6 +2105,7 @@ pub enum VersionChannel {
 /// Internal conversion from the serde equivalent of this to the public interface enum.
 /// Both have the same discriminant values so this should be optimized to just a copy.
 impl From<serde::VersionType> for VersionChannel {
+    #[inline]
     fn from(value: serde::VersionType) -> Self {
         match value {
             serde::VersionType::Release => Self::Release,
@@ -2008,6 +2114,10 @@ impl From<serde::VersionType> for VersionChannel {
             serde::VersionType::OldAlpha => Self::Alpha,
         }
     }
+}
+
+pub trait VersionProvider {
+
 }
 
 /// Represent a loaded library.
@@ -2031,6 +2141,26 @@ pub struct LibraryDownload {
     pub url: String,
     pub size: Option<u32>,
     pub sha1: Option<[u8; 20]>,
+}
+
+/// An abstract filter for libraries and their resolved files.
+pub trait LibraryFilter {
+
+    /// Filter versions before their verification.
+    fn filter_libraries(&self, libraries: &mut Vec<LoadedLibrary>);
+
+    /// Libraries have been verified, the class files includes the client JAR file as 
+    /// first path in the vector. Note that all paths will be canonicalized, 
+    /// relatively to the current process' working dir, before being added to the 
+    /// command line, so the files must exists.
+    fn filter_libraries_files(&self, classes_files: &mut Vec<PathBuf>, natives_files: &mut Vec<PathBuf>);
+
+}
+
+impl Debug for dyn LibraryFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "dyn LibraryFilter")
+    }
 }
 
 /// Description of all installed resources needed for running an installed game version.

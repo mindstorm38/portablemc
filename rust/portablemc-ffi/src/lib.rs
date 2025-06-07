@@ -14,9 +14,9 @@ pub mod raw;
 pub mod alloc;
 pub mod err;
 
-pub mod msa;
+// pub mod msa;
 
-pub mod standard;
+// pub mod standard;
 
 
 use std::borrow::Cow;
@@ -54,8 +54,7 @@ pub fn cstr_bytes_from_str(s: &str) -> &[u8] {
 }
 
 #[inline]
-pub fn ensure_nul_terminated(bytes: impl Into<Vec<u8>>) -> Box<[u8]> {
-    let mut bytes = Vec::<u8>::from(bytes);
+pub fn ensure_nul_terminated(mut bytes: Vec<u8>) -> Box<[u8]> {
     let len = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     bytes.truncate(len);
     bytes.push(0);

@@ -20,17 +20,19 @@ pub fn extern_err_static(tag: raw::pmc_err_tag, data: raw::pmc_err_data, message
 #[inline]
 pub fn extern_err(tag: raw::pmc_err_tag, data: raw::pmc_err_data, message: String) -> *mut raw::pmc_err {
     
-    let owned_message = Pin::new(crate::ensure_nul_terminated(message));
+    // let owned_message = Pin::new(crate::ensure_nul_terminated(message));
     
-    extern_box(ExternErr {
-        inner: raw::pmc_err {
-            tag,
-            data,
-            message: owned_message.as_ptr(),
-        },
-        owned_message,
-        owned: (),
-    })
+    // extern_box(ExternErr {
+    //     inner: raw::pmc_err {
+    //         tag,
+    //         data,
+    //         message: owned_message.as_ptr(),
+    //     },
+    //     owned_message,
+    //     owned: (),
+    // })
+
+    todo!()
 
 }
 

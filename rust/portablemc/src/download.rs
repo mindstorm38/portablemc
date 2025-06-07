@@ -580,14 +580,20 @@ impl EntryError {
 
 }
 
-crate::trait_event_handler! {
-    /// A handle for watching a batch download progress.
-    pub trait Handler {
-        /// Notification of a download progress, the download should be considered done when
-        /// 'count' is equal to 'total_count'. This is called anyway at the beginning and at 
-        /// the end of the download. Note that the final given 'size' may be greater than
-        /// 'total_size' in case of unknown expected size, which 'total_size' is the sum.
-        fn progress(count: u32, total_count: u32, size: u32, total_size: u32);
+/// A handle for watching a batch download progress.
+pub trait Handler {
+    /// Notification of a download progress, the download should be considered done when
+    /// 'count' is equal to 'total_count'. This is called anyway at the beginning and at 
+    /// the end of the download. Note that the final given 'size' may be greater than
+    /// 'total_size' in case of unknown expected size, which 'total_size' is the sum.
+    fn progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32);
+}
+
+// Mutable implementation.
+impl<H: Handler + ?Sized> Handler for &mut H {
+    #[inline]
+    fn progress(&mut self, count: u32, total_count: u32, size: u32, total_size: u32) {
+        (**self).progress(count, total_count, size, total_size);
     }
 }
 
