@@ -12,9 +12,9 @@ use std::fmt::Write;
 use std::{env, fs};
 use std::fs::File;
 
+use crate::mojang::{self, FetchExclude, HandlerInto as _};
 use crate::download::{self, Batch, EntryErrorKind};
 use crate::base::{self, Game, LIBRARIES_URL};
-use crate::mojang::{self, FetchExclude};
 use crate::maven::{Gav, MetadataParser};
 use crate::path::{PathBufExt, PathExt};
 
@@ -140,7 +140,7 @@ impl Installer {
         // The goal is to run the installer a first time, check potential errors to 
         // know if the error is related to the loader, or not.
         mojang.set_version(root_version.clone());
-        let reason = match mojang.install(&mut *handler) {
+        let reason = match mojang.install((&mut *handler).into_mojang()) {
             Ok(game) => {
 
                 if !config.check_libraries {
@@ -252,38 +252,89 @@ impl Installer {
 
         // Retrying launch!
         mojang.set_version(root_version);
-        let game = mojang.install(&mut *handler)?;
+        let game = mojang.install((&mut *handler).into_mojang())?;
         Ok(game)
 
     }
 
 }
 
-crate::trait_event_handler! {
-    /// Handler for events happening when installing.
-    pub trait Handler: mojang::Handler {
-        /// The loader version failed to start, so this installer will (re)try to install
-        /// the mod loader.
-        fn installing(tmp_dir: &Path, reason: InstallReason);
-        /// The loader installer will be fetched.
-        fn fetch_installer(version: &str);
-        /// The loader installer has been successfully fetched.
-        fn fetched_installer(version: &str);
-        /// Notify that the game will be installed manually before running the installer,
-        /// because the installer needs it.
-        fn installing_game();
-        /// The loader installer libraries will be fetched, either from being download, 
-        /// or being extracted from the installer archive.
-        fn fetch_installer_libraries();
-        /// The loader installer libraries has been successfully fetched or extracted.
-        fn fetched_installer_libraries();
-        /// An installer processor will be run.
-        fn run_installer_processor(name: &Gav, task: Option<&str>);
-        /// The mod loader has been apparently successfully installed, it will be run a 
-        /// second time to try...
-        fn installed();
+/// Events happening when installing.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Event<'a> {
+    /// Forwarding a mojang event.
+    Mojang(mojang::Event<'a>),
+    /// The loader version failed to start, so this installer will (re)try to install
+    /// the mod loader.
+    Installing { tmp_dir: &'a Path, reason: InstallReason },
+    /// The loader installer will be fetched.
+    FetchInstaller { version: &'a str },
+    /// The loader installer has been successfully fetched.
+    FetchedInstaller { version: &'a str},
+    /// Notify that the game will be installed manually before running the installer,
+    /// because the installer needs it.
+    InstallingGame,
+    /// The loader installer libraries will be fetched, either from being download, 
+    /// or being extracted from the installer archive.
+    FetchInstallerLibraries,
+    /// The loader installer libraries has been successfully fetched or extracted.
+    FetchedInstallerLibraries,
+    /// An installer processor will be run.
+    RunInstallerProcessor { name: &'a Gav, task: Option<&'a str> },
+    /// The mod loader has been apparently successfully installed, it will be run a 
+    /// second time to try...
+    Installed,
+}
+
+/// A handle for watching an installation.
+pub trait Handler {
+    /// Handle a single event.
+    fn on_event(&mut self, event: Event);
+}
+
+// Mutable implementation.
+impl<H: Handler + ?Sized> Handler for &mut H {
+    #[inline]
+    fn on_event(&mut self, event: Event) {
+        (**self).on_event(event)
     }
 }
+
+impl Handler for () {
+    fn on_event(&mut self, event: Event) {
+        let _ = event;
+    }
+}
+
+/// Internal adapter trait for using it like other handlers.
+#[allow(unused)]
+pub(crate) trait HandlerInto: Handler + Sized {
+    
+    #[inline]
+    fn into_mojang(self) -> impl mojang::Handler {
+        pub(crate) struct Adapter<H: Handler>(pub H);
+        impl<H: Handler> mojang::Handler for Adapter<H> {
+            fn on_event(&mut self, event: mojang::Event) {
+                self.0.on_event(Event::Mojang(event));
+            }
+        }
+        Adapter(self)
+    }
+    
+    #[inline]
+    fn into_base(self) -> impl base::Handler {
+        self.into_mojang().into_base()
+    }
+
+    #[inline]
+    fn into_download(self) -> impl download::Handler {
+        self.into_mojang().into_download()
+    }
+
+}
+
+impl<H: Handler> HandlerInto for H {}
 
 /// The Forge installer could not proceed to the installation of a version.
 #[derive(thiserror::Error, Debug)]
@@ -731,11 +782,11 @@ fn try_install(
 ) -> Result<()> {
 
     let tmp_dir = env::temp_dir().joined(root_version);
-    handler.installing(&tmp_dir, reason);
+    handler.on_event(Event::Installing { tmp_dir: &tmp_dir, reason });
 
     // The first thing we do is fetching the installer, so it ends early if there is 
     // simply no installer for this version!
-    handler.fetch_installer(config.gav.version());
+    handler.on_event(Event::FetchInstaller { version: config.gav.version() });
 
     let installer_gav = config.gav.with_classifier(Some("installer"));
     let installer_url = format!("{}/{}", config.repo_url, installer_gav.url());
@@ -743,7 +794,7 @@ fn try_install(
     // Download and check result in case installer is just not found.
     let entry = download::single(installer_url, tmp_dir.join("installer.jar"))
         .set_keep_open()
-        .download(&mut *handler);
+        .download((&mut *handler).into_download());
 
     let mut entry = match entry {
         Ok(entry) => entry,
@@ -763,16 +814,16 @@ fn try_install(
     let mut installer_zip = ZipArchive::new(installer_reader)
         .map_err(|e| base::Error::new_zip_file(e, installer_file))?;
 
-    handler.fetched_installer(config.gav.version());
+    handler.on_event(Event::FetchedInstaller { version: config.gav.version() });
     
     // We need to ensure that the underlying game version is fully installed. Here we
     // just forward the handler as-is, and we check for version not found to warn
     // about an non-existing game version. We keep the installed, or found, JVM exec
     // for later execution of installer processors. Note that the JVM exec path should
     // be already canonicalized.
-    handler.installing_game();
+    handler.on_event(Event::InstallingGame);
     mojang.set_version(config.game_version.clone());
-    let jvm_file = match mojang.install(&mut *handler) {
+    let jvm_file = match mojang.install((&mut *handler).into_mojang()) {
         Err(e) => return Err(Error::Mojang(e)),
         Ok(game) => game.jvm_file,
     };
@@ -828,7 +879,7 @@ fn try_install(
                 Err(_) => return Err(Error::InstallerVersionMetadataNotFound {  })
             };
 
-            handler.fetch_installer_libraries();
+            handler.on_event(Event::FetchInstallerLibraries);
             
             // Some early (still modern) installers (<= 1.16.5) embed the forge universal
             // JAR, we need to extract it given its path. It also appears that more modern
@@ -873,12 +924,12 @@ fn try_install(
 
             // Download all libraries just before running post processors.
             if !batch.is_empty() {
-                batch.download(&mut *handler)
+                batch.download((&mut *handler).into_download())
                     .map_err(|e| base::Error::new_reqwest(e, "download forge libraries"))?
                     .into_result()?;
             }
 
-            handler.fetched_installer_libraries();
+            handler.on_event(Event::FetchedInstallerLibraries);
 
             // Parse data entries...
             let mut data = HashMap::with_capacity(profile.data.len());
@@ -959,7 +1010,7 @@ fn try_install(
                     None
                 };
 
-                handler.run_installer_processor(&processor.jar, task);
+                handler.on_event(Event::RunInstallerProcessor { name: &processor.jar, task });
 
                 // Construct the command to run the processor.
                 let mut command = Command::new(&jvm_file);
@@ -1037,7 +1088,7 @@ fn try_install(
     metadata.id = root_version.to_string();
     base::write_version_metadata(&metadata_file, &metadata)?;
 
-    handler.installed();
+    handler.on_event(Event::Installed);
 
     Ok(())
 

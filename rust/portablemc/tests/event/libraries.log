@@ -1,17 +1,17 @@
-base::filter_features({}, )
-base::loaded_features({}, )
-base::load_hierarchy("libraries", )
-base::load_version("libraries", $path(versions/libraries/libraries.json), )
-base::loaded_version("libraries", $path(versions/libraries/libraries.json), )
-base::loaded_hierarchy([LoadedVersion { name: "libraries", dir: $path(versions/libraries) }], )
-base::load_client()
-base::loaded_client($path(versions/libraries/libraries.jar), )
-base::load_libraries()
-$ignore_once ^base::filter_libraries
-base::loaded_libraries([LoadedLibrary { gav: Gav("mock:lib0:1.0.0"), path: None, download: Some(LibraryDownload { url: "https://mock.com/mock/lib0/1.0.0/lib0-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib1:1.0.0"), path: None, download: Some(LibraryDownload { url: "https://mock.com/non-standard/mock/lib1/1.0.0/lib1-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib2:1.0.0"), path: Some("lib2-non-standard.jar"), download: Some(LibraryDownload { url: "https://mock.com/non-standard/mock/lib2/1.0.0/lib2-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib3:1.0.0"), path: None, download: Some(LibraryDownload { url: "https://mock.com/mock/lib3/1.0.0/lib3-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib4:1.0.0:natives-$os()"), path: None, download: Some(LibraryDownload { url: "https://mock.com/mock/lib4/1.0.0/lib4-1.0.0-natives-$os().jar", size: None, sha1: None }), natives: true }], )
-$ignore_once ^base::filter_libraries_files
-base::loaded_libraries_files([$path(versions/libraries/libraries.jar), $path(libraries/mock/lib0/1.0.0/lib0-1.0.0.jar), $path(libraries/mock/lib1/1.0.0/lib1-1.0.0.jar), $path(libraries/lib2-non-standard.jar), $path(libraries/mock/lib3/1.0.0/lib3-1.0.0.jar)], [$path(libraries/mock/lib4/1.0.0/lib4-1.0.0-natives-$os().jar)], )
-base::no_logger()
-base::no_assets()
-base::load_jvm(8, )
-base::loaded_jvm("", None, false, )
+FilterFeatures { features: {} }
+LoadedFeatures { features: {} }
+LoadHierarchy { root_version: "libraries" }
+LoadVersion { version: "libraries", file: $path(versions/libraries/libraries.json) }
+LoadedVersion { version: "libraries", file: $path(versions/libraries/libraries.json) }
+LoadedHierarchy { hierarchy: [LoadedVersion { name: "libraries", dir: $path(versions/libraries) }] }
+LoadClient
+LoadedClient { file: $path(versions/libraries/libraries.jar) }
+LoadLibraries
+$ignore_once ^FilterLibraries
+LoadedLibraries { libraries: [LoadedLibrary { gav: Gav("mock:lib0:1.0.0"), path: None, download: Some(LibraryDownload { url: "https://mock.com/mock/lib0/1.0.0/lib0-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib1:1.0.0"), path: None, download: Some(LibraryDownload { url: "https://mock.com/non-standard/mock/lib1/1.0.0/lib1-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib2:1.0.0"), path: Some("lib2-non-standard.jar"), download: Some(LibraryDownload { url: "https://mock.com/non-standard/mock/lib2/1.0.0/lib2-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib3:1.0.0"), path: None, download: Some(LibraryDownload { url: "https://mock.com/mock/lib3/1.0.0/lib3-1.0.0.jar", size: None, sha1: None }), natives: false }, LoadedLibrary { gav: Gav("mock:lib4:1.0.0:natives-$os()"), path: None, download: Some(LibraryDownload { url: "https://mock.com/mock/lib4/1.0.0/lib4-1.0.0-natives-$os().jar", size: None, sha1: None }), natives: true }] }
+$ignore_once ^FilterLibrariesFiles
+LoadedLibrariesFiles { class_files: [$path(versions/libraries/libraries.jar), $path(libraries/mock/lib0/1.0.0/lib0-1.0.0.jar), $path(libraries/mock/lib1/1.0.0/lib1-1.0.0.jar), $path(libraries/lib2-non-standard.jar), $path(libraries/mock/lib3/1.0.0/lib3-1.0.0.jar)], natives_files: [$path(libraries/mock/lib4/1.0.0/lib4-1.0.0-natives-$os().jar)] }
+NoLogger
+NoAssets
+LoadJvm { major_version: 8 }
+LoadedJvm { file: "", version: None, compatible: false }

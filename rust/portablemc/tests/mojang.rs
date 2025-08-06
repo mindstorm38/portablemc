@@ -6,7 +6,6 @@ use std::path::PathBuf;
 
 use portablemc::base::{self, JvmPolicy, VersionChannel};
 use portablemc::mojang::{self, Manifest};
-use portablemc::download;
 
 
 /// This test tries to parse all versions (except snapshots).
@@ -49,12 +48,10 @@ fn all() {
 
 
 struct NoResourceHandler;
-impl download::Handler for NoResourceHandler { }
-impl base::Handler for NoResourceHandler {
-    
-    fn download_resources(&mut self) -> bool {
-        false
+impl mojang::Handler for NoResourceHandler {
+    fn on_event(&mut self, event: mojang::Event) {
+        if let mojang::Event::Base(base::Event::DownloadResources { cancel }) = event {
+            *cancel = true;
+        }
     }
-
 }
-impl mojang::Handler for NoResourceHandler { }
