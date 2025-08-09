@@ -1,15 +1,15 @@
 //! MSA bindings for C.
 
 use std::ffi::c_char;
-use std::ptr;
+use std::pin::Pin;
+use std::ptr::{self, NonNull};
 
 use portablemc::msa::{Account, Auth, AuthError, Database, DatabaseError, DeviceCodeFlow};
 use uuid::Uuid;
 
-use crate::alloc::{extern_box, extern_box_option, extern_box_cstr_from_str, extern_box_take};
-use crate::err::{extern_err_with, extern_err_static, extern_err, IntoExternErr};
-use crate::str_from_cstr_ptr;
-use crate::raw;
+use crate::err::{extern_err_catch, extern_err_static, extern_err, IntoExternErr};
+use crate::alloc::{extern_box, extern_cstr_from_str, extern_box_take};
+use crate::{cstr, raw};
 
 
 // =======
@@ -18,7 +18,7 @@ use crate::raw;
 
 impl IntoExternErr for AuthError {
     
-    fn into(self) -> *mut raw::pmc_err {
+    fn into(self) -> NonNull<raw::pmc_err> {
 
         use raw::pmc_err_tag::*;
 
@@ -35,18 +35,29 @@ impl IntoExternErr for AuthError {
             AuthError::DoesNotOwnGame => (
                 PMC_ERR_MSA_AUTH_DOES_NOT_OWN_GAME,
                 c"This Microsoft account does not own Minecraft"),
-            AuthError::InvalidStatus(status) => return extern_err(
-                PMC_ERR_MSA_AUTH_INVALID_STATUS,
-                raw::pmc_err_data_msa_auth_invalid_status { status }.into(),
-                format!("An unknown HTTP status has been received: {status}")),
-            AuthError::Unknown(message) => return extern_err(
-                PMC_ERR_MSA_AUTH_UNKNOWN, 
-                raw::pmc_err_data_msa_auth_unknown { message:  }, 
-                format!("An unknown error happened: {message}")),
-            AuthError::Internal(e) => return extern_err(
-                PMC_ERR_INTERNAL, 
-                raw::pmc_err_data_internal { origin: ptr::null() }, 
-                e.to_string()),
+            AuthError::InvalidStatus(status) => {
+                return extern_err(
+                    PMC_ERR_MSA_AUTH_INVALID_STATUS,
+                    raw::pmc_err_data_msa_auth_invalid_status { status },
+                    format!("An unknown HTTP status has been received: {status}"),
+                    ());
+            }
+            AuthError::Unknown(unknown) => {
+                let message = format!("An unknown error happened: {unknown}");
+                let owned_unknown = Pin::new(cstr::from_string(unknown));
+                return extern_err(
+                    PMC_ERR_MSA_AUTH_UNKNOWN, 
+                    raw::pmc_err_data_msa_auth_unknown { message: owned_unknown.as_ptr() }, 
+                    message,
+                    owned_unknown)
+            }
+            AuthError::Internal(origin) => {
+                return extern_err(
+                    PMC_ERR_INTERNAL, 
+                    raw::pmc_err_data_internal { origin: ptr::null() }, 
+                    origin.to_string(),
+                    ());
+            }
             _ => todo!(),
         };
 
@@ -56,40 +67,33 @@ impl IntoExternErr for AuthError {
 
 }
 
-impl ExposedError for AuthError {
+impl IntoExternErr for DatabaseError {
+    
+    fn into(self) -> NonNull<raw::pmc_err> {
+        
+        use raw::pmc_err_tag::*;
 
-    fn code(&self) -> u8 {
-        match self {
-            AuthError::Declined => err::code::MSA_AUTH_DECLINED,
-            AuthError::TimedOut => err::code::MSA_AUTH_TIMED_OUT,
-            AuthError::OutdatedToken => err::code::MSA_AUTH_OUTDATED_TOKEN,
-            AuthError::DoesNotOwnGame => err::code::MSA_AUTH_DOES_NOT_OWN_GAME,
-            AuthError::InvalidStatus(_) => err::code::MSA_AUTH_INVALID_STATUS,
-            AuthError::Unknown(_) => err::code::MSA_AUTH_UNKNOWN,
-            AuthError::Internal(_) => err::code::INTERNAL,
+        let (tag, message) = match self {
+            DatabaseError::Io(origin) => {
+                return extern_err(
+                    PMC_ERR_MSA_DATABASE_IO, 
+                    raw::pmc_err_data::default(), 
+                    origin.to_string(), 
+                    ());
+            }
+            DatabaseError::Corrupted => (
+                PMC_ERR_MSA_DATABASE_CORRUPTED,
+                c"Corrupted"),
+            DatabaseError::WriteFailed => (
+                PMC_ERR_MSA_DATABASE_WRITE_FAILED,
+                c"Failed"),
             _ => todo!(),
-        }
+        };
+
+        extern_err_static(tag, raw::pmc_err_data::default(), message)
+
     }
 
-    fn extern_data(&self) -> *mut () {
-        match *self {
-            AuthError::InvalidStatus(status) => extern_box(status).cast(),
-            AuthError::Unknown(ref error) => extern_box_cstr_from_str(error).cast(),
-            _ => ptr::null_mut(),
-        }
-    }
-
-}
-
-impl ExposedError for DatabaseError {
-    fn code(&self) -> u8 {
-        match self {
-            DatabaseError::Io(_) => err::code::MSA_DATABASE_IO,
-            DatabaseError::Corrupted => err::code::MSA_DATABASE_CORRUPTED,
-            DatabaseError::WriteFailed => err::code::MSA_DATABASE_WRITE_FAILED,
-            _ => todo!(),
-        }
-    }
 }
 
 // =======
@@ -97,42 +101,31 @@ impl ExposedError for DatabaseError {
 // =======
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_auth_new(app_id: *const c_char) -> *mut Auth {
-    
-    let Some(app_id) = (unsafe { str_from_cstr_ptr(app_id) }) else {
-        return ptr::null_mut();
-    };
-
-    extern_box(Auth::new(app_id))
-
+pub unsafe extern "C" fn pmc_msa_auth_new(app_id: *const c_char) -> NonNull<Auth> {
+    let app_id = unsafe { cstr::to_str_lossy(app_id) };
+    extern_box(Auth::new(&app_id))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_auth_app_id(auth: &Auth) -> *mut c_char {
-    extern_box_cstr_from_str(auth.app_id())
+pub unsafe extern "C" fn pmc_msa_auth_app_id(auth: &Auth) -> NonNull<c_char> {
+    extern_cstr_from_str(auth.app_id())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_auth_language_code(auth: &Auth) -> *mut c_char {
-    auth.language_code().map(extern_box_cstr_from_str).unwrap_or(ptr::null_mut())
+pub unsafe extern "C" fn pmc_msa_auth_language_code(auth: &Auth) -> Option<NonNull<c_char>> {
+    auth.language_code().map(extern_cstr_from_str)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn pmc_msa_auth_set_language_code(auth: &mut Auth, code: *const c_char) {
-    
-    let Some(code) = (unsafe { str_from_cstr_ptr(code) }) else {
-        return;
-    };
-
-    auth.set_language_code(code);
-
+    auth.set_language_code(unsafe { cstr::to_str_lossy(code) });
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_auth_request_device_code(auth: &Auth, err: *mut *mut Err) -> *mut DeviceCodeFlow {
-    extern_err_with(err, || {
+pub unsafe extern "C" fn pmc_msa_auth_request_device_code(auth: &Auth, err: *mut *mut raw::pmc_err) -> Option<NonNull<DeviceCodeFlow>> {
+    extern_err_catch(err, || {
         auth.request_device_code().map(extern_box)
-    }).unwrap_or(ptr::null_mut())
+    })
 }
 
 // =======
@@ -140,30 +133,30 @@ pub unsafe extern "C" fn pmc_msa_auth_request_device_code(auth: &Auth, err: *mut
 // =======
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_device_code_flow_app_id(flow: &DeviceCodeFlow) -> *mut c_char {
-    extern_box_cstr_from_str(flow.app_id())
+pub unsafe extern "C" fn pmc_msa_device_code_flow_app_id(flow: &DeviceCodeFlow) -> NonNull<c_char> {
+    extern_cstr_from_str(flow.app_id())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_device_code_flow_user_code(flow: &DeviceCodeFlow) -> *mut c_char {
-    extern_box_cstr_from_str(flow.user_code())
+pub unsafe extern "C" fn pmc_msa_device_code_flow_user_code(flow: &DeviceCodeFlow) -> NonNull<c_char> {
+    extern_cstr_from_str(flow.user_code())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_device_code_flow_verification_uri(flow: &DeviceCodeFlow) -> *mut c_char {
-    extern_box_cstr_from_str(flow.verification_uri())
+pub unsafe extern "C" fn pmc_msa_device_code_flow_verification_uri(flow: &DeviceCodeFlow) -> NonNull<c_char> {
+    extern_cstr_from_str(flow.verification_uri())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_device_code_flow_message(flow: &DeviceCodeFlow) -> *mut c_char {
-    extern_box_cstr_from_str(flow.message())
+pub unsafe extern "C" fn pmc_msa_device_code_flow_message(flow: &DeviceCodeFlow) -> NonNull<c_char> {
+    extern_cstr_from_str(flow.message())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_device_code_flow_wait(flow: &DeviceCodeFlow, err: *mut *mut Err) -> *mut Account {
-    extern_err_with(err, || {
+pub unsafe extern "C" fn pmc_msa_device_code_flow_wait(flow: &DeviceCodeFlow, err: *mut *mut raw::pmc_err) -> Option<NonNull<Account>> {
+    extern_err_catch(err, || {
         flow.wait().map(extern_box)
-    }).unwrap_or(ptr::null_mut())
+    })
 }
 
 // =======
@@ -172,39 +165,39 @@ pub unsafe extern "C" fn pmc_msa_device_code_flow_wait(flow: &DeviceCodeFlow, er
 
 #[no_mangle]
 pub unsafe extern "C" fn pmc_msa_account_app_id(acc: &Account) -> *mut c_char {
-    extern_box_cstr_from_str(acc.app_id())
+    extern_cstr_from_str(acc.app_id()).as_ptr()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn pmc_msa_account_access_token(acc: &Account) -> *mut c_char {
-    extern_box_cstr_from_str(acc.access_token())
+    extern_cstr_from_str(acc.access_token()).as_ptr()
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_account_uuid(acc: &Account) -> *mut pmc_uuid {
-    extern_box(acc.uuid().as_bytes().clone())
+pub unsafe extern "C" fn pmc_msa_account_uuid(acc: &Account) -> *mut raw::pmc_uuid {
+    extern_box(acc.uuid().as_bytes().clone()).as_ptr()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn pmc_msa_account_username(acc: &Account) -> *mut c_char {
-    extern_box_cstr_from_str(acc.username())
+    extern_cstr_from_str(acc.username()).as_ptr()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn pmc_msa_account_xuid(acc: &Account) -> *mut c_char {
-    extern_box_cstr_from_str(acc.xuid())
+    extern_cstr_from_str(acc.xuid()).as_ptr()
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_account_request_profile(acc: &mut Account, err: *mut *mut Err) {
-    let _ = extern_err_with(err, || {
+pub unsafe extern "C" fn pmc_msa_account_request_profile(acc: &mut Account, err: *mut *mut raw::pmc_err) {
+    let _ = extern_err_catch(err, || {
         acc.request_profile()
     });
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_account_request_refresh(acc: &mut Account, err: *mut *mut Err) {
-    let _ = extern_err_with(err, || {
+pub unsafe extern "C" fn pmc_msa_account_request_refresh(acc: &mut Account, err: *mut *mut raw::pmc_err) {
+    let _ = extern_err_catch(err, || {
         acc.request_refresh()
     });
 }
@@ -214,66 +207,51 @@ pub unsafe extern "C" fn pmc_msa_account_request_refresh(acc: &mut Account, err:
 // =======
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_database_new(file: *const c_char) -> *mut Database {
-    
-    let Some(path) = (unsafe { str_from_cstr_ptr(file) }) else {
-        return ptr::null_mut();
-    };
-
-    extern_box(Database::new(path))
-
+pub unsafe extern "C" fn pmc_msa_database_new(file: *const c_char) -> NonNull<Database> {
+    let file = unsafe { cstr::to_str_lossy(file) }.into_owned();
+    extern_box(Database::new(file))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_database_file(db: &Database) -> *mut c_char {
-    db.file().as_os_str().to_str().map(extern_box_cstr_from_str).unwrap_or(ptr::null_mut())
+pub unsafe extern "C" fn pmc_msa_database_file(db: &Database) -> Option<NonNull<c_char>> {
+    db.file().as_os_str().to_str().map(extern_cstr_from_str)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_database_load_from_uuid(db: &Database, uuid: *const pmc_uuid, err: *mut *mut Err) -> *mut Account {
-    extern_err_with(err, || {
+pub unsafe extern "C" fn pmc_msa_database_load_from_uuid(db: &Database, uuid: *const raw::pmc_uuid, err: *mut *mut raw::pmc_err) -> Option<NonNull<Account>> {
+    extern_err_catch(err, || {
         let uuid = Uuid::from_bytes(unsafe { *uuid });
-        db.load_from_uuid(uuid).map(extern_box_option)
-    }).unwrap_or(ptr::null_mut())
+        db.load_from_uuid(uuid)
+    }).unwrap_or(None).map(extern_box)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_database_load_from_username(db: &Database, username: *const c_char, err: *mut *mut Err) -> *mut Account {
-    extern_err_with(err, || {
-
-        let Some(username) = (unsafe { str_from_cstr_ptr(username) }) else {
-            return Ok(ptr::null_mut());
-        };
-
-        db.load_from_username(username).map(extern_box_option)
-
-    }).unwrap_or(ptr::null_mut())
+pub unsafe extern "C" fn pmc_msa_database_load_from_username(db: &Database, username: *const c_char, err: *mut *mut raw::pmc_err) -> Option<NonNull<Account>> {
+    extern_err_catch(err, || {
+        let username = unsafe { cstr::to_str_lossy(username) };
+        db.load_from_username(&username)
+    }).unwrap_or(None).map(extern_box)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_database_remove_from_uuid(db: &Database, uuid: *const pmc_uuid, err: *mut *mut Err) -> *mut Account {
-    extern_err_with(err, || {
+pub unsafe extern "C" fn pmc_msa_database_remove_from_uuid(db: &Database, uuid: *const raw::pmc_uuid, err: *mut *mut raw::pmc_err) -> Option<NonNull<Account>> {
+    extern_err_catch(err, || {
         let uuid = Uuid::from_bytes(unsafe { *uuid });
-        db.remove_from_uuid(uuid).map(extern_box_option)
-    }).unwrap_or(ptr::null_mut())
+        db.remove_from_uuid(uuid)
+    }).unwrap_or(None).map(extern_box)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_database_remove_from_username(db: &Database, username: *const c_char, err: *mut *mut Err) -> *mut Account {
-    extern_err_with(err, || {
-
-        let Some(username) = (unsafe { str_from_cstr_ptr(username) }) else {
-            return Ok(ptr::null_mut());
-        };
-
-        db.remove_from_username(username).map(extern_box_option)
-
-    }).unwrap_or(ptr::null_mut())
+pub unsafe extern "C" fn pmc_msa_database_remove_from_username(db: &Database, username: *const c_char, err: *mut *mut raw::pmc_err) -> Option<NonNull<Account>> {
+    extern_err_catch(err, || {
+        let username = unsafe { cstr::to_str_lossy(username) };
+        db.remove_from_username(&username)
+    }).unwrap_or(None).map(extern_box)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_database_store(db: &Database, acc: *mut Account, err: *mut *mut Err) {
-    let _ = extern_err_with(err, || {
+pub unsafe extern "C" fn pmc_msa_database_store(db: &Database, acc: NonNull<Account>, err: *mut *mut raw::pmc_err) {
+    let _ = extern_err_catch(err, || {
         let acc = unsafe { extern_box_take(acc) };
         db.store(acc)
     });

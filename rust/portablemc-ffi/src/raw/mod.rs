@@ -3,14 +3,10 @@
 /// The header file contains the bindings to the C part of the header file. This file
 /// should be generated with bindgen using the following command in order to only generate
 /// layouts for structures, and not functions. Functions should be manually defined.
-/// $ bindgen include/portablemc.h 
-///     -o src/raw/generated.rs 
-///     --generate types 
-///     --allowlist-type "pmc_.*" 
-///     --default-enum-style rust 
-///     --ctypes-prefix ::std::ffi 
-///     --no-layout-tests 
-///     --no-size_t-is-usize
+/// 
+/// ```
+/// $ bindgen include/portablemc.h -o src/raw/generated.rs --generate types --allowlist-type "pmc_.*" --default-enum-style rust --ctypes-prefix ::std::ffi --no-layout-tests --no-size_t-is-usize
+/// ```
 #[allow(non_camel_case_types)]
 mod generated;
 pub use generated::*;

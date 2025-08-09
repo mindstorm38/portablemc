@@ -3,18 +3,46 @@
 use std::path::PathBuf;
 use std::ffi::c_char;
 use std::pin::Pin;
-use std::ptr;
+use std::ptr::{self, NonNull};
 
 use portablemc::base::{Installer, JvmPolicy, Game, Error};
 
-use crate::alloc::{extern_box, extern_box_cstr_from_fmt, extern_box_cstr_from_str};
-use crate::{str_lossy_from_cstr_ptr, cstr_bytes_from_string};
-use crate::err::{self, extern_err_with, Err, ExposedError};
+use crate::err::{extern_err_catch, extern_err_static, extern_err, IntoExternErr};
+use crate::alloc::{extern_box, extern_cstr_from_fmt, extern_cstr_from_str};
+use crate::{cstr, raw};
 
 
 // =======
 // Module errors
 // =======
+
+impl IntoExternErr for Error {
+
+    fn into(self) -> NonNull<raw::pmc_err> {
+        
+        use raw::pmc_err_tag::*;
+
+        let (tag, message) = match self {
+            Error::HierarchyLoop { version } => {
+                return extern_err(PMC_ERR_B, data, message, owned)
+            }
+            Error::VersionNotFound { version } => todo!(),
+            Error::AssetsNotFound { id } => todo!(),
+            Error::ClientNotFound {  } => todo!(),
+            Error::LibraryNotFound { gav } => todo!(),
+            Error::JvmNotFound { major_version } => todo!(),
+            Error::MainClassNotFound {  } => todo!(),
+            Error::DownloadResourcesCancelled {  } => todo!(),
+            Error::Download { batch } => todo!(),
+            Error::Internal { error, origin } => todo!(),
+            _ => todo!(),
+        };
+
+        extern_err_static(tag, raw::pmc_err_data::default(), message)
+
+    }
+
+}
 
 impl ExposedError for Error {
 
