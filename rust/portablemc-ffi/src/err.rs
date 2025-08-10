@@ -19,7 +19,7 @@ pub fn extern_err_static(tag: raw::pmc_err_tag, data: impl Into<raw::pmc_err_dat
 }
 
 #[inline]
-pub fn extern_err<O>(tag: raw::pmc_err_tag, data: impl Into<raw::pmc_err_data>, message: String, owned: O) -> NonNull<raw::pmc_err> {
+pub fn extern_err_alloc<O>(tag: raw::pmc_err_tag, message: String, data: impl Into<raw::pmc_err_data>, owned: O) -> NonNull<raw::pmc_err> {
     
     #[repr(C)]
     struct ExternErr<O> {
@@ -41,6 +41,82 @@ pub fn extern_err<O>(tag: raw::pmc_err_tag, data: impl Into<raw::pmc_err_data>, 
     }).cast::<raw::pmc_err>()
 
 }
+
+macro_rules! extern_err {
+    (
+        $tag:expr,
+        $message:literal $(,)?
+    ) => {
+        $crate::err::extern_err_static($tag, $crate::raw::pmc_err_data::default(), $message)
+    };
+    ( 
+        $tag:expr, $message:expr
+        $(
+            , $($data_struct:ident)::* {
+                $(
+                    $field_ident:ident : $field_value:expr $(=> $field_mode:ident)?
+                ),*
+                $(,)?
+            }
+        )?
+        $(,)?
+    ) => {{
+        
+        let message: String = $message;
+
+        $(
+            let (data, owned) = {
+                $(
+                    let $field_ident = $crate::err::extern_err!(__field_value: $field_value $(=> $field_mode)?);
+                )*
+                (
+                    $($data_struct)::* {
+                        $(
+                            $field_ident : $crate::err::extern_err!(__field_extern: $field_ident $(=> $field_mode)?),
+                        )*
+                    },
+                    ($($field_ident,)*)
+                )
+            };
+        )?
+
+        // NOTE: The 'as' is just here to make the macro work!
+        $crate::err::extern_err!(__extern_err_alloc: $tag, message $( , data as $($data_struct)::*, owned )?)
+        
+    }};
+    (
+        __extern_err_alloc: $tag:expr, $message:expr, $data:expr, $owned:expr
+    ) => {
+        $crate::err::extern_err_alloc($tag, $message, $data, $owned)
+    };
+    (
+        __extern_err_alloc: $tag:expr, $message:expr
+    ) => {
+        $crate::err::extern_err_alloc($tag, $message, $crate::raw::pmc_err_data::default(), ())
+    };
+    (
+        __field_value: $val:expr => cstr
+    ) => {
+        Pin::new($crate::cstr::from_string($val))
+    };
+    (
+        __field_extern: $id:ident => cstr
+    ) => {
+        $id.as_ptr()
+    };
+    (
+        __field_value: $val:expr
+    ) => {
+        $val
+    };
+    (
+        __field_extern: $id:ident
+    ) => {
+        $id
+    };
+}
+
+pub(crate) use extern_err;
 
 /// A trait to bundle an error into an extern `pmc_err` allocated object.
 pub trait IntoExternErr {

@@ -10,7 +10,7 @@ use std::time::Instant;
 use std::error::Error;
 use std::io;
 
-use portablemc::{base, download, mojang, fabric, forge, msa};
+use portablemc::{base, download, moj, fabric, forge, msa};
 
 use crate::parse::{CliArgs, CliCmd, CliOutput};
 use crate::output::{Output, LogLevel};
@@ -286,12 +286,12 @@ impl base::Handler for LogHandler<'_> {
             base::Event::LoadedLibraries { libraries } => {
 
                 self.out.log("loaded_libraries")
-                    .args(libraries.iter().map(|lib| &lib.gav))
+                    .args(libraries.iter().map(|lib| &lib.name))
                     .pending(format_args!("Loaded {} libraries, now verifying", libraries.len()));
                 
                 self.loaded_lwjgl_version = libraries.iter()
-                    .find(|lib| ("org.lwjgl", "lwjgl") == (lib.gav.group(), lib.gav.artifact()))
-                    .map(|lib| lib.gav.version().to_string());
+                    .find(|lib| ("org.lwjgl", "lwjgl") == (lib.name.group(), lib.name.artifact()))
+                    .map(|lib| lib.name.version().to_string());
 
             }
             base::Event::FilterLibrariesFiles { .. } => {}
@@ -425,56 +425,56 @@ impl base::Handler for LogHandler<'_> {
 
 }
 
-impl mojang::Handler for LogHandler<'_> {
+impl moj::Handler for LogHandler<'_> {
 
     
-    fn on_event(&mut self, event: mojang::Event) {
+    fn on_event(&mut self, event: moj::Event) {
         match event {
-            mojang::Event::Base(event) => {
+            moj::Event::Base(event) => {
                 base::Handler::on_event(self, event);
             }
-            mojang::Event::InvalidatedVersion { version } => {
+            moj::Event::InvalidatedVersion { version } => {
                 self.out.log("invalidated_version")
                     .arg(version)
                     .info(format_args!("Version {version} invalidated"));
             }
-            mojang::Event::FetchVersion { version } => {
+            moj::Event::FetchVersion { version } => {
                 self.out.log("fetch_version")
                     .arg(version)
                     .pending(format_args!("Fetching version {version}"));
             }
-            mojang::Event::FetchedVersion { version } => {
+            moj::Event::FetchedVersion { version } => {
                 self.out.log("fetched_version")
                     .arg(version)
                     .success(format_args!("Fetched version {version}"));
             }
-            mojang::Event::FixedLegacyQuickPlay => {
+            moj::Event::FixedLegacyQuickPlay => {
                 self.out.log("fixed_legacy_quick_play")
                     .info("Fixed: legacy quick play");
             }
-            mojang::Event::FixedLegacyProxy { host, port } => {
+            moj::Event::FixedLegacyProxy { host, port } => {
                 self.out.log("fixed_legacy_proxy")
                     .arg(host)
                     .arg(port)
                     .info(format_args!("Fixed: legacy proxy ({host}:{port})"));
             }
-            mojang::Event::FixedLegacyMergeSort => {
+            moj::Event::FixedLegacyMergeSort => {
                 self.out.log("fixed_legacy_merge_sort")
                     .info("Fixed: legacy merge sort");
             }
-            mojang::Event::FixedLegacyResolution => {
+            moj::Event::FixedLegacyResolution => {
                 self.out.log("fixed_legacy_resolution")
                     .info("Fixed: legacy resolution");
             }
-            mojang::Event::FixedBrokenAuthlib => {
+            moj::Event::FixedBrokenAuthlib => {
                 self.out.log("fixed_broken_authlib")
                     .info("Fixed: broken authlib");
             }
-            mojang::Event::WarnUnsupportedQuickPlay => {
+            moj::Event::WarnUnsupportedQuickPlay => {
                 self.out.log("warn_unsupported_quick_play")
                     .warning("Quick play has been requested but is not supported");
             }
-            mojang::Event::WarnUnsupportedResolution => {
+            moj::Event::WarnUnsupportedResolution => {
                 self.out.log("warn_unsupported_resolution")
                     .warning("Resolution has been requested but is not supported");
             }
@@ -490,15 +490,15 @@ impl fabric::Handler for LogHandler<'_> {
         let (api_id, api_name) = (self.api_id, self.api_name);
         match event {
             fabric::Event::Mojang(event) => {
-                mojang::Handler::on_event(self, event);
+                moj::Handler::on_event(self, event);
             }
-            fabric::Event::FetchLoaderVersion { game_version, loader_version } => {
+            fabric::Event::FetchVersion { game_version, loader_version } => {
                 self.out.log(format_args!("{api_id}_fetch_loader"))
                     .arg(game_version)
                     .arg(loader_version)
                     .pending(format_args!("Fetching {api_name} loader {loader_version} for {game_version}"));
             }
-            fabric::Event::FetchedLoaderVersion { game_version, loader_version } => {
+            fabric::Event::FetchedVersion { game_version, loader_version } => {
                 self.out.log(format_args!("{api_id}_fetched_loader"))
                     .arg(game_version)
                     .arg(loader_version)
@@ -516,7 +516,7 @@ impl forge::Handler for LogHandler<'_> {
         let api_id = self.api_id;
         match event {
             forge::Event::Mojang(event) => {
-                mojang::Handler::on_event(self, event);
+                moj::Handler::on_event(self, event);
             }
             forge::Event::Installing { tmp_dir, reason } => {
 
@@ -631,7 +631,7 @@ pub fn log_base_error(cli: &mut Cli, error: &base::Error) {
             out.log("error_client_not_found")
                 .error("Client JAR file not found and no download information is available");
         }
-        Error::LibraryNotFound { gav } => {
+        Error::LibraryNotFound { name: gav } => {
             out.log("error_library_not_found")
                 .error(format_args!("Library {gav} not found and no download information is available"));
         }
@@ -662,9 +662,9 @@ pub fn log_base_error(cli: &mut Cli, error: &base::Error) {
 }
 
 /// Log a mojang error on the given logger output.
-pub fn log_mojang_error(cli: &mut Cli, error: &mojang::Error) {
+pub fn log_mojang_error(cli: &mut Cli, error: &moj::Error) {
 
-    use mojang::Error;
+    use moj::Error;
 
     let out = &mut cli.out;
 
@@ -787,7 +787,7 @@ pub fn log_forge_error(cli: &mut Cli, error: &forge::Error, loader: forge::Loade
                 .error(format_args!("{api_name} installer is missing a required file: {entry}"))
                 .additional(CONTACT_DEV);
         }
-        Error::InstallerInvalidProcessor { ref name } => {
+        Error::InstallerProcessorNotFound { ref name } => {
             out.log(format_args!("error_{api_id}_installer_invalid_processor"))
                 .arg(&name)
                 .error(format_args!("{api_name} installer has an invalid processor: {name}"))
@@ -828,7 +828,7 @@ pub fn log_forge_error(cli: &mut Cli, error: &forge::Error, loader: forge::Loade
             log.additional(CONTACT_DEV);
 
         }
-        Error::InstallerProcessorInvalidOutput { ref name, ref file, ref expected_sha1 } => {
+        Error::InstallerProcessorCorrupted { ref name, ref file, ref expected_sha1 } => {
             out.log(format_args!("error_{api_id}_installer_processor_invalid_output"))
                 .arg(&name)
                 .arg(file.display())

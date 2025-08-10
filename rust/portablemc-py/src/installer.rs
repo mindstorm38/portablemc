@@ -1,14 +1,14 @@
 //! Generic installer data that is shared between all kind of installers, this is used
 //! to allow inheritance.
 
-use portablemc::{base, mojang, fabric, forge};
+use portablemc::{base, moj, fabric, forge};
 
 
 /// A generic class that can be shared inside a `Arc<Mutex<T>>` between.
 #[derive(Debug)]
 pub enum GenericInstaller {
     Base(base::Installer),
-    Mojang(mojang::Installer),
+    Mojang(moj::Installer),
     Fabric(fabric::Installer),
     Forge(forge::Installer),
 }
@@ -33,7 +33,7 @@ impl GenericInstaller {
         }
     }
 
-    pub fn mojang(&self) -> &mojang::Installer {
+    pub fn mojang(&self) -> &moj::Installer {
         match self {
             GenericInstaller::Base(_) => panic!("not a mojang installer"),
             GenericInstaller::Mojang(installer) => installer,
@@ -42,7 +42,7 @@ impl GenericInstaller {
         }
     }
 
-    pub fn mojang_mut(&mut self) -> &mut mojang::Installer {
+    pub fn mojang_mut(&mut self) -> &mut moj::Installer {
         match self {
             GenericInstaller::Base(_) => panic!("not a mojang installer"),
             GenericInstaller::Mojang(installer) => installer,

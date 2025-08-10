@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use portablemc::base::{self, JvmPolicy, VersionChannel};
-use portablemc::mojang::{self, Manifest};
+use portablemc::moj::{self, Manifest};
 
 
 /// This test tries to parse all versions (except snapshots).
@@ -21,7 +21,7 @@ fn all() {
         .unwrap()
         .into_path();
 
-    let mut inst = mojang::Installer::new(mojang::Version::Release);
+    let mut inst = moj::Installer::new(moj::Version::Release);
     inst.base_mut().set_main_dir(tmp_main_dir.clone());
     inst.base_mut().set_jvm_policy(JvmPolicy::Static(PathBuf::new()));
 
@@ -35,7 +35,7 @@ fn all() {
         inst.set_version(version.name());
         match inst.install(NoResourceHandler) {
             Ok(_game) => {}
-            Err(mojang::Error::Base(base::Error::DownloadResourcesCancelled {  })) => {}
+            Err(moj::Error::Base(base::Error::DownloadResourcesCancelled {  })) => {}
             Err(e) => Err(e).unwrap(),
         }
 
@@ -48,9 +48,9 @@ fn all() {
 
 
 struct NoResourceHandler;
-impl mojang::Handler for NoResourceHandler {
-    fn on_event(&mut self, event: mojang::Event) {
-        if let mojang::Event::Base(base::Event::DownloadResources { cancel }) = event {
+impl moj::Handler for NoResourceHandler {
+    fn on_event(&mut self, event: moj::Event) {
+        if let moj::Event::Base(base::Event::DownloadResources { cancel }) = event {
             *cancel = true;
         }
     }

@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Local, Utc};
 
-use portablemc::mojang::{self, FetchExclude, QuickPlay};
+use portablemc::moj::{self, FetchExclude, QuickPlay};
 use portablemc::base::{self, Game, JvmPolicy};
 use portablemc::{fabric, forge};
 
@@ -34,7 +34,7 @@ pub fn start(cli: &mut Cli, args: &StartArgs) -> ExitCode {
         StartVersion::MojangSnapshot => {
 
             let handler = LogHandler::new(&mut cli.out);
-            let repo = match mojang::Manifest::request(handler) {
+            let repo = match moj::Manifest::request(handler) {
                 Ok(repo) => repo,
                 Err(e) => {
                     log_mojang_error(cli, &e);
@@ -75,7 +75,7 @@ pub fn start(cli: &mut Cli, args: &StartArgs) -> ExitCode {
                 None => {
                     
                     let handler = LogHandler::new(&mut cli.out);
-                    let manifest = match mojang::Manifest::request(handler) {
+                    let manifest = match moj::Manifest::request(handler) {
                         Ok(repo) => repo,
                         Err(e) => {
                             log_mojang_error(cli, &e);
@@ -108,7 +108,7 @@ fn start_mojang(
     args: &StartArgs,
 ) -> ExitCode {
 
-    let mut inst = mojang::Installer::new(version);
+    let mut inst = moj::Installer::new(version);
     if !apply_mojang_args(&mut inst, &mut *cli, args) {
         return ExitCode::FAILURE;
     }
@@ -242,7 +242,7 @@ fn apply_base_args(
 
 // Internal function to apply args to the mojang installer.
 fn apply_mojang_args(
-    installer: &mut mojang::Installer,
+    installer: &mut moj::Installer,
     cli: &mut Cli, 
     args: &StartArgs,
 ) -> bool {
@@ -716,7 +716,7 @@ impl<'a> StartHandler<'a> {
                     libraries.retain(|lib| {
                         // If any pattern matches: .any(...) -> !true -> false (don't keep)
                         !self.args.exclude_lib.iter()
-                            .any(|pattern| pattern.matches(&lib.gav))
+                            .any(|pattern| pattern.matches(&lib.name))
                     });
                 }
 
@@ -733,10 +733,10 @@ impl<'a> StartHandler<'a> {
 
 }
 
-impl mojang::Handler for StartHandler<'_> {
-    fn on_event(&mut self, mut event: mojang::Event) {
+impl moj::Handler for StartHandler<'_> {
+    fn on_event(&mut self, mut event: moj::Event) {
         
-        if let mojang::Event::Base(event) = &mut event {
+        if let moj::Event::Base(event) = &mut event {
             self.on_event_inner(event);
         }
 
@@ -748,7 +748,7 @@ impl mojang::Handler for StartHandler<'_> {
 impl fabric::Handler for StartHandler<'_> {
     fn on_event(&mut self, mut event: fabric::Event) {
         
-        if let fabric::Event::Mojang(mojang::Event::Base(event)) = &mut event {
+        if let fabric::Event::Mojang(moj::Event::Base(event)) = &mut event {
             self.on_event_inner(event);
         }
 
@@ -760,7 +760,7 @@ impl fabric::Handler for StartHandler<'_> {
 impl forge::Handler for StartHandler<'_> {
     fn on_event(&mut self, mut event: forge::Event) {
         
-        if let forge::Event::Mojang(mojang::Event::Base(event)) = &mut event {
+        if let forge::Event::Mojang(moj::Event::Base(event)) = &mut event {
             self.on_event_inner(event);
         }
 

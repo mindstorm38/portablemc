@@ -36,8 +36,9 @@ pub fn from_str<'a>(s: &'a str) -> &'a [c_char] {
 }
 
 #[inline]
-pub fn from_string(s: String) -> Box<[c_char]> {
-    let mut bytes = s.into_bytes();
+pub fn from_string(s: impl Into<Box<str>>) -> Box<[c_char]> {
+    let bytes: Box<str> = s.into();
+    let mut bytes = bytes.into_string().into_bytes();
     let len = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     bytes.truncate(len);
     bytes.push(0);

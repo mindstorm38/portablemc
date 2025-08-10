@@ -630,7 +630,7 @@ impl Installer {
                 }
 
                 libraries.push(LoadedLibrary {
-                    gav: lib_gav,
+                    name: lib_gav,
                     path: None,
                     download: None,
                     natives: lib.natives.is_some(),
@@ -642,7 +642,7 @@ impl Installer {
                 if lib_obj.natives {
                     // Unwrap because as seen above, if there are native with define a
                     // classifier on the GAV.
-                    lib_dl = lib.downloads.classifiers.get(lib_obj.gav.classifier().unwrap());
+                    lib_dl = lib.downloads.classifiers.get(lib_obj.name.classifier().unwrap());
                 } else {
                     lib_dl = lib.downloads.artifact.as_ref();
                 }
@@ -664,7 +664,7 @@ impl Installer {
                     if !url.ends_with('/') {
                         url.push('/');
                     }
-                    write!(url, "{}", lib_obj.gav.url()).unwrap();
+                    write!(url, "{}", lib_obj.name.url()).unwrap();
 
                     lib_obj.download = Some(LibraryDownload {
                         url,
@@ -703,7 +703,7 @@ impl Installer {
                 // FIXME: Insecure path joining.
                 self.libraries_dir.join(lib_rel_path)
             } else {
-                lib.gav.file(&self.libraries_dir)
+                lib.name.file(&self.libraries_dir)
             };
 
             // If no repository URL is given, no more download method is available,
@@ -722,7 +722,7 @@ impl Installer {
                         .set_expected_sha1(download.sha1);
                 }
             } else if !lib_file.is_file() {
-                return Err(Error::LibraryNotFound { gav: lib.gav })
+                return Err(Error::LibraryNotFound { name: lib.name })
             }
 
             (if lib.natives { 
@@ -1875,9 +1875,9 @@ pub enum Error {
     #[error("client not found")]
     ClientNotFound {  },
     /// A library has no download information and is missing the libraries directory.
-    #[error("library not found: {gav}")]
+    #[error("library not found: {name}")]
     LibraryNotFound {
-        gav: Gav,
+        name: Gav,
     },
     /// No JVM was found when installing the version, this depends on installer policy.
     #[error("jvm not found")]
@@ -2071,7 +2071,7 @@ impl From<serde::VersionType> for VersionChannel {
 #[derive(Debug, Clone)]
 pub struct LoadedLibrary {
     /// GAV for this library.
-    pub gav: Gav,
+    pub name: Gav,
     /// The path to install the library at, relative to the libraries directory, if not
     /// specified, it will be derived from the library specifier.
     pub path: Option<PathBuf>,

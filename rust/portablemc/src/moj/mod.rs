@@ -1089,12 +1089,12 @@ impl InternalHandler<'_> {
     fn apply_fix_broken_authlib(&mut self, libraries: &mut Vec<LoadedLibrary>) -> Result<()> {
 
         let target_gav = Gav::new("com.mojang", "authlib", "2.1.28", None, None);
-        let pos = libraries.iter().position(|lib| lib.gav == target_gav);
+        let pos = libraries.iter().position(|lib| lib.name == target_gav);
     
         if let Some(pos) = pos {
 
             libraries[pos].path = None;  // Ensure that the path is recomputed.
-            libraries[pos].gav.set_version("2.2.30");
+            libraries[pos].name.set_version("2.2.30");
             libraries[pos].download = Some(LibraryDownload {
                 url: format!("{LIBRARIES_URL}com/mojang/authlib/2.2.30/authlib-2.2.30.jar"),
                 size: Some(87497),
@@ -1136,12 +1136,12 @@ impl InternalHandler<'_> {
     
         // Start by not retaining libraries with classifiers (natives).
         libraries.retain_mut(|lib| {
-            if let ("org.lwjgl", "jar") = (lib.gav.group(), lib.gav.extension_or_default()) {
-                if lib.gav.classifier().is_none() {
+            if let ("org.lwjgl", "jar") = (lib.name.group(), lib.name.extension_or_default()) {
+                if lib.name.classifier().is_none() {
                     lib.path = None;
                     lib.download = None;  // Will be updated afterward.
-                    lib.gav.set_version(version);
-                    lwjgl_libs.push(lib.gav.clone());
+                    lib.name.set_version(version);
+                    lwjgl_libs.push(lib.name.clone());
                     true
                 } else {
                     // Libraries with classifiers are not retained.
@@ -1156,7 +1156,7 @@ impl InternalHandler<'_> {
         libraries.extend(lwjgl_libs.into_iter().map(|mut gav| {
             gav.set_classifier(Some(classifier));
             LoadedLibrary {
-                gav,
+                name: gav,
                 path: None,
                 download: None, // Will be set in the loop just after.
                 natives: false,
@@ -1165,8 +1165,8 @@ impl InternalHandler<'_> {
     
         // Finally we update the download source.
         for lib in libraries {
-            if let ("org.lwjgl", "jar") = (lib.gav.group(), lib.gav.extension_or_default()) {
-                let url = format!("https://repo1.maven.org/maven2/{}", lib.gav.url());
+            if let ("org.lwjgl", "jar") = (lib.name.group(), lib.name.extension_or_default()) {
+                let url = format!("https://repo1.maven.org/maven2/{}", lib.name.url());
                 lib.download = Some(LibraryDownload { url, size: None, sha1: None });
             }
         }

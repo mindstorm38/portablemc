@@ -19,50 +19,40 @@ use crate::{cstr, raw};
 impl IntoExternErr for AuthError {
     
     fn into(self) -> NonNull<raw::pmc_err> {
-
         use raw::pmc_err_tag::*;
-
-        let (tag, message) = match self {
-            AuthError::Declined => (
+        match self {
+            AuthError::Declined => extern_err!(
                 PMC_ERR_MSA_AUTH_DECLINED, 
                 c"Declined"),
-            AuthError::TimedOut => (
+            AuthError::TimedOut => extern_err!(
                 PMC_ERR_MSA_AUTH_TIMED_OUT, 
                 c"Timed out"),
-            AuthError::OutdatedToken => (
+            AuthError::OutdatedToken => extern_err!(
                 PMC_ERR_MSA_AUTH_OUTDATED_TOKEN, 
                 c"Minecraft profile token is outdated, you can try to refresh the profile"),
-            AuthError::DoesNotOwnGame => (
+            AuthError::DoesNotOwnGame => extern_err!(
                 PMC_ERR_MSA_AUTH_DOES_NOT_OWN_GAME,
                 c"This Microsoft account does not own Minecraft"),
-            AuthError::InvalidStatus(status) => {
-                return extern_err(
-                    PMC_ERR_MSA_AUTH_INVALID_STATUS,
-                    raw::pmc_err_data_msa_auth_invalid_status { status },
-                    format!("An unknown HTTP status has been received: {status}"),
-                    ());
-            }
-            AuthError::Unknown(unknown) => {
-                let message = format!("An unknown error happened: {unknown}");
-                let owned_unknown = Pin::new(cstr::from_string(unknown));
-                return extern_err(
-                    PMC_ERR_MSA_AUTH_UNKNOWN, 
-                    raw::pmc_err_data_msa_auth_unknown { message: owned_unknown.as_ptr() }, 
-                    message,
-                    owned_unknown)
-            }
-            AuthError::Internal(origin) => {
-                return extern_err(
-                    PMC_ERR_INTERNAL, 
-                    raw::pmc_err_data_internal { origin: ptr::null() }, 
-                    origin.to_string(),
-                    ());
-            }
+            AuthError::InvalidStatus(status) => extern_err!(
+                PMC_ERR_MSA_AUTH_INVALID_STATUS,
+                format!("An unknown HTTP status has been received: {status}"),
+                raw::pmc_err_data_msa_auth_invalid_status {
+                    status: status
+                }),
+            AuthError::Unknown(unknown) => extern_err!(
+                PMC_ERR_MSA_AUTH_UNKNOWN, 
+                format!("An unknown error happened: {unknown}"),
+                raw::pmc_err_data_msa_auth_unknown {
+                    message: unknown => cstr
+                }),
+            AuthError::Internal(error) => extern_err!(
+                PMC_ERR_INTERNAL, 
+                error.to_string(),
+                raw::pmc_err_data_internal {
+                    origin: ptr::null()
+                }),
             _ => todo!(),
-        };
-
-        extern_err_static(tag, raw::pmc_err_data::default(), message)
-
+        }
     }
 
 }
@@ -74,13 +64,9 @@ impl IntoExternErr for DatabaseError {
         use raw::pmc_err_tag::*;
 
         let (tag, message) = match self {
-            DatabaseError::Io(origin) => {
-                return extern_err(
-                    PMC_ERR_MSA_DATABASE_IO, 
-                    raw::pmc_err_data::default(), 
-                    origin.to_string(), 
-                    ());
-            }
+            DatabaseError::Io(origin) => return extern_err!(
+                PMC_ERR_MSA_DATABASE_IO, 
+                origin.to_string()),
             DatabaseError::Corrupted => (
                 PMC_ERR_MSA_DATABASE_CORRUPTED,
                 c"Corrupted"),

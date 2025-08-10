@@ -14,7 +14,7 @@ pub mod msa;
 pub mod download;
 
 pub mod base;
-pub mod mojang;
+pub mod moj;
 pub mod fabric;
 pub mod forge;
 

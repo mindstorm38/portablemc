@@ -6,7 +6,7 @@ use std::fs;
 use chrono::{DateTime, Local, TimeDelta, Utc};
 
 use portablemc::base::VersionChannel;
-use portablemc::{mojang, fabric, forge};
+use portablemc::{moj, fabric, forge};
 
 use crate::parse::{SearchArgs, SearchKind, SearchChannel, SearchLatestChannel};
 use crate::format::{TimeDeltaFmt, DATE_FORMAT};
@@ -35,7 +35,7 @@ pub fn search(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
 
 fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     
-    use mojang::Manifest;
+    use moj::Manifest;
 
     // Initial requests...
     let mut handler = LogHandler::new(&mut cli.out);
