@@ -26,7 +26,7 @@ pub unsafe fn to_str_lossy<'a>(cstr: *const c_char) -> Cow<'a, str> {
 }
 
 /// Get a bytes slice of cstr of the string, optionally until a nul-terminating char.
-/// The nul char is not included!
+/// **The nul char is not included!**
 #[inline]
 pub fn from_str<'a>(s: &'a str) -> &'a [c_char] {
     // SAFETY: u8 and c_char have same layout.

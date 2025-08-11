@@ -1444,6 +1444,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "portablemc-c"
+version = "5.0.0-beta.0"
+dependencies = [
+ "portablemc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "portablemc-cli"
 version = "5.0.0-beta.0"
 dependencies = [
@@ -1461,17 +1472,6 @@ dependencies = [
  "webbrowser",
  "xmlparser",
  "zip",
-]
-
-[[package]]
-name = "portablemc-ffi"
-version = "5.0.0-beta.0"
-dependencies = [
- "portablemc",
- "serde",
- "serde_json",
- "tempfile",
- "uuid",
 ]
 
 [[package]]

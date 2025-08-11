@@ -1,6 +1,6 @@
 [package]
-name = "portablemc-ffi"
-description = "Bindings to PortableMC for any language."
+name = "portablemc-c"
+description = "Bindings to PortableMC for C language."
 edition.workspace = true
 version.workspace = true
 authors.workspace = true

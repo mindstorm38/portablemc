@@ -353,7 +353,7 @@ pub enum pmc_event_tag {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_loaded_features {
-    pub features: *mut *const ::std::ffi::c_char,
+    pub features: *const *const ::std::ffi::c_char,
     pub features_len: size_t,
 }
 #[doc = " PMC_EVENT_BASE_LOAD_HIERARCHY"]
@@ -366,7 +366,7 @@ pub struct pmc_event_base_load_hierarchy {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_loaded_hierarchy {
-    pub hierarchy: pmc_loaded_version,
+    pub hierarchy: *const pmc_loaded_version,
     pub hierarchy_len: size_t,
 }
 #[doc = " PMC_EVENT_BASE_LOAD_VERSION, PMC_EVENT_BASE_LOADED_VERSION"]
@@ -405,9 +405,9 @@ pub struct pmc_event_base_loaded_libraries {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_loaded_libraries_files {
-    pub class_files: *mut *const ::std::ffi::c_char,
+    pub class_files: *const *const ::std::ffi::c_char,
     pub class_files_len: size_t,
-    pub natives_files: *mut *const ::std::ffi::c_char,
+    pub natives_files: *const *const ::std::ffi::c_char,
     pub natives_files_len: size_t,
 }
 #[doc = " PMC_EVENT_BASE_LOAD_LOGGER, PMC_EVENT_BASE_LOADED_LOGGER"]
