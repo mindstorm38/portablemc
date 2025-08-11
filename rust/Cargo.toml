@@ -1,5 +1,5 @@
 [workspace]
-members = ["portablemc", "portablemc-cli", "portablemc-ffi", "portablemc-py"]
+members = ["portablemc", "portablemc-cli", "portablemc-c", "portablemc-py"]
 resolver = "2"
 
 [workspace.package]

@@ -271,33 +271,75 @@ pub unsafe extern "C" fn pmc_standard_install(inst: &mut Installer, handler: raw
     
     struct AdapterHandler(raw::pmc_handler);
 
+    impl AdapterHandler {
+
+        fn forward(&mut self, tag: raw::pmc_event_tag, data: impl Into<raw::pmc_event_data>) {
+            if let Some(handler) = self.0 {
+                // SAFETY: The handler, when passed to pmc_*_install ensures that it will
+                // not leak the event outside and not free it.
+                let mut event = raw::pmc_event { tag, data: data.into() };
+                unsafe { handler(&mut event) }
+            }
+        }
+
+    }
+
     impl Handler for AdapterHandler {
         fn on_event(&mut self, event: Event) {
-            
-            let extern_event = match event {
+            use raw::pmc_event_tag::*;
+            match event {
                 Event::FilterFeatures { features: _ } => todo!(),
                 Event::LoadedFeatures { features } => {
 
-                    let mut owned_owned_features = Vec::with_capacity(features.len());
+                    // Reserve for an minimum of 5 bytes per feature word.
+                    let mut buffer = Vec::with_capacity(features.len() * 5);
                     for feature in features {
-                        owned_owned_features.push(Pin::new(cstr::from_string(feature.clone())));
+                        buffer.extend_from_slice(cstr::from_str(&feature));
+                        buffer.push(0); // nul
                     }
-                    let owned_owned_features = Pin::new(owned_owned_features.into_boxed_slice());
 
-                    let mut owned_features = Vec::with_capacity(features.len());
-                    for owned_owned_feature in &*owned_owned_features {
-                        owned_features.push(owned_owned_feature.as_ptr());
+                    let mut pointers = Vec::with_capacity(features.len());
+                    let mut ptr = buffer.as_ptr();
+                    for feature in features {
+                        pointers.push(ptr);
+                        unsafe { ptr = ptr.byte_add(feature.len() + 1) }
                     }
-                    let owned_features = Pin::new(owned_features.into_boxed_slice());
 
-                    raw::pmc_event_base_loaded_features {
-                        features: todo!(),
-                        features_len: todo!(),
-                    }
+                    self.forward(PMC_EVENT_BASE_LOADED_FEATURES, raw::pmc_event_base_loaded_features {
+                        features: pointers.as_ptr(),
+                        features_len: pointers.len() as _,
+                    });
 
                 }
-                Event::LoadHierarchy { root_version } => todo!(),
-                Event::LoadedHierarchy { hierarchy } => todo!(),
+                Event::LoadHierarchy { root_version } => {
+                    let root_version = cstr::from_string(root_version.to_string());
+                    self.forward(PMC_EVENT_BASE_LOAD_HIERARCHY, raw::pmc_event_base_load_hierarchy {
+                        root_version: root_version.as_ptr(),
+                    });
+                }
+                Event::LoadedHierarchy { hierarchy } => {
+
+                    let mut buffer = Vec::with_capacity(hierarchy.len() * 20);
+                    for version in hierarchy {
+                        buffer.extend_from_slice(cstr::from_str(version.name()));
+                        buffer.push(0);
+                        buffer.extend_from_slice(cstr::from_str(version.dir().as_os_str().to_str().unwrap_or("")));
+                        buffer.push(0);
+                    }
+
+                    let mut data = Vec::with_capacity(hierarchy.len());
+                    let mut ptr = buffer.as_ptr();
+                    for version in hierarchy {
+                        data.push(raw::pmc_loaded_version {
+                            name: ptr,
+                            dir: todo!(),
+                            channel: todo!(),
+                        });
+                        unsafe { ptr = ptr.byte_add(feature.len() + 1) }
+                    }
+                    
+
+                }
                 Event::LoadVersion { version, file } => todo!(),
                 Event::NeedVersion { version, file, retry } => todo!(),
                 Event::LoadedVersion { version, file } => todo!(),
@@ -326,8 +368,7 @@ pub unsafe extern "C" fn pmc_standard_install(inst: &mut Installer, handler: raw
                 Event::DownloadedResources => todo!(),
                 Event::ExtractedBinaries { dir } => todo!(),
                 _ => todo!(),
-            };
-
+            }
         }
     }
     

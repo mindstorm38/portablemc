@@ -150,28 +150,28 @@ pub unsafe extern "C" fn pmc_msa_device_code_flow_wait(flow: &DeviceCodeFlow, er
 // =======
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_account_app_id(acc: &Account) -> *mut c_char {
-    extern_cstr_from_str(acc.app_id()).as_ptr()
+pub unsafe extern "C" fn pmc_msa_account_app_id(acc: &Account) -> NonNull<c_char> {
+    extern_cstr_from_str(acc.app_id())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_account_access_token(acc: &Account) -> *mut c_char {
-    extern_cstr_from_str(acc.access_token()).as_ptr()
+pub unsafe extern "C" fn pmc_msa_account_access_token(acc: &Account) -> NonNull<c_char> {
+    extern_cstr_from_str(acc.access_token())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_account_uuid(acc: &Account) -> *mut raw::pmc_uuid {
-    extern_box(acc.uuid().as_bytes().clone()).as_ptr()
+pub unsafe extern "C" fn pmc_msa_account_uuid(acc: &Account) -> NonNull<raw::pmc_uuid> {
+    extern_box(acc.uuid().as_bytes().clone())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_account_username(acc: &Account) -> *mut c_char {
-    extern_cstr_from_str(acc.username()).as_ptr()
+pub unsafe extern "C" fn pmc_msa_account_username(acc: &Account) -> NonNull<c_char> {
+    extern_cstr_from_str(acc.username())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pmc_msa_account_xuid(acc: &Account) -> *mut c_char {
-    extern_cstr_from_str(acc.xuid()).as_ptr()
+pub unsafe extern "C" fn pmc_msa_account_xuid(acc: &Account) -> NonNull<c_char> {
+    extern_cstr_from_str(acc.xuid())
 }
 
 #[no_mangle]

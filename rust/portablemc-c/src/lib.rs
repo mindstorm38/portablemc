@@ -14,8 +14,9 @@ pub mod raw;
 
 pub mod cstr;
 pub mod alloc;
+
 pub mod err;
+pub mod event;
 
 pub mod msa;
-
 pub mod base;

@@ -338,7 +338,7 @@ typedef enum {
 
 /// PMC_EVENT_BASE_LOADED_FEATURES
 typedef struct {
-    const char **features;
+    const char *const *features;
     size_t features_len;
 } pmc_event_base_loaded_features;
 
@@ -349,7 +349,7 @@ typedef struct {
 
 /// PMC_EVENT_BASE_LOADED_HIERARCHY
 typedef struct {
-    const pmc_loaded_version hierarchy;
+    const pmc_loaded_version *hierarchy;
     size_t hierarchy_len;
 } pmc_event_base_loaded_hierarchy;
 
@@ -379,9 +379,9 @@ typedef struct {
 
 /// PMC_EVENT_BASE_LOADED_LIBRARIES_FILES
 typedef struct {
-    const char **class_files;
+    const char *const *class_files;
     size_t class_files_len;
-    const char **natives_files;
+    const char *const *natives_files;
     size_t natives_files_len;
 } pmc_event_base_loaded_libraries_files;
 
