@@ -1,9 +1,1 @@
-.idea
-
-# Ignore compiled python
-__pycache__
-/dist
-
-# Do not keep tests and coverage results
-.pytest_cache
-.coverage
+/target
