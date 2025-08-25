@@ -22,13 +22,13 @@ typedef struct pmc_msa_account pmc_msa_account;
 /// A file-backed database for storing accounts.
 typedef struct pmc_msa_database pmc_msa_database;
 
-/// A structure representing an installed game.
-typedef struct pmc_game pmc_game;
-
 /// The installer that supports the minimal standard format for version metadata with
 /// support for libraries, assets and loggers automatic installation. By defaults, it 
 /// also supports finding a suitable JVM for running the game.
 typedef struct pmc_base pmc_base;
+
+/// A structure representing an installed game.
+typedef struct pmc_game pmc_game;
 
 /// An installer for supporting Mojang-provided versions. It provides support for various
 /// standard arguments such as demo mode, window resolution and quick play, it also 
@@ -180,10 +180,10 @@ typedef struct {
 typedef struct {
     const char *name;
     int status;
-    const char *stdout;
     size_t stdout_len;
-    const char *stderr;
+    const char *stdout;
     size_t stderr_len;
+    const char *stderr;
 } pmc_err_forge_installer_processor_failed;
 
 /// PMC_ERR_FORGE_INSTALLER_PROCESSOR_CORRUPTED
@@ -249,6 +249,7 @@ typedef struct {
 
 /// Represent the release channel for a version.
 typedef enum {
+    PMC_VERSION_CHANNEL_UNSPECIFIED,
     PMC_VERSION_CHANNEL_RELEASE,
     PMC_VERSION_CHANNEL_SNAPSHOT,
     PMC_VERSION_CHANNEL_BETA,
@@ -276,6 +277,11 @@ typedef struct {
     const pmc_library_download *download;
     bool natives;
 } pmc_loaded_library;
+
+typedef struct {
+    size_t len;
+    const char *const *args;
+} pmc_game_args;
 
 /// The code of all events.
 typedef enum {
@@ -338,8 +344,8 @@ typedef enum {
 
 /// PMC_EVENT_BASE_LOADED_FEATURES
 typedef struct {
-    const char *const *features;
     size_t features_len;
+    const char *const *features;
 } pmc_event_base_loaded_features;
 
 /// PMC_EVENT_BASE_LOAD_HIERARCHY
@@ -349,15 +355,21 @@ typedef struct {
 
 /// PMC_EVENT_BASE_LOADED_HIERARCHY
 typedef struct {
-    const pmc_loaded_version *hierarchy;
     size_t hierarchy_len;
+    const pmc_loaded_version *hierarchy;
 } pmc_event_base_loaded_hierarchy;
 
-/// PMC_EVENT_BASE_LOAD_VERSION, PMC_EVENT_BASE_LOADED_VERSION 
+/// PMC_EVENT_BASE_LOAD_VERSION 
 typedef struct {
     const char *version;
     const char *file;
-} pmc_event_base_load_version, pmc_event_base_loaded_version;
+} pmc_event_base_load_version;
+
+/// PMC_EVENT_BASE_LOADED_VERSION 
+typedef struct {
+    const char *version;
+    const char *file;
+} pmc_event_base_loaded_version;
 
 /// PMC_EVENT_BASE_NEED_VERSION
 typedef struct {
@@ -373,47 +385,75 @@ typedef struct {
 
 /// PMC_EVENT_BASE_LOADED_LIBRARIES
 typedef struct {
-    const pmc_loaded_library *libraries;
     size_t libraries_len;
+    const pmc_loaded_library *libraries;
 } pmc_event_base_loaded_libraries;
 
 /// PMC_EVENT_BASE_LOADED_LIBRARIES_FILES
 typedef struct {
-    const char *const *class_files;
     size_t class_files_len;
-    const char *const *natives_files;
+    const char *const *class_files;
     size_t natives_files_len;
+    const char *const *natives_files;
 } pmc_event_base_loaded_libraries_files;
 
-/// PMC_EVENT_BASE_LOAD_LOGGER, PMC_EVENT_BASE_LOADED_LOGGER
+/// PMC_EVENT_BASE_LOAD_LOGGER
 typedef struct {
     const char *id;
-} pmc_event_base_load_logger, pmc_event_base_loaded_logger;
+} pmc_event_base_load_logger;
 
-/// PMC_EVENT_BASE_LOAD_ASSETS, PMC_EVENT_BASE_LOADED_ASSETS, PMC_EVENT_BASE_VERIFIED_ASSETS
+/// PMC_EVENT_BASE_LOADED_LOGGER
 typedef struct {
     const char *id;
-    size_t count;    // Set to zero when PMC_EVENT_BASE_LOAD_ASSETS
-} pmc_event_base_load_assets, pmc_event_base_loaded_assets, pmc_event_base_verified_assets;
+} pmc_event_base_loaded_logger;
 
-/// PMC_EVENT_BASE_FOUND_JVM_VERSION, PMC_EVENT_BASE_LOADED_JVM
+/// PMC_EVENT_BASE_LOAD_ASSETS
+typedef struct {
+    const char *id;
+} pmc_event_base_load_assets;
+
+/// PMC_EVENT_BASE_LOADED_ASSETS
+typedef struct {
+    const char *id;
+    size_t count;
+} pmc_event_base_loaded_assets;
+
+/// PMC_EVENT_BASE_VERIFIED_ASSETS
+typedef struct {
+    const char *id;
+    size_t count;
+} pmc_event_base_verified_assets;
+
+/// PMC_EVENT_BASE_LOAD_JVM
+typedef struct {
+    uint32_t major_version;
+} pmc_event_base_load_jvm;
+
+/// PMC_EVENT_BASE_FOUND_JVM_VERSION
 typedef struct {
     const char *file;
-    const char *version;  // Can be NULL if for PMC_EVENT_BASE_LOADED_JVM, if unknown ver.
+    const char *version;
     bool compatible;
-} pmc_event_base_found_jvm_system_version, pmc_event_base_loaded_jvm;
+} pmc_event_base_found_jvm_system_version;
+
+/// PMC_EVENT_BASE_LOADED_JVM
+typedef struct {
+    const char *file;
+    const char *version;  // Can be NULL if unknown ver.
+    bool compatible;
+} pmc_event_base_loaded_jvm;
 
 /// PMC_EVENT_BASE_DOWNLOAD_RESOURCES
 typedef struct {
-    bool cancel;  // Default to false, change to true to abort installation.
+    bool *cancel;  // Default to false, change to true to abort installation.
 } pmc_event_base_download_resources;
 
 /// PMC_EVENT_BASE_DOWNLOAD_PROGRESS
 typedef struct {
-    size_t count;
-    size_t total_count;
-    size_t size;
-    size_t total_size;
+    uint32_t count;
+    uint32_t total_count;
+    uint32_t size;
+    uint32_t total_size;
 } pmc_event_base_download_progress;
 
 /// PMC_EVENT_BASE_EXTRACTED_BINARIES
@@ -421,10 +461,20 @@ typedef struct {
     const char *dir;
 } pmc_event_base_extracted_binaries;
 
-/// PMC_EVENT_MOJ_INVALIDATED_VERSION, PMC_EVENT_MOJ_FETCH_VERSION, PMC_EVENT_MOJ_FETCHED_VERSION
+/// PMC_EVENT_MOJ_INVALIDATED_VERSION
 typedef struct {
     const char *version;
-} pmc_event_moj_invalidated_version, pmc_event_moj_fetch_version, pmc_event_moj_fetched_version;
+} pmc_event_moj_invalidated_version;
+
+/// PMC_EVENT_MOJ_FETCH_VERSION
+typedef struct {
+    const char *version;
+} pmc_event_moj_fetch_version;
+
+/// PMC_EVENT_MOJ_FETCHED_VERSION
+typedef struct {
+    const char *version;
+} pmc_event_moj_fetched_version;
 
 /// PMC_EVENT_MOJ_FIXED_LEGACY_PROXY
 typedef struct {
@@ -432,21 +482,32 @@ typedef struct {
     uint16_t port;
 } pmc_event_moj_fixed_legacy_proxy;
 
-/// PMC_EVENT_FABRIC_FETCH_VERSION, PMC_EVENT_FABRIC_FETCHED_VERSION
+/// PMC_EVENT_FABRIC_FETCH_VERSION
 typedef struct {
     const char *game_version;
     const char *loader_version;
-} pmc_event_fabric_fetch_version, pmc_event_fabric_fetched_version;
+} pmc_event_fabric_fetch_version;
+
+/// PMC_EVENT_FABRIC_FETCHED_VERSION
+typedef struct {
+    const char *game_version;
+    const char *loader_version;
+} pmc_event_fabric_fetched_version;
 
 /// PMC_EVENT_FORGE_INSTALLING
 typedef struct {
     const char *tmp_dir;
 } pmc_event_forge_installing;
 
-/// PMC_EVENT_FORGE_FETCH_INSTALLER, PMC_EVENT_FORGE_FETCHED_INSTALLER
+/// PMC_EVENT_FORGE_FETCH_INSTALLER
 typedef struct {
     const char *version;
-} pmc_event_forge_fetch_installer, pmc_event_forge_fetched_installer;
+} pmc_event_forge_fetch_installer;
+
+/// PMC_EVENT_FORGE_FETCHED_INSTALLER
+typedef struct {
+    const char *version;
+} pmc_event_forge_fetched_installer;
 
 /// PMC_EVENT_FORGE_RUN_INSTALLER_PROCESSOR
 typedef struct {
@@ -471,6 +532,7 @@ typedef union {
     pmc_event_base_load_assets base_load_assets;
     pmc_event_base_loaded_assets base_loaded_assets;
     pmc_event_base_verified_assets base_verified_assets;
+    pmc_event_base_load_jvm base_load_jvm;
     pmc_event_base_found_jvm_system_version base_found_jvm_system_version;
     pmc_event_base_loaded_jvm base_loaded_jvm;
     pmc_event_base_download_resources base_download_resources;
@@ -532,12 +594,6 @@ pmc_msa_account *pmc_msa_database_remove_from_uuid(const pmc_msa_database *datab
 pmc_msa_account *pmc_msa_database_remove_from_username(const pmc_msa_database *database, const char *username, pmc_err **err);
 void pmc_msa_database_store(const pmc_msa_database *database, pmc_msa_account *acc, pmc_err **err);
 
-char *pmc_game_jvm_file(const pmc_game *game);
-char *pmc_game_mc_dir(const pmc_game *game);
-char *pmc_game_main_class(const pmc_game *game);
-char *pmc_game_jvm_args(const pmc_game *game);
-char *pmc_game_game_args(const pmc_game *game);
-
 pmc_base *pmc_base_new(const char *version);
 char *pmc_base_version(const pmc_base *inst);
 void  pmc_base_set_version(pmc_base *inst, const char *version);
@@ -567,6 +623,13 @@ void  pmc_base_set_launcher_name(pmc_base *inst, const char *name);
 char *pmc_base_launcher_version(const pmc_base *inst);
 void  pmc_base_set_launcher_version(pmc_base *inst, const char *version);
 pmc_game *pmc_base_install(pmc_base *inst, pmc_handler handler, pmc_err **err);
+
+char *pmc_game_jvm_file(const pmc_game *game);
+char *pmc_game_mc_dir(const pmc_game *game);
+char *pmc_game_main_class(const pmc_game *game);
+pmc_game_args *pmc_game_jvm_args(const pmc_game *game);
+pmc_game_args *pmc_game_game_args(const pmc_game *game);
+uint32_t pmc_game_spawn(const pmc_game *game, pmc_err **err);
 
 #ifdef __cplusplus
 }

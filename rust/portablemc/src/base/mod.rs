@@ -1804,10 +1804,10 @@ pub enum Event<'a> {
     /// Resources will be downloaded. This function returns a boolean that indicates
     /// if the download should proceed, this can be used to abort 
     DownloadResources { cancel: &'a mut bool },
-    /// A download progress forwarded from a download handler.
-    DownloadProgress { count: u32, total_count: u32, size: u32, total_size: u32 },
     /// Resources have been successfully downloaded.
     DownloadedResources,
+    /// A download progress forwarded from a download handler.
+    DownloadProgress { count: u32, total_count: u32, size: u32, total_size: u32 },
     /// All binaries has been successfully extracted to the given binary directory.
     ExtractedBinaries { dir: &'a Path },
 }

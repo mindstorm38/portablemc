@@ -181,7 +181,7 @@ pub fn extern_array_from_slice<T: Copy>(slice: &[T]) -> NonNull<T> {
 pub fn extern_cstr_from_str(s: &str) -> NonNull<c_char> {
     
     // Immediately safely find the CStr from the input UTF-8 string.
-    let cstr = cstr::from_str(s);
+    let cstr = cstr::from_ref(s);
 
     // Add 1 for the terminating nul.
     let ptr = extern_array_raw::<c_char>(cstr.len() + 1);
@@ -218,8 +218,6 @@ pub fn extern_cstr_from_fmt(args: fmt::Arguments<'_>) -> Result<NonNull<c_char>,
 /// 
 /// SAFETY: You must ensure that the value does point to an extern-boxed value that has
 /// no yet been freed nor taken, exactly of the given type.
-/// 
-/// FIXME: This only works if the extern box contains at least one value in length.
 #[inline]
 pub unsafe fn extern_box_take<T>(value_ptr: NonNull<T>) -> T {
     

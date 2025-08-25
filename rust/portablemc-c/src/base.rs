@@ -1,14 +1,14 @@
 //! Standard installer.
 
+use std::ptr::{self, NonNull};
 use std::path::PathBuf;
 use std::ffi::c_char;
-use std::pin::Pin;
-use std::ptr::{self, NonNull};
 
-use portablemc::base::{Installer, JvmPolicy, Game, Error, Handler, Event};
+use portablemc::base::{Error, Event, Game, Handler, Installer, JvmPolicy, VersionChannel};
 
 use crate::alloc::{extern_box, extern_cstr_from_fmt, extern_cstr_from_str};
 use crate::err::{extern_err_catch, extern_err, IntoExternErr};
+use crate::event::AdapterHandler;
 use crate::{cstr, raw};
 
 
@@ -198,7 +198,7 @@ pub unsafe extern "C" fn pmc_standard_jvm_policy(inst: &Installer) -> NonNull<ra
     #[repr(C)]
     struct ExternJvmPolicy {
         inner: raw::pmc_jvm_policy,
-        owned_static_path: Option<Pin<Box<[c_char]>>>,
+        owned: Option<Box<[c_char]>>,
     }
 
     use raw::pmc_jvm_policy_tag::*;
@@ -211,8 +211,8 @@ pub unsafe extern "C" fn pmc_standard_jvm_policy(inst: &Installer) -> NonNull<ra
         JvmPolicy::MojangThenSystem => PMC_JVM_POLICY_MOJANG_THEN_SYSTEM,
     };
 
-    let owned_static_path = if let JvmPolicy::Static(static_path) = inst.jvm_policy() {
-        Some(Pin::new(cstr::from_string(format!("{}", static_path.display()))))
+    let owned = if let JvmPolicy::Static(static_path) = inst.jvm_policy() {
+        Some(cstr::from(static_path.clone()))
     } else {
         None
     };
@@ -220,12 +220,12 @@ pub unsafe extern "C" fn pmc_standard_jvm_policy(inst: &Installer) -> NonNull<ra
     extern_box(ExternJvmPolicy {
         inner: raw::pmc_jvm_policy { 
             tag, 
-            static_path: owned_static_path
+            static_path: owned
                 .as_deref()
                 .map(|slice| slice.as_ptr())
                 .unwrap_or(ptr::null()),
         },
-        owned_static_path,
+        owned,
     }).cast::<raw::pmc_jvm_policy>()
 
 }
@@ -268,116 +268,228 @@ pub unsafe extern "C" fn pmc_standard_set_launcher_version(inst: &mut Installer,
 
 #[no_mangle]
 pub unsafe extern "C" fn pmc_standard_install(inst: &mut Installer, handler: raw::pmc_handler, err: *mut *mut raw::pmc_err) -> Option<NonNull<Game>> {
-    
-    struct AdapterHandler(raw::pmc_handler);
-
-    impl AdapterHandler {
-
-        fn forward(&mut self, tag: raw::pmc_event_tag, data: impl Into<raw::pmc_event_data>) {
-            if let Some(handler) = self.0 {
-                // SAFETY: The handler, when passed to pmc_*_install ensures that it will
-                // not leak the event outside and not free it.
-                let mut event = raw::pmc_event { tag, data: data.into() };
-                unsafe { handler(&mut event) }
-            }
-        }
-
-    }
-
-    impl Handler for AdapterHandler {
-        fn on_event(&mut self, event: Event) {
-            use raw::pmc_event_tag::*;
-            match event {
-                Event::FilterFeatures { features: _ } => todo!(),
-                Event::LoadedFeatures { features } => {
-
-                    // Reserve for an minimum of 5 bytes per feature word.
-                    let mut buffer = Vec::with_capacity(features.len() * 5);
-                    for feature in features {
-                        buffer.extend_from_slice(cstr::from_str(&feature));
-                        buffer.push(0); // nul
-                    }
-
-                    let mut pointers = Vec::with_capacity(features.len());
-                    let mut ptr = buffer.as_ptr();
-                    for feature in features {
-                        pointers.push(ptr);
-                        unsafe { ptr = ptr.byte_add(feature.len() + 1) }
-                    }
-
-                    self.forward(PMC_EVENT_BASE_LOADED_FEATURES, raw::pmc_event_base_loaded_features {
-                        features: pointers.as_ptr(),
-                        features_len: pointers.len() as _,
-                    });
-
-                }
-                Event::LoadHierarchy { root_version } => {
-                    let root_version = cstr::from_string(root_version.to_string());
-                    self.forward(PMC_EVENT_BASE_LOAD_HIERARCHY, raw::pmc_event_base_load_hierarchy {
-                        root_version: root_version.as_ptr(),
-                    });
-                }
-                Event::LoadedHierarchy { hierarchy } => {
-
-                    let mut buffer = Vec::with_capacity(hierarchy.len() * 20);
-                    for version in hierarchy {
-                        buffer.extend_from_slice(cstr::from_str(version.name()));
-                        buffer.push(0);
-                        buffer.extend_from_slice(cstr::from_str(version.dir().as_os_str().to_str().unwrap_or("")));
-                        buffer.push(0);
-                    }
-
-                    let mut data = Vec::with_capacity(hierarchy.len());
-                    let mut ptr = buffer.as_ptr();
-                    for version in hierarchy {
-                        data.push(raw::pmc_loaded_version {
-                            name: ptr,
-                            dir: todo!(),
-                            channel: todo!(),
-                        });
-                        unsafe { ptr = ptr.byte_add(feature.len() + 1) }
-                    }
-                    
-
-                }
-                Event::LoadVersion { version, file } => todo!(),
-                Event::NeedVersion { version, file, retry } => todo!(),
-                Event::LoadedVersion { version, file } => todo!(),
-                Event::LoadClient => todo!(),
-                Event::LoadedClient { file } => todo!(),
-                Event::LoadLibraries => todo!(),
-                Event::FilterLibraries { libraries } => todo!(),
-                Event::LoadedLibraries { libraries } => todo!(),
-                Event::FilterLibrariesFiles { class_files, natives_files } => todo!(),
-                Event::LoadedLibrariesFiles { class_files, natives_files } => todo!(),
-                Event::NoLogger => todo!(),
-                Event::LoadLogger { id } => todo!(),
-                Event::LoadedLogger { id } => todo!(),
-                Event::NoAssets => todo!(),
-                Event::LoadAssets { id } => todo!(),
-                Event::LoadedAssets { id, count } => todo!(),
-                Event::VerifiedAssets { id, count } => todo!(),
-                Event::LoadJvm { major_version } => todo!(),
-                Event::FoundJvmSystemVersion { file, version, compatible } => todo!(),
-                Event::WarnJvmUnsupportedDynamicCrt => todo!(),
-                Event::WarnJvmUnsupportedPlatform => todo!(),
-                Event::WarnJvmMissingDistribution => todo!(),
-                Event::LoadedJvm { file, version, compatible } => todo!(),
-                Event::DownloadResources { cancel } => todo!(),
-                Event::DownloadProgress { count, total_count, size, total_size } => todo!(),
-                Event::DownloadedResources => todo!(),
-                Event::ExtractedBinaries { dir } => todo!(),
-                _ => todo!(),
-            }
-        }
-    }
-    
     extern_err_catch(err, || {
         inst.install(AdapterHandler(handler)).map(extern_box)
     })
 }
 
-// TODO:
+impl Handler for AdapterHandler {
+    fn on_event(&mut self, event: Event) {
+        use raw::pmc_event_tag::*;
+        use raw::pmc_version_channel::*;
+        match event {
+            Event::FilterFeatures { features: _ } => {}
+            Event::LoadedFeatures { features } => {
+
+                let mut buffers = Vec::with_capacity(features.len());
+                let mut features_raw = Vec::with_capacity(features.len());
+
+                for feature in features {
+                    let feature = cstr::from(feature.clone());
+                    features_raw.push(feature.as_ptr());
+                    buffers.push(feature);
+                }
+
+                self.forward(PMC_EVENT_BASE_LOADED_FEATURES, raw::pmc_event_base_loaded_features {
+                    features_len: features_raw.len() as _,
+                    features: features_raw.as_ptr(),
+                });
+
+            }
+            Event::LoadHierarchy { root_version } => {
+                let root_version = cstr::from(root_version.to_string());
+                self.forward(PMC_EVENT_BASE_LOAD_HIERARCHY, raw::pmc_event_base_load_hierarchy {
+                    root_version: root_version.as_ptr(),
+                });
+            }
+            Event::LoadedHierarchy { hierarchy } => {
+
+                let mut buffers = Vec::with_capacity(hierarchy.len());
+                let mut hierarchy_raw = Vec::with_capacity(hierarchy.len());
+
+                for version in hierarchy {
+
+                    let (buffer, [name, dir]) = 
+                        cstr::concat([cstr::from_ref(version.name()), cstr::from_ref(version.dir())]);
+
+                    buffers.push(buffer);
+                    hierarchy_raw.push(raw::pmc_loaded_version {
+                        name,
+                        dir,
+                        channel: match version.channel() {
+                            None => PMC_VERSION_CHANNEL_UNSPECIFIED,
+                            Some(VersionChannel::Release) => PMC_VERSION_CHANNEL_RELEASE,
+                            Some(VersionChannel::Snapshot) => PMC_VERSION_CHANNEL_SNAPSHOT,
+                            Some(VersionChannel::Beta) => PMC_VERSION_CHANNEL_BETA,
+                            Some(VersionChannel::Alpha) => PMC_VERSION_CHANNEL_ALPHA,
+                        },
+                    });
+
+                }
+
+                self.forward(PMC_EVENT_BASE_LOADED_HIERARCHY, raw::pmc_event_base_loaded_hierarchy {
+                    hierarchy_len: hierarchy_raw.len() as _,
+                    hierarchy: hierarchy_raw.as_ptr(),
+                });
+
+            }
+            Event::LoadVersion { version, file } => {
+
+                let (_buffer, [version, file]) = 
+                    cstr::concat([cstr::from_ref(version), cstr::from_ref(file)]);
+
+                self.forward(PMC_EVENT_BASE_LOAD_VERSION, raw::pmc_event_base_load_version {
+                    version,
+                    file,
+                });
+
+            }
+            Event::NeedVersion { version, file, retry } => {
+
+                let (_buffer, [version, file]) = 
+                    cstr::concat([cstr::from_ref(version), cstr::from_ref(file)]);
+
+                self.forward(PMC_EVENT_BASE_NEED_VERSION, raw::pmc_event_base_need_version {
+                    version,
+                    file,
+                    retry,
+                });
+
+            }
+            Event::LoadedVersion { version, file } => {
+
+                let (_buffer, [version, file]) = 
+                    cstr::concat([cstr::from_ref(version), cstr::from_ref(file)]);
+
+                self.forward(PMC_EVENT_BASE_LOADED_VERSION, raw::pmc_event_base_load_version {
+                    version,
+                    file,
+                });
+
+            }
+            Event::LoadClient => {
+                self.forward(PMC_EVENT_BASE_LOAD_CLIENT, raw::pmc_event_data::default());
+            }
+            Event::LoadedClient { file } => {
+                let file = cstr::from(file.to_path_buf());
+                self.forward(PMC_EVENT_BASE_LOADED_CLIENT, raw::pmc_event_base_loaded_client {
+                    file: file.as_ptr(),
+                });
+            }
+            Event::LoadLibraries => {
+                self.forward(PMC_EVENT_BASE_LOAD_LIBRARIES, raw::pmc_event_data::default());
+            }
+            Event::FilterLibraries { libraries: _ } => {}
+            Event::LoadedLibraries { libraries } => {
+                todo!()
+            }
+            Event::FilterLibrariesFiles { class_files: _, natives_files: _ } => {},
+            Event::LoadedLibrariesFiles { class_files, natives_files } => {
+                todo!()
+            }
+            Event::NoLogger => {
+                self.forward(PMC_EVENT_BASE_NO_LOGGER, raw::pmc_event_data::default());
+            }
+            Event::LoadLogger { id } => {
+                let id = cstr::from(id.to_string());
+                self.forward(PMC_EVENT_BASE_LOAD_LOGGER, raw::pmc_event_base_load_logger {
+                    id: id.as_ptr(),
+                });
+            }
+            Event::LoadedLogger { id } => {
+                let id = cstr::from(id.to_string());
+                self.forward(PMC_EVENT_BASE_LOADED_LOGGER, raw::pmc_event_base_loaded_logger {
+                    id: id.as_ptr(),
+                });
+            }
+            Event::NoAssets => {
+                self.forward(PMC_EVENT_BASE_NO_ASSETS, raw::pmc_event_data::default());
+            }
+            Event::LoadAssets { id } => {
+                let id = cstr::from(id.to_string());
+                self.forward(PMC_EVENT_BASE_LOAD_ASSETS, raw::pmc_event_base_load_assets {
+                    id: id.as_ptr(),
+                });
+            }
+            Event::LoadedAssets { id, count } => {
+                let id = cstr::from(id.to_string());
+                self.forward(PMC_EVENT_BASE_LOADED_ASSETS, raw::pmc_event_base_loaded_assets {
+                    id: id.as_ptr(),
+                    count: count as _,
+                });
+            }
+            Event::VerifiedAssets { id, count } => {
+                let id = cstr::from(id.to_string());
+                self.forward(PMC_EVENT_BASE_VERIFIED_ASSETS, raw::pmc_event_base_loaded_assets {
+                    id: id.as_ptr(),
+                    count: count as _,
+                });
+            }
+            Event::LoadJvm { major_version } => {
+                self.forward(PMC_EVENT_BASE_LOAD_JVM, raw::pmc_event_base_load_jvm {
+                    major_version,
+                });
+            }
+            Event::FoundJvmSystemVersion { file, version, compatible } => {
+                
+                let (_buffer, [file, version]) = 
+                    cstr::concat([cstr::from_ref(file), cstr::from_ref(version)]);
+
+                self.forward(PMC_EVENT_BASE_FOUND_JVM_VERSION, raw::pmc_event_base_found_jvm_system_version {
+                    file,
+                    version,
+                    compatible,
+                });
+
+            }
+            Event::WarnJvmUnsupportedDynamicCrt => {
+                self.forward(PMC_EVENT_BASE_WARN_JVM_UNSUPPORTED_DYNAMIC_CTR, raw::pmc_event_data::default());
+            }
+            Event::WarnJvmUnsupportedPlatform => {
+                self.forward(PMC_EVENT_BASE_WARN_JVM_UNSUPPORTED_PLATFORM, raw::pmc_event_data::default());
+            }
+            Event::WarnJvmMissingDistribution => {
+                self.forward(PMC_EVENT_BASE_WARN_JVM_MISSING_DISTRIBUTION, raw::pmc_event_data::default());
+            }
+            Event::LoadedJvm { file, version, compatible } => {
+
+                let no_version = version.is_none();
+                let (_buffer, [file, version]) = 
+                    cstr::concat([cstr::from_ref(file), cstr::from_ref(version.unwrap_or(""))]);
+
+                self.forward(PMC_EVENT_BASE_FOUND_JVM_VERSION, raw::pmc_event_base_found_jvm_system_version {
+                    file,
+                    version: if no_version { ptr::null() } else { version },
+                    compatible,
+                });
+
+            }
+            Event::DownloadResources { cancel } => {
+                self.forward(PMC_EVENT_BASE_DOWNLOAD_RESOURCES, raw::pmc_event_base_download_resources {
+                    cancel,
+                });
+            }
+            Event::DownloadedResources => {
+                self.forward(PMC_EVENT_BASE_DOWNLOADED_RESOURCES, raw::pmc_event_data::default());
+            }
+            Event::DownloadProgress { count, total_count, size, total_size } => {
+                self.forward(PMC_EVENT_BASE_DOWNLOAD_PROGRESS, raw::pmc_event_base_download_progress {
+                    count,
+                    total_count,
+                    size,
+                    total_size,
+                });
+            }
+            Event::ExtractedBinaries { dir } => {
+                let dir = cstr::from(dir.to_path_buf());
+                self.forward(PMC_EVENT_BASE_EXTRACTED_BINARIES, raw::pmc_event_base_extracted_binaries {
+                    dir: dir.as_ptr(),
+                });
+            }
+            _ => todo!(),
+        }
+    }
+}
 
 // =======
 // Binding for Game
@@ -398,4 +510,48 @@ pub unsafe extern "C" fn pmc_game_main_class(game: &Game) -> NonNull<c_char> {
     extern_cstr_from_str(&game.main_class)
 }
 
-// TODO:
+#[no_mangle]
+pub unsafe extern "C" fn pmc_game_jvm_args(game: &Game) -> NonNull<raw::pmc_game_args> {
+    extern_game_args(&game.jvm_args)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pmc_game_game_args(game: &Game) -> NonNull<raw::pmc_game_args> {
+    extern_game_args(&game.game_args)
+}
+
+fn extern_game_args(args: &[String]) -> NonNull<raw::pmc_game_args> {
+
+    #[repr(C)]
+    struct ExternGameArgs {
+        inner: raw::pmc_game_args,
+        args_raw: Box<[*const c_char]>,
+        buffers: Box<[Box<[c_char]>]>,
+    }
+
+    let mut buffers = Vec::with_capacity(args.len());
+    let mut args_raw = Vec::with_capacity(args.len());
+
+    for arg in args {
+        let buffer = cstr::from(arg.clone());
+        args_raw.push(buffer.as_ptr());
+        buffers.push(buffer);
+    }
+
+    extern_box(ExternGameArgs {
+        inner: raw::pmc_game_args {
+            len: args_raw.len() as _,
+            args: args_raw.as_ptr(),
+        },
+        args_raw: args_raw.into_boxed_slice(),
+        buffers: buffers.into_boxed_slice(),
+    }).cast::<raw::pmc_game_args>()
+
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pmc_game_spawn(game: &Game, err: *mut *mut raw::pmc_err) -> u32 {
+    extern_err_catch(err, || {
+        game.spawn().map(|child| child.id())
+    }).unwrap_or(0)
+}

@@ -3,6 +3,7 @@
 use std::ptr::{self, NonNull};
 use std::ffi::{c_char, CStr};
 use std::pin::Pin;
+use std::io;
 
 use crate::alloc::{extern_box, extern_box_drop_unchecked};
 use crate::{cstr, raw};
@@ -28,7 +29,7 @@ pub fn extern_err_alloc<O>(tag: raw::pmc_err_tag, message: String, data: impl In
         owned: O,
     }
 
-    let owned_message = Pin::new(cstr::from_string(message));
+    let owned_message = Pin::new(cstr::from(message));
     
     extern_box(ExternErr {
         inner: raw::pmc_err {
@@ -97,7 +98,7 @@ macro_rules! extern_err {
     (
         __field_value: $val:expr => cstr
     ) => {
-        Pin::new($crate::cstr::from_string($val))
+        $crate::cstr::from($val)
     };
     (
         __field_extern: $id:ident => cstr
@@ -160,4 +161,15 @@ where
         }
     }
     
+}
+
+impl IntoExternErr for io::Error {
+    fn into(self) -> NonNull<raw::pmc_err> {
+        extern_err!(
+            raw::pmc_err_tag::PMC_ERR_INTERNAL, 
+            self.to_string(),
+            raw::pmc_err_data_internal {
+                origin: ptr::null()
+            })
+    }
 }
