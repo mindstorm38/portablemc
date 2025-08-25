@@ -23,12 +23,12 @@ pub struct pmc_msa_database {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmc_game {
+pub struct pmc_base {
     _unused: [u8; 0],
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmc_base {
+pub struct pmc_game {
     _unused: [u8; 0],
 }
 #[repr(C)]
@@ -194,10 +194,10 @@ pub struct pmc_err_forge_installer_processor_not_found {
 pub struct pmc_err_forge_installer_processor_failed {
     pub name: *const ::std::ffi::c_char,
     pub status: ::std::ffi::c_int,
-    pub stdout: *const ::std::ffi::c_char,
     pub stdout_len: size_t,
-    pub stderr: *const ::std::ffi::c_char,
+    pub stdout: *const ::std::ffi::c_char,
     pub stderr_len: size_t,
+    pub stderr: *const ::std::ffi::c_char,
 }
 #[doc = " PMC_ERR_FORGE_INSTALLER_PROCESSOR_CORRUPTED"]
 #[repr(C)]
@@ -263,10 +263,11 @@ pub struct pmc_jvm_policy {
 #[doc = " Represent the release channel for a version."]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum pmc_version_channel {
-    PMC_VERSION_CHANNEL_RELEASE = 0,
-    PMC_VERSION_CHANNEL_SNAPSHOT = 1,
-    PMC_VERSION_CHANNEL_BETA = 2,
-    PMC_VERSION_CHANNEL_ALPHA = 3,
+    PMC_VERSION_CHANNEL_UNSPECIFIED = 0,
+    PMC_VERSION_CHANNEL_RELEASE = 1,
+    PMC_VERSION_CHANNEL_SNAPSHOT = 2,
+    PMC_VERSION_CHANNEL_BETA = 3,
+    PMC_VERSION_CHANNEL_ALPHA = 4,
 }
 #[doc = " Represent a version loaded during the installation."]
 #[repr(C)]
@@ -292,6 +293,12 @@ pub struct pmc_loaded_library {
     pub path: *const ::std::ffi::c_char,
     pub download: *const pmc_library_download,
     pub natives: bool,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct pmc_game_args {
+    pub len: size_t,
+    pub args: *const *const ::std::ffi::c_char,
 }
 #[repr(u32)]
 #[doc = " The code of all events."]
@@ -353,8 +360,8 @@ pub enum pmc_event_tag {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_loaded_features {
-    pub features: *const *const ::std::ffi::c_char,
     pub features_len: size_t,
+    pub features: *const *const ::std::ffi::c_char,
 }
 #[doc = " PMC_EVENT_BASE_LOAD_HIERARCHY"]
 #[repr(C)]
@@ -366,20 +373,23 @@ pub struct pmc_event_base_load_hierarchy {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_loaded_hierarchy {
-    pub hierarchy: *const pmc_loaded_version,
     pub hierarchy_len: size_t,
+    pub hierarchy: *const pmc_loaded_version,
 }
-#[doc = " PMC_EVENT_BASE_LOAD_VERSION, PMC_EVENT_BASE_LOADED_VERSION"]
+#[doc = " PMC_EVENT_BASE_LOAD_VERSION"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_load_version {
     pub version: *const ::std::ffi::c_char,
     pub file: *const ::std::ffi::c_char,
 }
-#[doc = " PMC_EVENT_BASE_LOAD_VERSION, PMC_EVENT_BASE_LOADED_VERSION"]
-#[repr(transparent)]
+#[doc = " PMC_EVENT_BASE_LOADED_VERSION"]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmc_event_base_loaded_version(pub pmc_event_base_load_version);
+pub struct pmc_event_base_loaded_version {
+    pub version: *const ::std::ffi::c_char,
+    pub file: *const ::std::ffi::c_char,
+}
 #[doc = " PMC_EVENT_BASE_NEED_VERSION"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -398,44 +408,57 @@ pub struct pmc_event_base_loaded_client {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_loaded_libraries {
-    pub libraries: *const pmc_loaded_library,
     pub libraries_len: size_t,
+    pub libraries: *const pmc_loaded_library,
 }
 #[doc = " PMC_EVENT_BASE_LOADED_LIBRARIES_FILES"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_loaded_libraries_files {
-    pub class_files: *const *const ::std::ffi::c_char,
     pub class_files_len: size_t,
-    pub natives_files: *const *const ::std::ffi::c_char,
+    pub class_files: *const *const ::std::ffi::c_char,
     pub natives_files_len: size_t,
+    pub natives_files: *const *const ::std::ffi::c_char,
 }
-#[doc = " PMC_EVENT_BASE_LOAD_LOGGER, PMC_EVENT_BASE_LOADED_LOGGER"]
+#[doc = " PMC_EVENT_BASE_LOAD_LOGGER"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_load_logger {
     pub id: *const ::std::ffi::c_char,
 }
-#[doc = " PMC_EVENT_BASE_LOAD_LOGGER, PMC_EVENT_BASE_LOADED_LOGGER"]
-#[repr(transparent)]
+#[doc = " PMC_EVENT_BASE_LOADED_LOGGER"]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmc_event_base_loaded_logger(pub pmc_event_base_load_logger);
-#[doc = " PMC_EVENT_BASE_LOAD_ASSETS, PMC_EVENT_BASE_LOADED_ASSETS, PMC_EVENT_BASE_VERIFIED_ASSETS"]
+pub struct pmc_event_base_loaded_logger {
+    pub id: *const ::std::ffi::c_char,
+}
+#[doc = " PMC_EVENT_BASE_LOAD_ASSETS"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_load_assets {
     pub id: *const ::std::ffi::c_char,
+}
+#[doc = " PMC_EVENT_BASE_LOADED_ASSETS"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct pmc_event_base_loaded_assets {
+    pub id: *const ::std::ffi::c_char,
     pub count: size_t,
 }
-#[doc = " PMC_EVENT_BASE_LOAD_ASSETS, PMC_EVENT_BASE_LOADED_ASSETS, PMC_EVENT_BASE_VERIFIED_ASSETS"]
-#[repr(transparent)]
+#[doc = " PMC_EVENT_BASE_VERIFIED_ASSETS"]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmc_event_base_loaded_assets(pub pmc_event_base_load_assets);
-#[doc = " PMC_EVENT_BASE_LOAD_ASSETS, PMC_EVENT_BASE_LOADED_ASSETS, PMC_EVENT_BASE_VERIFIED_ASSETS"]
-#[repr(transparent)]
+pub struct pmc_event_base_verified_assets {
+    pub id: *const ::std::ffi::c_char,
+    pub count: size_t,
+}
+#[doc = " PMC_EVENT_BASE_LOAD_JVM"]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmc_event_base_verified_assets(pub pmc_event_base_load_assets);
-#[doc = " PMC_EVENT_BASE_FOUND_JVM_VERSION, PMC_EVENT_BASE_LOADED_JVM"]
+pub struct pmc_event_base_load_jvm {
+    pub major_version: u32,
+}
+#[doc = " PMC_EVENT_BASE_FOUND_JVM_VERSION"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_found_jvm_system_version {
@@ -443,24 +466,28 @@ pub struct pmc_event_base_found_jvm_system_version {
     pub version: *const ::std::ffi::c_char,
     pub compatible: bool,
 }
-#[doc = " PMC_EVENT_BASE_FOUND_JVM_VERSION, PMC_EVENT_BASE_LOADED_JVM"]
-#[repr(transparent)]
+#[doc = " PMC_EVENT_BASE_LOADED_JVM"]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmc_event_base_loaded_jvm(pub pmc_event_base_found_jvm_system_version);
+pub struct pmc_event_base_loaded_jvm {
+    pub file: *const ::std::ffi::c_char,
+    pub version: *const ::std::ffi::c_char,
+    pub compatible: bool,
+}
 #[doc = " PMC_EVENT_BASE_DOWNLOAD_RESOURCES"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_download_resources {
-    pub cancel: bool,
+    pub cancel: *mut bool,
 }
 #[doc = " PMC_EVENT_BASE_DOWNLOAD_PROGRESS"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_base_download_progress {
-    pub count: size_t,
-    pub total_count: size_t,
-    pub size: size_t,
-    pub total_size: size_t,
+    pub count: u32,
+    pub total_count: u32,
+    pub size: u32,
+    pub total_size: u32,
 }
 #[doc = " PMC_EVENT_BASE_EXTRACTED_BINARIES"]
 #[repr(C)]
@@ -468,20 +495,24 @@ pub struct pmc_event_base_download_progress {
 pub struct pmc_event_base_extracted_binaries {
     pub dir: *const ::std::ffi::c_char,
 }
-#[doc = " PMC_EVENT_MOJ_INVALIDATED_VERSION, PMC_EVENT_MOJ_FETCH_VERSION, PMC_EVENT_MOJ_FETCHED_VERSION"]
+#[doc = " PMC_EVENT_MOJ_INVALIDATED_VERSION"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_moj_invalidated_version {
     pub version: *const ::std::ffi::c_char,
 }
-#[doc = " PMC_EVENT_MOJ_INVALIDATED_VERSION, PMC_EVENT_MOJ_FETCH_VERSION, PMC_EVENT_MOJ_FETCHED_VERSION"]
-#[repr(transparent)]
+#[doc = " PMC_EVENT_MOJ_FETCH_VERSION"]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmc_event_moj_fetch_version(pub pmc_event_moj_invalidated_version);
-#[doc = " PMC_EVENT_MOJ_INVALIDATED_VERSION, PMC_EVENT_MOJ_FETCH_VERSION, PMC_EVENT_MOJ_FETCHED_VERSION"]
-#[repr(transparent)]
+pub struct pmc_event_moj_fetch_version {
+    pub version: *const ::std::ffi::c_char,
+}
+#[doc = " PMC_EVENT_MOJ_FETCHED_VERSION"]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmc_event_moj_fetched_version(pub pmc_event_moj_invalidated_version);
+pub struct pmc_event_moj_fetched_version {
+    pub version: *const ::std::ffi::c_char,
+}
 #[doc = " PMC_EVENT_MOJ_FIXED_LEGACY_PROXY"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -489,33 +520,38 @@ pub struct pmc_event_moj_fixed_legacy_proxy {
     pub host: *const ::std::ffi::c_char,
     pub port: u16,
 }
-#[doc = " PMC_EVENT_FABRIC_FETCH_VERSION, PMC_EVENT_FABRIC_FETCHED_VERSION"]
+#[doc = " PMC_EVENT_FABRIC_FETCH_VERSION"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_fabric_fetch_version {
     pub game_version: *const ::std::ffi::c_char,
     pub loader_version: *const ::std::ffi::c_char,
 }
-#[doc = " PMC_EVENT_FABRIC_FETCH_VERSION, PMC_EVENT_FABRIC_FETCHED_VERSION"]
-#[repr(transparent)]
+#[doc = " PMC_EVENT_FABRIC_FETCHED_VERSION"]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmc_event_fabric_fetched_version(pub pmc_event_fabric_fetch_version);
+pub struct pmc_event_fabric_fetched_version {
+    pub game_version: *const ::std::ffi::c_char,
+    pub loader_version: *const ::std::ffi::c_char,
+}
 #[doc = " PMC_EVENT_FORGE_INSTALLING"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_forge_installing {
     pub tmp_dir: *const ::std::ffi::c_char,
 }
-#[doc = " PMC_EVENT_FORGE_FETCH_INSTALLER, PMC_EVENT_FORGE_FETCHED_INSTALLER"]
+#[doc = " PMC_EVENT_FORGE_FETCH_INSTALLER"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmc_event_forge_fetch_installer {
     pub version: *const ::std::ffi::c_char,
 }
-#[doc = " PMC_EVENT_FORGE_FETCH_INSTALLER, PMC_EVENT_FORGE_FETCHED_INSTALLER"]
-#[repr(transparent)]
+#[doc = " PMC_EVENT_FORGE_FETCHED_INSTALLER"]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmc_event_forge_fetched_installer(pub pmc_event_forge_fetch_installer);
+pub struct pmc_event_forge_fetched_installer {
+    pub version: *const ::std::ffi::c_char,
+}
 #[doc = " PMC_EVENT_FORGE_RUN_INSTALLER_PROCESSOR"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -542,6 +578,7 @@ pub union pmc_event_data {
     pub base_load_assets: pmc_event_base_load_assets,
     pub base_loaded_assets: pmc_event_base_loaded_assets,
     pub base_verified_assets: pmc_event_base_verified_assets,
+    pub base_load_jvm: pmc_event_base_load_jvm,
     pub base_found_jvm_system_version: pmc_event_base_found_jvm_system_version,
     pub base_loaded_jvm: pmc_event_base_loaded_jvm,
     pub base_download_resources: pmc_event_base_download_resources,

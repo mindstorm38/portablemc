@@ -5,9 +5,10 @@
 /// layouts for structures, and not functions. Functions should be manually defined.
 /// 
 /// ```
-/// $ bindgen include/portablemc.h -o src/raw/generated.rs --generate types --allowlist-type "pmc_.*" --default-enum-style rust --ctypes-prefix ::std::ffi --no-layout-tests --no-size_t-is-usize --new-type-alias "pmc_(event|err).*"
+/// $ bindgen include/portablemc.h -o src/raw/generated.rs --generate types --allowlist-type "pmc_.*" --default-enum-style rust --ctypes-prefix ::std::ffi --no-layout-tests --no-size_t-is-usize
 /// ```
 #[allow(non_camel_case_types)]
+#[allow(unsafe_op_in_unsafe_fn)]
 mod generated;
 pub use generated::*;
 
@@ -79,6 +80,7 @@ impl_union_from_field! {
     base_load_assets: pmc_event_base_load_assets,
     base_loaded_assets: pmc_event_base_loaded_assets,
     base_verified_assets: pmc_event_base_verified_assets,
+    base_load_jvm: pmc_event_base_load_jvm,
     base_found_jvm_system_version: pmc_event_base_found_jvm_system_version,
     base_loaded_jvm: pmc_event_base_loaded_jvm,
     base_download_resources: pmc_event_base_download_resources,

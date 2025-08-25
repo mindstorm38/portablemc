@@ -1,29 +1,20 @@
 //! Utilities for event and handlers.
 
-use std::ptr::NonNull;
-
-use crate::alloc::extern_box;
 use crate::raw;
 
 
-/// Allocate an extern event.
-pub fn extern_event<D, O>(tag: raw::pmc_event_tag, data: D, owned: O) -> NonNull<raw::pmc_event>
-where
-    D: Into<raw::pmc_event_data>,
-{
+/// An internal structure to use a pmc_handler type as a regular handler.
+pub(crate) struct AdapterHandler(pub raw::pmc_handler);
 
-    #[repr(C)]
-    struct ExternEvent<O> {
-        inner: raw::pmc_event,
-        owned: O,
+impl AdapterHandler {
+
+    pub fn forward(&mut self, tag: raw::pmc_event_tag, data: impl Into<raw::pmc_event_data>) {
+        if let Some(handler) = self.0 {
+            // SAFETY: The handler, when passed to pmc_*_install ensures that it will
+            // not leak the event outside and not free it.
+            let mut event = raw::pmc_event { tag, data: data.into() };
+            unsafe { handler(&mut event) }
+        }
     }
-
-    extern_box(ExternEvent {
-        inner: raw::pmc_event {
-            tag,
-            data: data.into(),
-        },
-        owned,
-    }).cast::<raw::pmc_event>()
 
 }
