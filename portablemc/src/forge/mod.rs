@@ -1210,6 +1210,8 @@ fn extract_installer_file<R: Read + Seek>(
             entry: src_entry.to_string(),
         })?;
 
+    // We unwrap because we either extract a .jar to its library directory, or to a 
+    // temp directory (so it has a parent).
     let parent_dir = dst_file.parent().unwrap();
     fs::create_dir_all(parent_dir)
         .map_err(|e| base::Error::new_io_file(e, parent_dir))?;

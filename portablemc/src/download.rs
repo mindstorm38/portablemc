@@ -834,8 +834,8 @@ async fn download_entry(
     drop(cache);
 
     // Create any parent directory so that we can create the file.
-    if let Some(parent) = entry.core.file.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(EntryErrorKind::new_io)?;
+    if let Some(parent_dir) = entry.core.file.parent() {
+        tokio::fs::create_dir_all(parent_dir).await.map_err(EntryErrorKind::new_io)?;
     }
 
     // Only add read capability if the handle needs to be kept.
