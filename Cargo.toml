@@ -13,7 +13,7 @@ readme = "README.md"
 rust-version = "1.85.1"
 
 [workspace.dependencies]
-portablemc = { path = "portablemc", version = "=5.0.0-beta.0" }
+portablemc = { path = "portablemc", version = "=5.0.0-beta.1" }
 
 # Utils
 thiserror = "2.0.3"
