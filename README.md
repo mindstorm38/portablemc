@@ -20,8 +20,9 @@ a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
 ![Crates.io Version](https://img.shields.io/crates/v/portablemc-cli)
 
 If you have a Rust toolchain with Cargo, you can build and install PortableMC and its 
-CLI straight from [crates.io](https://crates.io/crates/portablemc), this is where the 
-latest development versions are pushed first, before being built for specific targets.
+CLI straight from [crates.io](https://crates.io/crates/portablemc-cli), this is where 
+the latest development versions are pushed first, before being built for specific 
+targets.
 
 ```sh
 cargo install portablemc-cli
