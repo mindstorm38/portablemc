@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::path::{Path, PathBuf};
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::fs::File;
+use std::fs::{self, File};
 
 use reqwest::{Client, StatusCode};
 use serde_json::json;
@@ -701,6 +701,10 @@ impl Database {
     where
         F: for<'a> FnOnce(&'a mut DatabaseData, &'a mut bool) -> T,
     {
+
+        if let Some(parent_dir) = self.file.parent() {
+            fs::create_dir_all(parent_dir)?;
+        }
 
         let mut rw = File::options()
             .write(true)

@@ -1089,14 +1089,13 @@ impl Installer {
         let resources_dir = mapping.resources
             .then(|| self.mc_dir.join("resources"));
 
-        // Hard link each asset into its virtual directory, note on non-unix systems we
-        // also do that to the resources directory.
+        // Hard link each asset into its virtual directory.
         for object in &mapping.objects {
             
             let virtual_file = mapping.virtual_dir.join(&object.rel_file);
-            if let Some(parent) = virtual_file.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| Error::new_io(e, format!("create dir: {}", parent.display())))?;
+            if let Some(parent_dir) = virtual_file.parent() {
+                fs::create_dir_all(parent_dir)
+                    .map_err(|e| Error::new_io(e, format!("create dir: {}", parent_dir.display())))?;
             }
             hard_link_file(&object.object_file, &virtual_file)?;
 
@@ -1106,9 +1105,9 @@ impl Installer {
                 let resource_file = resources_dir.join(&object.rel_file);
                 if !check_file(&resource_file, Some(object.size), None)? {
                     
-                    if let Some(parent) = resource_file.parent() {
-                        fs::create_dir_all(parent)
-                            .map_err(|e| Error::new_io(e, format!("create dir: {}", parent.display())))?;
+                    if let Some(parent_dir) = resource_file.parent() {
+                        fs::create_dir_all(parent_dir)
+                            .map_err(|e| Error::new_io(e, format!("create dir: {}", parent_dir.display())))?;
                     }
 
                     fs::copy(&object.object_file, &resource_file)
