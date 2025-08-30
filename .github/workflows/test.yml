@@ -13,11 +13,12 @@ env:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         image:
           # Refers to https://github.com/actions/runner-images
           - ubuntu-24.04    # x86
-          - macos-15-large  # x86
+          - macos-13        # x86
           - macos-15        # arm
           - windows-2022    # x86
           # https://github.com/actions/partner-runner-images
