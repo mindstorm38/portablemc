@@ -1,0 +1,31 @@
+# This workflow is for systematic testing of the crates.
+name: Test
+
+on:
+  push:
+    branches: ["rust-rewrite"]
+  pull_request:
+    branches: ["rust-rewrite"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        image:
+          # Refers to https://github.com/actions/runner-images
+          - ubuntu-24.04    # x86
+          - macos-15-large  # x86
+          - macos-15        # arm
+          - windows-2022    # x86
+          # https://github.com/actions/partner-runner-images
+          - ubuntu-24.04-arm
+    runs-on: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
