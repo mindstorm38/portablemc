@@ -1,0 +1,61 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - README.md
+      - LICENSE
+      - doc/**
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - README.md
+      - LICENSE
+      - doc/**
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+
+  check-lock:
+    name: Check lock
+    runs-on: ubuntu-latest
+    steps:
+      
+      - uses: actions/checkout@v4
+
+      - name: Check lock
+        run: cargo update --locked
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Refers to 
+        # - https://github.com/actions/runner-images
+        # - https://github.com/actions/partner-runner-images
+        image:
+          - ubuntu-24.04
+          - macos-13
+          - macos-15
+          - windows-2022
+          - ubuntu-24.04-arm
+
+    name: Test ${{ matrix.image }}
+    runs-on: ${{ matrix.image }}
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: cargo build --workspace --exclude portablemc-py
+
+      - name: Test
+        run: cargo test --workspace --exclude portablemc-py
+
+      - name: Doc
+        run: cargo doc --no-deps --workspace --exclude portablemc-py
