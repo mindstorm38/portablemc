@@ -1,0 +1,191 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v**'
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - i686-unknown-linux-gnu
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+          - x86_64-pc-windows-msvc
+          - i686-pc-windows-msvc
+          - aarch64-unknown-linux-gnu
+          - arm-unknown-linux-gnueabihf
+        include:
+          # ubuntu-24.04 (x86_64)
+          - target: x86_64-unknown-linux-gnu
+            image: ubuntu-24.04
+          - target: i686-unknown-linux-gnu
+            image: ubuntu-24.04
+            setup: |
+              sudo dpkg --add-architecture i386
+              sudo apt update
+              sudo apt install libssl-dev:i386 gcc-multilib
+              echo 'OPENSSL_INCLUDE_DIR=/usr/include' >> $GITHUB_ENV
+              echo 'OPENSSL_LIB_DIR=/usr/lib/i386-linux-gnu' >> $GITHUB_ENV
+          # macos-13 (x86_64)
+          - target: x86_64-apple-darwin
+            image: macos-13
+          # macos-15 (aarch64)
+          - target: aarch64-apple-darwin
+            image: macos-15
+          # windows-2022 (x86_64)
+          - target: x86_64-pc-windows-msvc
+            image: windows-2022
+          - target: i686-pc-windows-msvc
+            image: windows-2022
+          # ubuntu-24.04-arm (aarch64)
+          - target: aarch64-unknown-linux-gnu
+            image: ubuntu-24.04-arm
+          - target: arm-unknown-linux-gnueabihf
+            image: ubuntu-24.04-arm
+            skip_test: true
+            setup: |
+              sudo dpkg --add-architecture armhf
+              sudo apt update
+              sudo apt install libssl-dev:armhf gcc-arm-linux-gnueabihf
+              echo 'OPENSSL_INCLUDE_DIR=/usr/include' >> $GITHUB_ENV
+              echo 'OPENSSL_LIB_DIR=/usr/lib/arm-linux-gnueabihf' >> $GITHUB_ENV
+              echo 'CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER=/usr/bin/arm-linux-gnueabihf-gcc' >> $GITHUB_ENV
+
+    name: Build ${{ matrix.target }} on ${{ matrix.image }}
+    runs-on: ${{ matrix.image }}
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        if: matrix.setup != null
+        run: ${{ matrix.setup }}
+
+      - name: Setup rust
+        run: rustup target add ${{ matrix.target }}
+  
+      - name: Test (debug)
+        if: matrix.skip_test == null
+        run: cargo test --target ${{ matrix.target }} --workspace --exclude portablemc-py -- --include-ignored
+
+      - name: Build (release)
+        run: cargo build --target ${{ matrix.target }} --release --workspace --exclude portablemc-py
+
+      - name: Debug path
+        run: ls ./target/${{ matrix.target }}/release
+      
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p ~/portablemc/dev
+          cp -r ./portablemc-ffi/include ~/portablemc/dev/
+          cp .github/workflows/data/target-readme.txt ~/portablemc/readme.txt
+
+      - name: Collect artifacts (linux)
+        if: contains(matrix.target, 'linux')
+        run: |
+          cd ./target/${{ matrix.target }}/release/
+          cp portablemc ~/portablemc/
+          cp libportablemc_ffi.so ~/portablemc/libportablemc.so
+          cp libportablemc_ffi.a ~/portablemc/dev/libportablemc.a
+
+      - name: Collect artifacts (apple)
+        if: contains(matrix.target, 'apple')
+        run: |
+          cd ./target/${{ matrix.target }}/release/
+          cp portablemc ~/portablemc/
+          cp libportablemc_ffi.dylib ~/portablemc/libportablemc.dylib
+          cp libportablemc_ffi.a ~/portablemc/dev/libportablemc.a
+      
+      - name: Collect artifacts (windows)
+        if: contains(matrix.target, 'windows')
+        shell: bash
+        run: |
+          cd ./target/${{ matrix.target }}/release/
+          cp portablemc.exe ~/portablemc/
+          cp portablemc_ffi.dll ~/portablemc/portablemc.dll
+          cp portablemc.pdb ~/portablemc/dev/portablemc.exe.pdb
+          cp portablemc_ffi.pdb ~/portablemc/dev/portablemc.dll.pdb
+          cp portablemc_ffi.dll.exp ~/portablemc/dev/portablemc.dll.exp
+          cp portablemc_ffi.dll.lib ~/portablemc/dev/portablemc.dll.lib
+          cp portablemc_ffi.lib ~/portablemc/dev/portablemc.lib
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ~/portablemc/
+  
+  release:
+    name: Release
+    needs: 
+      - build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - name: Get cargo version
+        id: get-cargo-version
+        shell: bash
+        run: echo "cargo-version=$(cargo pkgid -p portablemc | awk -F'[#@]' '{print $NF}')" >> $GITHUB_OUTPUT
+      
+      - name: Match cargo version
+        shell: bash
+        run: test "v${{ steps.get-cargo-version.outputs.cargo-version }}" = "${{ github.ref_name }}"
+
+      - name: Download workflow artifacts
+        id: download-workflow-artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ~/artifacts
+      
+      - name: Archiving artifacts
+        shell: bash
+        run: |
+          cd ~/artifacts  
+          tree
+          for target in *; do
+            cd $target
+            echo "Version: ${{ steps.get-cargo-version.outputs.cargo-version }}" >> readme.txt
+            echo "Target: $target" >> readme.txt
+            zip -r ../$target.zip *
+            cd ..
+          done
+
+      - name: Create release
+        shell: bash
+        run: gh release create ${{ github.ref_name }} --verify-tag --draft --title "Version ${{ steps.get-cargo-version.outputs.cargo-version }}" --notes-file .github/workflows/data/release-notes.md ~/artifacts/*.zip
+
+  # publish:
+  #   name: Publish
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   steps:
+
+  #     - uses: actions/checkout@v4
+
+  #     - name: Dry-run publish API
+  #       run: cargo publish --dry-run -p portablemc
+      
+  #     - name: Dry-run publish CLI
+  #       run: cargo publish --dry-run -p portablemc-cli
+
+  #     - name: Publish API
+  #       run: cargo publish -p portablemc
+      
+  #     - name: Publish CLI
+  #       run: cargo publish -p portablemc-cli

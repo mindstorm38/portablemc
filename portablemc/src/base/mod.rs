@@ -55,7 +55,7 @@ pub(crate) const LEGACY_JVM_ARGS: &[&str] = &[
 /// no feature by default and provides no fixes for legacy things. This installer just
 /// implements the basics of how Minecraft versions are specified, this is mostly from
 /// reverse engineering. **Most of the time, you don't want to use this directly, instead
-/// you can use the [`mojang::Installer`](crate::mojang::Installer), that provides support
+/// you can use the [`moj::Installer`](crate::moj::Installer), that provides support
 /// for fetching missing Mojang versions, various fixes and authentication support.**
 #[derive(Debug, Clone)]
 pub struct Installer {
@@ -1731,7 +1731,7 @@ pub enum Event<'a> {
     /// The given version hierarchy has been successfully loaded.
     LoadedHierarchy { hierarchy: &'a [LoadedVersion] },
     /// A version will be loaded, at this point you can check the file for its 
-    /// validity, and delete it if relevant, in this case [`Self::need_version`]
+    /// validity, and delete it if relevant, in this case [`Self::NeedVersion`]
     /// is called just after to possibly install the version metadata.
     LoadVersion { version: &'a str, file: &'a Path },
     /// This event is called if the given version is missing a metadata file, in this
@@ -1885,7 +1885,7 @@ pub enum Error {
     },
     #[error("main class not found")]
     MainClassNotFound {  },
-    /// Returned if the [`Handler::download_resources`] returned false, the installation
+    /// Returned if the [`Event::DownloadResources`] returned false, the installation
     /// procedure can't continue because it needs resources to be downloaded.
     #[error("download resources cancelled")]
     DownloadResourcesCancelled {  },
