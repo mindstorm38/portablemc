@@ -160,8 +160,10 @@ jobs:
           tree
           for target in *; do
             cd $target
+            target_description=$(rustc +nightly --target $target -Z unstable-options --print target-spec-json | jq -r '.metadata.description')
             echo "Version: ${{ steps.get-cargo-version.outputs.cargo-version }}" >> readme.txt
             echo "Target: $target" >> readme.txt
+            echo "        $target_description" >> readme.txt
             zip -r ../$target.zip *
             cd ..
           done
