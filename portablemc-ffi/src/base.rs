@@ -212,7 +212,7 @@ pub unsafe extern "C" fn pmc_standard_jvm_policy(inst: &Installer) -> NonNull<ra
     };
 
     let owned = if let JvmPolicy::Static(static_path) = inst.jvm_policy() {
-        Some(cstr::from(static_path.clone()))
+        Some(cstr::from(static_path))
     } else {
         None
     };
@@ -278,14 +278,16 @@ impl Handler for AdapterHandler {
         use raw::pmc_event_tag::*;
         use raw::pmc_version_channel::*;
         match event {
-            Event::FilterFeatures { features: _ } => {}
+            Event::FilterFeatures { features: _ } => {
+                self.forward(PMC_EVENT_BASE_FILTER_FEATURES, raw::pmc_event_data::default());
+            }
             Event::LoadedFeatures { features } => {
 
                 let mut buffers = Vec::with_capacity(features.len());
                 let mut features_raw = Vec::with_capacity(features.len());
 
                 for feature in features {
-                    let feature = cstr::from(feature.clone());
+                    let feature = cstr::from(feature);
                     features_raw.push(feature.as_ptr());
                     buffers.push(feature);
                 }
@@ -297,7 +299,7 @@ impl Handler for AdapterHandler {
 
             }
             Event::LoadHierarchy { root_version } => {
-                let root_version = cstr::from(root_version.to_string());
+                let root_version = cstr::from(root_version);
                 self.forward(PMC_EVENT_BASE_LOAD_HIERARCHY, raw::pmc_event_base_load_hierarchy {
                     root_version: root_version.as_ptr(),
                 });
@@ -379,13 +381,91 @@ impl Handler for AdapterHandler {
             Event::LoadLibraries => {
                 self.forward(PMC_EVENT_BASE_LOAD_LIBRARIES, raw::pmc_event_data::default());
             }
-            Event::FilterLibraries { libraries: _ } => {}
-            Event::LoadedLibraries { libraries } => {
-                todo!()
+            Event::FilterLibraries { libraries: _ } => {
+                self.forward(PMC_EVENT_BASE_FILTER_LIBRARIES, raw::pmc_event_data::default());
             }
-            Event::FilterLibrariesFiles { class_files: _, natives_files: _ } => {},
+            Event::LoadedLibraries { libraries } => {
+
+                let mut buffers = Vec::with_capacity(libraries.len() * 3);
+                let mut downloads_raw = Vec::with_capacity(libraries.len());
+                let mut libraries_raw = Vec::with_capacity(libraries.len());
+
+                for library in libraries {
+                    
+                    let mut library_raw = raw::pmc_loaded_library {
+                        gav: {
+                            let buf = cstr::from(library.name.as_str());
+                            let ptr = buf.as_ptr();
+                            buffers.push(buf);
+                            ptr
+                        },
+                        path: ptr::null(),
+                        download: ptr::null(),
+                        natives: library.natives,
+                    };
+
+                    if let Some(path) = &library.path {
+                        let buf = cstr::from(path);
+                        library_raw.path = buf.as_ptr();
+                        buffers.push(buf);
+                    }
+                    
+                    if let Some(download) = &library.download {
+                        
+                        let download_raw = Box::new(raw::pmc_library_download {
+                            url: {
+                                let buf = cstr::from(&download.url);
+                                let ptr = buf.as_ptr();
+                                buffers.push(buf);
+                                ptr
+                            },
+                            size: download.size.unwrap_or(u32::MAX),
+                            sha1: download.sha1.as_ref().map(|sha1| sha1 as *const _).unwrap_or(ptr::null()),
+                        });
+
+                        library_raw.download = &*download_raw;
+                        downloads_raw.push(download_raw);
+
+                    }
+
+                    libraries_raw.push(library_raw);
+
+                }
+
+                self.forward(PMC_EVENT_BASE_LOADED_LIBRARIES, raw::pmc_event_base_loaded_libraries {
+                    libraries_len: libraries_raw.len() as _,
+                    libraries: libraries_raw.as_ptr(),
+                });
+
+            }
+            Event::FilterLibrariesFiles { class_files: _, natives_files: _ } => {
+                self.forward(PMC_EVENT_BASE_FILTER_LIBRARIES_FILES, raw::pmc_event_data::default());
+            },
             Event::LoadedLibrariesFiles { class_files, natives_files } => {
-                todo!()
+                
+                let mut buffers = Vec::with_capacity(class_files.len() + natives_files.len());
+                let mut class_files_raw = Vec::with_capacity(class_files.len());
+                let mut natives_files_raw = Vec::with_capacity(natives_files.len());
+
+                for class_file in class_files {
+                    let buf = cstr::from(class_file);
+                    class_files_raw.push(buf.as_ptr());
+                    buffers.push(buf);
+                }
+
+                for natives_file in natives_files {
+                    let buf = cstr::from(natives_file);
+                    natives_files_raw.push(buf.as_ptr());
+                    buffers.push(buf);
+                }
+
+                self.forward(PMC_EVENT_BASE_LOADED_LIBRARIES_FILES, raw::pmc_event_base_loaded_libraries_files {
+                    class_files_len: class_files_raw.len() as _,
+                    class_files: class_files_raw.as_ptr(),
+                    natives_files_len: natives_files_raw.len() as _,
+                    natives_files: natives_files_raw.as_ptr(),
+                });
+
             }
             Event::NoLogger => {
                 self.forward(PMC_EVENT_BASE_NO_LOGGER, raw::pmc_event_data::default());

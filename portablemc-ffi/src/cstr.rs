@@ -39,10 +39,24 @@ impl AsCstrBytes for [u8] {
     }
 }
 
+impl AsCstrBytes for Vec<u8> {
+    #[inline]
+    fn as_cstr_bytes(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
 impl AsCstrBytes for str {
     #[inline]
     fn as_cstr_bytes(&self) -> &[u8] {
         self.as_bytes()
+    }
+}
+
+impl AsCstrBytes for String {
+    #[inline]
+    fn as_cstr_bytes(&self) -> &[u8] {
+        self.as_str().as_cstr_bytes()
     }
 }
 
@@ -53,10 +67,24 @@ impl AsCstrBytes for OsStr {
     }
 }
 
+impl AsCstrBytes for OsString {
+    #[inline]
+    fn as_cstr_bytes(&self) -> &[u8] {
+        self.as_os_str().as_cstr_bytes()
+    }
+}
+
 impl AsCstrBytes for Path {
     #[inline]
     fn as_cstr_bytes(&self) -> &[u8] {
         self.as_os_str().as_encoded_bytes()
+    }
+}
+
+impl AsCstrBytes for PathBuf {
+    #[inline]
+    fn as_cstr_bytes(&self) -> &[u8] {
+        self.as_path().as_cstr_bytes()
     }
 }
 
@@ -71,6 +99,12 @@ pub fn from_ref<'a>(buf: &'a (impl AsCstrBytes + ?Sized)) -> &'a [c_char] {
 /// c-string with a potential NUL byte somewhere.
 pub trait IntoCstrBytes: Sized {
     fn into_cstr_bytes(self) -> Vec<u8>;
+}
+
+impl<T: AsCstrBytes + ?Sized> IntoCstrBytes for &'_ T {
+    fn into_cstr_bytes(self) -> Vec<u8> {
+        self.as_cstr_bytes().to_vec()
+    }
 }
 
 impl<T: AsCstrBytes + ?Sized> IntoCstrBytes for Box<T> {
