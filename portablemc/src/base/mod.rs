@@ -579,7 +579,13 @@ impl Installer {
         let mut libraries_set = HashSet::new();
         let mut libraries = Vec::new();
 
+        // True if modern arguments are present (approx > 1.12.2), used to know where
+        // to put the client file in the class path.
+        let mut modern_args = false;
+
         for version in hierarchy {
+
+            modern_args |= version.metadata.arguments.is_some();
 
             for lib in &version.metadata.libraries {
 
@@ -692,7 +698,6 @@ impl Installer {
         // Old versions seems to prefer having the main class first in class path, so by
         // default here we put it first, but it may be modified by later versions.
         let mut lib_files = LibrariesFiles::default();
-        lib_files.class_files.push(client_file);
 
         // After possible filtering by event handler, verify libraries and download 
         // missing ones.
@@ -739,6 +744,15 @@ impl Installer {
         handler.on_event(Event::LoadedLibrariesFiles { 
             class_files: &lib_files.class_files, 
             natives_files: &lib_files.natives_files });
+
+        // Note that this is purely arbitrary fix for old and recent versions.
+        if modern_args {
+            // Modern versions seems to prefer having the main class last in class path.
+            lib_files.class_files.push(client_file);
+        } else {
+            // Old versions seems to prefer having the main class first in class path.
+            lib_files.class_files.insert(0, client_file);
+        }
 
         Ok(lib_files)
 
@@ -1753,8 +1767,7 @@ pub enum Event<'a> {
     /// Libraries have been loaded. After that, the libraries will be verified and 
     /// added to the downloads list if missing.
     LoadedLibraries { libraries: &'a [LoadedLibrary] },
-    /// Libraries have been verified, the class files includes the client JAR file as 
-    /// first path in the vector. Note that all paths will be canonicalized, 
+    /// Libraries have been verified. Note that all paths will be canonicalized, 
     /// relatively to the current process' working dir, before being added to the 
     /// command line, so the files must exists.
     FilterLibrariesFiles { class_files: &'a mut Vec<PathBuf>, natives_files: &'a mut Vec<PathBuf> },
@@ -2172,6 +2185,7 @@ impl Game {
 /// Internal resolved libraries file paths.
 #[derive(Debug, Default)]
 struct LibrariesFiles {
+    /// Class files to add to the class path, in order!
     class_files: Vec<PathBuf>,
     natives_files: Vec<PathBuf>,
 }
