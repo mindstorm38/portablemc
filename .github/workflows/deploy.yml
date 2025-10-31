@@ -78,14 +78,14 @@ jobs:
   
       - name: Test (debug)
         if: matrix.skip_test == null
-        run: cargo test --target ${{ matrix.target }} --workspace --exclude portablemc-py -- --include-ignored
+        run: cargo test --target ${{ matrix.target }} --workspace --exclude portablemc-py --exclude portablemc-ffi -- --include-ignored
 
       - name: Build (release)
-        run: cargo build --target ${{ matrix.target }} --release --workspace --exclude portablemc-py
+        run: cargo build --target ${{ matrix.target }} --release --workspace --exclude portablemc-py --exclude portablemc-ffi
 
       - name: Debug path
         run: ls ./target/${{ matrix.target }}/release
-      
+
       - name: Collect artifacts
         shell: bash
         run: |
@@ -98,16 +98,16 @@ jobs:
         run: |
           cd ./target/${{ matrix.target }}/release/
           cp portablemc ~/portablemc/
-          cp libportablemc_ffi.so ~/portablemc/libportablemc.so
-          cp libportablemc_ffi.a ~/portablemc/dev/libportablemc.a
+          # cp libportablemc_ffi.so ~/portablemc/libportablemc.so
+          # cp libportablemc_ffi.a ~/portablemc/dev/libportablemc.a
 
       - name: Collect artifacts (apple)
         if: contains(matrix.target, 'apple')
         run: |
           cd ./target/${{ matrix.target }}/release/
           cp portablemc ~/portablemc/
-          cp libportablemc_ffi.dylib ~/portablemc/libportablemc.dylib
-          cp libportablemc_ffi.a ~/portablemc/dev/libportablemc.a
+          # cp libportablemc_ffi.dylib ~/portablemc/libportablemc.dylib
+          # cp libportablemc_ffi.a ~/portablemc/dev/libportablemc.a
       
       - name: Collect artifacts (windows)
         if: contains(matrix.target, 'windows')
@@ -115,12 +115,12 @@ jobs:
         run: |
           cd ./target/${{ matrix.target }}/release/
           cp portablemc.exe ~/portablemc/
-          cp portablemc_ffi.dll ~/portablemc/portablemc.dll
+          # cp portablemc_ffi.dll ~/portablemc/portablemc.dll
           cp portablemc.pdb ~/portablemc/dev/portablemc.exe.pdb
-          cp portablemc_ffi.pdb ~/portablemc/dev/portablemc.dll.pdb
-          cp portablemc_ffi.dll.exp ~/portablemc/dev/portablemc.dll.exp
-          cp portablemc_ffi.dll.lib ~/portablemc/dev/portablemc.dll.lib
-          cp portablemc_ffi.lib ~/portablemc/dev/portablemc.lib
+          # cp portablemc_ffi.pdb ~/portablemc/dev/portablemc.dll.pdb
+          # cp portablemc_ffi.dll.exp ~/portablemc/dev/portablemc.dll.exp
+          # cp portablemc_ffi.dll.lib ~/portablemc/dev/portablemc.dll.lib
+          # cp portablemc_ffi.lib ~/portablemc/dev/portablemc.lib
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
@@ -130,9 +130,8 @@ jobs:
   
   release:
     name: Release
-    needs: 
-      - build
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
 
@@ -172,22 +171,17 @@ jobs:
         shell: bash
         run: gh release create ${{ github.ref_name }} --verify-tag --draft --title "Version ${{ steps.get-cargo-version.outputs.cargo-version }}" --notes-file .github/workflows/data/release-notes.md ~/artifacts/*.zip
 
-  # publish:
-  #   name: Publish
-  #   needs: build
-  #   runs-on: ubuntu-latest
-  #   steps:
+  publish:
+    name: Publish
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
 
-  #     - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-  #     - name: Dry-run publish API
-  #       run: cargo publish --dry-run -p portablemc
+      - name: Publish API
+        run: cargo publish -p portablemc
       
-  #     - name: Dry-run publish CLI
-  #       run: cargo publish --dry-run -p portablemc-cli
-
-  #     - name: Publish API
-  #       run: cargo publish -p portablemc
-      
-  #     - name: Publish CLI
-  #       run: cargo publish -p portablemc-cli
+      - name: Publish CLI
+        run: cargo publish -p portablemc-cli
