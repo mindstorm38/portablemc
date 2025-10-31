@@ -272,7 +272,7 @@ fn apply_mojang_args(
 
         };
 
-        let account = match res {
+        let mut account = match res {
             Ok(Some(account)) => account,
             Ok(None) => {
 
@@ -299,13 +299,12 @@ fn apply_mojang_args(
             }
         };
 
-        // Set the auth account here, because we give the ownership to the next function,
-        // and if it fails we don't care if we have already set auth.
-        installer.set_auth_msa(&account);
-
-        if !super::auth::refresh_account(&mut *cli, account, true) {
+        // Refresh account before setting auth to the installer, in case tokens changed.
+        if !super::auth::refresh_account(&mut *cli, &mut account, true) {
             return false;
         }
+
+        installer.set_auth_msa(&account);
 
     } else {
         match (&args.username, args.uuid) {
