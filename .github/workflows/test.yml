@@ -21,15 +21,16 @@ env:
 
 jobs:
 
-  check-lock:
-    name: Check lock
-    runs-on: ubuntu-latest
-    steps:
+  # No longer checking lock because the lock version could be intentionally set
+  # check-lock:
+  #   name: Check lock
+  #   runs-on: ubuntu-latest
+  #   steps:
       
-      - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v4
 
-      - name: Check lock
-        run: cargo update --locked
+  #     - name: Check lock
+  #       run: cargo update --locked
 
   test:
     strategy:

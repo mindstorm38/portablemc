@@ -7,6 +7,7 @@ a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
 
 ## Table of contents
 - [Installation](#installation)
+  - [Binaries](#binaries)
   - [Cargo](#cargo)
 - [Contribute](#contribute)
   - [Contributors](#contributors)
@@ -14,6 +15,11 @@ a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
 - [Rust documentation ⇗](https://docs.rs/portablemc/latest/portablemc)
 
 ## Installation
+
+### Binaries
+
+You can directly download and run the portable binaries that are pre-built and available
+as assets on [release pages](https://github.com/mindstorm38/portablemc/releases).
 
 ### Cargo
 
@@ -26,6 +32,13 @@ targets.
 
 ```sh
 cargo install portablemc-cli
+```
+
+If you are a developer willing to use PortableMC as a library to develop your own 
+launcher, it is also available on [crates.io](https://crates.io/crates/portablemc).
+
+```sh
+cargo add portablemc
 ```
 
 <!-- ### With Arch Linux
