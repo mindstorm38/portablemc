@@ -538,7 +538,7 @@ impl XmlLogParser {
 
     /// Feed the given buffer of tokens into the parser, any parsed log will be returned
     /// by the iterator. No iterator is returned if the parsing fails.
-    pub fn feed(&mut self, buffer: &str) -> impl Iterator<Item = XmlLog> + '_ {
+    pub fn feed(&mut self, buffer: &str) -> impl Iterator<Item = XmlLog> + use<'_> {
 
         use xmlparser::{Tokenizer, Token, ElementEnd};
 

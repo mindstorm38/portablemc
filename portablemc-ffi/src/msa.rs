@@ -1,8 +1,7 @@
 //! MSA bindings for C.
 
-use std::ffi::c_char;
-use std::pin::Pin;
 use std::ptr::{self, NonNull};
+use std::ffi::c_char;
 
 use portablemc::msa::{Account, Auth, AuthError, Database, DatabaseError, DeviceCodeFlow};
 use uuid::Uuid;
@@ -86,28 +85,28 @@ impl IntoExternErr for DatabaseError {
 // Binding for Auth
 // =======
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_auth_new(app_id: *const c_char) -> NonNull<Auth> {
     let app_id = unsafe { cstr::to_str_lossy(app_id) };
     extern_box(Auth::new(&app_id))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_auth_app_id(auth: &Auth) -> NonNull<c_char> {
     extern_cstr_from_str(auth.app_id())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_auth_language_code(auth: &Auth) -> Option<NonNull<c_char>> {
     auth.language_code().map(extern_cstr_from_str)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_auth_set_language_code(auth: &mut Auth, code: *const c_char) {
     auth.set_language_code(unsafe { cstr::to_str_lossy(code) });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_auth_request_device_code(auth: &Auth, err: *mut *mut raw::pmc_err) -> Option<NonNull<DeviceCodeFlow>> {
     extern_err_catch(err, || {
         auth.request_device_code().map(extern_box)
@@ -118,27 +117,27 @@ pub unsafe extern "C" fn pmc_msa_auth_request_device_code(auth: &Auth, err: *mut
 // Binding for DeviceCodeFlow
 // =======
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_device_code_flow_app_id(flow: &DeviceCodeFlow) -> NonNull<c_char> {
     extern_cstr_from_str(flow.app_id())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_device_code_flow_user_code(flow: &DeviceCodeFlow) -> NonNull<c_char> {
     extern_cstr_from_str(flow.user_code())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_device_code_flow_verification_uri(flow: &DeviceCodeFlow) -> NonNull<c_char> {
     extern_cstr_from_str(flow.verification_uri())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_device_code_flow_message(flow: &DeviceCodeFlow) -> NonNull<c_char> {
     extern_cstr_from_str(flow.message())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_device_code_flow_wait(flow: &DeviceCodeFlow, err: *mut *mut raw::pmc_err) -> Option<NonNull<Account>> {
     extern_err_catch(err, || {
         flow.wait().map(extern_box)
@@ -149,39 +148,39 @@ pub unsafe extern "C" fn pmc_msa_device_code_flow_wait(flow: &DeviceCodeFlow, er
 // Binding for Account
 // =======
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_account_app_id(acc: &Account) -> NonNull<c_char> {
     extern_cstr_from_str(acc.app_id())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_account_access_token(acc: &Account) -> NonNull<c_char> {
     extern_cstr_from_str(acc.access_token())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_account_uuid(acc: &Account) -> NonNull<raw::pmc_uuid> {
     extern_box(acc.uuid().as_bytes().clone())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_account_username(acc: &Account) -> NonNull<c_char> {
     extern_cstr_from_str(acc.username())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_account_xuid(acc: &Account) -> NonNull<c_char> {
     extern_cstr_from_str(acc.xuid())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_account_request_profile(acc: &mut Account, err: *mut *mut raw::pmc_err) {
     let _ = extern_err_catch(err, || {
         acc.request_profile()
     });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_account_request_refresh(acc: &mut Account, err: *mut *mut raw::pmc_err) {
     let _ = extern_err_catch(err, || {
         acc.request_refresh()
@@ -192,18 +191,18 @@ pub unsafe extern "C" fn pmc_msa_account_request_refresh(acc: &mut Account, err:
 // Binding for Database
 // =======
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_database_new(file: *const c_char) -> NonNull<Database> {
     let file = unsafe { cstr::to_str_lossy(file) }.into_owned();
     extern_box(Database::new(file))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_database_file(db: &Database) -> Option<NonNull<c_char>> {
     db.file().as_os_str().to_str().map(extern_cstr_from_str)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_database_load_from_uuid(db: &Database, uuid: *const raw::pmc_uuid, err: *mut *mut raw::pmc_err) -> Option<NonNull<Account>> {
     extern_err_catch(err, || {
         let uuid = Uuid::from_bytes(unsafe { *uuid });
@@ -211,7 +210,7 @@ pub unsafe extern "C" fn pmc_msa_database_load_from_uuid(db: &Database, uuid: *c
     }).unwrap_or(None).map(extern_box)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_database_load_from_username(db: &Database, username: *const c_char, err: *mut *mut raw::pmc_err) -> Option<NonNull<Account>> {
     extern_err_catch(err, || {
         let username = unsafe { cstr::to_str_lossy(username) };
@@ -219,7 +218,7 @@ pub unsafe extern "C" fn pmc_msa_database_load_from_username(db: &Database, user
     }).unwrap_or(None).map(extern_box)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_database_remove_from_uuid(db: &Database, uuid: *const raw::pmc_uuid, err: *mut *mut raw::pmc_err) -> Option<NonNull<Account>> {
     extern_err_catch(err, || {
         let uuid = Uuid::from_bytes(unsafe { *uuid });
@@ -227,7 +226,7 @@ pub unsafe extern "C" fn pmc_msa_database_remove_from_uuid(db: &Database, uuid: 
     }).unwrap_or(None).map(extern_box)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_database_remove_from_username(db: &Database, username: *const c_char, err: *mut *mut raw::pmc_err) -> Option<NonNull<Account>> {
     extern_err_catch(err, || {
         let username = unsafe { cstr::to_str_lossy(username) };
@@ -235,7 +234,7 @@ pub unsafe extern "C" fn pmc_msa_database_remove_from_username(db: &Database, us
     }).unwrap_or(None).map(extern_box)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_msa_database_store(db: &Database, acc: NonNull<Account>, err: *mut *mut raw::pmc_err) {
     let _ = extern_err_catch(err, || {
         let acc = unsafe { extern_box_take(acc) };

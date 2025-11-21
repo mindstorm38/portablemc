@@ -473,7 +473,7 @@ impl Installer {
             self.set_auth_offline_hostname();
         }
 
-        let Self {
+        let &mut Self {
             ref mut base,
             ref inner,
         } = self;

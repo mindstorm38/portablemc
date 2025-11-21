@@ -256,7 +256,7 @@ pub unsafe fn extern_box_take<T>(value_ptr: NonNull<T>) -> T {
 
 /// SAFETY: You must ensure that the value does point to an extern-boxed value that has
 /// no yet been freed. The pointer may be null, in which case nothing happens.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_free(value_ptr: *mut c_void) {
 
     // Ignore null pointers, this can be used to simplify some code.

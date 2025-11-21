@@ -79,117 +79,117 @@ impl IntoExternErr for Error {
 // Binding for Installer
 // =======
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_new(version: *const c_char) -> NonNull<Installer> {
     extern_box(Installer::new(unsafe { cstr::to_str_lossy(version) }))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_version(inst: &Installer) -> NonNull<c_char> {
     extern_cstr_from_str(inst.version())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_version(inst: &mut Installer, version: *const c_char) {
     inst.set_version(unsafe { cstr::to_str_lossy(version) });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_versions_dir(inst: &Installer) -> Option<NonNull<c_char>> {
     extern_cstr_from_fmt(format_args!("{}", inst.versions_dir().display())).ok()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_versions_dir(inst: &mut Installer, dir: *const c_char) {
     inst.set_versions_dir(unsafe { cstr::to_str_lossy(dir).to_string() });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_libraries_dir(inst: &Installer) -> Option<NonNull<c_char>> {
     extern_cstr_from_fmt(format_args!("{}", inst.libraries_dir().display())).ok()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_libraries_dir(inst: &mut Installer, dir: *const c_char) {
     inst.set_libraries_dir(unsafe { cstr::to_str_lossy(dir).to_string() });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_assets_dir(inst: &Installer) -> Option<NonNull<c_char>> {
     extern_cstr_from_fmt(format_args!("{}", inst.assets_dir().display())).ok()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_assets_dir(inst: &mut Installer, dir: *const c_char) {
     inst.set_assets_dir(unsafe { cstr::to_str_lossy(dir).to_string() });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_jvm_dir(inst: &Installer) -> Option<NonNull<c_char>> {
     extern_cstr_from_fmt(format_args!("{}", inst.jvm_dir().display())).ok()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_jvm_dir(inst: &mut Installer, dir: *const c_char) {
     inst.set_jvm_dir(unsafe { cstr::to_str_lossy(dir).to_string() });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_bin_dir(inst: &Installer) -> Option<NonNull<c_char>> {
     extern_cstr_from_fmt(format_args!("{}", inst.bin_dir().display())).ok()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_bin_dir(inst: &mut Installer, dir: *const c_char) {
     inst.set_bin_dir(unsafe { cstr::to_str_lossy(dir).to_string() });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_mc_dir(inst: &Installer) -> Option<NonNull<c_char>> {
     extern_cstr_from_fmt(format_args!("{}", inst.mc_dir().display())).ok()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_mc_dir(inst: &mut Installer, dir: *const c_char) {
     inst.set_mc_dir(unsafe { cstr::to_str_lossy(dir).to_string() });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_main_dir(inst: &mut Installer, dir: *const c_char) {
     inst.set_main_dir(unsafe { cstr::to_str_lossy(dir).to_string() });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_strict_assets_check(inst: &Installer) -> bool {
     inst.strict_assets_check()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_strict_assets_check(inst: &mut Installer, strict: bool) {
     inst.set_strict_assets_check(strict);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_strict_libraries_check(inst: &Installer) -> bool {
     inst.strict_libraries_check()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_strict_libraries_check(inst: &mut Installer, strict: bool) {
     inst.set_strict_libraries_check(strict);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_strict_jvm_check(inst: &Installer) -> bool {
     inst.strict_jvm_check()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_strict_jvm_check(inst: &mut Installer, strict: bool) {
     inst.set_strict_jvm_check(strict);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_jvm_policy(inst: &Installer) -> NonNull<raw::pmc_jvm_policy> {
    
     /// This wrapper type is used to return the JVM policy allocated and, if static,
@@ -230,7 +230,7 @@ pub unsafe extern "C" fn pmc_standard_jvm_policy(inst: &Installer) -> NonNull<ra
 
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_jvm_policy(inst: &mut Installer, policy: &raw::pmc_jvm_policy) {
     
     use raw::pmc_jvm_policy_tag::*;
@@ -246,27 +246,27 @@ pub unsafe extern "C" fn pmc_standard_set_jvm_policy(inst: &mut Installer, polic
 
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_launcher_name(inst: &Installer) -> NonNull<c_char> {
     extern_cstr_from_str(inst.launcher_name())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_launcher_name(inst: &mut Installer, name: *const c_char) {
     inst.set_launcher_name(unsafe { cstr::to_str_lossy(name) });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_launcher_version(inst: &Installer) -> NonNull<c_char> {
     extern_cstr_from_str(inst.launcher_version())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_set_launcher_version(inst: &mut Installer, version: *const c_char) {
     inst.set_launcher_version(unsafe { cstr::to_str_lossy(version) });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_standard_install(inst: &mut Installer, handler: raw::pmc_handler, err: *mut *mut raw::pmc_err) -> Option<NonNull<Game>> {
     extern_err_catch(err, || {
         inst.install(AdapterHandler(handler)).map(extern_box)
@@ -575,27 +575,27 @@ impl Handler for AdapterHandler {
 // Binding for Game
 // =======
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_game_jvm_file(game: &Game) -> Option<NonNull<c_char>> {
     extern_cstr_from_fmt(format_args!("{}", game.jvm_file.display())).ok()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_game_mc_dir(game: &Game) -> Option<NonNull<c_char>> {
     extern_cstr_from_fmt(format_args!("{}", game.mc_dir.display())).ok()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_game_main_class(game: &Game) -> NonNull<c_char> {
     extern_cstr_from_str(&game.main_class)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_game_jvm_args(game: &Game) -> NonNull<raw::pmc_game_args> {
     extern_game_args(&game.jvm_args)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_game_game_args(game: &Game) -> NonNull<raw::pmc_game_args> {
     extern_game_args(&game.game_args)
 }
@@ -629,7 +629,7 @@ fn extern_game_args(args: &[String]) -> NonNull<raw::pmc_game_args> {
 
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmc_game_spawn(game: &Game, err: *mut *mut raw::pmc_err) -> u32 {
     extern_err_catch(err, || {
         game.spawn().map(|child| child.id())
