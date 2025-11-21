@@ -6,20 +6,21 @@ use portablemc::msa::{Account, Auth, AuthError};
 use uuid::Uuid;
 
 use crate::output::LogLevel;
-use crate::parse::AuthArgs;
+use crate::parse::{AuthArgs, AuthCmd};
 
 use super::{Cli, log_msa_auth_error, log_msa_database_error};
 
 
 pub fn auth(cli: &mut Cli, args: &AuthArgs) -> ExitCode {
-    if let Some(forget_name) = &args.forget {
-        auth_account_action(cli, forget_name, AccountAction::Forget)
-    } else if let Some(refresh_name) = &args.refresh {
-        auth_account_action(cli, refresh_name, AccountAction::Refresh)
-    } else if args.list {
-        auth_list(cli)
-    } else {
-        auth_login(cli, args.no_browser)
+    match &args.cmd {
+        AuthCmd::Login(login_args) => 
+            auth_login(cli, login_args.no_browser),
+        AuthCmd::List(_list_args) => 
+            auth_list(cli),
+        AuthCmd::Refresh(refresh_args) => 
+            auth_account_action(cli, &refresh_args.account, AccountAction::Refresh),
+        AuthCmd::Forget(forget_args) => 
+            auth_account_action(cli, &forget_args.account, AccountAction::Forget),
     }
 }
 
@@ -190,10 +191,16 @@ fn auth_login(cli: &mut Cli, no_browser: bool) -> ExitCode {
         .success(code_flow.message());
 
     if cli.out.is_human() && !no_browser {
+
+        cli.out.log("auth_web_browser_open_prompt")
+            .pending("Read the message above, and then press enter to open your web browser")
+            .prompt(None);
+
         if webbrowser::open(code_flow.verification_uri()).is_ok() {
-            cli.out.log("auth_webbrowser_opened")
-                .additional("Your web browser has been opened");
+            cli.out.log("auth_web_browser_opened")
+                .success("Your web browser has been opened");
         }
+
     }
 
     cli.out.log("auth_wait")

@@ -762,6 +762,21 @@ pub enum SearchLatestChannel {
 /// If this command fails to load and/or store the database, its exit code is 1 (failure).
 #[derive(Debug, Args)]
 pub struct AuthArgs {
+    #[command(subcommand)]
+    pub cmd: AuthCmd,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AuthCmd {
+    Login(AuthLoginArgs),
+    List(AuthListArgs),
+    Refresh(AuthRefreshArgs),
+    Forget(AuthForgetArgs),
+}
+
+/// Login and register a new authenticated session.
+#[derive(Debug, Args)]
+pub struct AuthLoginArgs {
     /// Prevent the launcher from opening your system's web browser with the 
     /// authentication page.
     /// 
@@ -770,25 +785,35 @@ pub struct AuthArgs {
     /// behavior.
     #[arg(long)]
     pub no_browser: bool,
-    /// Forget the given authenticated session by its UUID, or username as a fallback.
-    /// 
-    /// You'll no longer be able to authenticate with this session when starting the
-    /// game, you'll have to authenticate again. If not account is matching the given
-    /// UUID or username, then the database is not rewritten, and a warning message is
-    /// issued, but the exit code is always 0 (success).
-    #[arg(short, long, exclusive = true)]
-    pub forget: Option<String>,
-    /// Refresh the given account, updating the username if it has been modified.
-    /// 
-    /// If the profile cannot be refreshed, a request for refreshing
-    /// 
-    /// Note that this procedure is automatically done on game's start, so you don't need 
-    /// to run this before starting the game with an account. You may want to use this 
-    /// in order to update the database and list the updated accounts.
-    #[arg(short, long, exclusive = true)]
-    pub refresh: Option<String>,
-    /// List all currently authenticated sessions, by username and UUID, that can be used
-    /// with the start command to authenticate.
-    #[arg(short, long, exclusive = true)]
-    pub list: bool,
+}
+
+/// List all currently authenticated sessions.
+/// 
+/// By username and UUID, that can be used with the start command to authenticate.
+#[derive(Debug, Args)]
+pub struct AuthListArgs { }
+
+/// Refresh an authenticated session.
+/// 
+/// This updates the username if it has been modified.
+/// 
+/// Note that this procedure is automatically done on game's start, so you don't need 
+/// to run this before starting the game with an account. You may want to use this 
+/// in order to update the database and list the updated accounts.
+#[derive(Debug, Args)]
+pub struct AuthRefreshArgs {
+    /// The UUID of the account or the username as a fallback.
+    pub account: String,
+}
+
+/// Forget an authenticated session.
+/// 
+/// You'll no longer be able to authenticate with this session when starting the
+/// game, you'll have to authenticate again. If not account is matching the given
+/// UUID or username, then the database is not rewritten, and a warning message is
+/// issued, but the exit code is always 0 (success).
+#[derive(Debug, Args)]
+pub struct AuthForgetArgs {
+    /// The UUID of the account or the username as a fallback.
+    pub account: String,
 }
