@@ -348,6 +348,21 @@ impl Log<'_, false> {
         self.line(LogLevel::Additional, message)
     }
 
+    /// Wait for a new written line on stdin, blocking until the line is written. If no
+    /// line buffer is given, it waits for new line. This is only for human mode, any
+    /// machine mode instantly returns and don't wait.
+    #[inline]
+    pub fn prompt(&mut self, line: Option<&mut String>) -> &mut Self {
+        if let OutputMode::Human(_mode) = &mut self.output.mode {
+            if let Some(line) = line {
+                let _ = io::stdin().read_line(line).unwrap();
+            } else {
+                let _ = io::stdin().read_line(&mut String::new()).unwrap();
+            }
+        }
+        self
+    }
+
 }
 
 impl Log<'_, true> {
