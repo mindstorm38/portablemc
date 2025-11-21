@@ -3,7 +3,7 @@ members = ["portablemc", "portablemc-cli", "portablemc-ffi", "portablemc-py"]
 resolver = "2"
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 version = "5.0.0-beta.2"
 authors = ["Théo Rozier <contact@theorozier.fr>"]
 homepage = "https://github.com/mindstorm38/portablemc"
