@@ -36,7 +36,8 @@ jobs:
         shell: bash
         run: test "v${{ needs.fetch-version.outputs.version }}" = "${{ github.ref_name }}"
 
-  # We only build when the current cargo version 
+  # We only build when the current cargo version has been checked OR we have manually 
+  # dispatched the workflow!
   build:
     strategy:
       fail-fast: false
@@ -88,10 +89,8 @@ jobs:
               echo 'CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER=/usr/bin/arm-linux-gnueabihf-gcc' >> $GITHUB_ENV
 
     name: Build ${{ matrix.target }} on ${{ matrix.image }}
-    needs: 
-      - fetch-version
-      - check-version  # Note that this already depends on github.ref being a tag...
-    if: ${{ !contains(github.ref, '-beta') && !contains(github.ref, '-alpha') }}
+    needs: check-version  # Note that this already depends on github.ref being a tag...
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.check-version.result == 'success' && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha'))) }}
     runs-on: ${{ matrix.image }}
     steps:
 
