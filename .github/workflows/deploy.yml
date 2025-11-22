@@ -40,7 +40,7 @@ jobs:
               echo 'OPENSSL_LIB_DIR=/usr/lib/i386-linux-gnu' >> $GITHUB_ENV
           # macos-13 (x86_64)
           - target: x86_64-apple-darwin
-            image: macos-13
+            image: macos-15-intel
           # macos-15 (aarch64)
           - target: aarch64-apple-darwin
             image: macos-15
