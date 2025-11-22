@@ -38,7 +38,7 @@ jobs:
               sudo apt install libssl-dev:i386 gcc-multilib
               echo 'OPENSSL_INCLUDE_DIR=/usr/include' >> $GITHUB_ENV
               echo 'OPENSSL_LIB_DIR=/usr/lib/i386-linux-gnu' >> $GITHUB_ENV
-          # macos-13 (x86_64)
+          # macos-15 (x86_64)
           - target: x86_64-apple-darwin
             image: macos-15-intel
           # macos-15 (aarch64)
