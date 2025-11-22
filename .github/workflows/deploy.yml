@@ -159,8 +159,7 @@ jobs:
     name: Release
     needs: 
       - fetch-version
-      - check-version  # This requires that github.ref is a tag...
-      - build          # and this checks that this is not a beta/alpha
+      - build  # This requires that github.ref is a tag and not of beta/alpha
     runs-on: ubuntu-latest
     steps:
 
