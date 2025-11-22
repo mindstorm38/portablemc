@@ -173,8 +173,8 @@ jobs:
 
   publish:
     name: Publish
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: release  # Wait for release because it checks that tag matches the cargo version
+    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha')
     runs-on: ubuntu-latest
     steps:
 
