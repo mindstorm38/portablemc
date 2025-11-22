@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p ~/portablemc/dev
-          cp -r ./portablemc-ffi/include ~/portablemc/dev/
+          # cp -r ./portablemc-ffi/include ~/portablemc/dev/
           cp .github/workflows/data/target-readme.txt ~/portablemc/readme.txt
 
       - name: Collect artifacts (linux)
