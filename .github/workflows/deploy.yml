@@ -13,6 +13,30 @@ env:
 
 jobs:
 
+  # We always fetch the cargo version, it's used in some places below...
+  fetch-version:
+    name: Fetch version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+    steps:
+      - name: Get version
+        id: get-version
+        shell: bash
+        run: echo "version=$(cargo pkgid -p portablemc | awk -F'[#@]' '{print $NF}')" >> $GITHUB_OUTPUT
+  
+  # We only check the cargo version if we are running the workflow against a tag.
+  check-version:
+    name: Check version against tag
+    needs: fetch-version
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Match cargo version with tag
+        shell: bash
+        run: test "v${{ needs.fetch-version.outputs.version }}" = "${{ github.ref_name }}"
+
+  # We only build when the current cargo version 
   build:
     strategy:
       fail-fast: false
@@ -64,6 +88,10 @@ jobs:
               echo 'CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER=/usr/bin/arm-linux-gnueabihf-gcc' >> $GITHUB_ENV
 
     name: Build ${{ matrix.target }} on ${{ matrix.image }}
+    needs: 
+      - fetch-version
+      - check-version  # Note that this already depends on github.ref being a tag...
+    if: ${{ !contains(github.ref, '-beta') && !contains(github.ref, '-alpha') }}
     runs-on: ${{ matrix.image }}
     steps:
 
@@ -130,21 +158,14 @@ jobs:
   
   release:
     name: Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: 
+      - fetch-version
+      - check-version  # This requires that github.ref is a tag...
+      - build          # and this checks that this is not a beta/alpha
     runs-on: ubuntu-latest
     steps:
 
       - uses: actions/checkout@v4
-
-      - name: Get cargo version
-        id: get-cargo-version
-        shell: bash
-        run: echo "cargo-version=$(cargo pkgid -p portablemc | awk -F'[#@]' '{print $NF}')" >> $GITHUB_OUTPUT
-      
-      - name: Match cargo version
-        shell: bash
-        run: test "v${{ steps.get-cargo-version.outputs.cargo-version }}" = "${{ github.ref_name }}"
 
       - name: Download workflow artifacts
         id: download-workflow-artifacts
@@ -160,7 +181,7 @@ jobs:
           for target in *; do
             cd $target
             target_description=$(rustc +nightly --target $target -Z unstable-options --print target-spec-json | jq -r '.metadata.description')
-            echo "Version: ${{ steps.get-cargo-version.outputs.cargo-version }}" >> readme.txt
+            echo "Version: ${{ needs.fetch-version.outputs.version }}" >> readme.txt
             echo "Target: $target" >> readme.txt
             echo "        $target_description" >> readme.txt
             zip -r ../$target.zip *
@@ -169,12 +190,11 @@ jobs:
 
       - name: Create release
         shell: bash
-        run: gh release create ${{ github.ref_name }} --verify-tag --draft --title "Version ${{ steps.get-cargo-version.outputs.cargo-version }}" --notes-file .github/workflows/data/release-notes.md ~/artifacts/*.zip
+        run: gh release create ${{ github.ref_name }} --verify-tag --draft --title "Version ${{ needs.fetch-version.outputs.version }}" --notes-file .github/workflows/data/release-notes.md ~/artifacts/*.zip
 
   publish:
     name: Publish
-    needs: release  # Wait for release because it checks that tag matches the cargo version
-    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha')
+    needs: check-version  # This checks that github.ref is a tag
     runs-on: ubuntu-latest
     steps:
 
