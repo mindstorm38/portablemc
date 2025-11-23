@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 
 use chrono::{DateTime, FixedOffset};
 
@@ -152,7 +153,7 @@ impl VersionLibraryDownloads {
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionLibraryDownload {
-    pub path: Option<String>,
+    pub path: Option<PathBuf>,
     #[serde(flatten)]
     pub download: Download,
 }

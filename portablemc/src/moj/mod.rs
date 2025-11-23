@@ -1088,15 +1088,16 @@ impl InternalHandler<'_> {
 
     fn apply_fix_broken_authlib(&mut self, libraries: &mut Vec<LoadedLibrary>) -> Result<()> {
 
-        let target_gav = Gav::new("com.mojang", "authlib", "2.1.28", None, None);
+        // Unwrap because we don't exceed length limit for sure.
+        let target_gav = Gav::new("com.mojang", "authlib", "2.1.28", None, None).unwrap();
         let pos = libraries.iter().position(|lib| lib.name == target_gav);
     
         if let Some(pos) = pos {
 
             libraries[pos].path = None;  // Ensure that the path is recomputed.
-            libraries[pos].name.set_version("2.2.30");
+            libraries[pos].name = libraries[pos].name.with_version("2.2.30").unwrap();
             libraries[pos].download = Some(LibraryDownload {
-                url: format!("{LIBRARIES_URL}com/mojang/authlib/2.2.30/authlib-2.2.30.jar"),
+                url: format!("{LIBRARIES_URL}{}", libraries[pos].name.url()),
                 size: Some(87497),
                 sha1: Some([0xd6, 0xe6, 0x77, 0x19, 0x9a, 0xa6, 0xb1, 0x9c, 0x4a, 0x9a, 0x2e, 0x72, 0x50, 0x34, 0x14, 0x9e, 0xb3, 0xe7, 0x46, 0xf8]),
             });
@@ -1131,18 +1132,25 @@ impl InternalHandler<'_> {
             })
         };
     
-        // Contains to-be-expected unique LWJGL libraries, without classifier.
+        // Contains to-be-expected unique LWJGL libraries, with the classifier.
         let mut lwjgl_libs = Vec::new();
     
         // Start by not retaining libraries with classifiers (natives).
         libraries.retain_mut(|lib| {
             if let ("org.lwjgl", "jar") = (lib.name.group(), lib.name.extension_or_default()) {
                 if lib.name.classifier().is_none() {
-                    lib.path = None;
-                    lib.download = None;  // Will be updated afterward.
-                    lib.name.set_version(version);
-                    lwjgl_libs.push(lib.name.clone());
-                    true
+                    if let Some(new_name) = lib.name.with_version(version) 
+                    && let Some(new_classifier_name) = new_name.with_classifier(Some(classifier)) {
+                        lib.path = None;
+                        lib.download = None;  // Will be updated afterward.
+                        lib.name = new_name;
+                        lwjgl_libs.push(new_classifier_name);
+                        true
+                    } else {
+                        // Do not retain if we got an error create the new version, it 
+                        // might be too long and we don't want to unwrap.
+                        false
+                    }
                 } else {
                     // Libraries with classifiers are not retained.
                     false
@@ -1153,8 +1161,7 @@ impl InternalHandler<'_> {
         });
     
         // Now we add the classifiers for each LWJGL lib.
-        libraries.extend(lwjgl_libs.into_iter().map(|mut gav| {
-            gav.set_classifier(Some(classifier));
+        libraries.extend(lwjgl_libs.into_iter().map(|gav| {
             LoadedLibrary {
                 name: gav,
                 path: None,

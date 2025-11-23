@@ -608,13 +608,21 @@ impl Installer {
                     // If we find a arch replacement pattern, we must replace it with
                     // the target architecture bit-ness (32, 64).
                     const ARCH_REPLACEMENT_PATTERN: &str = "${arch}";
+                    let new_gav;
                     if let Some(pattern_idx) = classifier.find(ARCH_REPLACEMENT_PATTERN) {
                         let mut classifier = classifier.clone();
                         classifier.replace_range(pattern_idx..pattern_idx + ARCH_REPLACEMENT_PATTERN.len(), os_bits);
-                        lib_gav.set_classifier(Some(&classifier));
+                        new_gav = lib_gav.with_classifier(Some(&classifier));
                     } else {
-                        lib_gav.set_classifier(Some(&classifier));
+                        new_gav = lib_gav.with_classifier(Some(&classifier));
                     }
+
+                    // Ignore that new GAV if the gav cannot be constructed!
+                    let Some(new_gav) = new_gav else {
+                        continue;
+                    };
+
+                    lib_gav = new_gav;
 
                 }
 
@@ -629,8 +637,9 @@ impl Installer {
 
                 // Clone the spec with wildcard for version because we shouldn't override
                 // if any of the group/artifact/classifier/extension are matching.
-                let mut lib_gav_wildcard = lib_gav.clone();
-                lib_gav_wildcard.set_version("*");
+                // Unwrapping because it's a single character version, which could not 
+                // exceed the limits checked by the previous version.
+                let lib_gav_wildcard = lib_gav.with_version("-").unwrap();
                 if !libraries_set.insert(lib_gav_wildcard) {
                     continue;
                 }
@@ -705,10 +714,9 @@ impl Installer {
 
             // Construct the library path depending on its presence.
             let lib_file = if let Some(lib_rel_path) = lib.path.as_deref() {
-                // FIXME: Insecure path joining.
-                self.libraries_dir.join(lib_rel_path)
+                self.libraries_dir.join(check_path_relative_and_safe(lib_rel_path)?)
             } else {
-                lib.name.file(&self.libraries_dir)
+                self.libraries_dir.join(&lib.name.file())
             };
 
             // If no repository URL is given, no more download method is available,
@@ -2268,6 +2276,15 @@ struct MojangJvm {
 struct MojangJvmLink {
     file: Box<Path>,
     target_file: Box<Path>,
+}
+
+/// Check that the given path does not contain any root or parent directory component.
+pub(crate) fn check_path_relative_and_safe<P: AsRef<Path>>(path: P) -> Result<P> {
+    if path.as_ref().is_relative_and_safe() {
+        Ok(path)
+    } else {
+        Err(Error::new_io_file(io::Error::new(io::ErrorKind::InvalidInput, "path is not relative or contains unsafe components"), path))
+    }
 }
 
 /// Check if a file at a given path has the corresponding properties (size and/or SHA-1), 

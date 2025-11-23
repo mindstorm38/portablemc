@@ -1,6 +1,6 @@
 //! Various uncategorized utilities.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::ffi::OsStr;
 
 
@@ -12,6 +12,9 @@ pub trait PathExt {
     fn join_with_extension<P: AsRef<Path>, S: AsRef<OsStr>>(&self, name: P, extension: S) -> PathBuf;
 
     fn append<S: AsRef<OsStr>>(&self, s: S) -> PathBuf;
+
+    /// Returns true if this path is both only relative and safe to join to a root dir.
+    fn is_relative_and_safe(&self) -> bool;
 
 }
 
@@ -25,6 +28,10 @@ impl PathExt for Path {
     #[inline]
     fn append<S: AsRef<OsStr>>(&self, s: S) -> PathBuf {
         self.to_path_buf().appended(s)
+    }
+
+    fn is_relative_and_safe(&self) -> bool {
+        self.components().all(|c| matches!(c, Component::CurDir | Component::Normal(_)))
     }
 
 }
