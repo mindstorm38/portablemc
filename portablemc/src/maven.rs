@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 use std::iter::FusedIterator;
-use std::num::NonZeroU16;
+use std::num::NonZero;
 use std::str::FromStr;
 use std::borrow::Cow;
 use std::ops::Range;
@@ -18,43 +18,52 @@ pub struct Gav {
     /// Internal buffer.
     raw: String,
     /// Length of the group part in the specifier.
-    group_len: NonZeroU16,
+    group_len: NonZero<u16>,
     /// Length of the artifact part in the specifier.
-    artifact_len: NonZeroU16,
+    artifact_len: NonZero<u16>,
     /// Length of the version part in the specifier.
-    version_len: NonZeroU16,
+    version_len: NonZero<u16>,
     /// Length of the classifier part in the specifier, if relevant.
-    classifier_len: Option<NonZeroU16>,
+    classifier_len: Option<NonZero<u16>>,
     /// Length of the extension part in the specifier, if relevant.
-    extension_len: Option<NonZeroU16>,
+    extension_len: Option<NonZero<u16>>,
 }
 
 impl Gav {
 
     /// Create a new library specifier with the given components.
     /// Each component, if given, should not be empty.
-    pub fn new(group: &str, artifact: &str, version: &str, classifier: Option<&str>, extension: Option<&str>) -> Self {
+    pub fn new(group: &str, artifact: &str, version: &str, classifier: Option<&str>, extension: Option<&str>) -> Option<Self> {
         
         let mut raw = format!("{group}:{artifact}:{version}");
         
+        let mut classifier_len = None;
         if let Some(classifier) = classifier {
             raw.push(':');
             raw.push_str(classifier);
+            classifier_len = Some(NonZero::new(classifier.len() as _)?);
         }
 
+        let mut extension_len = None;
         if let Some(extension) = extension {
             raw.push('@');
             raw.push_str(extension);
+            extension_len = Some(NonZero::new(extension.len() as _)?);
         }
 
-        Self {
-            raw,
-            group_len: NonZeroU16::new(group.len().try_into().expect("group too long")).expect("group empty"),
-            artifact_len: NonZeroU16::new(artifact.len().try_into().expect("artifact too long")).expect("artifact empty"),
-            version_len: NonZeroU16::new(version.len().try_into().expect("version too long")).expect("version empty"),
-            classifier_len: classifier.map(|classifier| NonZeroU16::new(classifier.len().try_into().expect("classifier too long")).expect("classifier empty")),
-            extension_len: extension.map(|extension| NonZeroU16::new(extension.len().try_into().expect("extension too long")).expect("extension empty")),
+        // Read below, we ensure that every part fits in u16.
+        if raw.len() > u16::MAX as usize {
+            return None;
         }
+
+        Some(Self {
+            raw,
+            group_len: NonZero::new(group.len() as _)?,
+            artifact_len: NonZero::new(artifact.len() as _)?,
+            version_len: NonZero::new(version.len() as _)?,
+            classifier_len,
+            extension_len,
+        })
 
     }
 
@@ -71,7 +80,7 @@ impl Gav {
         let mut split = raw.split('@');
         let raw0 = split.next()?;
         let extension_len = match split.next() {
-            Some(s) => Some(NonZeroU16::new(s.len() as _)?),
+            Some(s) => Some(NonZero::new(s.len() as _)?),
             None => None,
         };
 
@@ -80,11 +89,11 @@ impl Gav {
         }
 
         let mut split = raw0.split(':');
-        let group_len = NonZeroU16::new(split.next()?.len() as _)?;
-        let artifact_len = NonZeroU16::new(split.next()?.len() as _)?;
-        let version_len = NonZeroU16::new(split.next()?.len() as _)?;
+        let group_len = NonZero::new(split.next()?.len() as _)?;
+        let artifact_len = NonZero::new(split.next()?.len() as _)?;
+        let version_len = NonZero::new(split.next()?.len() as _)?;
         let classifier_len = match split.next() {
-            Some(s) => Some(NonZeroU16::new(s.len() as _)?),
+            Some(s) => Some(NonZero::new(s.len() as _)?),
             None => None,
         };
 
@@ -144,11 +153,9 @@ impl Gav {
         &self.raw[self.group_range()]
     }
 
-    /// Change the group of the library, should not be empty.
-    pub fn set_group(&mut self, group: &str) {
-        let range = self.group_range();
-        self.group_len = NonZeroU16::new(group.len().try_into().expect("group too long")).expect("group empty");
-        self.raw.replace_range(range, group);
+    #[inline]
+    pub fn with_group(&self, group: &str) -> Option<Self> {
+        Self::new(group, self.artifact(), self.version(), self.classifier(), self.extension())
     }
 
     /// Return the artifact name of the library, never empty.
@@ -157,11 +164,9 @@ impl Gav {
         &self.raw[self.artifact_range()]
     }
 
-    /// Change the artifact of the library, should not be empty.
-    pub fn set_artifact(&mut self, artifact: &str) {
-        let range = self.artifact_range();
-        self.artifact_len = NonZeroU16::new(artifact.len().try_into().expect("artifact too long")).expect("artifact empty");
-        self.raw.replace_range(range, artifact);
+    #[inline]
+    pub fn with_artifact(&self, artifact: &str) -> Option<Self> {
+        Self::new(self.group(), artifact, self.version(), self.classifier(), self.extension())
     }
 
     /// Return the version of the library, never empty.
@@ -170,14 +175,8 @@ impl Gav {
         &self.raw[self.version_range()]
     }
 
-    /// Change the version of the library, should not be empty.
-    pub fn set_version(&mut self, version: &str) {
-        let range = self.version_range();
-        self.version_len = NonZeroU16::new(version.len().try_into().expect("version too long")).expect("version empty");
-        self.raw.replace_range(range, version);
-    }
-
-    pub fn with_version(&self, version: &str) -> Self {
+    #[inline]
+    pub fn with_version(&self, version: &str) -> Option<Self> {
         Self::new(self.group(), self.artifact(), version, self.classifier(), self.extension())
     }
 
@@ -192,22 +191,8 @@ impl Gav {
         }
     }
 
-    /// Change the classifier of the library, should not be empty.
-    pub fn set_classifier(&mut self, classifier: Option<&str>) {
-        let range = self.classifier_range();
-        if let Some(classifier) = classifier {
-            self.classifier_len = Some(NonZeroU16::new(classifier.len().try_into().expect("classifier too long")).expect("classifier empty"));
-            self.raw.replace_range(range.clone(), classifier);
-            if range.is_empty() {
-                self.raw.insert(range.start, ':');
-            }
-        } else if !range.is_empty() {
-            self.classifier_len = None;
-            self.raw.replace_range(range.start - 1..range.end, "");
-        }
-    }
-
-    pub fn with_classifier(&self, classifier: Option<&str>) -> Self {
+    #[inline]
+    pub fn with_classifier(&self, classifier: Option<&str>) -> Option<Self> {
         Self::new(self.group(), self.artifact(), self.version(), classifier, self.extension())
     }
 
@@ -229,19 +214,9 @@ impl Gav {
         self.extension().unwrap_or("jar")
     }
 
-    /// Change the extension of the library, should not be empty.
-    pub fn set_extension(&mut self, extension: Option<&str>) {
-        let range = self.extension_range();
-        if let Some(extension) = extension {
-            self.extension_len = Some(NonZeroU16::new(extension.len().try_into().expect("extension too long")).expect("extension empty"));
-            self.raw.replace_range(range.clone(), extension);
-            if range.is_empty() {
-                self.raw.insert(range.start, '@');
-            }
-        } else if !range.is_empty() {
-            self.extension_len = None;
-            self.raw.replace_range(range.start - 1..range.end, "");
-        }
+    #[inline]
+    pub fn with_extension(&self, extension: Option<&str>) -> Option<Self> {
+        Self::new(self.group(), self.artifact(), self.version(), self.classifier(), extension)
     }
 
     /// Get the representation of the GAV as a string.
@@ -260,9 +235,8 @@ impl Gav {
         GavUrl(self)
     }
 
-    /// Create a file path of this GAV from a base directory.
-    /// 
-    /// FIXME: Insecure path joining if any component as a '..'!
+    /// Create a file path of this GAV from a base directory. This may produce a path 
+    /// that is insecure to join due to absolute or parent relative joining.
     pub fn file<P: AsRef<Path>>(&self, dir: P) -> PathBuf {
 
         let mut buf = dir.as_ref().to_path_buf();
@@ -484,39 +458,39 @@ mod tests {
     #[test]
     #[should_panic]
     fn empty_group() {
-        Gav::new("", "baz", "0.1.2-beta", None, None);
+        Gav::new("", "baz", "0.1.2-beta", None, None).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn empty_artifact() {
-        Gav::new("foo.bar", "", "0.1.2-beta", None, None);
+        Gav::new("foo.bar", "", "0.1.2-beta", None, None).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn empty_version() {
-        Gav::new("foo.bar", "baz", "", None, None);
+        Gav::new("foo.bar", "baz", "", None, None).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn empty_classifier() {
-        Gav::new("foo.bar", "baz", "0.1.2-beta", Some(""), None);
+        Gav::new("foo.bar", "baz", "0.1.2-beta", Some(""), None).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn empty_extension() {
-        Gav::new("foo.bar", "baz", "0.1.2-beta", None, Some(""));
+        Gav::new("foo.bar", "baz", "0.1.2-beta", None, Some("")).unwrap();
     }
 
     #[test]
     fn as_str_correct() {
-        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", None, None).as_str(), "foo.bar:baz:0.1.2-beta");
-        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", Some("natives"), None).as_str(), "foo.bar:baz:0.1.2-beta:natives");
-        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", None, Some("jar")).as_str(), "foo.bar:baz:0.1.2-beta@jar");
-        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", Some("natives"), Some("jar")).as_str(), "foo.bar:baz:0.1.2-beta:natives@jar");
+        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", None, None).unwrap().as_str(), "foo.bar:baz:0.1.2-beta");
+        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", Some("natives"), None).unwrap().as_str(), "foo.bar:baz:0.1.2-beta:natives");
+        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", None, Some("jar")).unwrap().as_str(), "foo.bar:baz:0.1.2-beta@jar");
+        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", Some("natives"), Some("jar")).unwrap().as_str(), "foo.bar:baz:0.1.2-beta:natives@jar");
     }
 
     #[test]
@@ -553,32 +527,12 @@ mod tests {
     #[test]
     fn modify() {
 
-        let mut gav = Gav::from_str("foo.bar:baz:0.1.2-beta").unwrap();
-
-        gav.set_group("foo.bar.00");
-        assert_eq!(gav.as_str(), "foo.bar.00:baz:0.1.2-beta");
-        gav.set_group("foo.bar");
-        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta");
-
-        gav.set_artifact("baz00");
-        assert_eq!(gav.as_str(), "foo.bar:baz00:0.1.2-beta");
-        gav.set_artifact("baz");
-        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta");
-
-        gav.set_version("0.1.3-alpha");
-        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.3-alpha");
-        gav.set_version("0.1.2-beta");
-        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta");
-
-        gav.set_classifier(Some("natives"));
-        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta:natives");
-        gav.set_classifier(None);
-        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta");
-
-        gav.set_extension(Some("txt"));
-        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta@txt");
-        gav.set_extension(None);
-        assert_eq!(gav.as_str(), "foo.bar:baz:0.1.2-beta");
+        let gav = Gav::from_str("foo.bar:baz:0.1.2-beta").unwrap();
+        assert_eq!(gav.with_group("foo1.bar2").unwrap().as_str(), "foo1.bar2:baz:0.1.2-beta");
+        assert_eq!(gav.with_artifact("baz1").unwrap().as_str(), "foo.bar:baz1:0.1.2-beta");
+        assert_eq!(gav.with_version("0.1.3-alpha").unwrap().as_str(), "foo.bar:baz:0.1.3-alpha");
+        assert_eq!(gav.with_classifier(Some("natives")).unwrap().as_str(), "foo.bar:baz:0.1.2-beta:natives");
+        assert_eq!(gav.with_extension(Some("txt")).unwrap().as_str(), "foo.bar:baz:0.1.2-beta@txt");
 
     }
 

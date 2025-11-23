@@ -157,11 +157,11 @@ impl Installer {
                     let libs_dir = mojang.base().libraries_dir();
                     
                     // Start by checking patched client and universal client.
-                    if !check_exists(&config.name.with_classifier(Some("client")).file(libs_dir)) {
+                    if let Some(client_gav) = config.name.with_classifier(Some("client")) && !check_exists(&client_gav.file(libs_dir)) {
                         break InstallReason::MissingPatchedClient;
                     }
 
-                    if !check_exists(&config.name.with_classifier(Some("universal")).file(libs_dir)) {
+                    if let Some(universal_gav) = config.name.with_classifier(Some("universal")) && !check_exists(&universal_gav.file(libs_dir)) {
                         break InstallReason::MissingUniversalClient;
                     }
 
@@ -704,7 +704,7 @@ impl InstallConfig {
 
         Some(Self {
             default_prefix: "forge",
-            name: Gav::new("net.minecraftforge", "forge", name, None, None),
+            name: Gav::new("net.minecraftforge", "forge", name, None, None)?,
             repo_url: "https://maven.minecraftforge.net",
             game_version: if game_version == "1.7.10_pre4" {
                 "1.7.10-pre4".to_string()  // The only pre-release supported.
@@ -746,10 +746,10 @@ impl InstallConfig {
         let game_version;
 
         if name == "47.1.82" || name.starts_with("1.20.1-") {
-            gav = Gav::new("net.neoforged", "forge", name, None, None);
+            gav = Gav::new("net.neoforged", "forge", name, None, None)?;
             game_version = "1.20.1".to_string();
         } else {
-            gav = Gav::new("net.neoforged", "neoforge", name, None, None);
+            gav = Gav::new("net.neoforged", "neoforge", name, None, None)?;
             game_version = match parse_generic_version::<2, 2>(name)? {
                 [major, 0] => format!("1.{major}"),
                 [major, minor] => format!("1.{major}.{minor}"),
@@ -788,7 +788,13 @@ fn try_install(
     // simply no installer for this version!
     handler.on_event(Event::FetchInstaller { version: config.name.version() });
 
-    let installer_gav = config.name.with_classifier(Some("installer"));
+    // Handle the case where the next installer gav could not be constructed, too long?
+    let Some(installer_gav) = config.name.with_classifier(Some("installer")) else {
+        return Err(Error::InstallerNotFound { 
+            version: config.name.version().to_string(),
+        });
+    };
+
     let installer_url = format!("{}/{}", config.repo_url, installer_gav.url());
     
     // Download and check result in case installer is just not found.
@@ -904,8 +910,7 @@ fn try_install(
                 let lib_dl = &lib.downloads.artifact;
 
                 let lib_file = if let Some(lib_path) = &lib_dl.path {
-                    // FIXME: Insecure joining!
-                    libraries_dir.join(lib_path)
+                    libraries_dir.join(base::check_path_relative_and_safe(lib_path)?)
                 } else {
                     lib.name.file(&libraries_dir)
                 };
@@ -949,9 +954,8 @@ fn try_install(
                     }
                     _ => {
                         // This is a file that we should extract to the temp directory.
-                        // FIXME: Insecure joining.
                         let entry = entry.strip_prefix('/').unwrap_or(entry);
-                        let tmp_file = tmp_dir.join(entry);
+                        let tmp_file = tmp_dir.join(base::check_path_relative_and_safe(entry)?);
                         extract_installer_file(installer_file, &mut installer_zip, entry, &tmp_file)?;
                         InstallDataTypedEntry::File(tmp_file)
                     }
