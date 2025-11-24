@@ -1,6 +1,6 @@
 [package]
-name = "portablemc-c"
-description = "Bindings to PortableMC for C language."
+name = "portablemc-ffi"
+description = "Bindings to PortableMC for C language, and more in the future."
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
@@ -23,5 +23,6 @@ serde_json.workspace = true
 tempfile.workspace = true
 
 [lib]
+# Named like this to avoid collision with portablemc, it's renamed by deploy workflow.
 name = "portablemc_ffi"
 crate-type = ["staticlib", "cdylib"]

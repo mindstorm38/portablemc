@@ -125,7 +125,7 @@ pub trait IntoExternErr {
 }
 
 /// If this result is an error, then the error is extracted and moved into an extern
-/// error, using [`extern_err`], and written in the pointer. Note that if the pointer
+/// error, using `extern_err`, and written in the pointer. Note that if the pointer
 /// of the error is not null, then it is freed anyway, error or not.
 #[inline]
 pub fn extern_err_catch<T, E, F>(err_ptr: *mut *mut raw::pmc_err, func: F) -> Option<T>
