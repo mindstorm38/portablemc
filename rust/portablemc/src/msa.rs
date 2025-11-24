@@ -35,13 +35,20 @@ impl Auth {
         }
     }
 
+    #[inline]
     pub fn app_id(&self) -> &str {
         &self.app_id
+    }
+
+    #[inline]
+    pub fn language_code(&self) -> Option<&str> {
+        self.language_code.as_deref()
     }
 
     /// Define a specific language code to use for localized messages.
     /// 
     /// See <https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes>
+    #[inline]
     pub fn set_language_code(&mut self, code: impl Into<String>) -> &mut Self {
         self.language_code = Some(code.into());
         self
@@ -105,18 +112,22 @@ pub struct DeviceCodeFlow {
 
 impl DeviceCodeFlow {
 
+    #[inline]
     pub fn app_id(&self) -> &str {
         &self.app_id
     }
 
+    #[inline]
     pub fn user_code(&self) -> &str {
         &self.res.user_code
     }
 
+    #[inline]
     pub fn verification_uri(&self) -> &str {
         &self.res.verification_uri
     }
 
+    #[inline]
     pub fn message(&self) -> &str {
         &self.res.message
     }
@@ -155,9 +166,9 @@ impl DeviceCodeFlow {
                             "authorization_pending" => 
                                 continue,
                             "authorization_declined" => 
-                                break Err(AuthError::AuthorizationDeclined),
+                                break Err(AuthError::Declined),
                             "expired_token" => 
-                                break Err(AuthError::AuthorizationTimedOut),
+                                break Err(AuthError::TimedOut),
                             "bad_verification_code" | _ => 
                                 break Err(AuthError::Unknown(res.error_description)),
                         }
@@ -186,26 +197,31 @@ pub struct Account {
 impl Account {
 
     /// The ID of the application that account was authorized for.
+    #[inline]
     pub fn app_id(&self) -> &str {
         &self.app_id
     }
 
     /// The access token to give to Minecraft's AuthLib when starting the game.
+    #[inline]
     pub fn access_token(&self) -> &str {
         &self.access_token
     }
 
     /// The player's UUID.
+    #[inline]
     pub fn uuid(&self) -> Uuid {
         self.uuid
     }
 
     /// The player's username.
+    #[inline]
     pub fn username(&self) -> &str {
         &self.username
     }
 
     /// The Xbox XUID.
+    #[inline]
     pub fn xuid(&self) -> &str {
         &self.xuid
     }
@@ -465,11 +481,11 @@ where
 #[non_exhaustive]
 pub enum AuthError {
     /// Authorization declined by the user.
-    #[error("authorization declined")]
-    AuthorizationDeclined,
+    #[error("declined")]
+    Declined,
     /// Time out of the authentication flow.
-    #[error("authorization timeout")]
-    AuthorizationTimedOut,
+    #[error("timed out")]
+    TimedOut,
     /// When refreshing the Minecraft profile, this tells that the token is outdated, but
     /// the caller can still try to refresh it.
     #[error("outdated token")]
@@ -491,7 +507,7 @@ pub enum AuthError {
     /// 
     /// - [`jsonwebtoken::errors::Error`] for any error related to decoding JWTs.
     #[error("internal: {0}")]
-    Internal(Box<dyn std::error::Error + Send + Sync>),
+    Internal(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl AuthError {
@@ -674,7 +690,7 @@ impl Database {
         };
 
         let data = serde_json::from_reader::<_, DatabaseData>(BufReader::new(reader))
-            .map_err(|_| DatabaseError::Corrupted)?;
+            .map_err(|e| DatabaseError::Corrupted.map_json_io(e))?;
 
         Ok(Some(data))
         
@@ -705,7 +721,7 @@ impl Database {
             rw.rewind()?;
 
             data = serde_json::from_reader::<_, DatabaseData>(BufReader::new(&mut rw))
-                .map_err(|_| DatabaseError::Corrupted)?;
+                .map_err(|e| DatabaseError::Corrupted.map_json_io(e))?;
 
         }
 
@@ -841,6 +857,20 @@ pub enum DatabaseError {
     Corrupted,
     #[error("write failed")]
     WriteFailed,
+}
+
+impl DatabaseError {
+
+    /// Internal function to map this error type and replace it by [`Self::Io`] whenever
+    /// the given serde error has an underlying I/O error.
+    fn map_json_io(self, value: serde_json::Error) -> Self {
+        if let Some(kind) = value.io_error_kind() {
+            Self::Io(kind.into())
+        } else {
+            self
+        }
+    }
+
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]

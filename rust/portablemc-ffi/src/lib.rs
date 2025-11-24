@@ -1,3 +1,7 @@
-//! C FFI bindings for PortableMC.
+//! PortableMC bindings for C.
+#![deny(unsafe_op_in_unsafe_fn)]
 
-mod standard;
+pub mod ffi;
+
+pub mod err;
+pub mod msa;
