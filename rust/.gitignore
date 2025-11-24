@@ -1,1 +1,5 @@
 /target
+
+*.obj
+*.exe
+*.exe.old
