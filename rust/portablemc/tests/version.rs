@@ -16,6 +16,7 @@ use portablemc::mojang::{self, Manifest};
 macro_rules! def_install_tests {
     ( $fn_name:ident = $name:expr, $( $rem:tt )* ) => {
         #[test]
+        #[cfg_attr(miri, ignore)]
         fn $fn_name () {
             install_version( $name );
         }
@@ -23,6 +24,7 @@ macro_rules! def_install_tests {
     };
     ( $fn_name:ident, $( $rem:tt )* ) => {
         #[test]
+        #[cfg_attr(miri, ignore)]
         fn $fn_name () {
             install_version( stringify!($fn_name) );
         }
