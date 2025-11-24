@@ -6,8 +6,10 @@ use std::fmt::{Arguments, Write};
 use std::ffi::{c_char, c_void};
 use std::mem::offset_of;
 use std::cell::RefCell;
-use std::any::TypeId;
 use std::ptr;
+
+#[cfg(debug_assertions)]
+use std::any::TypeId;
 
 
 /// Internal type alias for the drop function pointer.
@@ -28,7 +30,7 @@ struct ExternBox<T: 'static> {
     /// we only give it the pointer to the value, so depending on the box type it can do
     /// different things.
     /// 
-    /// Note that this field should not be access directly, because its actual offset 
+    /// Note that this field should not be accessed directly, because its actual offset 
     /// might be different depending on the alignment and the fact that we make sure that
     /// it gets placed JUST BEFORE the value. Read [`extern_box_layout`].
     drop: DropFn<T>,
@@ -79,6 +81,7 @@ fn extern_box_layout<T: 'static>(len: usize) -> Layout {
 /// memory). This is a best-effort to catch UB if our logic is flawed.
 #[track_caller]
 unsafe fn extern_box_debug_assert<T: 'static>(value_ptr: *mut T) {
+    let _ = value_ptr;  // To avoid unused if not debug assertions.
     #[cfg(debug_assertions)] 
     unsafe {
 
@@ -112,7 +115,7 @@ unsafe fn extern_box_free_unchecked<T: 'static>(ptr: *mut ExternBox<T>) {
     }
 }
 
-/// TDrop the given extern-boxed value and then free the full allocation.
+/// Drop the given extern-boxed value and then free the full allocation.
 /// 
 /// SAFETY: The given extern box pointer should be pointing to an initialized and valid
 /// extern box's value of that exact type!
@@ -273,6 +276,8 @@ pub fn extern_box_cstr_from_fmt(args: Arguments<'_>) -> *mut c_char {
 /// 
 /// SAFETY: You must ensure that the value does point to an extern-boxed value that has
 /// no yet been freed nor taken, exactly of the given type.
+/// 
+/// FIXME: This only works if the extern box contains at least one value in length.
 #[inline]
 pub unsafe fn extern_box_take<T: 'static>(value_ptr: *mut T) -> T {
     
@@ -302,7 +307,7 @@ pub unsafe fn extern_box_take<T: 'static>(value_ptr: *mut T) -> T {
 }
 
 // =======
-// Bindings
+// Binding
 // =======
 
 /// SAFETY: You must ensure that the value does point to an extern-boxed value that has

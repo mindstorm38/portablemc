@@ -61,6 +61,32 @@ typedef struct pmc_msa_account pmc_msa_account;
 typedef struct pmc_msa_database pmc_msa_database;
 
 /*
+ * The installer that supports the minimal standard format for version metadata with
+ * support for libraries, assets and loggers automatic installation. By defaults, it 
+ * also supports finding a suitable JVM for running the game.
+ */
+typedef struct pmc_standard pmc_standard;
+
+/*
+ * The tag for the pmc_jvm_policy tagged union.
+ */
+typedef enum pmc_jvm_policy_tag {
+    PMC_JVM_POLICY_STATIC,
+    PMC_JVM_POLICY_SYSTEM,
+    PMC_JVM_POLICY_MOJANG,
+    PMC_JVM_POLICY_SYSTEM_THEN_MOJANG,
+    PMC_JVM_POLICY_MOJANG_THEN_SYSTEM,
+} pmc_jvm_policy_tag;
+
+/*
+ * The JVM policy tagged union, only the static policy requires an explicit path value.
+ */
+typedef struct pmc_jvm_policy {
+    pmc_jvm_policy_tag tag;
+    const char *static_path;
+} pmc_jvm_policy;
+
+/*
  * A generic function to free any pointer that has been returned by a PortableMC 
  * function, unless explicitly stated.
  */
@@ -105,7 +131,7 @@ char                *pmc_msa_account_xuid(const pmc_msa_account *acc);
 void                 pmc_msa_account_request_profile(pmc_msa_account *acc, pmc_err **err);
 void                 pmc_msa_account_request_refresh(pmc_msa_account *acc, pmc_err **err);
 
-pmc_msa_database    *pmc_msa_database_new(const char *path);
+pmc_msa_database    *pmc_msa_database_new(const char *file);
 char                *pmc_msa_database_file(const pmc_msa_database *database);
 pmc_msa_account     *pmc_msa_database_load_from_uuid(const pmc_msa_database *database, const pmc_uuid *uuid, pmc_err **err);
 pmc_msa_account     *pmc_msa_database_load_from_username(const pmc_msa_database *database, const char *username, pmc_err **err);
@@ -113,6 +139,31 @@ pmc_msa_account     *pmc_msa_database_remove_from_uuid(const pmc_msa_database *d
 pmc_msa_account     *pmc_msa_database_remove_from_username(const pmc_msa_database *database, const char *username, pmc_err **err);
 void                 pmc_msa_database_store(const pmc_msa_database *database, pmc_msa_account *acc, pmc_err **err);
 // TODO: pmc_msa_database_iter
+
+pmc_standard        *pmc_standard_new(const char *version);
+char                *pmc_standard_version(const pmc_standard *inst);
+void                 pmc_standard_set_version(pmc_standard *inst, const char *version);
+char                *pmc_standard_versions_dir(const pmc_standard *inst);
+void                 pmc_standard_set_versions_dir(pmc_standard *inst, const char *dir);
+char                *pmc_standard_libraries_dir(const pmc_standard *inst);
+void                 pmc_standard_set_libraries_dir(pmc_standard *inst, const char *dir);
+char                *pmc_standard_assets_dir(const pmc_standard *inst);
+void                 pmc_standard_set_assets_dir(pmc_standard *inst, const char *dir);
+char                *pmc_standard_jvm_dir(const pmc_standard *inst);
+void                 pmc_standard_set_jvm_dir(pmc_standard *inst, const char *dir);
+char                *pmc_standard_bin_dir(const pmc_standard *inst);
+void                 pmc_standard_set_bin_dir(pmc_standard *inst, const char *dir);
+char                *pmc_standard_mc_dir(const pmc_standard *inst);
+void                 pmc_standard_set_mc_dir(pmc_standard *inst, const char *dir);
+void                 pmc_standard_set_main_dir(pmc_standard *inst, const char *dir);
+bool                 pmc_standard_strict_assets_check(const pmc_standard *inst);
+void                 pmc_standard_set_strict_assets_check(pmc_standard *inst, bool check);
+bool                 pmc_standard_strict_libraries_check(const pmc_standard *inst);
+void                 pmc_standard_set_strict_libraries_check(pmc_standard *inst, bool check);
+bool                 pmc_standard_strict_jvm_check(const pmc_standard *inst);
+void                 pmc_standard_set_strict_jvm_check(pmc_standard *inst, bool check);
+pmc_jvm_policy      *pmc_standard_jvm_policy(const pmc_standard *inst);
+void                 pmc_standard_set_jvm_policy(pmc_standard *inst, pmc_jvm_policy policy);
 
 #ifdef __cplusplus
 }
