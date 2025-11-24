@@ -19,7 +19,7 @@ fn all() {
         .suffix(".all")
         .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
         .unwrap()
-        .into_path();
+        .keep();
 
     let mut inst = moj::Installer::new(moj::Version::Release);
     inst.base_mut().set_main_dir(tmp_main_dir.clone());

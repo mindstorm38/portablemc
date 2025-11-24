@@ -57,7 +57,7 @@ fn check(version: &str) {
         .suffix(".event")
         .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
         .unwrap()
-        .into_path();
+        .keep();
 
     let tmp_versions_dir = tmp_main_dir.join("versions");
     let tmp_version_dir = tmp_versions_dir.join(version);
