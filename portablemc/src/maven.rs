@@ -1,7 +1,7 @@
 //! Maven related utilities, such as GAV and 'maven-metadata.xml' parsing.
 
-use std::path::{Path, PathBuf};
 use std::iter::FusedIterator;
+use std::path::PathBuf;
 use std::num::NonZero;
 use std::str::FromStr;
 use std::borrow::Cow;
@@ -16,7 +16,7 @@ use std::fmt;
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Gav {
     /// Internal buffer.
-    raw: String,
+    raw: Box<str>,
     /// Length of the group part in the specifier.
     group_len: NonZero<u16>,
     /// Length of the artifact part in the specifier.
@@ -57,7 +57,7 @@ impl Gav {
         }
 
         Some(Self {
-            raw,
+            raw: raw.into_boxed_str(),
             group_len: NonZero::new(group.len() as _)?,
             artifact_len: NonZero::new(artifact.len() as _)?,
             version_len: NonZero::new(version.len() as _)?,
@@ -102,7 +102,7 @@ impl Gav {
         }
 
         Some(Self {
-            raw: raw.into_owned(),
+            raw: raw.into_owned().into_boxed_str(),
             group_len,
             artifact_len,
             version_len,
@@ -237,9 +237,19 @@ impl Gav {
 
     /// Create a file path of this GAV from a base directory. This may produce a path 
     /// that is insecure to join due to absolute or parent relative joining.
-    pub fn file<P: AsRef<Path>>(&self, dir: P) -> PathBuf {
+    pub fn file(&self) -> PathBuf {
 
-        let mut buf = dir.as_ref().to_path_buf();
+        let len = 
+            self.group_len.get() as usize + 1 + 
+            self.artifact_len.get() as usize + 1 + 
+            self.version_len.get() as usize + 1 +
+            self.artifact_len.get() as usize + 1 +
+            self.version_len.get() as usize +
+            self.classifier_len.map(|len| 1 + len.get() as usize).unwrap_or(0) + 1 +
+            self.extension_or_default().len();
+        
+        let mut buf = PathBuf::with_capacity(len);
+
         for group_part in self.group().split('.') {
             buf.push(group_part);
         }
@@ -259,6 +269,8 @@ impl Gav {
         }
         buf.as_mut_os_string().push(".");
         buf.as_mut_os_string().push(self.extension_or_default());
+
+        debug_assert_eq!(buf.as_os_str().len(), len);
 
         buf
 

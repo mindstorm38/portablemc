@@ -11,6 +11,8 @@ pub trait PathExt {
     /// This shortcut avoids a temporary allocation of a formatted string when joining.
     fn join_with_extension<P: AsRef<Path>, S: AsRef<OsStr>>(&self, name: P, extension: S) -> PathBuf;
 
+    fn join_owned(&self, path: PathBuf) -> PathBuf;
+
     fn append<S: AsRef<OsStr>>(&self, s: S) -> PathBuf;
 
     /// Returns true if this path is both only relative and safe to join to a root dir.
@@ -23,6 +25,11 @@ impl PathExt for Path {
     #[inline]
     fn join_with_extension<P: AsRef<Path>, S: AsRef<OsStr>>(&self, name: P, extension: S) -> PathBuf {
         self.join(name).appended(".").appended(extension)
+    }
+
+    #[inline]
+    fn join_owned(&self, path: PathBuf) -> PathBuf {
+        todo!() // TODO:
     }
 
     #[inline]

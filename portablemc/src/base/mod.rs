@@ -716,7 +716,7 @@ impl Installer {
             let lib_file = if let Some(lib_rel_path) = lib.path.as_deref() {
                 self.libraries_dir.join(check_path_relative_and_safe(lib_rel_path)?)
             } else {
-                lib.name.file(&self.libraries_dir)
+                self.libraries_dir.join(check_path_relative_and_safe(&lib.name.file())?)
             };
 
             // If no repository URL is given, no more download method is available,
@@ -2279,9 +2279,8 @@ struct MojangJvmLink {
 }
 
 /// Check that the given path does not contain any root or parent directory component.
-pub(crate) fn check_path_relative_and_safe<P: AsRef<Path> + ?Sized>(path: &P) -> Result<&Path> {
-    let path = path.as_ref();
-    if path.is_relative_and_safe() {
+pub(crate) fn check_path_relative_and_safe<P: AsRef<Path>>(path: P) -> Result<P> {
+    if path.as_ref().is_relative_and_safe() {
         Ok(path)
     } else {
         Err(Error::new_io_file(io::Error::new(io::ErrorKind::InvalidInput, "the is not relative or contains unsafe components"), path))

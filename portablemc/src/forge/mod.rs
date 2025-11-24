@@ -157,11 +157,11 @@ impl Installer {
                     let libs_dir = mojang.base().libraries_dir();
                     
                     // Start by checking patched client and universal client.
-                    if let Some(client_gav) = config.name.with_classifier(Some("client")) && !check_exists(&client_gav.file(libs_dir)) {
+                    if let Some(client_gav) = config.name.with_classifier(Some("client")) && !check_exists(&libs_dir.join_owned(client_gav.file())) {
                         break InstallReason::MissingPatchedClient;
                     }
 
-                    if let Some(universal_gav) = config.name.with_classifier(Some("universal")) && !check_exists(&universal_gav.file(libs_dir)) {
+                    if let Some(universal_gav) = config.name.with_classifier(Some("universal")) && !check_exists(&libs_dir.join_owned(universal_gav.file())) {
                         break InstallReason::MissingUniversalClient;
                     }
 
@@ -891,7 +891,7 @@ fn try_install(
             // JAR, we need to extract it given its path. It also appears that more modern
             // versions have this property back...
             if let Some(name) = &profile.path {
-                let lib_file = name.file(&libraries_dir);
+                let lib_file = libraries_dir.join_owned(name.file());
                 extract_installer_maven_artifact(installer_file, &mut installer_zip, name, &lib_file)?;
             }
 
@@ -912,7 +912,7 @@ fn try_install(
                 let lib_file = if let Some(lib_path) = &lib_dl.path {
                     libraries_dir.join(base::check_path_relative_and_safe(lib_path)?)
                 } else {
-                    lib.name.file(&libraries_dir)
+                    libraries_dir.join_owned(base::check_path_relative_and_safe(lib.name.file())?)
                 };
 
                 libraries.insert(&lib.name, lib_file.clone());
@@ -1082,7 +1082,7 @@ fn try_install(
             }
 
             // Extract the universal JAR file of the mod loader.
-            let jar_file = profile.install.path.file(libraries_dir);
+            let jar_file = libraries_dir.join_owned(profile.install.path.file());
             let jar_entry = &profile.install.file_path[..];
             extract_installer_file(installer_file, &mut installer_zip, &jar_entry, &jar_file)?;
 
@@ -1125,7 +1125,7 @@ fn format_processor_arg(
 
     if matches!(input.as_bytes(), [b'[', .., b']']) {
         let gav = input[1..input.len() - 1].parse::<Gav>().ok()?;
-        return Some(format!("{}", gav.file(libraries_dir).display()));
+        return Some(format!("{}", libraries_dir.join_owned(gav.file()).display()));
     }
 
     #[derive(Debug)]
@@ -1153,7 +1153,7 @@ fn format_processor_arg(
             '}' if !escape && matches!(token, Some(TokenKind::Data)) => {
                 match data.get(&token_buf)? {
                     InstallDataTypedEntry::Library(gav) => {
-                        write!(global_buf, "{}", gav.file(libraries_dir).display()).unwrap();
+                        write!(global_buf, "{}", libraries_dir.join_owned(gav.file()).display()).unwrap();
                     }
                     InstallDataTypedEntry::Literal(lit) => {
                         global_buf.push_str(lit);
