@@ -48,6 +48,11 @@ typedef uint8_t pmc_uuid[16];
 /// An array of 16 bytes representing an UUID.
 typedef uint8_t pmc_sha1[20];
 
+typedef struct {
+    uint16_t width;
+    uint16_t height;
+} pmc_resolution;
+
 /// The code of all errors.
 typedef enum {
     // Uncategorized
@@ -630,6 +635,22 @@ char *pmc_game_main_class(const pmc_game *game);
 pmc_game_args *pmc_game_jvm_args(const pmc_game *game);
 pmc_game_args *pmc_game_game_args(const pmc_game *game);
 uint32_t pmc_game_spawn(const pmc_game *game, pmc_err **err);
+
+extern const char *pmc_moj_release;
+extern const char *pmc_moj_snapshot;
+pmc_moj *pmc_moj_new(const char *version);
+const pmc_game *pmc_moj_base(const pmc_moj *inst);
+pmc_game *pmc_moj_base_mut(pmc_moj *inst)
+const char *pmc_moj_version(const pmc_moj *inst);
+void pmc_moj_set_version(pmc_moj *inst, const char *version);
+// TODO: fetch excludes
+bool pmc_moj_demo(const pmc_moj *inst);
+void pmc_moj_set_demo(pmc_moj *inst);
+// pmc_moj_quick_play(const pmc_moj *inst);
+pmc_resolution pmc_moj_resolution(const pmc_moj *inst);
+void pmc_moj_set_resolution(pmc_moj *inst, uint16_t width, uint16_t height);
+void pmc_moj_remove_resolution(pmc_moj *inst);
+bool pmc_moj_disable_multiplayer(const pmc_moj *inst);
 
 #ifdef __cplusplus
 }
