@@ -1,10 +1,10 @@
 [workspace]
-members = ["portablemc", "portablemc-cli", "portablemc-c", "portablemc-py"]
+members = ["portablemc", "portablemc-cli", "portablemc-ffi", "portablemc-py"]
 resolver = "2"
 
 [workspace.package]
 edition = "2021"
-version = "5.0.0-beta.1"
+version = "5.0.0-beta.2"
 authors = ["Théo Rozier <contact@theorozier.fr>"]
 homepage = "https://github.com/mindstorm38/portablemc"
 repository = "https://github.com/mindstorm38/portablemc"
@@ -13,7 +13,7 @@ readme = "README.md"
 rust-version = "1.85.1"
 
 [workspace.dependencies]
-portablemc = { path = "portablemc", version = "=5.0.0-beta.1" }
+portablemc = { path = "portablemc", version = "=5.0.0-beta.2" }
 
 # Utils
 thiserror = "2.0.3"
@@ -65,3 +65,6 @@ ctrlc = "3.4.5"
 
 # Testing
 tempfile = "3.19.1"
+
+[profile.release]
+strip = "debuginfo"
