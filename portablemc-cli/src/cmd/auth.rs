@@ -44,7 +44,7 @@ fn auth_account_action(cli: &mut Cli, name: &str, action: AccountAction) -> Exit
         }
     };
 
-    let account = match res {
+    let mut account = match res {
         Ok(Some(account)) => account,
         Ok(None) => {
 
@@ -74,7 +74,7 @@ fn auth_account_action(cli: &mut Cli, name: &str, action: AccountAction) -> Exit
         }
         AccountAction::Refresh => {
 
-            if refresh_account(cli, account, false) {
+            if refresh_account(cli, &mut account, false) {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::FAILURE
@@ -85,7 +85,7 @@ fn auth_account_action(cli: &mut Cli, name: &str, action: AccountAction) -> Exit
 
 }
 
-pub(crate) fn refresh_account(cli: &mut Cli, mut account: Account, silent: bool) -> bool {
+pub(crate) fn refresh_account(cli: &mut Cli, account: &mut Account, silent: bool) -> bool {
 
     cli.out.log("auth_account_refresh_profile")
         .arg(account.uuid())
@@ -128,7 +128,7 @@ pub(crate) fn refresh_account(cli: &mut Cli, mut account: Account, silent: bool)
             format_args!("Refreshed account as {} ({})", account.username(), account.uuid()));
     
     // Once the account is refreshed, store it!
-    match cli.msa_db.store(account) {
+    match cli.msa_db.store(account.clone()) {
         Ok(()) => true,
         Err(error) => {
             log_msa_database_error(cli, &error);
