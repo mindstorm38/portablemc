@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "5.0.0-beta.2"
+version = "5.0.0-beta.3"
 authors = ["Théo Rozier <contact@theorozier.fr>"]
 homepage = "https://github.com/mindstorm38/portablemc"
 repository = "https://github.com/mindstorm38/portablemc"
@@ -13,7 +13,7 @@ readme = "README.md"
 rust-version = "1.85.1"
 
 [workspace.dependencies]
-portablemc = { path = "portablemc", version = "=5.0.0-beta.2" }
+portablemc = { path = "portablemc", version = "=5.0.0-beta.3" }
 
 # Utils
 thiserror = "2.0.3"
