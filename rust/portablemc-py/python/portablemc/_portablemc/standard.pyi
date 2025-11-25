@@ -2,13 +2,11 @@ from typing import Self
 from os import PathLike
 from enum import Enum, auto
 
-
 class JvmPolicy(Enum):
     System = auto()
     Mojang = auto()
     SystemThenMojang = auto()
     MojangThenSystem = auto()
-
 
 class Installer:
 
@@ -81,6 +79,5 @@ class Installer:
     def launcher_version(self) -> str: ...
     @launcher_version.setter
     def launcher_version(self, name: str): ...
-
 
 def default_main_dir() -> str | None: ...

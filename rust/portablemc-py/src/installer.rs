@@ -50,5 +50,33 @@ impl GenericInstaller {
             GenericInstaller::Forge(installer) => installer.mojang_mut(),
         }
     }
+
+    pub fn fabric(&self) -> &fabric::Installer {
+        match self {
+            GenericInstaller::Fabric(installer) => installer,
+            _ => panic!("not a fabric installer"),
+        }
+    }
+
+    pub fn fabric_mut(&mut self) -> &mut fabric::Installer {
+        match self {
+            GenericInstaller::Fabric(installer) => installer,
+            _ => panic!("not a fabric installer"),
+        }
+    }
+
+    pub fn forge(&self) -> &forge::Installer {
+        match self {
+            GenericInstaller::Forge(installer) => installer,
+            _ => panic!("not a fabric installer"),
+        }
+    }
+
+    pub fn forge_mut(&mut self) -> &mut forge::Installer {
+        match self {
+            GenericInstaller::Forge(installer) => installer,
+            _ => panic!("not a fabric installer"),
+        }
+    }
     
 }

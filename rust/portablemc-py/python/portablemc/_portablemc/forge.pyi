@@ -1,6 +1,11 @@
 from typing import Self
-from os import PathLike
+from enum import Enum, auto
 
+from . import mojang
+
+class Loader(Enum):
+    Forge = auto()
+    NeoForge = auto()
 
 class Version:
     class Stable(Version):
@@ -10,5 +15,16 @@ class Version:
     class Name(Version):
         def __new__(cls, name: str) -> Self: ...
 
-class Installer:
-    def __new__(cls, version: str | Version | None = None, main_dir: str | PathLike[str] | None = None) -> Self: ...
+class Installer(mojang.Installer):
+
+    def __new__(cls, loader: Loader, version: Version) -> Self: ...
+
+    @property
+    def loader(self) -> Loader: ...
+    @loader.setter
+    def loader(self, loader: Loader): ...
+    
+    @mojang.Installer.version.getter
+    def version(self) -> Version: ...
+    @version.setter
+    def version(self, version: Version): ...

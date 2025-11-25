@@ -4,6 +4,8 @@ mod installer;
 
 mod standard;
 mod mojang;
+mod fabric;
+mod forge;
 
 use pyo3::prelude::*;
 
@@ -19,6 +21,14 @@ fn py_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let mojang = PyModule::new(m.py(), "mojang")?;
     mojang::py_module(&mojang)?;
     m.add_submodule(&mojang)?;
+
+    let fabric = PyModule::new(m.py(), "fabric")?;
+    fabric::py_module(&fabric)?;
+    m.add_submodule(&fabric)?;
+
+    let forge = PyModule::new(m.py(), "forge")?;
+    forge::py_module(&forge)?;
+    m.add_submodule(&forge)?;
     
     Ok(())
 

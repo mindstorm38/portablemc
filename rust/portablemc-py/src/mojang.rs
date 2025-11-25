@@ -18,15 +18,14 @@ pub(super) fn py_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pyclass(eq, name = "Version", module = "portablemc.mojang")]
-#[derive(Clone, PartialEq, Eq)]
+#[pyclass(name = "Version", module = "portablemc.mojang", eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum PyVersion {
-    Release(),
-    Snapshot(),
-    Name(String),
+    Release,
+    Snapshot,
 }
 
-#[derive(FromPyObject)]
+#[derive(FromPyObject, IntoPyObject)]
 enum PyVersionUnion {
     Version(PyVersion),
     Name(String),
@@ -35,15 +34,14 @@ enum PyVersionUnion {
 impl From<PyVersionUnion> for Version {
     fn from(value: PyVersionUnion) -> Self {
         match value {
-            PyVersionUnion::Version(PyVersion::Release()) => Version::Release,
-            PyVersionUnion::Version(PyVersion::Snapshot()) => Version::Snapshot,
-            PyVersionUnion::Version(PyVersion::Name(name)) |
+            PyVersionUnion::Version(PyVersion::Release) => Version::Release,
+            PyVersionUnion::Version(PyVersion::Snapshot) => Version::Snapshot,
             PyVersionUnion::Name(name) => Version::Name(name),
         }
     }
 }
 
-#[pyclass(eq, name = "QuickPlay", module = "portablemc.mojang")]
+#[pyclass(name = "QuickPlay", module = "portablemc.mojang", eq)]
 #[derive(Clone, PartialEq, Eq)]
 enum PyQuickPlay {
     Path {
@@ -68,7 +66,7 @@ pub(crate) struct PyInstaller(pub(crate) Arc<Mutex<GenericInstaller>>);
 impl PyInstaller {
 
     #[new]
-    #[pyo3(signature = (version = PyVersionUnion::Version(PyVersion::Release())))]
+    #[pyo3(signature = (version = PyVersionUnion::Version(PyVersion::Release)))]
     fn __new__(version: PyVersionUnion) -> PyClassInitializer<Self> {
 
         let inst = Arc::new(Mutex::new(
@@ -81,11 +79,11 @@ impl PyInstaller {
     }
 
     #[getter]
-    fn version(&self) -> PyVersion {
+    fn version(&self) -> PyVersionUnion {
         match self.0.lock().unwrap().mojang().version() {
-            Version::Release => PyVersion::Release(),
-            Version::Snapshot => PyVersion::Snapshot(),
-            Version::Name(name) => PyVersion::Name(name.clone()),
+            Version::Release => PyVersionUnion::Version(PyVersion::Release),
+            Version::Snapshot => PyVersionUnion::Version(PyVersion::Snapshot),
+            Version::Name(name) => PyVersionUnion::Name(name.clone()),
         }
     }
 
@@ -118,12 +116,13 @@ impl PyInstaller {
 
     #[setter]
     fn set_quick_play(&self, quick_play: Option<PyQuickPlay>) {
+        let mut guard = self.0.lock().unwrap();
         match quick_play {
             None => {
-                self.0.lock().unwrap().mojang_mut().remove_quick_play();
+                guard.mojang_mut().remove_quick_play();
             }
             Some(quick_play) => {
-                self.0.lock().unwrap().mojang_mut().set_quick_play(match quick_play {
+                guard.mojang_mut().set_quick_play(match quick_play {
                     PyQuickPlay::Path { path } => QuickPlay::Path { path },
                     PyQuickPlay::Singleplayer { name } => QuickPlay::Singleplayer { name },
                     PyQuickPlay::Multiplayer { host, port } => QuickPlay::Multiplayer { host, port },
@@ -140,12 +139,13 @@ impl PyInstaller {
 
     #[setter]
     fn set_resolution(&self, resolution: Option<(u16, u16)>) {
+        let mut guard = self.0.lock().unwrap();
         match resolution {
             Some((width, height)) => {
-                self.0.lock().unwrap().mojang_mut().set_resolution(width, height);
+                guard.mojang_mut().set_resolution(width, height);
             }
             None => {
-                self.0.lock().unwrap().mojang_mut().remove_resolution();
+                guard.mojang_mut().remove_resolution();
             }
         }
     }
@@ -269,12 +269,13 @@ impl PyInstaller {
 
     #[setter]
     fn set_fix_lwjgl(&self, lwjgl_version: Option<String>) {
+        let mut guard = self.0.lock().unwrap();
         match lwjgl_version {
             Some(lwjgl_version) => {
-                self.0.lock().unwrap().mojang_mut().set_fix_lwjgl(lwjgl_version);
+                guard.mojang_mut().set_fix_lwjgl(lwjgl_version);
             }
             None => {
-                self.0.lock().unwrap().mojang_mut().remove_fix_lwjgl();
+                guard.mojang_mut().remove_fix_lwjgl();
             }
         }
     }

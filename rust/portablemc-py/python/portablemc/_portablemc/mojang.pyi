@@ -1,16 +1,13 @@
 from typing import Self
 from os import PathLike
 from uuid import UUID
+from enum import Enum, auto
 
 from . import standard
 
-class Version:
-    class Release(Version):
-        def __new__(cls) -> Self: ...
-    class Snapshot(Version):
-        def __new__(cls) -> Self: ...
-    class Name(Version):
-        def __new__(cls, name: str) -> Self: ...
+class Version(Enum):
+    Release = auto()
+    Snapshot = auto()
 
 class QuickPlay:
     class Path(QuickPlay):
@@ -24,10 +21,10 @@ class QuickPlay:
 
 class Installer(standard.Installer):
 
-    def __new__(cls, version: str | Version | None = None) -> Self: ...
+    def __new__(cls, version: str | Version = Version.Release) -> Self: ...
 
     @standard.Installer.version.getter
-    def version(self) -> Version: ...
+    def version(self) -> str | Version: ...
     @version.setter
     def version(self, version: str | Version): ...
 
