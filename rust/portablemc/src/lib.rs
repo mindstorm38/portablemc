@@ -11,3 +11,4 @@ pub mod msa;
 
 pub mod standard;
 pub mod mojang;
+pub mod fabric;
