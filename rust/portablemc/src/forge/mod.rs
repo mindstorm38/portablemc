@@ -55,6 +55,32 @@ impl Installer {
         Some(Self::new(loader, version, standard::default_main_dir()?))
     }
 
+    /// Get the underlying standard installer.
+    #[inline]
+    pub fn standard(&self) -> &standard::Installer {
+        self.mojang.standard()
+    }
+
+    /// Get the underlying standard installer through mutable reference.
+    #[inline]
+    pub fn standard_mut(&mut self) -> &mut standard::Installer {
+        self.mojang.standard_mut()
+    }
+
+    /// Get the underlying mojang installer.
+    #[inline]
+    pub fn mojang(&self) -> &mojang::Installer {
+        &self.mojang
+    }
+
+    /// Get the underlying mojang installer through mutable reference.
+    /// 
+    /// *Note that the `root` and `fetch` property will be overwritten when installing.*
+    #[inline]
+    pub fn mojang_mut(&mut self) -> &mut mojang::Installer {
+        &mut self.mojang
+    }
+
     /// Execute some callback to alter the mojang installer.
     /// 
     /// *Note that the `root` and `fetch` property will be overwritten when installing.*
@@ -65,18 +91,6 @@ impl Installer {
     {
         func(&mut self.mojang);
         self
-    }
-
-    /// Get the underlying standard installer.
-    #[inline]
-    pub fn standard(&self) -> &standard::Installer {
-        self.mojang.standard()
-    }
-
-    /// Get the underlying mojang installer.
-    #[inline]
-    pub fn mojang(&self) -> &mojang::Installer {
-        &self.mojang
     }
 
     #[inline]

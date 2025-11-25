@@ -29,65 +29,32 @@ pub struct CliArgs {
     pub output: CliOutput,
     /// Set the directory where versions, libraries, assets, JVM and where the game's run.
     /// 
-    /// This argument is equivalent to calling: 
-    /// --versions-dir <main>/versions
-    /// --libraries-dir <main>/libraries
-    /// --assets-dir <main>/assets
-    /// --jvm-dir <main>/jvm
-    /// --bin-dir <main>/bin
-    /// --mc-dir <main>
-    /// 
     /// If left unspecified, this argument defaults to the standard Minecraft directory
     /// for your system: in '%USERPROFILE%/AppData/Roaming' on Windows, 
-    /// '$HOME/Library/Application Support/minecraft' on macOS and `$HOME/.minecraft` on
+    /// '$HOME/Library/Application Support/minecraft' on macOS and '$HOME/.minecraft' on
     /// other systems. If the launcher fails to find the default directory then it will
-    /// abort any command exit with a failure telling you to specify it (using argument 
-    /// or environment variable).
+    /// abort any command exit with a failure telling you to specify it.
+    /// 
+    /// This argument might not always be used by a command, you can specify it through
+    /// environment variables if more practical.
     #[arg(long, env = "PMC_MAIN_DIR", value_name = "PATH")]
     pub main_dir: Option<PathBuf>,
-    /// Set the versions directory where all version and their metadata are stored.
+    /// Set the path to the Microsoft Authentication database for caching session tokens.
     /// 
-    /// This is applied after --main-dir has been applied.
-    #[arg(long, env = "PMC_VERSIONS_DIR", value_name = "PATH")]
-    pub versions_dir: Option<PathBuf>,
-    /// Set the libraries directory where all Java libraries are stored.
+    /// When unspecified, this argument is derived from the '--main-dir' path: 
+    /// '<main-dir>/portablemc_msa.json'. This file uses a JSON human-readable format.
     /// 
-    /// This is applied after --main-dir has been applied.
-    #[arg(long, env = "PMC_LIBRARIES_DIR", value_name = "PATH")]
-    pub libraries_dir: Option<PathBuf>,
-    /// Set the assets directory where all game assets are stored.
-    /// 
-    /// This is applied after --main-dir has been applied.
-    #[arg(long, env = "PMC_ASSETS_DIR", value_name = "PATH")]
-    pub assets_dir: Option<PathBuf>,
-    /// Set the JVM directory where Mojang's Java Virtual Machines are stored if needed.
-    /// 
-    /// This is applied after --main-dir has been applied.
-    #[arg(long, env = "PMC_JVM_DIR", value_name = "PATH")]
-    pub jvm_dir: Option<PathBuf>,
-    /// Set the binaries directory where all binary objects are extracted before running
-    /// the game.
-    /// 
-    /// This is applied after --main-dir has been applied.
-    #[arg(long, env = "PMC_BIN_DIR", value_name = "PATH")]
-    pub bin_dir: Option<PathBuf>,
-    /// Set the directory where the game is run from, the game will use this directory
-    /// to put options, saves, screenshots and access texture or resource packs and any
-    /// other user related stuff.
-    /// 
-    /// This is applied after --main-dir has been applied.
-    #[arg(long, env = "PMC_MC_DIR", value_name = "PATH")]
-    pub mc_dir: Option<PathBuf>,
+    /// This argument might not always be used by a command, you can specify it through
+    /// environment variables if more practical.
+    #[arg(long, env = "PMC_MSA_DB_FILE", value_name = "PATH")]
+    pub msa_db_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum CliCmd {
     Start(StartArgs),
     Search(SearchArgs),
-    Info(InfoArgs),
-    Login(LoginArgs),
-    Logout(LogoutArgs),
-    Show(ShowArgs),
+    Auth(AuthArgs),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -174,9 +141,53 @@ pub struct StartArgs {
     /// as 'forge', but using the NeoForge repository. See https://neoforged.net/.
     #[arg(default_value = "release")]
     pub version: StartVersion,
-    /// Only ensures that the game is installed but don't launch the game.
+    /// Only ensures that the game is installed but don't launch the game. This can be 
+    /// used to debug installation paths while using verbose output.
     #[arg(long)]
     pub dry: bool,
+
+    // /// Set the versions directory where all version and their metadata are stored.
+    // /// 
+    // /// This is applied after --main-dir has been applied.
+    // #[arg(long, env = "PMC_VERSIONS_DIR", value_name = "PATH")]
+    // pub versions_dir: Option<PathBuf>,
+    // /// Set the libraries directory where all Java libraries are stored.
+    // /// 
+    // /// This is applied after --main-dir has been applied.
+    // #[arg(long, env = "PMC_LIBRARIES_DIR", value_name = "PATH")]
+    // pub libraries_dir: Option<PathBuf>,
+    // /// Set the assets directory where all game assets are stored.
+    // /// 
+    // /// This is applied after --main-dir has been applied.
+    // #[arg(long, env = "PMC_ASSETS_DIR", value_name = "PATH")]
+    // pub assets_dir: Option<PathBuf>,
+    // /// Set the JVM directory where Mojang's Java Virtual Machines are stored if needed.
+    // /// 
+    // /// This is applied after --main-dir has been applied.
+    // #[arg(long, env = "PMC_JVM_DIR", value_name = "PATH")]
+    // pub jvm_dir: Option<PathBuf>,
+
+    /// Set the binaries directory where all binary objects are extracted before running
+    /// the game, a sub-directory is created inside this directory that is uniquely named
+    /// after a hash of the version's libraries.
+    /// 
+    /// When unspecified, this argument is derived from the '--main-dir' path: 
+    /// '<main-dir>/bin/'.
+    /// 
+    /// This argument might not always be used by a command, you can specify it through
+    /// environment variables if more practical.
+    #[arg(long, env = "PMC_BIN_DIR", value_name = "PATH")]
+    pub bin_dir: Option<PathBuf>,
+    /// Set the directory where the game is run from, the game will use this directory
+    /// to put options, saves, screenshots and access texture or resource packs and any
+    /// other user related stuff.
+    /// 
+    /// When unspecified, this argument is equal to the '--main-dir' path.
+    /// 
+    /// This argument might not always be used by a command, you can specify it through
+    /// environment variables if more practical.
+    #[arg(long, env = "PMC_MC_DIR", value_name = "PATH")]
+    pub mc_dir: Option<PathBuf>,
     /// Disable the multiplayer buttons (>= 1.16).
     #[arg(long)]
     pub disable_multiplayer: bool,
@@ -238,35 +249,56 @@ pub struct StartArgs {
     /// This argument can be specified multiple times.
     #[arg(long, value_name = "PATH")]
     pub include_bin: Vec<PathBuf>,
-    /// Authentication common arguments.
-    #[command(flatten)]
-    pub auth_common: LoginArgs,
-    /// Anonymize your email or username when writing it on the output.
-    #[arg(long)]
-    pub auth_anonymize: bool,
-    /// Prevents the launcher from using the session cache for login.
-    #[arg(long, requires = "login")]
-    pub temp_login: bool,
-    /// Authenticate into an online session.
+    /// The path to the JVM executable, 'java' (or 'javaw.exe' on Windows).
     /// 
-    /// This conflicts with both '--username' or `--uuid` arguments.
-    #[arg(short, long, env = "PMC_START_LOGIN", conflicts_with_all = ["username", "uuid"])]
-    pub login: Option<String>,
-    /// Change the default username of the player, for offline-mode.
-    #[arg(short, long, value_name = "NAME")]
+    /// This is used to launch the game, it has a special use-case with Forge and NeoForge
+    /// loader versions where that JVM executable is also used to run the installer 
+    /// processors.
+    /// 
+    /// Note that when this argument is specified, you cannot specify the '--jvm-policy'
+    /// argument.
+    #[arg(long, value_name = "PATH")]
+    pub jvm: Option<String>,
+    /// The policy for finding or installing the JVM executable.
+    #[arg(long, value_name = "POLICY", conflicts_with = "jvm", default_value = "system-mojang")]
+    pub jvm_policy: StartJvmPolicy,
+    /// Enable authentication for the username or UUID.
+    /// 
+    /// When enabled, the launcher will look for specified '--uuid', or '--username' as
+    /// a fallback, it will then pick the matching account and start the game with it,
+    /// the account is refreshed if needed. IT MEANS that you must first login into
+    /// your account using the 'portablemc auth' command before starting the game with
+    /// the account.
+    /// 
+    /// If the account is not found, the launcher won't start the game and will show an
+    /// error.
+    /// 
+    /// Note that '--username' (-u) argument is completely ignored if the '--uuid' (-i)
+    /// is specified, only one of them can be used at the same time with this flag.
+    #[arg(short = 'a', long)]
+    pub auth: bool,
+    /// Change the default username of the player.
+    /// 
+    /// When the '--auth' (-a) is enabled, this argument is used, after the '--uuid' (-i)
+    /// one, to find the authenticated account to start the game with.
+    #[arg(short = 'u', long, value_name = "NAME")]
     pub username: Option<String>,
-    /// Change the default UUID of the player, for offline-mode.
+    /// Change the default UUID of the player.
+    /// 
+    /// When the '--auth' (-a) is enabled, this argument is used, before the '--username' 
+    /// (-u) one, to find the authenticated account to start the game with.
     #[arg(short = 'i', long)]
     pub uuid: Option<Uuid>,
-    /// Immediately tries to connect the given server once the game is started (>= 1.6).
-    /// 
-    /// Note that the client will still be able to disconnect from the server and go back
-    /// to the game's menu and do everything it want.
-    #[arg(short, long)]
-    pub server: Option<String>,
-    /// Change the default port to connect to the server (--server).
-    #[arg(short = 'p', long, value_name = "PORT", requires = "server", default_value_t = 25565)]
-    pub server_port: u16,
+
+    // /// Immediately tries to connect the given server once the game is started (>= 1.6).
+    // /// 
+    // /// Note that the client will still be able to disconnect from the server and go back
+    // /// to the game's menu and do everything it want.
+    // #[arg(short, long)]
+    // pub server: Option<String>,
+    // /// Change the default port to connect to the server (--server).
+    // #[arg(short = 'p', long, value_name = "PORT", requires = "server", default_value_t = 25565)]
+    // pub server_port: u16,
 }
 
 /// Represent all possible version the launcher can start.
@@ -397,6 +429,26 @@ impl FromStr for StartVersion {
 
     }
 
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "kebab-case")]
+pub enum StartJvmPolicy {
+    /// The installer will try to find a suitable JVM executable in the path, searching
+    /// a `java` (or `javaw.exe` on Windows) executable. On operating systems where it's
+    /// supported, this will also check for known directories (on Arch for example).
+    /// If the version needs a specific JVM major version, each candidate executable is 
+    /// checked and a warning is triggered to notify that the version is not suited.
+    /// The install fails if none of those versions is valid.
+    System,
+    /// The installer will try to find a suitable JVM to install from Mojang-provided
+    /// distributions, if no JVM is available for the platform and for the required 
+    /// distribution then the install fails.
+    Mojang,
+    /// The installer search system and then mojang as a fallback.
+    SystemMojang,
+    /// The installer search Mojang and then system as a fallback.
+    MojangSystem,
 }
 
 /// Represent an optional initial resolution for the game window.
@@ -559,62 +611,45 @@ pub enum SearchLatestChannel {
 }
 
 // ================= //
-//   INFO COMMAND    //
+//   AUTH COMMAND    //
 // ================= //
 
-/// Get informations about a version.
+/// Manage the authentication sessions.
+/// 
+/// By default, this command will start a new authentication flow with the Microsoft
+/// authentication service, when completed this will add the newly authenticated session
+/// to the authentication database (specified with '--msa-db-file' argument).
+/// 
+/// If this command fails to load and/or store the database, its exit code is 1 (failure).
 #[derive(Debug, Args)]
-pub struct InfoArgs {
-
-}
-
-// ================= //
-//   LOGIN COMMAND   //
-// ================= //
-
-/// Login into your account and save the session.
-#[derive(Debug, Args)]
-pub struct LoginArgs {
-    /// Authentication service.
-    #[arg(long, name = "SERVICE", default_value = "microsoft")]
-    pub auth_service: AuthService,
-    /// Use an alternative authentication flow that avoids opening you web browser.
+pub struct AuthArgs {
+    /// Prevent the launcher from opening your system's web browser with the 
+    /// authentication page.
+    /// 
+    /// When the '--output' mode is 'human', the launcher will try to open your system's
+    /// web browser with the Microsoft authentication page, this flag disables this 
+    /// behavior.
     #[arg(long)]
-    pub auth_no_browser: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum AuthService {
-    /// Microsoft authentication for Minecraft.
-    Microsoft,
-}
-
-// ================= //
-//  LOGOUT COMMAND   //
-// ================= //
-
-/// Logout and invalidate a saved session.
-#[derive(Debug, Args)]
-pub struct LogoutArgs {
-    /// Authentication common arguments.
-    #[command(flatten)]
-    pub auth_common: LoginArgs,
-}
-
-// ================= //
-//   SHOW COMMAND    //
-// ================= //
-
-/// Show and debug various informations.
-#[derive(Debug, Args)]
-pub struct ShowArgs {
-    #[command(subcommand)]
-    pub cmd: ShowCmd,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum ShowCmd {
-    About,
-    Auth,
-    Completion,
+    pub no_browser: bool,
+    /// Forget the given authenticated session by its UUID, or username as a fallback.
+    /// 
+    /// You'll no longer be able to authenticate with this session when starting the
+    /// game, you'll have to authenticate again. If not account is matching the given
+    /// UUID or username, then the database is not rewritten, and a warning message is
+    /// issued, but the exit code is always 0 (success).
+    #[arg(short, long, exclusive = true)]
+    pub forget: Option<String>,
+    /// Refresh the given account, updating the username if it has been modified.
+    /// 
+    /// If the profile cannot be refreshed, a request for refreshing
+    /// 
+    /// Note that this procedure is automatically done on game's start, so you don't need 
+    /// to run this before starting the game with an account. You may want to use this 
+    /// in order to update the database and list the updated accounts.
+    #[arg(short, long, exclusive = true)]
+    pub refresh: Option<String>,
+    /// List all currently authenticated sessions, by username and UUID, that can be used
+    /// with the start command to authenticate.
+    #[arg(short, long, exclusive = true)]
+    pub list: bool,
 }

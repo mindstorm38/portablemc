@@ -91,6 +91,12 @@ impl Output {
 
     }
 
+    /// Return true if the output mode is human-readable.
+    #[inline]
+    pub fn is_human(&self) -> bool {
+        matches!(self.mode, OutputMode::Human(_))
+    }
+
     /// Log an information with a simple code referencing it, the given code is the 
     /// machine-readable code, to add human-readable line use the returned handle.
     #[inline]
