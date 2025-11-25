@@ -11,6 +11,8 @@ publish = false
 [dependencies]
 portablemc.workspace = true
 
+uuid.workspace = true
+
 pyo3 = { version = "0.23.4", features = ["extension-module"] }
 
 [lib]

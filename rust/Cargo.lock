@@ -1552,6 +1552,7 @@ version = "5.0.0-beta.0"
 dependencies = [
  "portablemc",
  "pyo3",
+ "uuid",
 ]
 
 [[package]]

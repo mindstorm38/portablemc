@@ -3,11 +3,11 @@ from os import PathLike
 
 
 class Version:
-    class Stable:
+    class Stable(Version):
         def __new__(cls, game_version: str) -> Self: ...
-    class Unstable:
+    class Unstable(Version):
         def __new__(cls, game_version: str) -> Self: ...
-    class Name:
+    class Name(Version):
         def __new__(cls, name: str) -> Self: ...
 
 class Installer:
