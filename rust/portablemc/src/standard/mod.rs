@@ -18,8 +18,8 @@ use sha1::{Digest, Sha1};
 use uuid::{uuid, Uuid};
 use zip::ZipArchive;
 
-use crate::download::{self, Batch, Entry, EntrySource};
 use crate::path::{PathExt, PathBufExt};
+use crate::download::{self, Batch};
 use crate::gav::Gav;
 
 
@@ -59,7 +59,7 @@ pub struct Installer {
     assets_dir: PathBuf,
     jvm_dir: PathBuf,
     bin_dir: PathBuf,
-    work_dir: PathBuf,
+    mc_dir: PathBuf,
     strict_assets_check: bool,
     strict_libraries_check: bool,
     strict_jvm_check: bool,
@@ -78,16 +78,16 @@ impl Installer {
     /// can use [`Self::new_with_default`].
     pub fn new(root_id: impl Into<String>, main_dir: impl Into<PathBuf>) -> Self {
 
-        let work_dir = main_dir.into();
+        let mc_dir = main_dir.into();
         
         Self {
             root_id: root_id.into(),
-            versions_dir: work_dir.join("versions"),
-            libraries_dir: work_dir.join("libraries"),
-            assets_dir: work_dir.join("assets"),
-            jvm_dir: work_dir.join("jvm"),
-            bin_dir: work_dir.join("bin"),
-            work_dir,
+            versions_dir: mc_dir.join("versions"),
+            libraries_dir: mc_dir.join("libraries"),
+            assets_dir: mc_dir.join("assets"),
+            jvm_dir: mc_dir.join("jvm"),
+            bin_dir: mc_dir.join("bin"),
+            mc_dir,
             strict_assets_check: false,
             strict_libraries_check: false,
             strict_jvm_check: false,
@@ -121,13 +121,13 @@ impl Installer {
     /// you'll get unsound errors with the JVM or the game itself.
     #[inline]
     pub fn main_dir(&mut self, main_dir: impl Into<PathBuf>) -> &mut Self {
-        let work_dir = main_dir.into();
-        self.versions_dir = work_dir.join("versions");
-        self.assets_dir = work_dir.join("assets");
-        self.libraries_dir = work_dir.join("libraries");
-        self.jvm_dir = work_dir.join("jvm");
-        self.bin_dir = work_dir.join("bin");
-        self.work_dir = work_dir;
+        let mc_dir = main_dir.into();
+        self.versions_dir = mc_dir.join("versions");
+        self.assets_dir = mc_dir.join("assets");
+        self.libraries_dir = mc_dir.join("libraries");
+        self.jvm_dir = mc_dir.join("jvm");
+        self.bin_dir = mc_dir.join("bin");
+        self.mc_dir = mc_dir;
         self
     }
 
@@ -181,8 +181,8 @@ impl Installer {
     /// saved (saves, resource packs, options and more). The user launching the
     /// game should have read/write permissions to this directory.
     #[inline]
-    pub fn work_dir(&mut self, work_dir: impl Into<PathBuf>) -> &mut Self {
-        self.work_dir = work_dir.into();
+    pub fn mc_dir(&mut self, mc_dir: impl Into<PathBuf>) -> &mut Self {
+        self.mc_dir = mc_dir.into();
         self
     }
 
@@ -298,7 +298,7 @@ impl Installer {
 
         // We also canonicalize paths that will probably be used by args replacements...
         let bin_dir = canonicalize_file(&bin_dir)?;
-        let work_dir = canonicalize_file(&self.work_dir)?;
+        let mc_dir = canonicalize_file(&self.mc_dir)?;
         let libraries_dir = canonicalize_file(&self.libraries_dir)?;
         let assets_dir = canonicalize_file(&self.assets_dir)?;
         let jvm_file = canonicalize_file(&jvm.file)?;
@@ -333,8 +333,8 @@ impl Installer {
                     .filter_map(|v| v.metadata.r#type.as_ref())
                     .map(|t| t.as_str().to_string())
                     .next(),
-                // Same as the work dir for simplification of the abstraction.
-                "game_directory" => work_dir.display().to_string(),
+                // Same as the mc dir for simplification of the abstraction.
+                "game_directory" => mc_dir.display().to_string(),
                 // Has been observed in some custom versions...
                 "library_directory" => libraries_dir.display().to_string(),
                 // Modern objects-based assets...
@@ -349,7 +349,7 @@ impl Installer {
         });
 
         Ok(Game {
-            work_dir,
+            mc_dir,
             jvm_file, 
             main_class, 
             jvm_args, 
@@ -461,7 +461,9 @@ impl Installer {
         if let Some(dl) = dl {
             let check_client_sha1 = dl.sha1.as_deref().filter(|_| self.strict_libraries_check);
             if !check_file(&client_file, dl.size, check_client_sha1)? {
-                batch.push(EntrySource::from(dl).with_file(client_file.clone()));
+                batch.push(dl.url.clone(), client_file.clone())
+                    .set_expect_size(dl.size)
+                    .set_expect_sha1(dl.sha1.as_deref().copied());
             }
         } else if !client_file.is_file() {
             return Err(Error::ClientNotFound);
@@ -544,7 +546,7 @@ impl Installer {
                 libraries.push(Library {
                     gav: lib_gav,
                     path: None,
-                    source: None,
+                    download: None,
                     natives: lib.natives.is_some(),
                 });
 
@@ -559,7 +561,11 @@ impl Installer {
 
                 if let Some(lib_dl) = lib_dl {
                     lib_obj.path = lib_dl.path.as_ref().map(PathBuf::from);
-                    lib_obj.source = Some(EntrySource::from(&lib_dl.download));
+                    lib_obj.download = Some(LibraryDownload {
+                        url: lib_dl.download.url.to_string(),
+                        size: lib_dl.download.size,
+                        sha1: lib_dl.download.sha1.as_deref().copied(),
+                    });
                 } else if let Some(repo_url) = &lib.url {
                     
                     // If we don't have any download information, it's possible to use
@@ -577,8 +583,8 @@ impl Installer {
                         url.push_str(&component);
                     }
                     
-                    lib_obj.source = Some(EntrySource {
-                        url: url.into_boxed_str(),
+                    lib_obj.download = Some(LibraryDownload {
+                        url,
                         size: None,
                         sha1: None,
                     });
@@ -587,9 +593,9 @@ impl Installer {
 
                 // Additional check because libraries with empty URLs have been seen in
                 // the wild, so we remove the source if its URL is empty.
-                if let Some(lib_source) = &lib_obj.source {
+                if let Some(lib_source) = &lib_obj.download {
                     if lib_source.url.is_empty() {
-                        lib_obj.source = None;
+                        lib_obj.download = None;
                     }
                 }
 
@@ -630,11 +636,13 @@ impl Installer {
             // repository, but this was a bad habit because most libraries could
             // not be downloaded from their repository, and this was confusing to
             // get a download error for such libraries.
-            if let Some(source) = lib.source {
+            if let Some(download) = lib.download {
                 // Only check SHA-1 if strict checking is enabled.
-                let check_source_sha1 = source.sha1.as_ref().filter(|_| self.strict_libraries_check);
-                if !check_file(&lib_file, source.size, check_source_sha1)? {
-                    batch.push(source.with_file(lib_file.clone()));
+                let check_source_sha1 = download.sha1.as_ref().filter(|_| self.strict_libraries_check);
+                if !check_file(&lib_file, download.size, check_source_sha1)? {
+                    batch.push(download.url, lib_file.clone())
+                        .set_expect_size(download.size)
+                        .set_expect_sha1(download.sha1);
                 }
             } else if !lib_file.is_file() {
                 return Err(Error::LibraryNotFound { gav: lib.gav })
@@ -815,7 +823,9 @@ impl Installer {
             .joined(config.file.id.as_str());
 
         if !check_file(&file, config.file.download.size, config.file.download.sha1.as_deref())? {
-            batch.push(EntrySource::from(&config.file.download).with_file(file.clone()));
+            batch.push(config.file.download.url.clone(), file.clone())
+                .set_expect_size(config.file.download.size)
+                .set_expect_sha1(config.file.download.sha1.as_deref().copied());
         }
 
         handler.handle_standard_event(Event::LoggerLoaded { id: &config.file.id });
@@ -875,17 +885,20 @@ impl Installer {
         // All modern version metadata have download information attached to the assets
         // index identifier, we check the file against the download information and then
         // download this single file. If the file has no download info
+        let mut index_downloaded = false;
         if let Some(dl) = index_info.download {
             if !check_file(&index_file, dl.size, dl.sha1.as_deref())? {
-                EntrySource::from(dl)
-                    .with_file(index_file.clone())
-                    .download(handler.as_download_dyn())?;
+                download::single(dl.url.clone(), index_file.clone())
+                    .set_expect_size(dl.size)
+                    .set_expect_sha1(dl.sha1.as_deref().copied())
+                    .download(handler.as_download_dyn())??;
+                index_downloaded = true;
             }
         }
 
         let reader = match File::open(&index_file) {
             Ok(reader) => BufReader::new(reader),
-            Err(e) if e.kind() == io::ErrorKind::NotFound =>
+            Err(e) if !index_downloaded && e.kind() == io::ErrorKind::NotFound =>
                 return Err(Error::AssetsNotFound { id: index_info.id.to_owned() }),
             Err(e) => 
                 return Err(Error::new_io_file(e, index_file))
@@ -952,11 +965,9 @@ impl Installer {
             // Only check SHA-1 if strict checking.
             let check_asset_sha1 = self.strict_assets_check.then_some(&*asset.hash);
             if !check_file(&asset_hash_file, Some(asset.size), check_asset_sha1)? {
-                batch.push(EntrySource {
-                    url: format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_file_name}").into_boxed_str(),
-                    size: Some(asset.size),
-                    sha1: Some(*asset.hash),
-                }.with_file(asset_hash_file));
+                batch.push(format!("{RESOURCES_URL}{asset_hash_prefix}/{asset_file_name}"), asset_hash_file)
+                    .set_expect_size(Some(asset.size))
+                    .set_expect_sha1(Some(*asset.hash));
             }
 
         }
@@ -993,7 +1004,7 @@ impl Installer {
         //   the installer wants to overwrite a resource while it is also being modified
         //   at the same time by the running instance.
         let resources_dir = mapping.resources
-            .then(|| self.work_dir.join("resources"));
+            .then(|| self.mc_dir.join("resources"));
 
         // Hard link each asset into its virtual directory, note on non-unix systems we
         // also do that to the resources directory.
@@ -1244,19 +1255,20 @@ impl Installer {
         };
 
         // Start by ensuring that we have a cached version of the JVM meta-manifest.
-        let meta_manifest_entry = Entry::new_cached(JVM_META_MANIFEST_URL);
-        let meta_manifest_file = meta_manifest_entry.file.to_path_buf();
-        meta_manifest_entry.download(handler.as_download_dyn())?;
+        let meta_manifest = {
 
-        let reader = match File::open(&meta_manifest_file) {
-            Ok(reader) => BufReader::new(reader),
-            Err(e) => return Err(Error::new_io_file(e, meta_manifest_file)),
-        };
+            let mut entry = download::single_cached(JVM_META_MANIFEST_URL)
+                .set_keep_open()
+                .download(handler.as_download_dyn())??;
 
-        let mut deserializer = serde_json::Deserializer::from_reader(reader);
-        let meta_manifest: serde::JvmMetaManifest = match serde_path_to_error::deserialize(&mut deserializer) {
-            Ok(obj) => obj,
-            Err(e) => return Err(Error::new_json_file(e, meta_manifest_file)),
+            let reader = BufReader::new(entry.take_handle().unwrap());
+            let mut deserializer = serde_json::Deserializer::from_reader(reader);
+
+            match serde_path_to_error::deserialize::<_, serde::JvmMetaManifest>(&mut deserializer) {
+                Ok(obj) => obj,
+                Err(e) => return Err(Error::new_json_file(e, entry.file())),
+            }
+
         };
 
         let Some(meta_platform) = meta_manifest.platforms.get(jvm_platform) else {
@@ -1286,21 +1298,28 @@ impl Installer {
         };
 
         // Check the manifest, download it, read and parse it...
-        if !check_file(&manifest_file, meta_variant.manifest.size, meta_variant.manifest.sha1.as_deref())? {
-            EntrySource::from(&meta_variant.manifest)
-                .with_file(manifest_file.clone())
-                .download(handler.as_download_dyn())?;
-        }
+        let manifest = {
+            
+            if !check_file(&manifest_file, meta_variant.manifest.size, meta_variant.manifest.sha1.as_deref())? {
+                download::single(meta_variant.manifest.url.clone(), manifest_file.clone())
+                    .set_expect_size(meta_variant.manifest.size)
+                    .set_expect_sha1(meta_variant.manifest.sha1.as_deref().copied())
+                    .set_keep_open()
+                    .download(handler.as_download_dyn())??;
+            }
+            
+            let reader = match File::open(&manifest_file) {
+                Ok(reader) => BufReader::new(reader),
+                Err(e) => return Err(Error::new_io_file(e, manifest_file)),
+            };
 
-        let reader = match File::open(&manifest_file) {
-            Ok(reader) => BufReader::new(reader),
-            Err(e) => return Err(Error::new_io_file(e, manifest_file)),
-        };
+            let mut deserializer = serde_json::Deserializer::from_reader(reader);
 
-        let mut deserializer = serde_json::Deserializer::from_reader(reader);
-        let manifest: serde::JvmManifest = match serde_path_to_error::deserialize(&mut deserializer) {
-            Ok(obj) => obj,
-            Err(e) => return Err(Error::new_json_file(e, manifest_file)),
+            match serde_path_to_error::deserialize::<_, serde::JvmManifest>(&mut deserializer) {
+                Ok(obj) => obj,
+                Err(e) => return Err(Error::new_json_file(e, manifest_file)),
+            }
+
         };
 
         let mut mojang_jvm = MojangJvm::default();
@@ -1330,7 +1349,9 @@ impl Installer {
                     // Only check SHA-1 if strict checking is enabled.
                     let check_dl_sha1 = dl.sha1.as_deref().filter(|_| self.strict_jvm_check);
                     if !check_file(&file, dl.size, check_dl_sha1)? {
-                        batch.push(EntrySource::from(dl).with_file(file));
+                        batch.push(dl.url.clone(), file)
+                            .set_expect_size(dl.size)
+                            .set_expect_sha1(dl.sha1.as_deref().copied());
                     }
 
                 }
@@ -1821,9 +1842,28 @@ pub enum Error {
         error: ZipError,
         file: Box<Path>,
     },
-    /// Download error, associating its failed download entry to the download error.
-    #[error("download: {0}")]
-    Download(#[from] download::Error),
+    /// A standalone reqwest error.
+    #[error("reqwest: {error}")]
+    Reqwest {
+        #[from]
+        error: reqwest::Error,
+    },
+    #[error("download")]
+    Download {
+        batch: download::BatchResult,
+    },
+}
+
+impl From<download::BatchResult> for Error {
+    fn from(batch: download::BatchResult) -> Self {
+        Self::Download { batch }
+    }
+}
+
+impl From<download::EntryError> for Error {
+    fn from(value: download::EntryError) -> Self {
+        Self::Download { batch: download::BatchResult::from(value) }
+    }
 }
 
 /// Type alias for a result with the standard error type.
@@ -1904,11 +1944,19 @@ pub struct Library {
     /// The path to install the library at, relative to the libraries directory, if not
     /// specified, it will be derived from the library specifier.
     pub path: Option<PathBuf>,
-    /// An optional download entry source for this library if it is missing.
-    pub source: Option<download::EntrySource>,
+    /// An optional download information for this library if it is missing.
+    pub download: Option<LibraryDownload>,
     /// True if this contains natives that should be extracted into the binaries 
     /// directory before launching the game, instead of being in the class path.
     pub natives: bool,
+}
+
+/// Represent how a library will be downloaded if needed.
+#[derive(Debug, Clone)]
+pub struct LibraryDownload {
+    pub url: String,
+    pub size: Option<u32>,
+    pub sha1: Option<[u8; 20]>,
 }
 
 /// Description of all installed resources needed for running an installed game version.
@@ -1920,7 +1968,7 @@ pub struct Library {
 #[derive(Debug, Clone)]
 pub struct Game {
     /// Working directory where the JVM process should be running.
-    pub work_dir: PathBuf,
+    pub mc_dir: PathBuf,
     /// Path to the JVM executable file.
     pub jvm_file: PathBuf,
     /// The main class that contains the JVM entrypoint.
@@ -1937,7 +1985,7 @@ impl Game {
     pub fn command(&self) -> Command {
         let mut command = Command::new(&self.jvm_file);
         command
-            .current_dir(&self.work_dir)
+            .current_dir(&self.mc_dir)
             .args(&self.jvm_args)
             .arg(&self.main_class)
             .args(&self.game_args);

@@ -53,7 +53,7 @@ pub fn main(args: CliArgs) -> ExitCode {
         assets_dir: main_dir.join("assets"),
         jvm_dir: main_dir.join("jvm"),
         bin_dir: main_dir.join("bin"),
-        work_dir: main_dir.clone(),
+        mc_dir: main_dir.clone(),
         main_dir,
     };
 
@@ -79,7 +79,7 @@ pub struct Cli {
     pub assets_dir: PathBuf,
     pub jvm_dir: PathBuf,
     pub bin_dir: PathBuf,
-    pub work_dir: PathBuf,
+    pub mc_dir: PathBuf,
 }
 
 
@@ -445,8 +445,16 @@ pub fn log_standard_error(out: &mut Output, error: standard::Error) {
                 .error(format_args!("ZIP error: {error}"))
                 .additional(format_args!("Related to {}", file.display()));
         }
-        Error::Download(error) => {
-            log_download_error(out, error);
+        Error::Reqwest { error } => {
+            let mut log = out.log("error_reqwest");
+            log.args(error.url().into_iter());
+            log.error("Reqwest error: {error}");
+            if let Some(source) = error.source() {
+                log.additional(format_args!("Source: {source}"));
+            }
+        }
+        Error::Download { batch } => {
+            log_download_error(out, batch);
         }
         _ => todo!(),
     }
@@ -460,18 +468,17 @@ pub fn log_mojang_error(out: &mut Output, error: mojang::Error) {
 
     match error {
         Error::Standard(error) => log_standard_error(out, error),
-        Error::AliasVersionNotFound { root } => {
+        Error::RootAliasNotFound { root } => {
             
             let root_code = match &root {
                 Root::Release => "release",
                 Root::Snapshot => "snapshot",
-                Root::Id(id) => id.as_str(),
+                Root::Id(_) => panic!()
             };
 
             out.log("error_alias_version_not_found")
                 .arg(root_code)
                 .error(format_args!("Failed to resolve root version '{root_code}'"))
-                .additional("Version fetching might be disabled with --exclude-fetch argument set to '*'")
                 .additional("The alias might be missing from manifest, likely an issue on Mojang's side");
 
         }
@@ -490,80 +497,64 @@ pub fn log_mojang_error(out: &mut Output, error: mojang::Error) {
 }
 
 /// Common function to log a download error.
-pub fn log_download_error(out: &mut Output, error: download::Error) {
+pub fn log_download_error(out: &mut Output, batch: download::BatchResult) {
 
-    use download::{Error, EntryError, EntryMode};
+    use download::EntryErrorKind;
 
-    match error {
-        Error::Reqwest(error) => {
-            // error_download_init [error_source]
-            let mut log = out.log("error_download_init");
-            log.args(error.source().into_iter());
-            log.error("Failed to initialize download client");
-            if let Some(source) = error.source() {
-                log.additional(format_args!("Source: {source}"));
-            }
-        }
-        Error::Entries(entries) => {
-            
-            // error_download_entries <entries_count>
-            out.log("error_download_entries")
-                .arg(entries.len())
-                .error(format_args!("Failed to download {} entries...", entries.len()));
+    if !batch.has_errors() {
+        return;
+    }
 
-            // error_download_entry <url> <dest> <mode> <error> [error_data...]
-            for (entry, error) in entries {
-            
-                let mode_code = match entry.mode {
-                    EntryMode::Force => "force",
-                    EntryMode::Cache => "cache",
-                };
-                
-                let mut log = out.log("error_download_entry");
-                log.arg(&entry.source.url);
-                log.arg(entry.file.display());
-                log.arg(mode_code);
+    // error_download <errors_count> <total_count>
+    out.log("error_download")
+        .arg(batch.errors_count())
+        .arg(batch.len())
+        .error(format_args!("Failed to download {} out of {} entries...", batch.errors_count(), batch.len()));
 
-                log.additional(format_args!("{} -> {} ({mode_code})", entry.source.url, entry.file.display()));
-                
-                match error {
-                    EntryError::Reqwest(error) => {
-                        log.arg("request");
-                        log.arg(&error);
-                        log.args(error.source().into_iter());
-                        if let Some(source) = error.source() {
-                            log.additional(format_args!("  {error} (source: {source})"));
-                        } else {
-                            log.additional(format_args!("  {error}"));
-                        }
-                    }
-                    EntryError::Io(error) => {
-                        log.arg("io");
-                        if let Some(error_kind_code) = io_error_kind_code(&error) {
-                            log.arg(error_kind_code);
-                        } else {
-                            log.arg(format_args!("unknown:{error}"));
-                        }
-                        log.additional(format_args!("  I/O error: {error}"));
-                    }
-                    EntryError::InvalidStatus(status) => {
-                        log.arg("invalid_status");
-                        log.arg(status);
-                        log.additional(format_args!("  Invalid status: {status}"));
-                    }
-                    EntryError::InvalidSize => {
-                        log.arg("invalid_size");
-                        log.additional(format_args!("  Invalid size"));
-                    }
-                    EntryError::InvalidSha1 => {
-                        log.arg("invalid_size");
-                        log.additional(format_args!("  Invalid SHA-1"));
-                    }
+    // error_download_entry <url> <dest> <error> [error_data...]
+    for error in batch.iter_errors() {
+
+        let mut log = out.log("error_download_entry");
+        log.arg(error.url());
+        log.arg(error.file().display());
+
+        log.additional(format_args!("{} -> {}", error.url(), error.file().display()));
+        
+        match error.kind() {
+            EntryErrorKind::Reqwest(error) => {
+                log.arg("request");
+                log.arg(&error);
+                log.args(error.source().into_iter());
+                if let Some(source) = error.source() {
+                    log.additional(format_args!("  {error} (source: {source})"));
+                } else {
+                    log.additional(format_args!("  {error}"));
                 }
-
             }
-
+            EntryErrorKind::Io(error) => {
+                log.arg("io");
+                if let Some(error_kind_code) = io_error_kind_code(&error) {
+                    log.arg(error_kind_code);
+                } else {
+                    log.arg(format_args!("unknown:{error}"));
+                }
+                log.additional(format_args!("  I/O error: {error}"));
+            }
+            EntryErrorKind::InvalidStatus(status) => {
+                log.arg("invalid_status");
+                log.arg(status);
+                log.additional(format_args!("  Invalid status: {status}"));
+            }
+            EntryErrorKind::InvalidSize => {
+                log.arg("invalid_size");
+                log.additional(format_args!("  Invalid size"));
+            }
+            EntryErrorKind::InvalidSha1 => {
+                log.arg("invalid_size");
+                log.additional(format_args!("  Invalid SHA-1"));
+            }
         }
+
     }
 
 }

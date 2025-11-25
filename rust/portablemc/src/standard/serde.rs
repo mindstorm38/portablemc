@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use chrono::{DateTime, FixedOffset};
 
 use crate::serde::{Sha1HashString, RegexString};
-use crate::download::EntrySource;
 use crate::gav::Gav;
 
 
@@ -300,25 +299,25 @@ pub struct Download {
     pub sha1: Option<Sha1HashString>,
 }
 
-impl From<Download> for EntrySource {
-    fn from(value: Download) -> Self {
-        Self {
-            url: value.url.into_boxed_str(),
-            size: value.size,
-            sha1: value.sha1.as_deref().copied(),
-        }
-    }
-}
+// impl From<Download> for EntrySource {
+//     fn from(value: Download) -> Self {
+//         Self {
+//             url: value.url.into_boxed_str(),
+//             size: value.size,
+//             sha1: value.sha1.as_deref().copied(),
+//         }
+//     }
+// }
 
-impl<'a> From<&'a Download> for EntrySource {
-    fn from(value: &'a Download) -> Self {
-        Self {
-            url: value.url.clone().into_boxed_str(),
-            size: value.size,
-            sha1: value.sha1.as_deref().copied(),
-        }
-    }
-}
+// impl<'a> From<&'a Download> for EntrySource {
+//     fn from(value: &'a Download) -> Self {
+//         Self {
+//             url: value.url.clone().into_boxed_str(),
+//             size: value.size,
+//             sha1: value.sha1.as_deref().copied(),
+//         }
+//     }
+// }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(untagged)]

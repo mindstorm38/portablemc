@@ -33,12 +33,12 @@ impl fmt::Display for TimeDeltaDisplay {
         }
         
         // All of this is really wrong but it gives a good, human-friendly, idea.
-        let months = self.0.num_weeks() / 4;
+        let months = self.0.num_days() / 30;
         if months > 0 {
             return write!(f, "{months} months ago");
         }
         
-        let weeks = self.0.num_weeks();
+        let weeks = self.0.num_days() / 7;
         if weeks > 0 {
             return write!(f, "{weeks} weeks ago");
         }

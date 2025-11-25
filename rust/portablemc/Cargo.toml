@@ -9,26 +9,27 @@ homepage.workspace = true
 repository.workspace = true
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_path_to_error = "0.1"
-serde_json = "1.0"
+serde = { version = "1.0.215", features = ["derive"] }
+serde_path_to_error = "0.1.16"
+serde_json = "1.0.133"
 
-uuid = { version = "1.10", features = ["v4", "v5", "serde"] }
-chrono = { version = "0.4", features = ["serde"]}
-regex = "1.10"          # No particular dep
+uuid = { version = "1.11.0", features = ["v4", "v5", "serde"] }
+chrono = { version = "0.4.38", features = ["serde"] }
 
-thiserror = "1.0"       # No dep
+regex = "1.11.1"        # No particular dep
 
-gethostname = "0.5"
-dunce = "1.0"           # No dep
-os_info = "3"           # Small dep: log,serde
-dirs = "5.0"            # No dep
+thiserror = "2.0.3"     # No dep
 
-sha1 = "0.10"           # Small dep: cpufeatures,digest
-md5 = "0.7"             # No dep
+gethostname = "0.5.0"
+dunce = "1.0.5"         # No dep
+os_info = "3.8.2"       # Small dep: log,serde
+dirs = "5.0.1"          # No dep
 
-zip = "2.2"             # Medium dep: aes,bzip2,deflate64,flate2,indexmap,rand,time,zstd
+sha1 = "0.10.6"         # Small dep: cpufeatures,digest
+md5 = "0.7.0"           # No dep
+
+zip = "2.2.1"           # Medium dep: aes,bzip2,deflate64,flate2,indexmap,rand,time,zstd
 
 # Big dep: base64,futures,h2,http
-reqwest = { version = "0.12", features = ["json"] }
-tokio = { version = "=1.37", features = ["rt", "rt-multi-thread", "fs", "time", "net", "macros"] }
+reqwest = { version = "0.12.9", features = ["json"] }
+tokio = { version = "1.41.1", features = ["rt", "rt-multi-thread", "fs", "time", "net", "macros"] }
