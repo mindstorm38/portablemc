@@ -12,5 +12,5 @@ repository.workspace = true
 portablemc.workspace = true
 
 [lib]
-name = "portablemc0"  # Named like this for now to avoid name collision of '.pdb'...
+name = "portablemc_ffi"  # Named like this for now to avoid name collision of '.pdb'...
 crate-type = ["staticlib", "cdylib"]

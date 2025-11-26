@@ -14,5 +14,5 @@ portablemc.workspace = true
 pyo3 = { version = "0.23.4", features = ["extension-module"] }
 
 [lib]
-name = "portablemc1"  # Named like this for now to avoid name collision of '.pdb'...
+name = "portablemc_py"  # Named like this for now to avoid name collision of '.pdb'...
 crate-type = ["cdylib"]

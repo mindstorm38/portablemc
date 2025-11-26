@@ -40,7 +40,6 @@ typedef enum pmc_forge_api {
     PMC_NEO_FORGE_API,
 } pmc_forge_api;
 
-
 typedef enum pmc_version_type {
     PMC_VERSION_TYPE_NAME,
     PMC_VERSION_TYPE_RELEASE,
