@@ -63,6 +63,7 @@ reqwest = "0.12.9"
 # CLI
 clap = "4.5.21"
 ctrlc = "3.4.5"
+rustc_version = "0.4.1"
 
 # Testing
 tempfile = "3.19.1"

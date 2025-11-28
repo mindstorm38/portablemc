@@ -36,6 +36,9 @@ webbrowser.workspace = true
 clap = { workspace = true, features = ["derive", "wrap_help", "env"] }
 ctrlc.workspace = true
 
+[build-dependencies]
+rustc_version.workspace = true
+
 [[bin]]
 name = "portablemc"
 path = "src/main.rs"

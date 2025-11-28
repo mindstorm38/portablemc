@@ -10,6 +10,12 @@ use portablemc::{fabric, forge};
 use portablemc::maven::Gav;
 
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), 
+    "\ncommit ", env!("PMC_GIT_REVISION"), 
+    "\nrustc ", env!("PMC_RUSTC_VERSION"));
+
+
 // ================= //
 //    MAIN COMMAND   //
 // ================= //
@@ -17,7 +23,7 @@ use portablemc::maven::Gav;
 /// Command line utility for launching Minecraft quickly and reliably with included 
 /// support for Mojang versions and popular mod loaders.
 #[derive(Debug, Parser)]
-#[command(name = "portablemc", version, author, disable_help_subcommand = true, max_term_width = 140)]
+#[command(name = "portablemc", version = VERSION, long_version = LONG_VERSION, author, disable_help_subcommand = true, max_term_width = 140)]
 pub struct CliArgs {
     #[command(subcommand)]
     pub cmd: CliCmd,
