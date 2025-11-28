@@ -340,8 +340,8 @@ pub struct StartArgs {
     /// When enabled, the launcher will look for specified '--uuid', or '--username' as
     /// a fallback, it will then pick the matching account and start the game with it,
     /// the account is refreshed if needed. IT MEANS that you must first login into
-    /// your account using the 'portablemc auth' command before starting the game with
-    /// the account.
+    /// your account using the 'portablemc auth login' command before starting the game 
+    /// with the account.
     /// 
     /// If the account is not found, the launcher won't start the game and will show an
     /// error.

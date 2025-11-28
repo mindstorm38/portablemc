@@ -288,8 +288,8 @@ fn apply_mojang_args(
                     unreachable!();
                 }
 
-                log.additional(format_args!("Use 'portablemc auth' command to log into your account"));
-                log.additional(format_args!("Use 'portablemc auth -l' to list stored accounts"));
+                log.additional(format_args!("Use 'portablemc auth login' command to log into your account"));
+                log.additional(format_args!("Use 'portablemc auth list' to list stored accounts"));
                 return false;
                 
             }
