@@ -109,10 +109,10 @@ jobs:
   
       - name: Test (debug)
         if: matrix.skip_test == null
-        run: cargo test --target ${{ matrix.target }} --workspace --exclude portablemc-py --exclude portablemc-ffi -- --include-ignored
+        run: cargo test --target ${{ matrix.target }} -- --include-ignored
 
       - name: Build (release)
-        run: cargo build --target ${{ matrix.target }} --release --workspace --exclude portablemc-py --exclude portablemc-ffi
+        run: cargo build --target ${{ matrix.target }} --release
 
       - name: Debug path
         run: ls ./target/${{ matrix.target }}/release
