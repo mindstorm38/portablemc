@@ -12,8 +12,9 @@ use portablemc::maven::Gav;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), 
-    "\ncommit ", env!("PMC_GIT_REVISION"), 
-    "\nrustc ", env!("PMC_RUSTC_VERSION"));
+    "\ncommit: ", env!("PMC_GIT_COMMIT"), 
+    "\nrustc: ", env!("PMC_RUSTC_VERSION"),
+    env!("PMC_VERSION_MORE"));
 
 
 // ================= //
