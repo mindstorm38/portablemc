@@ -115,8 +115,7 @@ impl Installer {
             GameVersion::Unstable => {
 
                 let stable = matches!(game_version, GameVersion::Stable);
-                let versions = api.request_game_versions()
-                    .map_err(|e| base::Error::new_reqwest(e, "request fabric game versions"))?;
+                let versions = api.request_game_versions()?;
 
                 match versions.find_latest(stable) {
                     Some(v) => v.name().to_string(),
@@ -135,8 +134,7 @@ impl Installer {
             LoaderVersion::Unstable => {
                 
                 let stable = matches!(loader_version, LoaderVersion::Stable);
-                let versions = api.request_loader_versions(Some(&game_version))
-                    .map_err(|e| base::Error::new_reqwest(e, "request fabric loader versions"))?;
+                let versions = api.request_loader_versions(Some(&game_version))?;
                 
                 match versions.find_latest(stable) {
                     Some(v) => v.name().to_string(),
@@ -362,8 +360,8 @@ pub struct Api {
     /// - `/versions/game`
     /// - `/versions/loader`
     /// - `/versions/loader/<game_version>`
-    /// - `/versions/loader/<game_version>/<loader_loader>` (returning status 400)
-    /// - `/versions/loader/<game_version>/<loader_loader>/profile/json`
+    /// - `/versions/loader/<game_version>/<loader_loader>` (returning status 400 or 404)
+    /// - `/versions/loader/<game_version>/<loader_loader>/profile/json` (returning status 400 or 404)
     base_url: &'static str,
 }
 
@@ -382,26 +380,28 @@ impl Api {
     }
 
     /// Request supported game versions.
-    pub fn request_game_versions(&self) -> reqwest::Result<ApiGameVersions<'_>> {
+    pub fn request_game_versions(&self) -> Result<ApiGameVersions<'_>> {
         self.raw_request_game_versions().map(|versions| ApiGameVersions {
             _api: self,
             versions,
         })
     }
 
-    fn raw_request_game_versions(&self) -> reqwest::Result<Vec<serde::Game>> {
+    fn raw_request_game_versions(&self) -> Result<Vec<serde::Game>> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/game", self.base_url))
                 .header(reqwest::header::ACCEPT, "application/json")
                 .send().await?
                 .error_for_status()?
-                .json().await
+                .json::<Vec<serde::Game>>().await
+        }).map_err(|e| {
+            Error::from(base::Error::new_reqwest(e, "request all game versions"))
         })
     }
 
     /// Request supported loader versions.
-    pub fn request_loader_versions(&self, game_version: Option<&str>) -> reqwest::Result<ApiLoaderVersions<'_>> {
+    pub fn request_loader_versions(&self, game_version: Option<&str>) -> Result<ApiLoaderVersions<'_>> {
         if let Some(game_version) = game_version {
             self.raw_request_game_loader_versions(game_version).map(|versions| ApiLoaderVersions {
                 _api: self,
@@ -415,52 +415,84 @@ impl Api {
         }
     }
 
-    fn raw_request_loader_versions(&self) -> reqwest::Result<Vec<serde::Loader>> {
+    fn raw_request_loader_versions(&self) -> Result<Vec<serde::Loader>> {
         crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader", self.base_url))
                 .header(reqwest::header::ACCEPT, "application/json")
                 .send().await?
                 .error_for_status()?
-                .json().await
+                .json::<Vec<serde::Loader>>().await
+        }).map_err(|e| {
+            Error::from(base::Error::new_reqwest(e, "request all loader versions"))
         })
     }
 
     /// Request supported loader versions for the given game version.
-    fn raw_request_game_loader_versions(&self, game_version: &str) -> reqwest::Result<Vec<serde::GameLoader>> {
-        crate::tokio::sync(async move {
+    fn raw_request_game_loader_versions(&self, game_version: &str) -> Result<Vec<serde::GameLoader>> {
+        
+        let ret = crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader/{game_version}", self.base_url))
                 .header(reqwest::header::ACCEPT, "application/json")
                 .send().await?
                 .error_for_status()?
-                .json().await
+                .json::<Vec<serde::GameLoader>>().await
+        });
+
+        if let Err(e) = &ret && let Some(StatusCode::NOT_FOUND | StatusCode::BAD_REQUEST) = e.status() {
+            return Ok(Vec::new());
+        }
+        
+        ret.map_err(|e| {
+            Error::from(base::Error::new_reqwest(e, format!("request loader versions for game {}", game_version)))
         })
+
     }
 
     /// Return true if the given game version has any loader versions supported.
-    fn raw_request_has_game_loader_versions(&self, game_version: &str) -> reqwest::Result<bool> {
-        crate::tokio::sync(async move {
+    fn raw_request_has_game_loader_versions(&self, game_version: &str) -> Result<bool> {
+        
+        let ret = crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader/{game_version}", self.base_url))
                 .header(reqwest::header::ACCEPT, "application/json")
                 .send().await?
                 .error_for_status()?
                 .bytes().await
-                .map(|bytes| &*bytes == b"[]") // This avoids parsing JSON
+                .map(|bytes| &*bytes != b"[]") // This avoids parsing JSON
+        });
+
+        if let Err(e) = &ret && let Some(StatusCode::NOT_FOUND | StatusCode::BAD_REQUEST) = e.status() {
+            return Ok(false);
+        }
+
+        ret.map_err(|e| {
+            Error::from(base::Error::new_reqwest(e, format!("request if there are loader versions for game {game_version}")))
         })
+
     }
 
     /// Request the prebuilt version metadata for the given game and loader versions.
-    fn raw_request_game_loader_version_metadata(&self, game_version: &str, loader_version: &str) -> reqwest::Result<base::serde::VersionMetadata> {
-        crate::tokio::sync(async move {
+    fn raw_request_game_loader_version_metadata(&self, game_version: &str, loader_version: &str) -> Result<Option<base::serde::VersionMetadata>> {
+        
+        let ret = crate::tokio::sync(async move {
             crate::http::client()?
                 .get(format!("{}/versions/loader/{game_version}/{loader_version}/profile/json", self.base_url))
                 .header(reqwest::header::ACCEPT, "application/json")
                 .send().await?
                 .error_for_status()?
-                .json().await
+                .json::<base::serde::VersionMetadata>().await
+        });
+
+        if let Err(e) = &ret && let Some(StatusCode::NOT_FOUND | StatusCode::BAD_REQUEST) = e.status() {
+            return Ok(None);
+        }
+
+        ret.map(Some).map_err(|e| {
+            Error::from(base::Error::new_reqwest(e, format!("request version metadata for game {game_version} and loader {loader_version}")))
         })
+
     }
 
 }
@@ -613,14 +645,10 @@ impl InternalHandler<'_> {
         // version if he will. But now that we need to request the prebuilt
         // version metadata, in case of error we'll try to understand what's the
         // issue: unknown game version or unknown loader version?
-        let mut metadata = match self.api.raw_request_game_loader_version_metadata(self.game_version, self.loader_version) {
-            Ok(metadata) => metadata,
-            Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => {
-                
-                let has_versions = self.api.raw_request_has_game_loader_versions(self.game_version)
-                    .map_err(|e| base::Error::new_reqwest(e, "request fabric has game loader versions"))?;
-
-                if has_versions {
+        let mut metadata = match self.api.raw_request_game_loader_version_metadata(self.game_version, self.loader_version)? {
+            Some(metadata) => metadata,
+            None => {
+                if self.api.raw_request_has_game_loader_versions(self.game_version)? {
                     return Err(Error::LoaderVersionNotFound { 
                         game_version: self.game_version.to_string(),
                         loader_version: self.loader_version.to_string(),
@@ -630,9 +658,7 @@ impl InternalHandler<'_> {
                         game_version: self.game_version.to_string(),
                     });
                 }
-
             }
-            Err(e) => return Err(base::Error::new_reqwest(e, "request fabric game loader version metadata").into()),
         };
 
         // Force the version id, the prebuilt one might not be exact.

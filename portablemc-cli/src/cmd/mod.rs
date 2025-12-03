@@ -718,7 +718,7 @@ pub fn log_fabric_error(cli: &mut Cli, error: &fabric::Error, loader: fabric::Lo
         Error::GameVersionNotFound { ref game_version } => {
             out.log(format_args!("error_{api_id}_game_version_not_found"))
                 .arg(&game_version)
-                .error(format_args!("{api_name} loader has not support for {game_version} game version"));
+                .error(format_args!("{api_name} loader does not support {game_version} game version"));
         }
         Error::LoaderVersionNotFound { ref game_version, ref loader_version } => {
             out.log(format_args!("error_{api_id}_loader_version_not_found"))

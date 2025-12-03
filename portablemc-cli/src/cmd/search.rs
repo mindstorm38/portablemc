@@ -11,7 +11,7 @@ use portablemc::{moj, fabric, forge};
 use crate::parse::{SearchArgs, SearchKind, SearchChannel, SearchLatestChannel};
 use crate::format::{TimeDeltaFmt, DATE_FORMAT};
 
-use super::{Cli, LogHandler, log_mojang_error, log_forge_error, log_reqwest_error, log_io_error};
+use super::{Cli, LogHandler, log_mojang_error, log_forge_error, log_io_error, log_fabric_error};
 
 
 pub fn search(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
@@ -194,7 +194,7 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
         let versions = match api.request_game_versions() {
             Ok(v) => v,
             Err(e) => {
-                log_reqwest_error(cli, &e, "request fabric game versions");
+                log_fabric_error(cli, &e, loader);
                 return ExitCode::FAILURE;
             }
         };
@@ -231,7 +231,7 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
         let versions = match api.request_loader_versions(None) {
             Ok(v) => v,
             Err(e) => {
-                log_reqwest_error(cli, &e, "request fabric loader versions");
+                log_fabric_error(cli, &e, loader);
                 return ExitCode::FAILURE;
             }
         };
