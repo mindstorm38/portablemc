@@ -547,6 +547,8 @@ impl Repo {
         let [major, minor] = parse_game_version(game_version)?;
         let prefix = if self.neoforge {
             if major == 20 && minor == 1 {
+                // We ignore the special case of 47.1.82 because it's not the latest 
+                // version anyway...
                 format!("1.20.1-")
             } else {
                 format!("{major}.{minor}.")
@@ -559,16 +561,27 @@ impl Repo {
             }
         };
 
-        let mut it = self.iter()
-            .filter(|v| v.name().starts_with(&prefix))
-            .filter(|v| !stable || v.is_stable());
-
-        // NeoForge has latest versions last.
-        if self.neoforge {
-            it.last()
-        } else {
-            it.next()
+        // To search the maximum version...
+        let mut max_loader = [0; 4];
+        let mut max_version = None;
+        for version in self.iter() {
+            // Filter versions that starts with the right prefix...
+            let Some(loader) = version.name().strip_prefix(&prefix) else { continue };
+            // Ignore unstable versions when not requested!
+            if stable && !version.is_stable() { continue }
+            // Remove a potential suffix to that version, such as -1.7.10, -beta, etc...
+            let loader = loader.split_once("-").map(|(before, _)| before).unwrap_or(loader);
+            // Parse the loader version as 4-digit versions, because Forge used to have 
+            // such long versions, ignoring versions that could not be parsed.
+            let Some(loader) = parse_generic_version::<4, 1>(loader) else { continue };
+            // Then compare to find the maximum version...
+            if loader > max_loader {
+                max_loader = loader;
+                max_version = Some(version);
+            }
         }
+
+        max_version
 
     }
 
