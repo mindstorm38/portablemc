@@ -622,11 +622,13 @@ async fn download_many(
     // Sort our entries in order to download big files first, this is allowing better
     // parallelization at start and avoid too much blocking at the end. Because our
     // indices vector will pop the first index from the end, we put big files at the
-    // end, and so sort by ascending size.
+    // end, and so sort by ascending size. We also put 
     indices.sort_by(|&a_index, &b_index| {
         match (entries[a_index].expected_size, entries[b_index].expected_size) {
             (Some(a), Some(b)) => Ord::cmp(&a, &b),
-            _ => Ordering::Equal,
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
         }
     });
 
