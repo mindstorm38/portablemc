@@ -11,7 +11,7 @@ use portablemc::{moj, fabric, forge};
 use crate::parse::{SearchArgs, SearchKind, SearchChannel, SearchLatestChannel};
 use crate::format::{TimeDeltaFmt, DATE_FORMAT};
 
-use super::{Cli, LogHandler, log_mojang_error, log_forge_error, log_io_error, log_fabric_error};
+use super::{Cli, LogHandler, log_mojang_error, log_forge_error, log_any_error, log_fabric_error};
 
 
 pub fn search(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
@@ -134,8 +134,15 @@ fn search_local(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     let reader = match fs::read_dir(&versions_dir) {
         Ok(reader) => reader,
         Err(e) => {
-            log_io_error(cli, &e, &format!("{}", versions_dir.display()));
+            
+            cli.out.log("error_search_local")
+                .arg(versions_dir.display())
+                .error("Failed to read local versions directory:")
+                .additional(versions_dir.display());
+
+            log_any_error(cli, &e, false, true);
             return ExitCode::FAILURE;
+
         }
     };
     

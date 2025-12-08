@@ -14,7 +14,7 @@ use crate::parse::{StartArgs, StartResolution, StartVersion, StartJvmPolicy};
 use crate::format::TIME_FORMAT;
 use crate::output::LogLevel;
 
-use super::{Cli, LogHandler, log_io_error, log_mojang_error, log_fabric_error, log_forge_error, log_msa_database_error};
+use super::{Cli, LogHandler, log_any_error, log_mojang_error, log_fabric_error, log_forge_error, log_msa_database_error};
 
 
 /// The child is shared in order to be properly killed when the launcher exits, because
@@ -202,8 +202,13 @@ fn start_game(game: Game, cli: &mut Cli, args: &StartArgs) -> ExitCode {
     match run_command(cli, command) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            log_io_error(cli, &e, "run game");
+
+            cli.out.log("error_run_command")
+                .error("Failed to run command");
+
+            log_any_error(cli, &e, false, true);
             ExitCode::FAILURE
+            
         }
     }
 

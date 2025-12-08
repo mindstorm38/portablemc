@@ -7,7 +7,6 @@ mod auth;
 use std::process::{self, ExitCode};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use std::error::Error;
 use std::io;
 
 use portablemc::{base, download, moj, fabric, forge, msa};
@@ -654,7 +653,14 @@ pub fn log_base_error(cli: &mut Cli, error: &base::Error) {
             log_download_error(cli, batch);
         }
         Error::Internal { error, origin } => {
-            log_internal_error(cli, &**error, &origin);
+
+            cli.out.log("error_base")
+                .arg(origin)
+                .error("The following error(s) originates from:")
+                .additional(origin);
+
+            log_any_error(cli, &**error, false, true);
+
         }
         _ => todo!(),
     }
@@ -859,13 +865,14 @@ pub fn log_download_error(cli: &mut Cli, batch: &download::BatchResult) {
         .error(format_args!("Failed to download {} out of {} entries...", batch.errors_count(), batch.len()));
 
     // error_download_entry <url> <dest> <error> [error_data...]
+    // ... possibly followed by a stack of standard errors
     for error in batch.iter_errors() {
 
         let mut log = cli.out.log("error_download_entry");
         log.arg(error.url());
         log.arg(error.file().display());
 
-        log.additional(format_args!("{}", error.url()));
+        log.error(format_args!("{}", error.url()));
         log.additional(format_args!("-> {}", error.file().display()));
         
         match error.kind() {
@@ -883,34 +890,9 @@ pub fn log_download_error(cli: &mut Cli, batch: &download::BatchResult) {
                 log.additional(format_args!("   Invalid status: {status}"));
             }
             EntryErrorKind::Internal(error) => {
-                if let Some(error) = error.downcast_ref::<io::Error>() {
-
-                    log.arg("io");
-                    if let Some(error_kind_code) = io_error_kind_code(&error) {
-                        log.arg(error_kind_code);
-                    } else {
-                        log.arg(format_args!("unknown:{error}"));
-                    }
-                    log.additional(format_args!("   I/O error: {error}"));
-
-                } else if let Some(error) = error.downcast_ref::<reqwest::Error>() {
-
-                    log.arg("request");
-                    log.arg(&error);
-                    log.args(error.source());
-                    if let Some(source) = error.source() {
-                        log.additional(format_args!("   {error} (source: {source})"));
-                    } else {
-                        log.additional(format_args!("   {error}"));
-                    }
-
-                } else {
-
-                    log.arg("internal");
-                    log.arg(error);
-                    log.additional(format_args!("   Internal error: {error}"));
-                    
-                }
+                log.arg("any");  // Indicates that the real error comes next
+                drop(log);
+                log_any_error(&mut *cli, &**error, true, true);
             }
         }
 
@@ -919,90 +901,69 @@ pub fn log_download_error(cli: &mut Cli, batch: &download::BatchResult) {
 }
 
 /// Common function to log an internal and generic error.
-pub fn log_internal_error(cli: &mut Cli, error: &(dyn std::error::Error + Send + Sync + 'static), origin: &str) {
+pub fn log_any_error(cli: &mut Cli, error: &(dyn std::error::Error + 'static), from_download: bool, additional: bool) {
+
+    let indent = if from_download { "   " } else { "" };
+    let level = if additional { LogLevel::Additional } else { LogLevel::Error };
+
     if let Some(error) = error.downcast_ref::<io::Error>() {
-        log_io_error(cli, error, origin);
+        
+        let mut log = cli.out.log("error_io");
+
+        if let Some(error_kind_code) = io_error_kind_code(&error) {
+            log.arg(error_kind_code);
+        } else {
+            log.arg(format_args!("unknown:{error}"));
+        }
+
+        // Newline because I/O errors are unexpected and we want to keep any previous context.
+        log.newline()
+            .line(level, format_args!("{indent}I/O error: {error}"));
+
     } else if let Some(error) = error.downcast_ref::<reqwest::Error>() {
-        log_reqwest_error(cli, error, origin);
+        cli.out.log("error_reqwest")
+            .args(error.status().map(|status| format!("status:{:03}", status.as_u16())))
+            .args(error.url().map(|url| format!("url:{url}")))
+            .newline()
+            .line(level, format_args!("{indent}Reqwest error: {error}"));
+
     } else if let Some(error) = error.downcast_ref::<serde_json::Error>() {
-        log_json_error(cli, error, None, origin);
+        cli.out.log("error_json")
+            .arg(error)
+            .arg("")
+            .newline()
+            .line(level, format_args!("{indent}JSON error: {error}"));
+        
     } else if let Some(error) = error.downcast_ref::<serde_path_to_error::Error<serde_json::Error>>() {
-        log_json_error(cli, error.inner(), Some(error.path()), origin);
+        cli.out.log("error_json")
+            .arg(error.inner())
+            .arg(error.path())
+            .newline()
+            .line(level, format_args!("{indent}JSON error: {error}"))
+            .additional(format_args!("{indent}At {}", error.path()));
+
     } else if let Some(error) = error.downcast_ref::<zip::result::ZipError>() {
-        log_zip_error(cli, error, origin);
-    } else if let Some(error) = error.downcast_ref::<jsonwebtoken::errors::Error>() {
-        cli.out.log("error_jwt")
-            .error(format_args!("JWT error: {error}"));
-    } else {
-        cli.out.log("error_internal")
+        cli.out.log("error_zip")
             .arg(error)
             .newline()
-            .error(format_args!("Internal error: {error}"))
-            .additional(format_args!("At {origin}"));
-    }
-}
+            .line(level, format_args!("{indent}ZIP error: {error}"));
 
-/// Common function to log an I/O error to the user.
-pub fn log_io_error(cli: &mut Cli, error: &io::Error, origin: &str) {
+    } else if let Some(error) = error.downcast_ref::<jsonwebtoken::errors::Error>() {
+        cli.out.log("error_jwt")
+            .line(level, format_args!("{indent}JWT error: {error}"));
 
-    let mut log = cli.out.log("error_io");
-
-    if let Some(error_kind_code) = io_error_kind_code(&error) {
-        log.arg(error_kind_code);
     } else {
-        log.arg(format_args!("unknown:{error}"));
+        cli.out.log("error_unknown")
+            .arg(error)
+            .newline()
+            .line(level, format_args!("{indent}Unknown error: {error}"));
+
     }
 
-    log.arg(origin);
-
-    // Newline because I/O errors are unexpected and we want to keep any previous context.
-    log.newline()
-        .error(format_args!("I/O error: {error}"))
-        .additional(format_args!("At {origin}"));
-
-}
-
-/// Common function to log a reqwest (HTTP) error.
-pub fn log_reqwest_error(cli: &mut Cli, error: &reqwest::Error, origin: &str) {
-    let mut log = cli.out.log("error_reqwest");
-    log.args(error.url());
-    log.args(error.source());
-    log.arg(origin);
-    log.newline();
-    log.error(format_args!("Reqwest error: {error}"));
     if let Some(source) = error.source() {
-        log.additional(format_args!("At {source}"));
-    }
-    log.additional(format_args!("At {origin}"));
-}
-
-/// Common function to log a JSON serde error.
-pub fn log_json_error(cli: &mut Cli, error: &serde_json::Error, path: Option<&serde_path_to_error::Path>, origin: &str) {
-
-    let mut log = cli.out.log("error_json");
-    log.arg(error);
-
-    if let Some(path) = path {
-        log.arg(path);
-    } else {
-        log.arg("");
+        log_any_error(cli, source, from_download, true);
     }
 
-    log.arg(origin)
-        .newline()
-        .error(format_args!("JSON error: {error}"))
-        .additional(format_args!("At {origin}"));
-
-}
-
-/// Common function to log a ZIP archive error.
-pub fn log_zip_error(cli: &mut Cli, error: &zip::result::ZipError, origin: &str) {
-    cli.out.log("error_zip")
-        .arg(error)
-        .arg(origin)
-        .newline()
-        .error(format_args!("ZIP error: {error}"))
-        .additional(format_args!("At {origin}"));
 }
 
 /// Log a database error.
@@ -1031,11 +992,11 @@ pub fn log_msa_auth_error(cli: &mut Cli, error: &msa::AuthError) {
         }
         msa::AuthError::Unknown(error) => {
             cli.out.log("error_auth_unknown")
-                .arg(&error)
+                .arg(error)
                 .error(format_args!("Unknown authentication error: {error}"));
         }
         msa::AuthError::Internal(error) => {
-            log_internal_error(cli, &**error, "microsoft authentication");
+            log_any_error(cli, &**error, false, false);
         }
         _ => todo!()
     }
@@ -1044,14 +1005,18 @@ pub fn log_msa_auth_error(cli: &mut Cli, error: &msa::AuthError) {
 /// Log a database error.
 pub fn log_msa_database_error(cli: &mut Cli, error: &msa::DatabaseError) {
     match error {
-        msa::DatabaseError::Io(error) => log_io_error(cli, error, &format!("{}", cli.msa_db.file().display())),
+        msa::DatabaseError::Io(error) => {
+            log_any_error(cli, error, false, false);
+        },
         msa::DatabaseError::Corrupted => {
             cli.out.log("error_msa_database_corrupted")
+                .arg(cli.msa_db.file().display())
                 .error("The authentication database is corrupted and cannot be recovered automatically")
                 .additional(format_args!("At {}", cli.msa_db.file().display()));
         }
         msa::DatabaseError::WriteFailed => {
             cli.out.log("error_msa_database_write_failed")
+                .arg(cli.msa_db.file().display())
                 .error("Unknown error while writing the authentication database, operation cancelled")
                 .additional(format_args!("At {}", cli.msa_db.file().display()));
         }
