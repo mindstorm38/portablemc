@@ -221,14 +221,15 @@ fn apply_base_args(
     args: &StartArgs,
 ) -> bool {
 
-    // installer.set_versions_dir(cli.versions_dir.clone());
-    // installer.set_libraries_dir(cli.libraries_dir.clone());
-    // installer.set_assets_dir(cli.assets_dir.clone());
-    // installer.set_jvm_dir(cli.jvm_dir.clone());
-    // installer.set_bin_dir(cli.bin_dir.clone());
-    // installer.set_mc_dir(cli.mc_dir.clone());
-
     installer.set_main_dir(cli.main_dir.clone());
+
+    if let Some(mc_dir) = &args.mc_dir {
+        installer.set_mc_dir(mc_dir.clone());
+    }
+
+    if let Some(bin_dir) = &args.bin_dir {
+        installer.set_bin_dir(bin_dir.clone());
+    }
 
     if let Some(jvm_file) = &args.jvm {
         installer.set_jvm_policy(JvmPolicy::Static(jvm_file.into()));
