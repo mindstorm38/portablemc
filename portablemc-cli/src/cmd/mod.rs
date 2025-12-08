@@ -572,6 +572,8 @@ impl forge::Handler for LogHandler<'_> {
                         "Downloading Mojang mappings",
                     ("installertools", Some("MERGE_MAPPING")) => 
                         "Merging MCP and Mojang mappings",
+                    ("installertools", Some("PROCESS_MINECRAFT_JAR")) => 
+                        "Process client (NeoForge)",
                     ("jarsplitter", _) => 
                         "Splitting client with mappings",
                     ("ForgeAutoRenamingTool", _) => 
@@ -590,7 +592,8 @@ impl forge::Handler for LogHandler<'_> {
                 self.out.log(format_args!("{api_id}_installer_processor"))
                     .arg(name.as_str())
                     .args(task)
-                    .success(format_args!("{desc}"));
+                    .success(format_args!("{desc}"))
+                    .info(format_args!("{name} ({})", task.unwrap_or("<no param>")));
 
             }
             forge::Event::Installed => {
