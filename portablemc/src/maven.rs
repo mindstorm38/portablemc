@@ -1,12 +1,13 @@
 //! Maven related utilities, such as GAV and 'maven-metadata.xml' parsing.
 
+use std::cmp::Ordering;
 use std::iter::FusedIterator;
 use std::path::PathBuf;
 use std::num::NonZero;
 use std::str::FromStr;
 use std::borrow::Cow;
 use std::ops::Range;
-use std::fmt;
+use std::{fmt, hash};
 
 
 /// A maven-style library specifier, known as GAV, for Group, Artifact, Version, but it
@@ -14,9 +15,9 @@ use std::fmt;
 /// footprint of this structure is optimized to contain only one string, its format is the
 /// the following: `group:artifact:version[:classifier][@extension]`. This structure
 /// ensures that all the components have valid characters.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone)]
 pub struct Gav {
-    /// Internal buffer.
+    /// Internal buffer, canonicalized without @jar.
     raw: Box<str>,
     /// Length of the group part in the specifier.
     group_len: NonZero<u16>,
@@ -46,7 +47,7 @@ impl Gav {
         }
 
         let mut extension_len = None;
-        if let Some(extension) = extension {
+        if let Some(extension) = extension && extension != "jar" {
             raw.push('@');
             raw.push_str(extension);
             extension_len = Some(NonZero::new(extension.len() as _)?);
@@ -84,9 +85,10 @@ impl Gav {
 
         let mut split = raw.split('@');
         let raw0 = split.next()?;
-        let extension_len = match split.next() {
-            Some(s) => Some(NonZero::new(s.len() as _)?),
-            None => None,
+        let (extension_len, strip_jar) = match split.next() {
+            Some(s) if s == "jar" => (None, true),
+            Some(s) => (Some(NonZero::new(s.len() as _)?), false),
+            None => (None, false),
         };
 
         if split.next().is_some() {
@@ -106,8 +108,13 @@ impl Gav {
             return None;
         }
 
+        let mut raw = raw.into_owned();
+        if strip_jar {
+            raw.truncate(raw.len() - "@jar".len());
+        }
+
         Some(Self {
-            raw: raw.into_owned().into_boxed_str(),
+            raw: raw.into_boxed_str(),
             group_len,
             artifact_len,
             version_len,
@@ -160,7 +167,7 @@ impl Gav {
 
     #[inline]
     pub fn with_group(&self, group: &str) -> Option<Self> {
-        Self::new(group, self.artifact(), self.version(), self.classifier(), self.extension())
+        Self::new(group, self.artifact(), self.version(), self.classifier(), Some(self.extension()))
     }
 
     /// Return the artifact name of the library, never empty.
@@ -171,7 +178,7 @@ impl Gav {
 
     #[inline]
     pub fn with_artifact(&self, artifact: &str) -> Option<Self> {
-        Self::new(self.group(), artifact, self.version(), self.classifier(), self.extension())
+        Self::new(self.group(), artifact, self.version(), self.classifier(), Some(self.extension()))
     }
 
     /// Return the version of the library, never empty.
@@ -182,7 +189,7 @@ impl Gav {
 
     #[inline]
     pub fn with_version(&self, version: &str) -> Option<Self> {
-        Self::new(self.group(), self.artifact(), version, self.classifier(), self.extension())
+        Self::new(self.group(), self.artifact(), version, self.classifier(), Some(self.extension()))
     }
 
     /// Return the classifier of the library, none if no classifier.
@@ -198,25 +205,19 @@ impl Gav {
 
     #[inline]
     pub fn with_classifier(&self, classifier: Option<&str>) -> Option<Self> {
-        Self::new(self.group(), self.artifact(), self.version(), classifier, self.extension())
+        Self::new(self.group(), self.artifact(), self.version(), classifier, Some(self.extension()))
     }
 
-    /// Return the extension of the library, none if the default extension should be used,
-    /// like "jar".
+    /// Return the extension of the library, "jar" if the default extension should 
+    /// be used.
     #[inline]
-    pub fn extension(&self) -> Option<&str> {
+    pub fn extension(&self) -> &str {
         let range = self.extension_range();
         if range.is_empty() {
-            None
+            "jar"
         } else {
-            Some(&self.raw[range])
+            &self.raw[range]
         }
-    }
-
-    /// Return the extension of the library, "jar" if default extension should be used.
-    #[inline]
-    pub fn extension_or_default(&self) -> &str {
-        self.extension().unwrap_or("jar")
     }
 
     #[inline]
@@ -224,7 +225,8 @@ impl Gav {
         Self::new(self.group(), self.artifact(), self.version(), self.classifier(), extension)
     }
 
-    /// Get the representation of the GAV as a string.
+    /// Get the representation of the GAV as a string, this form is always canonicalized
+    /// which means that the @jar extension is never explicitly written.
     #[inline]
     pub fn as_str(&self) -> &str {
         &self.raw
@@ -254,7 +256,7 @@ impl Gav {
             self.artifact_len.get() as usize + 1 +
             self.version_len.get() as usize +
             self.classifier_len.map(|len| 1 + len.get() as usize).unwrap_or(0) + 1 +
-            self.extension_or_default().len();
+            self.extension().len();
         
         let mut buf = PathBuf::with_capacity(len);
 
@@ -276,7 +278,7 @@ impl Gav {
             buf.as_mut_os_string().push(classifier);
         }
         buf.as_mut_os_string().push(".");
-        buf.as_mut_os_string().push(self.extension_or_default());
+        buf.as_mut_os_string().push(self.extension());
 
         debug_assert_eq!(buf.as_os_str().len(), len);
 
@@ -294,6 +296,32 @@ impl FromStr for Gav {
         Self::_from_str(Cow::Borrowed(s)).ok_or(())
     }
 
+}
+
+impl PartialEq for Gav {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl Eq for Gav { }
+
+impl PartialOrd for Gav {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Gav {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_str().cmp(other.as_str())
+    }
+}
+
+impl hash::Hash for Gav {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state);
+    }
 }
 
 impl fmt::Display for Gav {
@@ -385,7 +413,7 @@ impl fmt::Display for GavUrl<'_> {
         }
 
         f.write_str(".")?;
-        f.write_str(self.0.extension_or_default())
+        f.write_str(self.0.extension())
 
     }
 }
@@ -518,8 +546,8 @@ mod tests {
     fn as_str_correct() {
         assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", None, None).unwrap().as_str(), "foo.bar:baz:0.1.2-beta");
         assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", Some("natives"), None).unwrap().as_str(), "foo.bar:baz:0.1.2-beta:natives");
-        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", None, Some("jar")).unwrap().as_str(), "foo.bar:baz:0.1.2-beta@jar");
-        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", Some("natives"), Some("jar")).unwrap().as_str(), "foo.bar:baz:0.1.2-beta:natives@jar");
+        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", None, Some("jar")).unwrap().as_str(), "foo.bar:baz:0.1.2-beta");
+        assert_eq!(Gav::new("foo.bar", "baz", "0.1.2-beta", Some("natives"), Some("jar")).unwrap().as_str(), "foo.bar:baz:0.1.2-beta:natives");
         assert_eq!(Gav::new("foo.bar_ok", "baz", "0.1.2+beta", None, None).unwrap().as_str(), "foo.bar_ok:baz:0.1.2+beta");
     }
 
@@ -543,14 +571,14 @@ mod tests {
         assert_eq!(gav.artifact(), "baz");
         assert_eq!(gav.version(), "0.1.2-beta");
         assert_eq!(gav.classifier(), None);
-        assert_eq!(gav.extension(), None);
+        assert_eq!(gav.extension(), "jar");
 
         let gav = Gav::from_str("foo.bar:baz:0.1.2-beta:natives@txt").unwrap();
         assert_eq!(gav.group(), "foo.bar");
         assert_eq!(gav.artifact(), "baz");
         assert_eq!(gav.version(), "0.1.2-beta");
         assert_eq!(gav.classifier(), Some("natives"));
-        assert_eq!(gav.extension(), Some("txt"));
+        assert_eq!(gav.extension(), "txt");
 
     }
 
@@ -564,6 +592,11 @@ mod tests {
         assert_eq!(gav.with_classifier(Some("natives")).unwrap().as_str(), "foo.bar:baz:0.1.2-beta:natives");
         assert_eq!(gav.with_extension(Some("txt")).unwrap().as_str(), "foo.bar:baz:0.1.2-beta@txt");
 
+    }
+
+    #[test]
+    fn canonicalized() {
+        assert_eq!(Gav::from_str("foo.bar:baz:0.1.2-beta").unwrap(), Gav::from_str("foo.bar:baz:0.1.2-beta@jar").unwrap());
     }
 
 }

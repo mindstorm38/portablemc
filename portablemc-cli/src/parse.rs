@@ -595,14 +595,11 @@ impl StartExcludeLibPattern {
             return false;
         }
 
-        match (self.0.classifier(), gav.classifier()) {
-            (Some(pattern), Some(haystack)) if !match_wildcard(pattern, haystack) => return false,
-            (Some(_), None) |
-            (None, Some(_)) => return false,
-            _ => (),
+        if !match_wildcard(self.0.extension(), gav.extension()) {
+            return false;
         }
 
-        match (self.0.extension(), gav.extension()) {
+        match (self.0.classifier(), gav.classifier()) {
             (Some(pattern), Some(haystack)) if !match_wildcard(pattern, haystack) => return false,
             (Some(_), None) |
             (None, Some(_)) => return false,

@@ -1137,7 +1137,7 @@ impl InternalHandler<'_> {
     
         // Start by not retaining libraries with classifiers (natives).
         libraries.retain_mut(|lib| {
-            if let ("org.lwjgl", "jar") = (lib.name.group(), lib.name.extension_or_default()) {
+            if let ("org.lwjgl", "jar") = (lib.name.group(), lib.name.extension()) {
                 if lib.name.classifier().is_none() {
                     if let Some(new_name) = lib.name.with_version(version) 
                     && let Some(new_classifier_name) = new_name.with_classifier(Some(classifier)) {
@@ -1172,7 +1172,7 @@ impl InternalHandler<'_> {
     
         // Finally we update the download source.
         for lib in libraries {
-            if let ("org.lwjgl", "jar") = (lib.name.group(), lib.name.extension_or_default()) {
+            if let ("org.lwjgl", "jar") = (lib.name.group(), lib.name.extension()) {
                 let url = format!("https://repo1.maven.org/maven2/{}", lib.name.url());
                 lib.download = Some(LibraryDownload { url, size: None, sha1: None });
             }
