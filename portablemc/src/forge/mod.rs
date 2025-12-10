@@ -942,9 +942,12 @@ fn try_install(
                 libraries.insert(&lib.name, lib_file.clone());
                 
                 if !lib_dl.download.url.is_empty() {
-                    batch.push(lib_dl.download.url.to_string(), lib_file)
-                        .set_expected_size(lib_dl.download.size)
-                        .set_expected_sha1(lib_dl.download.sha1.as_deref().copied());
+                    let check_lib_sha1 = lib_dl.download.sha1.as_deref().filter(|_| mojang.base().strict_libraries_check());
+                    if !base::check_file(&lib_file, lib_dl.download.size, check_lib_sha1)? {
+                        batch.push(lib_dl.download.url.to_string(), lib_file)
+                            .set_expected_size(lib_dl.download.size)
+                            .set_expected_sha1(lib_dl.download.sha1.as_deref().copied());
+                    }
                 } else {
                     extract_installer_maven_artifact(installer_file, &mut installer_zip, &lib.name, &lib_file)?;
                 }
