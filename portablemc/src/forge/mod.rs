@@ -382,6 +382,15 @@ pub enum Error {
     InstallerProcessorNotFound {
         name: Gav,
     },
+    #[error("installer processor has a main class that could not be found")]
+    InstallerProcessorMainClassNotFound {
+        name: Gav,
+    },
+    #[error("installer processor has a dependency that could not be found")]
+    InstallerProcessDependencyNotFound {
+        name: Gav,
+        dependency: Gav,
+    },
     /// A processor has failed while running, the process output is linked.
     #[error("installer processor execution failed")]
     InstallerProcessorFailed {
@@ -1004,7 +1013,7 @@ fn try_install(
                 };
 
                 let Some(main_class) = find_jar_main_class(&jar_file)? else {
-                    return Err(Error::InstallerProcessorNotFound {
+                    return Err(Error::InstallerProcessorMainClassNotFound {
                         name: processor.jar.clone(),
                     });
                 };
@@ -1014,8 +1023,9 @@ fn try_install(
                     if let Some(dep_path) = libraries.get(dep_name) {
                         classes.push(dep_path.as_path());
                     } else {
-                        return Err(Error::InstallerProcessorNotFound {
+                        return Err(Error::InstallerProcessDependencyNotFound {
                             name: processor.jar.clone(),
+                            dependency: dep_name.clone(),
                         });
                     }
                 }

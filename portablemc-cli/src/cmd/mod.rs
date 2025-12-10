@@ -797,9 +797,21 @@ pub fn log_forge_error(cli: &mut Cli, error: &forge::Error, loader: forge::Loade
                 .additional(CONTACT_DEV);
         }
         Error::InstallerProcessorNotFound { ref name } => {
-            out.log(format_args!("error_{api_id}_installer_invalid_processor"))
+            out.log(format_args!("error_{api_id}_installer_processor_not_found"))
                 .arg(&name)
-                .error(format_args!("{api_name} installer has an invalid processor: {name}"))
+                .error(format_args!("{api_name} installer could not find a processor {name}"))
+                .additional(CONTACT_DEV);
+        }
+        Error::InstallerProcessorMainClassNotFound { ref name } => {
+            out.log(format_args!("error_{api_id}_installer_processor_main_class_not_found"))
+                .arg(&name)
+                .error(format_args!("{api_name} installer could not find the main class for processor {name}"))
+                .additional(CONTACT_DEV);
+        }
+        Error::InstallerProcessDependencyNotFound { ref name, ref dependency } => {
+            out.log(format_args!("error_{api_id}_installer_processor_dependency_not_found"))
+                .arg(&name)
+                .error(format_args!("{api_name} installer could not find the dependency {dependency} for processor {name}"))
                 .additional(CONTACT_DEV);
         }
         Error::InstallerProcessorFailed { ref name, ref output } => {
@@ -813,7 +825,7 @@ pub fn log_forge_error(cli: &mut Cli, error: &forge::Error, loader: forge::Loade
                 log.arg("");
             }
             
-            log.error(format_args!("{api_name} installer processor failed ({}):", output.status));
+            log.error(format_args!("{api_name} installer processor {name} failed ({}):", output.status));
 
             let stdout = std::str::from_utf8(&output.stdout).ok();
             let stderr = std::str::from_utf8(&output.stderr).ok();
