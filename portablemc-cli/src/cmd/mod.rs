@@ -579,6 +579,8 @@ impl forge::Handler for LogHandler<'_> {
                         "Merging MCP and Mojang mappings",
                     ("installertools", Some("PROCESS_MINECRAFT_JAR")) => 
                         "Process client (NeoForge)",
+                    ("installertools", Some("CREATE_PARENTS")) => 
+                        "Create parents",
                     ("jarsplitter", _) => 
                         "Splitting client with mappings",
                     ("ForgeAutoRenamingTool", _) => 
