@@ -42,6 +42,8 @@ struct OutputHuman {
     log_line: String,
     /// Storing the rendered background log.
     log_background: String,
+    /// A fixed indent to add to any log message.
+    log_indent: usize,
     /// This buffer contains all rendered cells for human-readable.
     table_buffer: String,
     /// For each cell, ordered by column and then by row, containing the index where the
@@ -66,6 +68,7 @@ impl Output {
             log_last_level: LogLevel::Info,
             log_line: String::new(),
             log_background: String::new(),
+            log_indent: 0,
             table_buffer: String::new(),
             table_cells: Vec::new(),
             table_separators: Vec::new(),
@@ -110,6 +113,20 @@ impl Output {
     #[inline]
     pub fn log_background(&mut self, code: impl Display) -> Log<'_, true> {
         self._log(code)
+    }
+
+    #[inline]
+    pub fn log_indent_inc(&mut self) {
+        if let OutputMode::Human(mode) = &mut self.mode {
+            mode.log_indent += 1;
+        }
+    }
+
+    #[inline]
+    pub fn log_indent_dec(&mut self) {
+        if let OutputMode::Human(mode) = &mut self.mode {
+            mode.log_indent -= 1;
+        }
     }
 
     /// Internal implementation detail used to be generic over being background.
@@ -295,6 +312,9 @@ impl Log<'_, false> {
                 };
 
                 mode.log_line.clear();
+                for _ in 0..mode.log_indent {
+                    mode.log_line.push_str("         ");
+                }
                 if name == "a" {
                     write!(mode.log_line, "         {message}").unwrap();
                 } else if name == "r" {

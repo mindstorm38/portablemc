@@ -537,7 +537,12 @@ impl forge::Handler for LogHandler<'_> {
                 self.out.log(format_args!("{api_id}_installing"))
                     .arg(reason_code)
                     .newline()  // Don't overwrite the failed line.
-                    .line(log_level, reason_desc)
+                    .line(log_level, reason_desc);
+                
+                self.out.log_indent_inc();
+
+                self.out.log(format_args!("{api_id}_install_dir"))
+                    .arg(tmp_dir.display())
                     .info(format_args!("Installing in temporary directory: {}", tmp_dir.display()));
                 
             }
@@ -597,6 +602,7 @@ impl forge::Handler for LogHandler<'_> {
 
             }
             forge::Event::Installed => {
+                self.out.log_indent_dec();
                 self.out.log(format_args!("{api_id}_installed"))
                     .success("Loader installed, retrying to start the game");
             }
