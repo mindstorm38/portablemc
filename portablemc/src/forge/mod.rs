@@ -143,9 +143,9 @@ impl Installer {
         let reason = match mojang.install((&mut *handler).into_mojang()) {
             Ok(game) => {
 
-                if !config.check_libraries {
+                let Some(check_libraries) = config.check_libraries else {
                     return Ok(game);
-                }
+                };
 
                 // Using this outer loop to break when some reason to install is met.
                 loop {
@@ -157,78 +157,101 @@ impl Installer {
                     let libs_dir = mojang.base().libraries_dir();
                     
                     // Start by checking patched client and universal client.
-                    if let Some(client_gav) = config.name.with_classifier(Some("client")) 
+                    if check_libraries.has_loader_client() 
+                    && let Some(client_gav) = config.name.with_classifier(Some("client")) 
                     && !check_exists(&libs_dir.join(client_gav.file())) {
                         break InstallReason::MissingPatchedClient;
                     }
 
-                    if let Some(universal_gav) = config.name.with_classifier(Some("universal")) 
+                    if check_libraries.has_loader_universal() 
+                    && let Some(universal_gav) = config.name.with_classifier(Some("universal")) 
                     && !check_exists(&libs_dir.join(universal_gav.file())) {
                         break InstallReason::MissingUniversalClient;
                     }
+                    
+                    if check_libraries == InstallConfigCheckLibraries::ForgeV1
+                    || check_libraries == InstallConfigCheckLibraries::ForgeV2 {
 
-                    // We analyze game argument to try find which libraries are absolutely
-                    // required for the game to run, there has been so many way of launching
-                    // the game in the Forge/NeoForge history that it's complicated to ensure
-                    // that we can accurately determine if the mod loader is properly 
-                    // installed.
-                    let mut mcp_version = None;
-                    let mut args_iter = game.game_args.iter();
-                    while let Some(arg) = args_iter.next() {
-                        match arg.as_str() {
-                            "--fml.neoFormVersion" |
-                            "--fml.mcpVersion" => {
-                                let Some(version) = args_iter.next() else { continue };
-                                mcp_version = Some(version.as_str());
+                        // We analyze game argument to try find which libraries are 
+                        // absolutely required for the game to run, there has been so 
+                        // many way of launching the game in the Forge/NeoForge history 
+                        // that it's complicated to ensure that we can accurately 
+                        // determine if the mod loader is properly installed.
+                        let mut mcp_version = None;
+                        let mut args_iter = game.game_args.iter();
+                        while let Some(arg) = args_iter.next() {
+                            match arg.as_str() {
+                                "--fml.neoFormVersion" |
+                                "--fml.mcpVersion" => {
+                                    let Some(version) = args_iter.next() else { continue };
+                                    mcp_version = Some(version.as_str());
+                                }
+                                _ => {}
                             }
-                            _ => {}
-                        }
-                    }
-
-                    // If there is a MCP version to check, we go check if client extra, slim
-                    // and srg files are present, or not, they are loaded dynamically by the 
-                    // mod loader.
-                    if let Some(mcp_version) = mcp_version {
-                        
-                        let mcp_artifact = libs_dir
-                            .join("net")
-                            .joined("minecraft")
-                            .joined("client")
-                            .joined(&config.game_version)
-                                .appended("-")
-                                .appended(mcp_version)
-                            .joined("client")
-                                .appended("-")
-                                .appended(&config.game_version)
-                                .appended("-")
-                                .appended(mcp_version)
-                                .appended("-");
-
-                        if !check_exists(&mcp_artifact.append("srg.jar")) {
-                            break InstallReason::MissingClientSrg;
                         }
 
-                        if config.extra_in_mcp {
-                            if !check_exists(&mcp_artifact.append("extra.jar")) {
-                                break InstallReason::MissingClientExtra;
-                            }
-                        } else {
-
-                            let mc_artifact = libs_dir
+                        // If there is a MCP version to check, we go check if client 
+                        // extra, slim and srg files are present, or not, they are loaded
+                        // dynamically by the mod loader.
+                        if let Some(mcp_version) = mcp_version {
+                            
+                            let mcp_artifact = libs_dir
                                 .join("net")
                                 .joined("minecraft")
                                 .joined("client")
                                 .joined(&config.game_version)
+                                    .appended("-")
+                                    .appended(mcp_version)
                                 .joined("client")
-                                .appended("-")
-                                .appended(&config.game_version)
-                                .appended("-");
+                                    .appended("-")
+                                    .appended(&config.game_version)
+                                    .appended("-")
+                                    .appended(mcp_version)
+                                    .appended("-");
 
-                            if !check_exists(&mc_artifact.append("extra.jar"))
-                            && !check_exists(&mc_artifact.append("extra-stable.jar")) {
-                                break InstallReason::MissingClientExtra;
+                            if !check_exists(&mcp_artifact.append("srg.jar")) {
+                                break InstallReason::MissingClientSrg;
                             }
 
+                            if check_libraries == InstallConfigCheckLibraries::ForgeV2 {
+                                if !check_exists(&mcp_artifact.append("extra.jar")) {
+                                    break InstallReason::MissingClientExtra;
+                                }
+                            } else {
+
+                                let mc_artifact = libs_dir
+                                    .join("net")
+                                    .joined("minecraft")
+                                    .joined("client")
+                                    .joined(&config.game_version)
+                                    .joined("client")
+                                    .appended("-")
+                                    .appended(&config.game_version)
+                                    .appended("-");
+
+                                if !check_exists(&mc_artifact.append("extra.jar"))
+                                && !check_exists(&mc_artifact.append("extra-stable.jar")) {
+                                    break InstallReason::MissingClientExtra;
+                                }
+
+                            }
+
+                        }
+                        
+                    } else if check_libraries == InstallConfigCheckLibraries::NeoForgeV1 {
+
+                        let patched_client_artifact = libs_dir
+                            .join("net")
+                            .joined("neoforged")
+                            .joined("minecraft-client-patched")
+                            .joined(config.name.version())
+                            .joined("minecraft-client-patched")
+                            .appended("-")
+                            .appended(config.name.version())
+                            .appended(".jar");
+
+                        if !check_exists(&patched_client_artifact) {
+                            break InstallReason::MissingPatchedClient;
                         }
 
                     }
@@ -698,20 +721,37 @@ struct InstallConfig {
     repo_url: &'static str,
     /// The game version this loader version is patching.
     game_version: String,
-    /// If the [`base::Installer`] runs successfully, this bool is used to determine
-    /// if some important libraries should be checked anyway, if those libraries are 
-    /// absent the installer tries to reinstall.
-    check_libraries: bool,
-    /// If `check_libraries` is true, and this is true, the given ladder version is known
-    /// to put its "extra" generated artifact inside the MCP-versioned game version
-    /// inside `net.minecraft:client`.
-    extra_in_mcp: bool,
+    /// Information about the libraries required to run the mod loader.
+    check_libraries: Option<InstallConfigCheckLibraries>,
     /// Set to true if this loader is expected to have a legacy install profile.
     legacy_install_profile: bool,
     /// Set to true when the installer processors should be checked, this exists because
     /// some old versions systematically generate wrong SHA-1 and we prefer allowing 
     /// these versions to be installed even if files might be invalid.
     check_processor_outputs: bool,
+}
+
+/// The configuration for checking libraries of the game after successful installation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InstallConfigCheckLibraries {
+    /// The first version of libraries set for Forge:
+    /// - `net/minecraftforge/forge/<version>/forge-<version>-client.jar`
+    /// - `net/minecraftforge/forge/<version>/forge-<version>-universal.jar`
+    /// - `net/minecraft/client/<game-version>-<mcp-version>/client-<game-version>-<mcp-version>-srg.jar`
+    /// - `net/minecraft/client/<game-version>/client-<game-version>-extra.jar` OR
+    ///   `net/minecraft/client/<game-version>/client-<game-version>-extra-stable.jar`
+    ForgeV1,
+    /// The second version of libraries set for Forge:
+    /// - `net/minecraftforge/forge/<version>/forge-<version>-client.jar`
+    /// - `net/minecraftforge/forge/<version>/forge-<version>-universal.jar`
+    /// - `net/minecraft/client/<game-version>-<mcp-version>/client-<game-version>-<mcp-version>-srg.jar`
+    /// - `net/minecraft/client/<game-version>-<mcp-version>/client-<game-version>-<mcp-version>-extra.jar`
+    ForgeV2,
+    /// The first libraries set for NeoForge that was different from Forge, starting 
+    /// with NeoForge version 21.10.37-beta:
+    /// - `net/neoforged/neoforge/<version>/neoforge-<version>-universal.jar`
+    /// - `net/neoforged/minecraft-client-patched/<version>/minecraft-client-patched-<version>.jar`
+    NeoForgeV1,
 }
 
 impl InstallConfig {
@@ -735,13 +775,19 @@ impl InstallConfig {
             } else {
                 game_version.to_string()
             },
-            // The first version to actually use processors was 1.13.2-25.0.9, therefore
-            // we only check libraries for this version after onward.
-            check_libraries: loader_version.map(|v| v >= [25, 0, 0, 0]).unwrap_or(false),
-            // The 'extra' classifier is stored in different directories depending on version:
-            // v >= 1.16.1-32.0.20: inside '<game_version>-<mcp_version>'
-            // v <= 1.16.1-32.0.19: inside '<game_version>'
-            extra_in_mcp: loader_version.map(|v| v >= [32, 0, 20, 0]).unwrap_or(false),
+            // The required runtime libraries are different depending on the forge 
+            // version.
+            check_libraries: match loader_version {
+                // The 'extra' classifier is stored in different directories depending on version:
+                // v >= 1.16.1-32.0.20: inside '<game_version>-<mcp_version>'
+                // v <= 1.16.1-32.0.19: inside '<game_version>'
+                Some(v) if v >= [32, 0, 20, 0] => Some(InstallConfigCheckLibraries::ForgeV2),
+                // The first version to actually use processors was 1.13.2-25.0.9, 
+                // therefore we only check libraries for this version after onward.
+                Some(v) if v >= [25, 0, 9, 0] => Some(InstallConfigCheckLibraries::ForgeV1),
+                // No check to do because there was no processor.
+                _ => None
+            },
             // The install profiles comes in multiples forms:
             // >= 1.12.2-14.23.5.2851: There are two files, 'install_profile.json' which 
             //  contains processors and shared data, and `version.json` which is the raw 
@@ -768,15 +814,25 @@ impl InstallConfig {
 
         let gav;
         let game_version;
+        let check_libraries;
 
         if name == "47.1.82" || name.starts_with("1.20.1-") {
             gav = Gav::new("net.neoforged", "forge", name, None, None)?;
             game_version = "1.20.1".to_string();
+            check_libraries = InstallConfigCheckLibraries::ForgeV2;
         } else {
+            // Strip potential -beta suffix...
+            let (loader_version, _) = name.rsplit_once('-').unwrap_or((name, ""));
+            let loader_version = parse_generic_version::<3, 2>(loader_version)?;
             gav = Gav::new("net.neoforged", "neoforge", name, None, None)?;
-            game_version = match parse_generic_version::<2, 2>(name)? {
-                [major, 0] => format!("1.{major}"),
-                [major, minor] => format!("1.{major}.{minor}"),
+            game_version = match loader_version {
+                [major, 0, _] => format!("1.{major}"),
+                [major, minor, _] => format!("1.{major}.{minor}"),
+            };
+            check_libraries = if loader_version >= [21, 10, 37] {
+                InstallConfigCheckLibraries::NeoForgeV1
+            } else {
+                InstallConfigCheckLibraries::ForgeV2
             };
         };
 
@@ -785,12 +841,25 @@ impl InstallConfig {
             name: gav,
             repo_url: "https://maven.neoforged.net/releases",
             game_version,
-            check_libraries: true,
-            extra_in_mcp: true,
+            check_libraries: Some(check_libraries),
             legacy_install_profile: false,
             check_processor_outputs: true,
         })
 
+    }
+
+}
+
+impl InstallConfigCheckLibraries {
+
+    #[inline]
+    fn has_loader_universal(&self) -> bool {
+        true  // All loader versions needs the universal library.
+    }
+
+    #[inline]
+    fn has_loader_client(&self) -> bool {
+        matches!(self, Self::ForgeV1 | Self::ForgeV2)
     }
 
 }
