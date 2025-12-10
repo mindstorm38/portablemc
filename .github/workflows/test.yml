@@ -15,22 +15,17 @@ on:
       - README.md
       - LICENSE
       - doc/**
+  workflow_call:
+    inputs:
+      include-ignored:
+        description: Set to true to include all ignored test, this will be longer
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-
-  # No longer checking lock because the lock version could be intentionally set
-  # check-lock:
-  #   name: Check lock
-  #   runs-on: ubuntu-latest
-  #   steps:
-      
-  #     - uses: actions/checkout@v4
-
-  #     - name: Check lock
-  #       run: cargo update --locked
 
   test:
     strategy:
@@ -51,12 +46,31 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: cargo-${{ matrix.image }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build
         run: cargo build
 
       - name: Test
+        if: ${{ !inputs.include-ignored }}
         run: cargo test
+
+      - name: Test (include ignored)
+        if: ${{ inputs.include-ignored }}
+        run: cargo test -- --include-ignored
 
       - name: Doc
         run: cargo doc --no-deps

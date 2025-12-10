@@ -27,7 +27,7 @@ jobs:
         id: get-version
         shell: bash
         run: echo "version=$(cargo pkgid -p portablemc | awk -F'[#@]' '{print $NF}')" >> $GITHUB_OUTPUT
-  
+
   # We only check the cargo version if we are running the workflow against a tag.
   check-version:
     name: Check version against tag
@@ -39,10 +39,24 @@ jobs:
       - name: Match cargo version with tag
         shell: bash
         run: test "v${{ needs.fetch-version.outputs.version }}" = "${{ github.ref_name }}"
+  
+  # Include the other test workflow but trigger it, including ignored tests!
+  # Always running all tests, even if check version is skipped (due to the workflow not
+  # being dispatched on a tag).
+  test-all:
+    name: Test all
+    needs: check-version
+    if: ${{ always() && (needs.check-version.result == 'success' || needs.check-version.result == 'skipped') }}
+    uses: ./.github/workflows/test.yml
+    with:
+      include-ignored: true
 
-  # We only build when the current cargo version has been checked OR we have manually 
-  # dispatched the workflow!
+  # We only build if all test passed.
   build:
+    name: Build ${{ matrix.target }} on ${{ matrix.image }}
+    needs: test-all
+    runs-on: ${{ matrix.image }}
+
     strategy:
       fail-fast: false
       matrix:
@@ -92,13 +106,23 @@ jobs:
               echo 'OPENSSL_LIB_DIR=/usr/lib/arm-linux-gnueabihf' >> $GITHUB_ENV
               echo 'CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER=/usr/bin/arm-linux-gnueabihf-gcc' >> $GITHUB_ENV
 
-    name: Build ${{ matrix.target }} on ${{ matrix.image }}
-    needs: check-version  # Note that this already depends on github.ref being a tag...
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.check-version.result == 'success' && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha'))) }}
-    runs-on: ${{ matrix.image }}
     steps:
 
       - uses: actions/checkout@v4
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: cargo-${{ matrix.image }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Setup
         if: matrix.setup != null
@@ -159,11 +183,14 @@ jobs:
           name: ${{ matrix.target }}
           path: ~/portablemc/
   
+  # We only create a release if it's a tag AND if it's not a beta or alpha tag.
   release:
     name: Release
     needs: 
       - fetch-version
-      - build  # This requires that github.ref is a tag and not of beta/alpha
+      - check-version  # This requires that the workflow is dispatched on a tag!
+      - build
+    if: ${{ !contains(github.ref, '-beta') && !contains(github.ref, '-alpha') }}
     runs-on: ubuntu-latest
     steps:
 
@@ -194,16 +221,31 @@ jobs:
         shell: bash
         run: gh release create ${{ github.ref_name }} --verify-tag --draft --title "Version ${{ needs.fetch-version.outputs.version }}" --notes-file .github/workflows/data/release-notes.md ~/artifacts/*.zip
 
+  # We always publish anyway if the full test + build succeeds.
   publish:
     name: Publish
-    needs: check-version  # This checks that github.ref is a tag
-    runs-on: ubuntu-latest
+    needs: build
+    runs-on: ubuntu-24.04
     steps:
 
       - uses: actions/checkout@v4
 
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: cargo-ubuntu-24.04-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Publish API
-        run: cargo publish -p portablemc
+        run: cargo publish --no-verify -p portablemc
       
       - name: Publish CLI
-        run: cargo publish -p portablemc-cli
+        run: cargo publish --no-verify -p portablemc-cli

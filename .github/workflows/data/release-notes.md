@@ -7,6 +7,4 @@ Summary
 
 ### Downloads
 
-Pre-compiled binaries are available for multiple targets, each archive contains the CLI 
-executable, the dynamic library and the development files: headers, debug symbols and 
-static library.
+Pre-compiled binaries are available for multiple targets, each archive contains the CLI executable, ~~the dynamic library and the development files: headers, debug symbols and static library~~ (will be available later). 

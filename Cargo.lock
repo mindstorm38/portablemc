@@ -1503,7 +1503,7 @@ checksum = "f84267b20a16ea918e43c6a88433c2d54fa145c92a811b5b047ccbe153674483"
 
 [[package]]
 name = "portablemc"
-version = "5.0.0-rc.1"
+version = "5.0.0-rc.2"
 dependencies = [
  "chrono",
  "dirs",
@@ -1532,7 +1532,7 @@ dependencies = [
 
 [[package]]
 name = "portablemc-cli"
-version = "5.0.0-rc.1"
+version = "5.0.0-rc.2"
 dependencies = [
  "chrono",
  "clap",
@@ -1553,7 +1553,7 @@ dependencies = [
 
 [[package]]
 name = "portablemc-ffi"
-version = "5.0.0-rc.1"
+version = "5.0.0-rc.2"
 dependencies = [
  "portablemc",
  "serde",
@@ -1564,7 +1564,7 @@ dependencies = [
 
 [[package]]
 name = "portablemc-py"
-version = "5.0.0-rc.1"
+version = "5.0.0-rc.2"
 dependencies = [
  "portablemc",
  "pyo3",
