@@ -182,7 +182,9 @@ fn start_forge(
 }
 
 /// Main entrypoint for running the installed game.
-fn start_game(game: Game, cli: &mut Cli, args: &StartArgs) -> ExitCode {
+fn start_game(mut game: Game, cli: &mut Cli, args: &StartArgs) -> ExitCode {
+
+    game.jvm_args.extend(args.jvm_arg.iter().cloned());
 
     // Build the command here so that we can debug it's arguments without launching.
     let command = game.command();

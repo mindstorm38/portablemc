@@ -303,6 +303,16 @@ pub struct StartArgs {
     /// The policy for finding or installing the JVM executable.
     #[arg(long, value_name = "POLICY", conflicts_with = "jvm", default_value = "system-then-mojang")]
     pub jvm_policy: StartJvmPolicy,
+    /// Add more arguments to the JVM command line.
+    /// 
+    /// You can specify multiple arguments after the '--jvm-arg' option, using commas ',',
+    /// for example 'start --jvm-arg=-Xms256m,-Xmx2048m'.
+    /// 
+    /// Most of the time you should prefer using the '--jvm-arg=' form because JVM 
+    /// arguments also starts with a dash, which would be ambiguous if using 
+    /// '--jvm-arg -X...' (NOT WORKING) for example.
+    #[arg(long, value_name = "ARG", value_delimiter(','))]
+    pub jvm_arg: Vec<String>,
     /// Automatically join the given singleplayer world after game has been launched.
     /// 
     /// Note that this may not work on older version that did not support the "Quick Play"
