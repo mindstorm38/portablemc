@@ -555,6 +555,11 @@ impl FromStr for StartExcludeLibPattern {
 
 impl StartExcludeLibPattern {
 
+    #[inline]
+    pub fn inner(&self) -> &Gav {
+        &self.0
+    }
+
     /// Return true if that pattern matches the given GAV.
     pub fn matches(&self, gav: &Gav) -> bool {
 

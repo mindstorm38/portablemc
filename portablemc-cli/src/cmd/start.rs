@@ -719,9 +719,17 @@ impl<'a> StartHandler<'a> {
 
                 if !self.args.exclude_lib.is_empty() {
                     libraries.retain(|lib| {
-                        // If any pattern matches: .any(...) -> !true -> false (don't keep)
-                        !self.args.exclude_lib.iter()
-                            .any(|pattern| pattern.matches(&lib.name))
+                        // If any pattern matches: .any(...) -> true -> ! -> false (don't keep)
+                        !self.args.exclude_lib.iter().any(|pattern| {
+                            let exclude = pattern.matches(&lib.name);
+                            if exclude {
+                                self.log_handler.out.log("exclude_library")
+                                    .arg(&lib.name)
+                                    .arg(pattern.inner())
+                                    .info(format_args!("Excluded library {} because it matched {}", lib.name, pattern.inner()));
+                            }
+                            exclude
+                        })
                     });
                 }
 
@@ -730,6 +738,18 @@ impl<'a> StartHandler<'a> {
 
                 class_files.extend_from_slice(&self.args.include_class);
                 natives_files.extend_from_slice(&self.args.include_natives);
+
+                for class_file in &self.args.include_class {
+                    self.log_handler.out.log("include_class_file")
+                        .arg(class_file.display())
+                        .info(format_args!("Included class file: {}", class_file.display()));
+                }
+
+                for natives_file in &self.args.include_natives {
+                    self.log_handler.out.log("include_natives_file")
+                        .arg(natives_file.display())
+                        .info(format_args!("Included natives file: {}", natives_file.display()));
+                }
 
             }
             _ => {}
