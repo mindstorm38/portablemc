@@ -422,13 +422,14 @@ impl fmt::Display for GavUrl<'_> {
 /// such as joining and making URLs. We only accept ASCII, alphanumeric, '-_+' and '.' if
 /// no '..' pattern is found. Note that ':' is allowed to simplify the caller, but the 
 /// caller (builder or parser) should ensure that all sections are correct and that there
-/// is a correct number of ':'.
+/// is a correct number of ':'. We also accepts '*' in order to allow the CLI to use this
+/// as a wildcard for pattern matching libraries.
 fn check_gav_chars(s: &str) -> Option<&str> {
     let bytes = s.as_bytes();
     (0..bytes.len())
         .all(|i| 
             bytes[i].is_ascii_alphanumeric() || 
-            matches!(bytes[i], b'-' | b'_' | b'+' | b':' | b'@') || 
+            matches!(bytes[i], b'-' | b'_' | b'+' | b':' | b'@' | b'*') || 
             (bytes[i] == b'.' && (i == 0 || bytes[i - 1] != b'.')))
         .then_some(s)
 }
