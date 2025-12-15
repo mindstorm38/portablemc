@@ -9,10 +9,11 @@ use std::cmp::Ordering;
 use std::path::Path;
 use std::{env, mem};
 use std::sync::Arc;
+use std::error;
 
 use sha1::{Digest, Sha1};
 
-use reqwest::{header, Client, StatusCode};
+use reqwest::{Client, StatusCode, header};
 
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::fs::{self, File};
@@ -68,6 +69,12 @@ impl Single {
     #[inline]
     pub fn set_use_cache(&mut self) -> &mut Self {
         self.0.set_use_cache();
+        self
+    }
+
+    #[inline]
+    pub fn set_max_retry(&mut self, count: u8) -> &mut Self {
+        self.0.set_max_retry(count);
         self
     }
 
@@ -187,6 +194,8 @@ pub struct Entry {
     /// True to keep the file open after it has been downloaded, and store the handle
     /// in the completed entry.
     keep_open: bool,
+    /// A parametric retry count for that entry, default to 2 retries, but it can be zero.
+    max_retry: u8,
 }
 
 impl Entry {
@@ -201,6 +210,7 @@ impl Entry {
             expected_sha1: None,
             use_cache: false,
             keep_open: false,
+            max_retry: 2,
         }
     }
 
@@ -266,6 +276,11 @@ impl Entry {
         self
     }
 
+    #[inline]
+    pub fn keep_open(&self) -> bool {
+        self.keep_open
+    }
+
     /// Use a file next to the entry file to keep track of the last-modified and entity
     /// tag HTTP informations, that will be used in next downloads to actually download
     /// the data only if needed. This means that the entry will not always be downloaded,
@@ -277,6 +292,21 @@ impl Entry {
     #[inline]
     pub fn set_use_cache(&mut self) -> &mut Self {
         self.use_cache = true;
+        self
+    }
+
+    #[inline]
+    pub fn use_cache(&self) -> bool {
+        self.use_cache
+    }
+
+    /// Change the maximum retry count, this is used to automatically retry upon 
+    /// client-side connection problems.
+    /// 
+    /// The default value is 2 retries, which is purely arbitral.
+    #[inline]
+    pub fn set_max_retry(&mut self, count: u8) -> &mut Self {
+        self.max_retry = count;
         self
     }
 
@@ -518,6 +548,7 @@ impl EntrySuccess {
 #[error("{core:?}: {kind}")]
 pub struct EntryError {
     core: EntryCore,
+    #[source]
     kind: EntryErrorKind,
 }
 
@@ -544,7 +575,7 @@ pub enum EntryErrorKind {
     /// 
     /// - [`reqwest::Error`] for any error related to HTTP requests.
     #[error("internal: {0}")]
-    Internal(#[source] Box<dyn std::error::Error + Send + Sync>),
+    Internal(#[source] Box<dyn error::Error + Send + Sync>),
 }
 
 impl EntryErrorKind {
@@ -772,10 +803,8 @@ async fn download_single(
 async fn download_entry(
     client: Client, 
     entry: &Entry,
-    progress_sender: impl EntryProgressSender,
+    mut progress_sender: impl EntryProgressSender,
 ) -> Result<EntrySuccessInner, EntryErrorKind> {
-
-    let mut progress_sender = progress_sender;
 
     let mut req = client.get(&*entry.core.url);
     
@@ -837,35 +866,103 @@ async fn download_entry(
 
     // Create any parent directory so that we can create the file.
     if let Some(parent_dir) = entry.core.file.parent() {
-        tokio::fs::create_dir_all(parent_dir).await.map_err(EntryErrorKind::new_io)?;
+        fs::create_dir_all(parent_dir).await.map_err(EntryErrorKind::new_io)?;
     }
 
     // Only add read capability if the handle needs to be kept.
-    let mut dst = File::options()
+    let mut file = File::options()
         .write(true)
         .create(true)
         .truncate(true)
         .read(entry.keep_open)
         .open(&*entry.core.file).await
         .map_err(EntryErrorKind::new_io)?;
-
-    let mut size = 0usize;
-    let mut sha1 = Sha1::new();
     
-    while let Some(chunk) = res.chunk().await.map_err(EntryErrorKind::new_reqwest)? {
+    // Now we do all the allowed tries at downloading the file.
+    let mut try_num = 0u8;
+    let (size, sha1) = 'outer: loop {
 
-        let delta = chunk.len();
-        size += delta;
+        let mut size = 0usize;
+        let mut sha1 = Sha1::new();
 
-        AsyncWriteExt::write_all(&mut dst, &chunk).await.map_err(EntryErrorKind::new_io)?;
-        Write::write_all(&mut sha1, &chunk).map_err(EntryErrorKind::new_io)?;
+        // On success we break the 'outer loop, on error we break the inner loop!
+        // We specify if this error should be retried.
+        let (retry, mut err) = loop {
 
-        progress_sender.send(delta as u32).await;
+            let chunk = match res.chunk().await {
+                Ok(chunk) => chunk,
+                Err(e) => break (e.is_timeout() || e.is_decode(), EntryErrorKind::new_reqwest(e)),
+            };
 
-    }
+            let Some(chunk) = chunk else {
+                // We finished copying all chunks, return the size and sha1!
+                break 'outer (size, sha1);
+            };
 
-    // Ensure the file is fully written.
-    dst.flush().await.map_err(EntryErrorKind::new_io)?;
+            let delta = chunk.len();
+            size += delta;
+
+            // We don't want to retry on I/O errors because these are local problem, and
+            // no longer network problems...
+            match AsyncWriteExt::write_all(&mut file, &chunk).await {
+                Ok(_) => (),
+                Err(e) => break (false, EntryErrorKind::new_io(e)),
+            }
+            match Write::write_all(&mut sha1, &chunk) {
+                Ok(_) => (),
+                Err(e) => break (false, EntryErrorKind::new_io(e)),
+            }
+
+            progress_sender.send(delta as u32).await;
+
+        };
+
+        // We have not reached the max retry, so we try to rewind the file and re-request
+        // the resource, if not possible, we flow below to delete the file and return the
+        // error!
+        if retry && try_num < entry.max_retry {
+            
+            try_num += 1;
+            
+            // Scope the error in this closure...
+            let rewind_res = async || -> Result<(), EntryErrorKind> {
+                
+                file.rewind().await.map_err(EntryErrorKind::new_io)?;
+                file.set_len(0).await.map_err(EntryErrorKind::new_io)?;
+                
+                res = client.get(&*entry.core.url).send().await.map_err(EntryErrorKind::new_reqwest)?;
+                if res.status() != StatusCode::OK {
+                    return Err(EntryErrorKind::InvalidStatus(res.status().as_u16()));
+                }
+
+                Ok(())
+
+            }().await;
+
+            // If no error, retry, if error just fallthrough to the cleanup code below!
+            match rewind_res {
+                Ok(()) => continue,
+                Err(e) => {
+                    err = e;
+                    // Fallthrough to cleanup code below...
+                }
+            }
+
+        }
+        
+        // Drop the file handle so that we can remove the file just after! We
+        // flush it in order to ensure that when dropping it, all operation 
+        // are completed.
+        let _ = file.flush().await;
+        drop(file);
+        
+        // Remove the file, because we are not guaranteed that it's complete.
+        // Ignore the error in case it fails, we just want to return the original error.
+        let _ = fs::remove_file(&*entry.core.file).await;
+        
+        return Err(err);
+
+    };
 
     // Now check required size and SHA-1.
     let size = u32::try_from(size).map_err(|_| EntryErrorKind::InvalidSize)?;
@@ -915,9 +1012,11 @@ async fn download_entry(
 
     }
 
+    file.flush().await.map_err(EntryErrorKind::new_io)?;
+
     let handle;
     if entry.keep_open {
-        let mut file = dst.into_std().await;
+        let mut file = file.into_std().await;
         file.rewind().map_err(EntryErrorKind::new_io)?;
         handle = Some(file);
     } else {
