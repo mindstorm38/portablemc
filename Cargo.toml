@@ -67,6 +67,7 @@ rustc_version = "0.4.1"
 
 # Testing
 tempfile = "3.19.1"
+mockito = "1.7.1"
 
 [profile.release]
 strip = "debuginfo"

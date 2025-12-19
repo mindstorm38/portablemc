@@ -880,7 +880,7 @@ async fn download_entry(
     
     // Now we do all the allowed tries at downloading the file.
     let mut try_num = 0u8;
-    let (size, sha1) = 'outer: loop {
+    let (size, sha1) = 'success: loop {
 
         let mut size = 0usize;
         let mut sha1 = Sha1::new();
@@ -889,16 +889,40 @@ async fn download_entry(
         // We specify if this error should be retried.
         let (retry, mut err) = loop {
 
+            // Read chunk by chunk, any error break the loop and fallthrough, retrying if
+            // this is timeout or decode error.
             let chunk = match res.chunk().await {
                 Ok(chunk) => chunk,
                 Err(e) => break (e.is_timeout() || e.is_decode(), EntryErrorKind::new_reqwest(e)),
             };
 
+            // If chunk is none, it means that we finished reading, the file is complete
+            // and so we check size and sha-1, on mismatch we don't retry!
             let Some(chunk) = chunk else {
-                // We finished copying all chunks, return the size and sha1!
-                break 'outer (size, sha1);
+
+                let Ok(size) = u32::try_from(size) else {
+                    break (false, EntryErrorKind::InvalidSize);
+                };
+
+                let sha1 = sha1.finalize();
+
+                if let Some(expected_size) = entry.expected_size {
+                    if expected_size != size {
+                        break (false, EntryErrorKind::InvalidSize);
+                    }
+                }
+
+                if let Some(expected_sha1) = &entry.expected_sha1 {
+                    if expected_sha1 != sha1.as_slice() {
+                        break (false, EntryErrorKind::InvalidSha1);
+                    }
+                }
+
+                break 'success (size, sha1);
+
             };
 
+            // Adding the size delta and transmit it to the progress handler.
             let delta = chunk.len();
             size += delta;
 
@@ -959,26 +983,15 @@ async fn download_entry(
         // Remove the file, because we are not guaranteed that it's complete.
         // Ignore the error in case it fails, we just want to return the original error.
         let _ = fs::remove_file(&*entry.core.file).await;
+
+        // Also remove the cache file if the file is cached.
+        if let Some(cache_file) = cache_file.as_deref() {
+            let _ = fs::remove_file(cache_file).await;
+        }
         
         return Err(err);
 
     };
-
-    // Now check required size and SHA-1.
-    let size = u32::try_from(size).map_err(|_| EntryErrorKind::InvalidSize)?;
-    let sha1 = sha1.finalize();
-
-    if let Some(expected_size) = entry.expected_size {
-        if expected_size != size {
-            return Err(EntryErrorKind::InvalidSize);
-        }
-    }
-
-    if let Some(expected_sha1) = &entry.expected_sha1 {
-        if expected_sha1 != sha1.as_slice() {
-            return Err(EntryErrorKind::InvalidSha1);
-        }
-    }
 
     // If we have a cache file, write it.
     if let Some(cache_file) = cache_file.as_deref() {
@@ -1014,6 +1027,7 @@ async fn download_entry(
 
     file.flush().await.map_err(EntryErrorKind::new_io)?;
 
+    // At the end, handle the keep open option!
     let handle;
     if entry.keep_open {
         let mut file = file.into_std().await;
