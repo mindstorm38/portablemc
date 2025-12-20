@@ -21,6 +21,12 @@ on:
         description: Set to true to include all ignored test, this will be longer
         type: boolean
         default: false
+  workflow_dispatch:
+    inputs:
+      include-ignored:
+        description: Set to true to include all ignored test, this will be longer
+        type: boolean
+        required: true
 
 env:
   CARGO_TERM_COLOR: always
