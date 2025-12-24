@@ -690,7 +690,7 @@ pub fn log_mojang_error(cli: &mut Cli, error: &moj::Error) {
         Error::LwjglFixNotFound { version } => {
             out.log("error_lwjgl_fix_not_found")
                 .arg(&version)
-                .error(format_args!("Failed to fix LWJGL to version '{version}' as requested with --lwjgl argument"))
+                .error(format_args!("Failed to fix LWJGL to version '{version}' as requested with --fix-lwjgl argument"))
                 .additional("The version might be too old (< 3.2.3)")
                 .additional("Your platform might not be supported for this version");
         }
