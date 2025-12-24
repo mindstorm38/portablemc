@@ -10,6 +10,7 @@ a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
   - [Binaries](#binaries)
   - [Cargo](#cargo)
 - [Contribute](#contribute)
+  - [Repositories](#repositories)
   - [Contributors](#contributors)
   - [Sponsors](#sponsors)
 - [Rust documentation ⇗](https://docs.rs/portablemc/latest/portablemc)
@@ -49,6 +50,11 @@ For Arch Linux users, the package is available as `portablemc` in the
 *This is currently maintained by Maks Jopek, Thanks!* -->
 
 ## Contribute
+
+### Repositories
+
+The source code is currently tracked using Git and hosted [on GitHub](https://github.com/mindstorm38/portablemc). 
+We also have an official team workspace [on Codeberg.org](https://codeberg.org/portablemc).
 
 ### Contributors
 This launcher would not be as functional without the contributors, and in particular the 
