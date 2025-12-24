@@ -1713,24 +1713,30 @@ impl Installer {
 
     /// Resolve OS rules JSON object and return true if the OS is matching the rule.
     /// 
+    /// For now, the matching is only using regexes for the OS version, as it's the only
+    /// known use of regex we've seen so far.
+    /// 
     /// This function may return an unexpected schema error.
     fn check_rule_os(&self, rule_os: &serde::RuleOs) -> bool {
 
-        if let (Some(name), Some(os_name)) = (&rule_os.name, os_name()) {
-            if name != os_name {
-                return false;
+        if let Some(name) = rule_os.name.as_deref() {
+            match os_name() {
+                Some(os_name) if name == os_name => (),
+                _ => return false,
             }
         }
 
-        if let (Some(arch), Some(os_arch)) = (&rule_os.arch, os_arch()) {
-            if arch != os_arch {
-                return false;
+        if let Some(arch) = rule_os.arch.as_deref() {
+            match os_arch() {
+                Some(os_arch) if arch == os_arch => (),
+                _ => return false,
             }
         }
 
-        if let (Some(version), Some(os_version)) = (&rule_os.version, os_version()) {
-            if !version.is_match(os_version) {
-                return false;
+        if let Some(version) = rule_os.version.as_deref() {
+            match os_version() {
+                Some(os_version) if version.is_match(os_version) => (),
+                _ => return false,
             }
         }
 
@@ -2561,6 +2567,7 @@ fn os_name() -> Option<&'static str> {
         "freebsd" => "freebsd",
         "openbsd" => "openbsd",
         "netbsd" => "netbsd",
+        "android" => "android",
         _ => return None
     })
 }
