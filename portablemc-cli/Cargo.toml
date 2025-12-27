@@ -34,10 +34,8 @@ zip.workspace = true
 webbrowser.workspace = true
 
 clap = { workspace = true, features = ["derive", "wrap_help", "env"] }
+clap_mangen.workspace = true
 ctrlc.workspace = true
-
-[build-dependencies]
-rustc_version.workspace = true
 
 [[bin]]
 name = "portablemc"

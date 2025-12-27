@@ -10,21 +10,22 @@ use portablemc::{fabric, forge};
 use portablemc::maven::Gav;
 
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), 
-    "\ncommit: ", env!("PMC_GIT_COMMIT"), 
-    "\nrustc: ", env!("PMC_RUSTC_VERSION"),
-    env!("PMC_VERSION_MORE"));
-
-
 // ================= //
 //    MAIN COMMAND   //
 // ================= //
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const VERSION_LONG: &str = match option_env!("PMC_VERSION_LONG") {
+    Some(version) => version,
+    None => VERSION,
+};
+
 /// Command line utility for launching Minecraft quickly and reliably with included 
 /// support for Mojang versions and popular mod loaders.
 #[derive(Debug, Parser)]
-#[command(name = "portablemc", version = VERSION, long_version = LONG_VERSION, author, disable_help_subcommand = true, max_term_width = 140)]
+#[command(name = "portablemc", author, disable_help_subcommand = true, max_term_width = 140)]
+#[command(version = VERSION)]
+#[command(long_version = VERSION_LONG)]
 pub struct CliArgs {
     #[command(subcommand)]
     pub cmd: CliCmd,
@@ -70,6 +71,7 @@ pub enum CliCmd {
     Start(StartArgs),
     Search(SearchArgs),
     Auth(AuthArgs),
+    Gen(GenArgs),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -835,4 +837,30 @@ pub struct AuthRefreshArgs {
 pub struct AuthForgetArgs {
     /// The UUID of the account or the username as a fallback.
     pub account: String,
+}
+
+// ================= //
+//    GEN COMMAND    //
+// ================= //
+
+/// Internal tool to generate derived resources from this tool.
+/// 
+/// This subcommand is currently intentionally hidden and unstable, made for distributors.
+#[derive(Debug, Args)]
+#[command(hide = true)]
+pub struct GenArgs {
+    #[command(subcommand)]
+    pub cmd: GenCmd,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GenCmd {
+    Man(GenManArgs),
+}
+
+/// Generate a ROFF manpage from the command line.
+#[derive(Debug, Args)]
+pub struct GenManArgs {
+    /// The directory where to generate all the manual pages.
+    pub dir: PathBuf,
 }

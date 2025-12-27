@@ -1,0 +1,17 @@
+[package]
+name = "xtask"
+description = "Internal tool for building a package for distribution"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+publish = false
+
+[dependencies]
+flate2.workspace = true
+tar.workspace = true
+zip.workspace = true
+serde_json.workspace = true

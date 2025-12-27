@@ -55,6 +55,7 @@ jobs:
   build:
     name: Build ${{ matrix.target }} on ${{ matrix.image }}
     needs: test-all
+    if: ${{ always() && needs.test-all.result == 'success' }}
     runs-on: ${{ matrix.image }}
 
     strategy:
@@ -97,7 +98,6 @@ jobs:
             image: ubuntu-24.04-arm
           - target: arm-unknown-linux-gnueabihf
             image: ubuntu-24.04-arm
-            skip_test: true
             setup: |
               sudo dpkg --add-architecture armhf
               sudo apt update
@@ -131,57 +131,15 @@ jobs:
       - name: Setup rust
         run: rustup target add ${{ matrix.target }}
   
-      - name: Test (debug)
-        if: matrix.skip_test == null
-        run: cargo test --target ${{ matrix.target }} -- --include-ignored
-
-      - name: Build (release)
-        run: cargo build --target ${{ matrix.target }} --release
-
-      - name: Debug path
-        run: ls ./target/${{ matrix.target }}/release
-
-      - name: Collect artifacts
-        shell: bash
-        run: |
-          mkdir -p ~/portablemc/dev
-          # cp -r ./portablemc-ffi/include ~/portablemc/dev/
-          cp .github/workflows/data/target-readme.txt ~/portablemc/readme.txt
-
-      - name: Collect artifacts (linux)
-        if: contains(matrix.target, 'linux')
-        run: |
-          cd ./target/${{ matrix.target }}/release/
-          cp portablemc ~/portablemc/
-          # cp libportablemc_ffi.so ~/portablemc/libportablemc.so
-          # cp libportablemc_ffi.a ~/portablemc/dev/libportablemc.a
-
-      - name: Collect artifacts (apple)
-        if: contains(matrix.target, 'apple')
-        run: |
-          cd ./target/${{ matrix.target }}/release/
-          cp portablemc ~/portablemc/
-          # cp libportablemc_ffi.dylib ~/portablemc/libportablemc.dylib
-          # cp libportablemc_ffi.a ~/portablemc/dev/libportablemc.a
-      
-      - name: Collect artifacts (windows)
-        if: contains(matrix.target, 'windows')
-        shell: bash
-        run: |
-          cd ./target/${{ matrix.target }}/release/
-          cp portablemc.exe ~/portablemc/
-          # cp portablemc_ffi.dll ~/portablemc/portablemc.dll
-          cp portablemc.pdb ~/portablemc/dev/portablemc.exe.pdb
-          # cp portablemc_ffi.pdb ~/portablemc/dev/portablemc.dll.pdb
-          # cp portablemc_ffi.dll.exp ~/portablemc/dev/portablemc.dll.exp
-          # cp portablemc_ffi.dll.lib ~/portablemc/dev/portablemc.dll.lib
-          # cp portablemc_ffi.lib ~/portablemc/dev/portablemc.lib
+      - name: Dist
+        run: cargo xtask dist ${{ matrix.target }}
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: ~/portablemc/
+          path: dist/
+          if-no-files-found: error
   
   # We only create a release if it's a tag AND if it's not a beta or alpha tag.
   release:
@@ -200,26 +158,17 @@ jobs:
         id: download-workflow-artifacts
         uses: actions/download-artifact@v4
         with:
-          path: ~/artifacts
+          path: dist/
+          merge-multiple: true
       
-      - name: Archiving artifacts
+      - name: Debug artifacts
         shell: bash
         run: |
-          cd ~/artifacts  
-          tree
-          for target in *; do
-            cd $target
-            target_description=$(rustc +nightly --target $target -Z unstable-options --print target-spec-json | jq -r '.metadata.description')
-            echo "Version: ${{ needs.fetch-version.outputs.version }}" >> readme.txt
-            echo "Target: $target" >> readme.txt
-            echo "        $target_description" >> readme.txt
-            zip -r ../$target.zip *
-            cd ..
-          done
+          ls -la dist/
 
       - name: Create release
         shell: bash
-        run: gh release create ${{ github.ref_name }} --verify-tag --draft --title "Version ${{ needs.fetch-version.outputs.version }}" --notes-file .github/workflows/data/release-notes.md ~/artifacts/*.zip
+        run: gh release create ${{ github.ref_name }} --verify-tag --draft --title "Version ${{ needs.fetch-version.outputs.version }}" --notes-file .github/workflows/data/release-notes.md ~/dist/*.tar.gz
 
   # We always publish anyway if the full test + build succeeds.
   publish:

@@ -3,6 +3,7 @@
 mod start;
 mod search;
 mod auth;
+mod r#gen;
 
 use std::process::{self, ExitCode};
 use std::path::{Path, PathBuf};
@@ -77,6 +78,7 @@ pub fn main(args: &CliArgs) -> ExitCode {
         CliCmd::Start(start_args) => start::start(&mut cli, start_args),
         CliCmd::Search(search_args) => search::search(&mut cli, search_args),
         CliCmd::Auth(auth_args) => auth::auth(&mut cli, auth_args),
+        CliCmd::Gen(gen_args) => r#gen::r#gen(&mut cli, gen_args),
     }
 
 }
