@@ -62,7 +62,8 @@ following for their bug reports, suggestions and pull requests to make the launc
 better: 
 [GoodDay360](https://github.com/GoodDay360), 
 [Ristovski](https://github.com/Ristovski),
-[JamiKettunen](https://github.com/JamiKettunen)
+[JamiKettunen](https://github.com/JamiKettunen),
+[Maxim Balashov](https://github.com/rsg245),
 [MisileLaboratory](https://github.com/MisileLab) and
 [GooseDeveloper](https://github.com/GooseDeveloper).
 
