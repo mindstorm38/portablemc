@@ -29,6 +29,7 @@ jobs:
         run: echo "version=$(cargo pkgid -p portablemc | awk -F'[#@]' '{print $NF}')" >> $GITHUB_OUTPUT
 
   # We only check the cargo version if we are running the workflow against a tag.
+  # If this tag ends with -test, it is used to test the workflow so we just strip!
   check-version:
     name: Check version against tag
     needs: fetch-version
@@ -38,18 +39,19 @@ jobs:
 
       - name: Match cargo version with tag
         shell: bash
-        run: test "v${{ needs.fetch-version.outputs.version }}" = "${{ github.ref_name }}"
+        run: test "v${{ needs.fetch-version.outputs.version }}" = $(basename "${{ github.ref_name }}" -test)
   
   # Include the other test workflow but trigger it, including ignored tests!
   # Always running all tests, even if check version is skipped (due to the workflow not
   # being dispatched on a tag).
+  # We include ignored test only if the tag is not a test tag
   test-all:
     name: Test all
     needs: check-version
     if: ${{ always() && (needs.check-version.result == 'success' || needs.check-version.result == 'skipped') }}
     uses: ./.github/workflows/test.yml
     with:
-      include-ignored: true
+      include-ignored: ${{ !startsWith(github.ref, 'refs/tags/') || !endsWith(github.ref, '-test') }}
 
   # We only build if all test passed.
   build:
@@ -166,14 +168,43 @@ jobs:
         run: |
           ls -la dist/
 
+      - name: Setup GPG
+        shell: bash
+        env:
+          GPG_SIGN_KEY: ${{ secrets.GPG_SIGN_KEY }}
+        run: |
+          echo "$GPG_SIGN_KEY" | gpg --batch --import
+          gpg -K --keyid-format long
+      
+      - name: Sign with GPG
+        shell: bash
+        run: |
+          for archive in dist/*.tar.gz; do
+            gpg -u "${{ vars.GPG_SIGN_PUB_KEY }}" --armor --detach-sign "$archive"
+          done
+      
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          cp .github/workflows/data/release-notes.md dist/
+          for archive in dist/*.tar.gz; do
+            archive_basename=$(basename "$archive")
+            name=$(basename "$archive_basename" .tar.gz)
+            platform=$(tar -axf "$archive" "$name/readme.txt" -O | grep '^Platform: ' | cut -c 11-)
+            archive_url="${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/$archive_basename"
+            echo "- [$platform]($archive_url) [[sig]($archive_url.asc)]" >> dist/release-notes.md
+          done
+
       - name: Create release
         shell: bash
-        run: gh release create ${{ github.ref_name }} --verify-tag --draft --title "Version ${{ needs.fetch-version.outputs.version }}" --notes-file .github/workflows/data/release-notes.md ~/dist/*.tar.gz
+        run: gh release create ${{ github.ref_name }} --verify-tag --draft --title "Version ${{ needs.fetch-version.outputs.version }}" --notes-file dist/release-notes.md dist/*.{tar.gz,asc}
 
   # We always publish anyway if the full test + build succeeds.
+  # If this tag ends with -test, We don't publish it as we are using it to test workflow.
   publish:
     name: Publish
     needs: build
+    if: ${{ !endsWith(github.ref, '-test') }}
     runs-on: ubuntu-24.04
     steps:
 
