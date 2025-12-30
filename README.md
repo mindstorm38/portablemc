@@ -9,7 +9,7 @@ a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
 - [Installation](#installation)
   - [Binaries](#binaries)
   - [Cargo](#cargo)
-  - [Linux packages](#linux)
+  - [Linux third-party packages](#linux-third-party-packages)
 - [Contribute](#contribute)
   - [Repositories](#repositories)
   - [Contributors](#contributors)
@@ -43,16 +43,11 @@ launcher, it is also available on [crates.io](https://crates.io/crates/portablem
 cargo add portablemc
 ```
 
-<!-- ### With Arch Linux
+### Linux third-party packages
+[![Packaging status](https://repology.org/badge/vertical-allrepos/portablemc.svg?header=&minversion=5.0.0)](https://repology.org/project/portablemc/versions)
 
-For Arch Linux users, the package is available as `portablemc` in the 
-[AUR](https://aur.archlinux.org/packages/portablemc).
-
-*This is currently maintained by Maks Jopek, Thanks!* -->
-### Linux 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/portablemc.svg)](https://repology.org/project/portablemc/versions)
-
-- Binary version for Arch Linux available on [**AUR**](https://aur.archlinux.org/packages/portablemc-bin). Maintained by [@RSG245](https://github.com/rsg245)
+### Arch Linux
+- Prebuilded binary version [**`portablemc-bin`**](https://aur.archlinux.org/packages/portablemc-bin) available on AUR
 
 ## Contribute
 
