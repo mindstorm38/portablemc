@@ -1,7 +1,6 @@
 use std::process::{Command, ExitCode};
 use std::fmt::Write as _;
 use std::path::Path;
-use std::io::{Read, Seek, Write};
 use std::fs::File;
 use std::{env, fs};
 
@@ -31,7 +30,8 @@ fn main() -> ExitCode {
 
 fn dist(target: Option<&str>) -> ExitCode {
 
-    let root_dir = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let xtask_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root_dir = xtask_dir.parent().unwrap();
     env::set_current_dir(&root_dir).unwrap();
     println!("Root dir: {}", root_dir.display());
 
@@ -147,30 +147,21 @@ fn dist(target: Option<&str>) -> ExitCode {
         fs::copy(target_dir.join("portablemc"), archive_dir.join("portablemc")).unwrap();
     }
     
-    let mut archive_readme_rw = File::options()
-        .write(true)
-        .read(true)
-        .truncate(true)
-        .create(true)
-        .open(archive_dir.join("readme.txt"))
-        .unwrap();
-    archive_readme_rw.write_all(include_bytes!("../data/readme.txt")).unwrap();
-    writeln!(archive_readme_rw, "Version: {version}").unwrap();
-    writeln!(archive_readme_rw, "Target: {target_llvm}").unwrap();
-    writeln!(archive_readme_rw, "Platform: {target_platform}").unwrap();
-
-    let mut archive_readme = String::new();
-    archive_readme_rw.rewind().unwrap();
-    archive_readme_rw.read_to_string(&mut archive_readme).unwrap();
-    drop(archive_readme_rw);
+    fs::copy(root_dir.join("LICENSE"), archive_dir.join("LICENSE")).unwrap();
     
+    let mut readme = fs::read_to_string(xtask_dir.join("data/README")).unwrap();
+    writeln!(readme, "Version: {version}").unwrap();
+    writeln!(readme, "Target: {target_llvm}").unwrap();
+    writeln!(readme, "Platform: {target_platform}").unwrap();
+    fs::write(archive_dir.join("README"), &readme).unwrap();
+
     println!("Building archive...");
     if cfg!(windows) {
         
         let archive_file = dist_dir.join(format!("{archive_name}.zip"));
         let archive_write = File::create(&archive_file).unwrap();
         let mut archive_write = ZipWriter::new(archive_write);
-        archive_write.set_comment(archive_readme);
+        archive_write.set_comment(readme);
 
         let options = SimpleFileOptions::default()
             .compression_method(CompressionMethod::Deflated);
