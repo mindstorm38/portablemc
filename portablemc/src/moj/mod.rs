@@ -851,7 +851,7 @@ impl Manifest {
     /// Return the latest snapshot version name.
     #[inline]
     pub fn latest_snapshot_name(&self) -> &str {
-        &self.inner.latest.release
+        &self.inner.latest.snapshot
     }
 
     /// Find the index of a version given its name.
