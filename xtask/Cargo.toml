@@ -15,3 +15,4 @@ flate2.workspace = true
 tar.workspace = true
 zip.workspace = true
 serde_json.workspace = true
+zip-extensions.workspace = true
