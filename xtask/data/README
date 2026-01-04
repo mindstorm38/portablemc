@@ -1,9 +1,21 @@
-PortableMC -- Cross platform command line utility for launching 
-Minecraft quickly and reliably with included support for Mojang 
+PortableMC -- Cross platform command line utility for launching
+Minecraft quickly and reliably with included support for Mojang
 versions and popular mod loaders.
 
 This archive contains the files targeting a specific architect-
-ure.  Next to this readme are placed the CLI executable and the 
-dynamic library, note, the CLI isn't linked against the dynamic 
+ure.  Next to this readme are placed the CLI executable and the
+dynamic library, note, the CLI isn't linked against the dynamic
 library, both are independent.
+
+Development of the project is tracked with Git, it is currently 
+hosted on GitHub [0].  We have a small team on Codeberg.org [1]
+where we host a mirror of the GitHub repository.
+
+The project is entirely licensed under Apache-2.0.
+
+[0]: https://github.com/mindstorm38/portablemc
+[1]: https://codeberg.org/portablemc
+
+Here are the informations about the build distributed alongside
+this document:
 
