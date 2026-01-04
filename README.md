@@ -23,6 +23,15 @@ a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
 You can directly download and run the portable binaries that are pre-built and available
 as assets on [release pages](https://github.com/mindstorm38/portablemc/releases).
 
+These binaries have been compiled using open source tooling available in this repository. 
+You can ensure that these binaries have been compiled by the official PortableMC project 
+by checking the PGP signature of the archive you downloaded, the PGP fingerprint of the 
+PortableMC project is: `f659b0f0b84a26cac635d72948caee8dc3456b2f`
+
+You can download the full public certificate online:
+- [Ubuntu Keyserver](https://keyserver.ubuntu.com/pks/lookup?search=F659+B0F0+B84A+26CA+C635+D729+48CA+EE8D+C345+6B2F&fingerprint=on&op=index)
+- [Maintainer server](https://www.theorozier.fr/assets/pgp/portablemc.asc)
+
 ### Cargo
 
 ![Crates.io Version](https://img.shields.io/crates/v/portablemc-cli)
@@ -47,7 +56,7 @@ cargo add portablemc
 [![Packaging status](https://repology.org/badge/vertical-allrepos/portablemc.svg?header=&minversion=5.0.0)](https://repology.org/project/portablemc/versions)
 
 ### Arch Linux
-- Prebuilded binary version [**`portablemc-bin`**](https://aur.archlinux.org/packages/portablemc-bin) available on AUR
+- Prebuilded binary version [`portablemc-bin`](https://aur.archlinux.org/packages/portablemc-bin) available on AUR
 
 ## Contribute
 
