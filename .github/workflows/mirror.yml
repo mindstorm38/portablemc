@@ -1,0 +1,52 @@
+name: Mirror
+
+on:
+  push:
+  create:
+  delete:
+  workflow_dispatch:
+
+jobs:
+
+  mirror-codeberg:
+    name: Mirror to Codeberg.org
+    runs-on: ubuntu-latest
+    steps:
+      
+      - name: Setup SSH
+        shell: bash
+        env:
+          CODEBERG_SSH_KEY: ${{ secrets.CODEBERG_SSH_KEY }}
+          CODEBERG_SSH_FINGERPRINT: ${{ vars.CODEBERG_SSH_FINGERPRINT }}
+        run: |
+          mkdir ~/.ssh
+          chmod 0744 ~/.ssh
+          echo "$CODEBERG_SSH_KEY" > ~/.ssh/id_codeberg
+          echo "$CODEBERG_SSH_FINGERPRINT" >> ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/id_codeberg
+          chmod 0600 ~/.ssh/known_hosts
+      
+      - name: Setup Git
+        shell: bash
+        run: |
+
+          git init --bare .
+
+          git config set --append remote.origin.url ${{ github.server_url }}/${{ github.repository }}.git
+          git config set remote.origin.fetch '+refs/heads/*:refs/heads/*'
+          git config set --append remote.origin.fetch '+refs/tags/*:refs/tags/*'
+          git config set remote.origin.mirror true
+          
+          git config set --append remote.mirrors.url ssh://git@codeberg.org/portablemc/portablemc.git
+          git config set remote.mirrors.push '+refs/*:refs/*'
+          git config set --append remote.mirrors.push '^refs/pull/*'
+          git config set remote.mirrors.mirror true
+
+          git config --list
+          
+          git fetch origin
+
+      - name: Mirror Git
+        shell: bash
+        run: |
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/id_codeberg -o IdentitiesOnly=yes" git push --force --mirror mirrors
