@@ -71,3 +71,14 @@ ctrlc = "3.4.5"
 # Testing
 tempfile = "3.19.1"
 mockito = "1.7.1"
+
+[profile.release]
+opt-level = 3
+strip = "debuginfo"
+codegen-units = 4
+lto = true
+
+# Profile history:
+# - Reducing codegen units from default (16) to 1 have reduced by 20% the size of 
+#   the final binary (but LTO are disabled);
+# - Increasing codegen units from 1 to 4 but set lto = true gave 10% improvement;

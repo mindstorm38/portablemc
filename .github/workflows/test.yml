@@ -76,7 +76,7 @@ jobs:
 
       - name: Test (include ignored)
         if: ${{ inputs.include-ignored }}
-        run: cargo test -- --include-ignored
+        run: cargo test --locked -- --include-ignored
 
       - name: Doc
         run: cargo doc --no-deps

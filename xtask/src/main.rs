@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::process::{Command, ExitCode};
 use std::fmt::Write as _;
 use std::path::Path;
@@ -29,6 +30,13 @@ fn main() -> ExitCode {
 }
 
 fn dist(target: Option<&str>) -> ExitCode {
+
+    let cargo_env = env::vars_os()
+        .map(|(name, _val)| name)
+        .filter(|name| 
+            name.as_encoded_bytes().starts_with(b"CARGO") || 
+            name.as_encoded_bytes() == b"OUT_DIR")
+        .collect::<Vec<_>>();
 
     let xtask_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let root_dir = xtask_dir.parent().unwrap();
@@ -118,11 +126,13 @@ fn dist(target: Option<&str>) -> ExitCode {
     }
 
     println!("Building release artifacts...");
-
-    // Reducing codegen units count have reduced by 20% the size of the final binary.
     let mut cmd = Command::new("cargo");
+    // We remove all the cargo env variables that are forwarded by "cargo run", so
+    // that no build script could mention a change in environment.
+    for cargo_var in cargo_env {
+        cmd.env_remove(&cargo_var);
+    }
     cmd.env("PMC_VERSION_LONG", version_long);
-    cmd.env("RUSTFLAGS", "-Copt-level=3 -Cstrip=debuginfo -Ccodegen-units=1");
     cmd.args(["build", "--release"]);
     if let Some(target) = target {
         cmd.args(["--target", target]);
@@ -155,29 +165,37 @@ fn dist(target: Option<&str>) -> ExitCode {
     writeln!(readme, "Platform: {target_platform}").unwrap();
     fs::write(archive_dir.join("README"), &readme).unwrap();
 
-    println!("Building archive...");
-    if cfg!(windows) {
-        
-        let archive_file = dist_dir.join(format!("{archive_name}.zip"));
-        let archive_write = File::create(&archive_file).unwrap();
-        let mut archive_write = ZipWriter::new(archive_write);
-        archive_write.set_comment(readme);
-
-        let options = SimpleFileOptions::default()
-            .compression_method(CompressionMethod::Deflated);
-
-        archive_write.create_from_directory_with_options(&archive_dir, |_| options, &DefaultEntryHandler).unwrap();
-
+    if has_non_empty_var("PMC_NO_ARCHIVE") {
+        println!("Not building archive because PMC_NO_ARCHIVE is not empty.");
     } else {
+        println!("Building archive...");
+        if cfg!(windows) {
+            
+            let archive_file = dist_dir.join(format!("{archive_name}.zip"));
+            let archive_write = File::create(&archive_file).unwrap();
+            let mut archive_write = ZipWriter::new(archive_write);
+            archive_write.set_comment(readme);
 
-        let archive_file = dist_dir.join(format!("{archive_name}.tar.gz"));
-        let archive_write = File::create(&archive_file).unwrap();
-        let archive_write = GzEncoder::new(archive_write, Compression::default());
-        let mut archive_write = tar::Builder::new(archive_write);
-        archive_write.append_dir_all(archive_name, &archive_dir).unwrap();
+            let options = SimpleFileOptions::default()
+                .compression_method(CompressionMethod::Deflated);
 
+            archive_write.create_from_directory_with_options(&archive_dir, |_| options, &DefaultEntryHandler).unwrap();
+
+        } else {
+
+            let archive_file = dist_dir.join(format!("{archive_name}.tar.gz"));
+            let archive_write = File::create(&archive_file).unwrap();
+            let archive_write = GzEncoder::new(archive_write, Compression::default());
+            let mut archive_write = tar::Builder::new(archive_write);
+            archive_write.append_dir_all(archive_name, &archive_dir).unwrap();
+
+        }
     }
 
     ExitCode::SUCCESS
 
+}
+
+fn has_non_empty_var<S: AsRef<OsStr>>(name: S) -> bool {
+    env::var_os(name).is_some_and(|val| val.as_encoded_bytes() != b"")
 }
