@@ -163,8 +163,25 @@ fn dist(target: Option<&str>) -> ExitCode {
     println!("Building archive directory...");
     let mut archive_name = format!("portablemc-{version}");
     if let Some(target) = target {
-        write!(archive_name, "-{target}").unwrap();
+
+        let mut target_parts = target.splitn(4, "-");
+        let arch = target_parts.next().unwrap();
+        let vendor = target_parts.next().unwrap();
+        let sys = target_parts.next().unwrap();
+        let abi = target_parts.next();
+
+        let sys = match (vendor, sys) {
+            ("apple", "darwin") => "macos",
+            (_, sys) => sys,
+        };
+
+        write!(archive_name, "-{sys}-{arch}").unwrap();
+        if let Some(abi) = abi {
+            write!(archive_name, "-{abi}").unwrap();
+        }
+
     }
+
     let archive_dir = dist_dir.join(&archive_name);
     if archive_dir.exists() {
         fs::remove_dir_all(&archive_dir).unwrap();
