@@ -190,13 +190,13 @@ jobs:
           for archive in dist/*.tar.gz; do
             archive_basename=$(basename "$archive")
             name=$(basename "$archive_basename" .tar.gz)
-            platform=$(tar -axf "$archive" "$name/README" -O | grep '^Platform: ' | cut -c 11-)
+            platform=$(tar -axf "$archive" "$name/README" -O | grep '^platform: ' | cut -c 11-)
             archive_url="${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/$archive_basename"
             echo "- [$platform]($archive_url) [[sig]($archive_url.sig)]" >> dist/release-notes.md
           done
           for archive in dist/*.zip; do
             archive_basename=$(basename "$archive")
-            platform=$(unzip -p "$archive" README | grep '^Platform: ' | cut -c 11-)
+            platform=$(unzip -p "$archive" README | grep '^platform: ' | cut -c 11-)
             archive_url="${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/$archive_basename"
             echo "- [$platform]($archive_url) [[sig]($archive_url.sig)]" >> dist/release-notes.md
           done

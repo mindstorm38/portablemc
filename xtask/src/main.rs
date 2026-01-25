@@ -1,9 +1,9 @@
-use std::ffi::OsStr;
 use std::process::{Command, ExitCode};
 use std::fmt::Write as _;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
-use std::fs::File;
 use std::{env, fs};
+use std::fs::File;
 
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -22,7 +22,7 @@ fn main() -> ExitCode {
         ["dist", target] => dist(Some(target)),
         ["dist"] => dist(None),
         _ => {
-            eprintln!("usage: {} dist [target]", args[0]);
+            eprintln!("usage: {} dist", args[0]);
             ExitCode::FAILURE
         }
     }
@@ -31,12 +31,22 @@ fn main() -> ExitCode {
 
 fn dist(target: Option<&str>) -> ExitCode {
 
-    let cargo_env = env::vars_os()
-        .map(|(name, _val)| name)
-        .filter(|name| 
-            name.as_encoded_bytes().starts_with(b"CARGO") || 
-            name.as_encoded_bytes() == b"OUT_DIR")
-        .collect::<Vec<_>>();
+    let mut cargo_env = vec![
+        OsString::from("OUT_DIR"),
+        OsString::from("CARGO"),
+        OsString::from("CARGO_MANIFEST_DIR"),
+        OsString::from("CARGO_MANIFEST_PATH"),
+        OsString::from("CARGO_CRATE_NAME"),
+        OsString::from("CARGO_PRIMARY_PACKAGE"),
+        OsString::from("CARGO_TARGET_TMPDIR"),
+    ];
+    
+    for (name, _val) in env::vars_os() {
+        if name.as_encoded_bytes().starts_with(b"CARGO_PKG_")
+        || name.as_encoded_bytes().starts_with(b"CARGO_BIN_") {
+            cargo_env.push(name);
+        }
+    }
 
     let xtask_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let root_dir = xtask_dir.parent().unwrap();
@@ -57,6 +67,11 @@ fn dist(target: Option<&str>) -> ExitCode {
     };
     println!("Target dir: {}", target_dir.display());
 
+    let cargo_exec = Path::new(env!("CARGO"));
+    println!("Exec cargo: {cargo_exec:?}");
+    let rustc_exec = cargo_exec.parent().unwrap().join("rustc");
+    println!("Exec rustc: {rustc_exec:?}");
+
     let version = env!("CARGO_PKG_VERSION");
     let mut version_long = version.to_string();
 
@@ -71,7 +86,7 @@ fn dist(target: Option<&str>) -> ExitCode {
     }
 
     println!("Finding rustc version...");
-    let rustc_vv_output = Command::new("rustc")
+    let rustc_vv_output = Command::new(&rustc_exec)
         .arg("-vV")
         .output()
         .unwrap();
@@ -95,45 +110,48 @@ fn dist(target: Option<&str>) -> ExitCode {
     }
 
     println!("Finding target spec...");
-    let mut cmd = Command::new("rustc");
-    cmd.args(["+nightly", "-Z", "unstable-options", "--print", "target-spec-json"]);
     if let Some(target) = target {
-        cmd.args(["--target", target]);
-    }
-    let target_spec_output = cmd.output().unwrap();
-    let target_spec = serde_json::from_slice::<serde_json::Value>(&target_spec_output.stdout).unwrap();
-    let target_llvm = target_spec
-        .get("llvm-target").unwrap()
-        .as_str().unwrap();
-    let target_platform = target_spec
-        .get("metadata").unwrap()
-        .get("description").unwrap()
-        .as_str().unwrap();
-    let target_os = target_spec
-        .get("os").unwrap()
-        .as_str().unwrap();
-    let target_arch = target_spec
-        .get("arch").unwrap()
-        .as_str().unwrap();
 
-    println!("   Found: {target_llvm} ({target_platform})");
-    write!(version_long, "\ntarget: {target_llvm}").unwrap();
-    write!(version_long, "\nplatform: {target_platform}").unwrap();
-    
+        println!("   Requested target: {target}");
+        write!(version_long, "\ntarget: {target}").unwrap();
+
+        let platform = match target {
+            "aarch64-apple-darwin" => "macOS (aarch64, 11.0+, Big Sur+)",
+            "x86_64-apple-darwin" => "macOS (x86_64, 10.12+, Sierra+)",
+            "x86_64-pc-windows-msvc" => "Windows (x86_64, MSVC, 10+, Server 2016+)",
+            "x86_64-pc-windows-gnu" => "Windows (x86_64, MinGW, 10+, Server 2016+)",
+            "i686-pc-windows-msvc" => "Windows (x86, MSVC, 10+, Server 2016+, Pentium 4)",
+            "i686-unknown-linux-gnu" => "Linux (x86, kernel 3.2+, glibc 2.17+, Pentium 4)",
+            "x86_64-unknown-linux-gnu" => "Linux (x86_64, kernel 3.2+, glibc 2.17+)",
+            "aarch64-unknown-linux-gnu" => "Linux (aarch64, kernel 4.1+, glibc 2.17+)",
+            "arm-unknown-linux-gnueabi" => "Linux (armv6, kernel 3.2+, glibc 2.17)",
+            "arm-unknown-linux-gnueabihf" => "Linux (armv6-hf, kernel 3.2+, glibc 2.17)",
+            _ => ""
+        };
+
+        if !platform.is_empty() {
+            println!("   Platform description: {platform}");
+            write!(version_long, "\nplatform: {platform}").unwrap();
+        }
+
+    } else {
+        println!("   Not found, skipped");
+    }
+
     if let Ok(more) = env::var("PMC_VERSION_LONG") {
         version_long.push('\n');
         version_long.push_str(&more);
     }
 
     println!("Building release artifacts...");
-    let mut cmd = Command::new("cargo");
+    let mut cmd = Command::new(cargo_exec);
     // We remove all the cargo env variables that are forwarded by "cargo run", so
     // that no build script could mention a change in environment.
     for cargo_var in cargo_env {
         cmd.env_remove(&cargo_var);
     }
-    cmd.env("PMC_VERSION_LONG", version_long);
-    cmd.args(["build", "--release"]);
+    cmd.env("PMC_VERSION_LONG", &version_long);
+    cmd.args(["--color", "always", "build", "--release"]);
     if let Some(target) = target {
         cmd.args(["--target", target]);
     }
@@ -143,7 +161,10 @@ fn dist(target: Option<&str>) -> ExitCode {
     }
 
     println!("Building archive directory...");
-    let archive_name = format!("portablemc-{version}-{target_os}-{target_arch}");
+    let mut archive_name = format!("portablemc-{version}");
+    if let Some(target) = target {
+        write!(archive_name, "-{target}").unwrap();
+    }
     let archive_dir = dist_dir.join(&archive_name);
     if archive_dir.exists() {
         fs::remove_dir_all(&archive_dir).unwrap();
@@ -160,9 +181,7 @@ fn dist(target: Option<&str>) -> ExitCode {
     fs::copy(root_dir.join("LICENSE"), archive_dir.join("LICENSE")).unwrap();
     
     let mut readme = fs::read_to_string(xtask_dir.join("data/README")).unwrap();
-    writeln!(readme, "Version: {version}").unwrap();
-    writeln!(readme, "Target: {target_llvm}").unwrap();
-    writeln!(readme, "Platform: {target_platform}").unwrap();
+    writeln!(readme, "version: {version_long}").unwrap();
     fs::write(archive_dir.join("README"), &readme).unwrap();
 
     if has_non_empty_var("PMC_NO_ARCHIVE") {
