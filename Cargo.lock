@@ -1654,7 +1654,7 @@ checksum = "f84267b20a16ea918e43c6a88433c2d54fa145c92a811b5b047ccbe153674483"
 
 [[package]]
 name = "portablemc"
-version = "5.0.1"
+version = "5.0.2"
 dependencies = [
  "chrono",
  "dirs",
@@ -1684,7 +1684,7 @@ dependencies = [
 
 [[package]]
 name = "portablemc-cli"
-version = "5.0.1"
+version = "5.0.2"
 dependencies = [
  "chrono",
  "clap",
@@ -1705,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "portablemc-ffi"
-version = "5.0.1"
+version = "5.0.2"
 dependencies = [
  "portablemc",
  "serde",
@@ -1716,7 +1716,7 @@ dependencies = [
 
 [[package]]
 name = "portablemc-py"
-version = "5.0.1"
+version = "5.0.2"
 dependencies = [
  "portablemc",
  "pyo3",
@@ -3123,7 +3123,7 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "xtask"
-version = "5.0.1"
+version = "5.0.2"
 dependencies = [
  "flate2",
  "serde_json",
