@@ -37,6 +37,8 @@ a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
 
 ### Binaries
 
+![GitHub Release](https://img.shields.io/github/v/release/mindstorm38/portablemc)
+
 You can directly download and run the portable binaries that are pre-built and available
 as assets on [release pages](https://github.com/mindstorm38/portablemc/releases).
 
@@ -71,12 +73,12 @@ cargo add portablemc
 
 ### Linux third-party packages
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/portablemc.svg?header=&minversion=5.0.0)](https://repology.org/project/portablemc/versions)
-
 We try to deploy the package to different Linux packaging repositories, some are managed
 by maintainers of the project and some by external maintainers.
 
 #### Arch Linux
+
+![AUR Version](https://img.shields.io/aur/version/portablemc)
 
 Arch Linux packages are maintained by PortableMC team.
 
