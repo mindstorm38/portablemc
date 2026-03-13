@@ -20,6 +20,21 @@ const VERSION_LONG: &str = match option_env!("PMC_VERSION_LONG") {
     None => VERSION,
 };
 
+const ORDER_MAIN_DIR: usize = 00;
+const ORDER_MC_DIR: usize   = 01;
+const ORDER_BIN_DIR: usize  = 02;
+const ORDER_MSA: usize      = 05;
+const ORDER_OUTPUT: usize   = 06;
+const ORDER_VERBOSE: usize  = 07;
+const ORDER_COMMON: usize   = 10;
+const ORDER_SWITCH: usize   = 20;
+const ORDER_FIX: usize      = 30;
+const ORDER_FETCH: usize    = 40;
+const ORDER_LIB: usize      = 50;
+const ORDER_JVM: usize      = 60;
+const ORDER_IDENTITY: usize = 70;
+const ORDER_AUTH: usize     = 80;
+
 /// Command line utility for launching Minecraft quickly and reliably with included 
 /// support for Mojang versions and popular mod loaders.
 #[derive(Debug, Parser)]
@@ -29,12 +44,11 @@ const VERSION_LONG: &str = match option_env!("PMC_VERSION_LONG") {
 pub struct CliArgs {
     #[command(subcommand)]
     pub cmd: CliCmd,
-    /// Enable verbose output, the more -v argument you put, the more verbose the
-    /// launcher will be.
-    #[arg(short, env = "PMC_VERBOSE", action = clap::ArgAction::Count)]
+    /// Verbose output, use multiple flag to increase verbosity, like -vv.
+    #[arg(short, global = true, env = "PMC_VERBOSE", action = clap::ArgAction::Count, display_order = ORDER_VERBOSE)]
     pub verbose: u8,
-    /// Change the default output format of the launcher.
-    #[arg(long, env = "PMC_OUTPUT", default_value = "human")]
+    /// Change the output format on stdout.
+    #[arg(long, global = true, env = "PMC_OUTPUT", default_value = "human", display_order = ORDER_OUTPUT)]
     pub output: CliOutput,
     /// Set the directory where versions, libraries, assets, JVM and where the game's run.
     /// 
@@ -46,23 +60,23 @@ pub struct CliArgs {
     /// 
     /// This argument might not always be used by a command, you can specify it through
     /// environment variables if more practical.
-    #[arg(long, env = "PMC_MAIN_DIR", value_name = "PATH")]
+    #[arg(long, global = true, env = "PMC_MAIN_DIR", value_name = "PATH", display_order = ORDER_MAIN_DIR)]
     pub main_dir: Option<PathBuf>,
-    /// Set the path to the Microsoft Authentication database for caching session tokens.
+    /// Path to the Microsoft Authentication database for caching session tokens.
     /// 
     /// When unspecified, this argument is derived from the '--main-dir' path: 
     /// '<main-dir>/portablemc_msa.json'. This file uses a JSON human-readable format.
     /// 
     /// This argument might not always be used by a command, you can specify it through
     /// environment variables if more practical.
-    #[arg(long, env = "PMC_MSA_DB_FILE", value_name = "PATH")]
+    #[arg(long, global = true, env = "PMC_MSA_DB_FILE", value_name = "PATH", display_order = ORDER_MSA)]
     pub msa_db_file: Option<PathBuf>,
     /// Change the default Azure application ID used by the launcher.
     /// 
     /// The Azure application ID is used for interacting with the Microsoft authentication
     /// API used for authentication of Minecraft accounts. When not specified, the default
     /// (and hidden) launcher's application ID is used.
-    #[arg(long, env = "PMC_MSA_AZURE_APP_ID", value_name = "APP_ID")]
+    #[arg(long, global = true, env = "PMC_MSA_AZURE_APP_ID", value_name = "APP_ID", display_order = ORDER_MSA)]
     pub msa_azure_app_id: Option<String>,
 }
 
@@ -158,77 +172,74 @@ pub struct StartArgs {
     /// as 'forge', but using the NeoForge repository. See https://neoforged.net/.
     #[arg(default_value = "release")]
     pub version: StartVersion,
-    /// Only ensures that the game is installed but don't launch the game. This can be 
-    /// used to debug installation paths while using verbose output.
-    #[arg(long)]
+    /// Only ensures that the game is installed but don't launch the game. 
+    /// 
+    /// This can be used to debug installation paths while using verbose output.
+    #[arg(long, display_order = ORDER_COMMON)]
     pub dry: bool,
-    /// Set the binaries directory where all binary objects are extracted before running
-    /// the game, a sub-directory is created inside this directory that is uniquely named
-    /// after a hash of the version's libraries.
+    /// Set the directory where the game is run from
     /// 
-    /// When unspecified, this argument is derived from the '--main-dir' path: 
-    /// '<main-dir>/bin/'.
-    /// 
-    /// This argument might not always be used by a command, you can specify it through
-    /// environment variables if more practical.
-    #[arg(long, env = "PMC_BIN_DIR", value_name = "PATH")]
-    pub bin_dir: Option<PathBuf>,
-    /// Set the directory where the game is run from, the game will use this directory
-    /// to put options, saves, screenshots and access texture or resource packs and any
-    /// other user related stuff.
+    /// The game will use this directory to put options, saves, screenshots and access 
+    /// texture or resource packs and any other user related stuff.
     /// 
     /// When unspecified, this argument is equal to the '--main-dir' path.
-    /// 
-    /// This argument might not always be used by a command, you can specify it through
-    /// environment variables if more practical.
-    #[arg(long, env = "PMC_MC_DIR", value_name = "PATH")]
+    #[arg(long, env = "PMC_MC_DIR", value_name = "PATH", display_order = ORDER_MC_DIR)]
     pub mc_dir: Option<PathBuf>,
+    /// Set the binaries directory where binary objects are extracted before running.
+    /// 
+    /// A sub-directory is created inside this directory that is uniquely named after a 
+    /// hash of the version's libraries.
+    /// 
+    /// When unspecified, this argument is derived from the '--mc-dir' path: 
+    /// '<main-dir>/bin/'.
+    #[arg(long, env = "PMC_BIN_DIR", value_name = "PATH", display_order = ORDER_BIN_DIR)]
+    pub bin_dir: Option<PathBuf>,
     /// Disable the multiplayer buttons (>= 1.16).
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_SWITCH)]
     pub disable_multiplayer: bool,
     /// Disable the online chat (>= 1.16).
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_SWITCH)]
     pub disable_chat: bool,
     /// Enable demo mode for the game.
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_SWITCH)]
     pub demo: bool,
     /// Change the resolution of the game window (<width>x<height>, >= 1.6).
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_SWITCH)]
     pub resolution: Option<StartResolution>,
     /// Disable the legacy quick play fix for older versions without Quick Play support.
     /// 
     /// When starting versions older than 1.20 (23w14a) where Quick Play was not supported
     /// by the client, this fix tries to use legacy arguments instead, such as --server
     /// and --port, this is enabled by default.
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_FIX)]
     pub no_fix_legacy_quick_play: bool,
     /// Disable the legacy proxy fix to old online resources.
     /// 
     /// When starting older alpha, beta and release up to 1.5, this allows legacy online
     /// resources such as skins to be properly requested. The implementation is currently 
     /// using `betacraft.uk` proxies, this is enabled by default.
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_FIX)]
     pub no_fix_legacy_proxy: bool,
     /// Disable the legacy merge sort fix on really old versions.
     /// 
     /// When starting older alpha and beta versions, this adds a JVM argument to use the
     /// legacy merge sort `java.util.Arrays.useLegacyMergeSort=true`, this is required on
     /// some old versions to avoid crashes, this is enabled by default.
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_FIX)]
     pub no_fix_legacy_merge_sort: bool,
     /// Disable the legacy resolution fix on older versions without resolution arguments.
     /// 
     /// When starting older versions that don't support modern resolution arguments, this
     /// fix will add arguments to force resolution of the initial window, this is enabled 
     /// by default.
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_FIX)]
     pub no_fix_legacy_resolution: bool,
     /// Disable the broken AuthLib fix on 1.16.4 and 1.16.5.
     /// 
     /// Versions 1.16.4 and 1.16.5 uses authlib:2.1.28 which cause multiplayer button
     /// (and probably in-game chat) to be disabled, this can be fixed by switching to
     /// version 2.2.30 of authlib, this is enabled by default.
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_FIX)]
     pub no_fix_broken_authlib: bool,
     /// Change the LWJGL version used by the game (LWJGL >= 3.2.3).
     /// 
@@ -238,7 +249,7 @@ pub struct StartArgs {
     /// 
     /// It's not guaranteed to work with every version of Minecraft and downgrading 
     /// LWJGL version is not recommended.
-    #[arg(long, value_name = "VERSION")]
+    #[arg(long, value_name = "VERSION", display_order = ORDER_FIX)]
     pub fix_lwjgl: Option<String>,
     /// Exclude the given version from validity check and fetching.
     /// 
@@ -248,12 +259,12 @@ pub struct StartArgs {
     /// versions and therefore prevent any fetching of the Mojang's manifest.
     /// 
     /// This argument can be specified multiple times.
-    #[arg(long, value_name = "VERSION")]
+    #[arg(long, value_name = "VERSION", display_order = ORDER_FETCH)]
     pub fetch_exclude: Vec<String>,
     /// Exclude all versions from validity check and fetching.
     /// 
     /// See --fetch-exclude, note that this is incompatible with --fetch-exclude.
-    #[arg(long, conflicts_with = "fetch_exclude")]
+    #[arg(long, conflicts_with = "fetch_exclude", display_order = ORDER_FETCH)]
     pub fetch_exclude_all: bool,
     /// Use a filter to exclude Java libraries from the installation.
     /// 
@@ -270,11 +281,12 @@ pub struct StartArgs {
     /// only provided for glibc (see #110 and #112 on GitHub).
     /// 
     /// This argument can be specified multiple times.
-    #[arg(long, value_name = "FILTER")]
+    #[arg(long, value_name = "FILTER", display_order = ORDER_LIB)]
     pub exclude_lib: Vec<StartExcludeLibPattern>,
     /// Include a natives file in the binaries directory, usually shared objects or 
-    /// archives (ZIP or JAR) that contains such files.
+    /// archives.
     /// 
+    /// When an archive is specified (ZIP or JAR), the shared objects inside it are used.
     /// Those files are symlinked (or copied if not possible) to the binaries directory 
     /// where the game will check for natives to load. The main use case is for including
     /// shared objects (.so, .dll, .dylib), in case of versioned .so files like we can
@@ -284,13 +296,13 @@ pub struct StartArgs {
     /// Read the help message of '--exclude-lib' for a typical use case.
     /// 
     /// This argument can be specified multiple times.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, value_name = "PATH", display_order = ORDER_LIB)]
     pub include_natives: Vec<PathBuf>,
     /// Include a class file in the class path of the launching game, this should usually
     /// be a JAR archive.
     /// 
     /// This argument can be specified multiple times.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, value_name = "PATH", display_order = ORDER_LIB)]
     pub include_class: Vec<PathBuf>,
     /// The path to the JVM executable, 'java' (or 'javaw.exe' on Windows).
     /// 
@@ -300,10 +312,10 @@ pub struct StartArgs {
     /// 
     /// Note that when this argument is specified, you cannot specify the '--jvm-policy'
     /// argument.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, value_name = "PATH", display_order = ORDER_JVM)]
     pub jvm: Option<String>,
     /// The policy for finding or installing the JVM executable.
-    #[arg(long, value_name = "POLICY", conflicts_with = "jvm", default_value = "system-then-mojang")]
+    #[arg(long, value_name = "POLICY", conflicts_with = "jvm", default_value = "system-then-mojang", display_order = ORDER_JVM)]
     pub jvm_policy: StartJvmPolicy,
     /// Add more arguments to the JVM command line.
     /// 
@@ -313,7 +325,7 @@ pub struct StartArgs {
     /// Most of the time you should prefer using the '--jvm-arg=' form because JVM 
     /// arguments also starts with a dash, which would be ambiguous if using 
     /// '--jvm-arg -X...' (NOT WORKING) for example.
-    #[arg(long, value_name = "ARG", value_delimiter(','))]
+    #[arg(long, value_name = "ARG", value_delimiter(','), display_order = ORDER_JVM)]
     pub jvm_arg: Vec<String>,
     /// Automatically join the given singleplayer world after game has been launched.
     /// 
@@ -321,7 +333,7 @@ pub struct StartArgs {
     /// feature. 
     /// 
     /// This is incompatible with other Quick Play modes.
-    #[arg(long, value_name = "WORLD_NAME", conflicts_with = "join_server", conflicts_with = "join_realms")]
+    #[arg(long, value_name = "WORLD_NAME", conflicts_with = "join_server", conflicts_with = "join_realms", display_order = ORDER_SWITCH)]
     pub join_world: Option<String>,
     /// Automatically join the given server after game has been launched.
     /// 
@@ -329,10 +341,10 @@ pub struct StartArgs {
     /// feature nor the legacy game's `--server` argument.
     /// 
     /// This is incompatible with other Quick Play modes.
-    #[arg(long, value_name = "HOST", conflicts_with = "join_world", conflicts_with = "join_realms")]
+    #[arg(long, value_name = "HOST", conflicts_with = "join_world", conflicts_with = "join_realms", display_order = ORDER_SWITCH)]
     pub join_server: Option<String>,
     /// Complement to the `--join-server` argument to specify the server port.
-    #[arg(long, value_name = "PORT", requires = "join_server", default_value_t = 25565)]
+    #[arg(long, value_name = "PORT", requires = "join_server", default_value_t = 25565, display_order = ORDER_SWITCH)]
     pub join_server_port: u16,
     /// Automatically join a Realms server from its id after game has been launched.
     /// 
@@ -340,19 +352,19 @@ pub struct StartArgs {
     /// feature.
     /// 
     /// This is incompatible with other Quick Play modes.
-    #[arg(long, value_name = "ID", conflicts_with = "join_server", conflicts_with = "join_world")]
+    #[arg(long, value_name = "ID", conflicts_with = "join_server", conflicts_with = "join_world", display_order = ORDER_SWITCH)]
     pub join_realms: Option<String>,
     /// Change the default username of the player.
     /// 
     /// When the '--auth' (-a) flag is enabled, this argument is used, after the 
     /// '--uuid' (-i) one, to find the authenticated account to start the game with.
-    #[arg(short = 'u', long, value_name = "NAME")]
+    #[arg(short = 'u', long, value_name = "NAME", display_order = ORDER_IDENTITY)]
     pub username: Option<String>,
     /// Change the default UUID of the player.
     /// 
     /// When the '--auth' (-a) flag is enabled, this argument is used, before the 
     /// '--username' (-u) one, to find the authenticated account to start the game with.
-    #[arg(short = 'i', long)]
+    #[arg(short = 'i', long, display_order = ORDER_IDENTITY)]
     pub uuid: Option<Uuid>,
     /// Enable authentication for the username or UUID.
     /// 
@@ -369,7 +381,7 @@ pub struct StartArgs {
     /// is specified, only one of them can be used at the same time with this flag. 
     /// You can combine this flag with one of these argument, for example '-au <username>'
     /// or '-ai <uuid>'.
-    #[arg(short = 'a', long)]
+    #[arg(short = 'a', long, display_order = ORDER_AUTH)]
     pub auth: bool,
 }
 
@@ -648,14 +660,14 @@ pub struct SearchArgs {
     /// name in most of the cases.
     pub filter: Vec<String>,
     /// Select the target of the search query.
-    #[arg(short, long, default_value = "mojang")]
+    #[arg(short, long, default_value = "mojang", display_order = ORDER_COMMON)]
     pub kind: SearchKind,
     /// Limit the number of rows of results.
     /// 
     /// Because search results are sorted by descending versions, this will keep only the
     /// given number of most recent versions. One exception to this are local versions,
     /// which are in the same order as your OS give them when listing their directories.
-    #[arg(short, long, default_value_t = usize::MAX, hide_default_value = true)]
+    #[arg(short, long, default_value_t = usize::MAX, hide_default_value = true, display_order = ORDER_COMMON)]
     pub limit: usize,
     /// Only keep versions of given channel.
     /// 
@@ -663,7 +675,7 @@ pub struct SearchArgs {
     /// in an OR logic.
     /// 
     /// [supported search kinds: mojang, forge, neoforge]
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_COMMON + 1)]
     pub channel: Vec<SearchChannel>,
     /// Only show the latest version of the given channel.
     /// 
@@ -674,12 +686,12 @@ pub struct SearchArgs {
     /// of the game.
     /// 
     /// [supported search kinds: mojang]
-    #[arg(long, conflicts_with_all = ["filter", "channel"])]
+    #[arg(long, conflicts_with_all = ["filter", "channel"], display_order = ORDER_COMMON + 2)]
     pub latest: Option<SearchLatestChannel>,
     /// Only keep loader versions that targets the given game version. 
     /// 
     /// [supported search kinds: forge, neoforge]
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_COMMON + 3)]
     pub game_version: Vec<String>,
 }
 
@@ -804,7 +816,7 @@ pub struct AuthLoginArgs {
     /// When the '--output' mode is 'human', the launcher will try to open your system's
     /// web browser with the Microsoft authentication page, this flag disables this 
     /// behavior.
-    #[arg(long)]
+    #[arg(long, display_order = ORDER_COMMON)]
     pub no_browser: bool,
 }
 
