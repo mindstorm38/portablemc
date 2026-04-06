@@ -161,7 +161,7 @@ impl Output {
             OutputMode::Human(mode) => {
                 
                 if !mode.log_newline {
-                    println!();
+                    let _ = writeln!(io::stdout());
                     mode.log_newline = true;
                     mode.log_line.clear();
                     mode.log_background.clear();
@@ -224,7 +224,7 @@ impl<const BG: bool> Log<'_, BG> {
 
     /// Internal function to flush the line and background buffers, should only be
     /// called in human readable mode.
-    fn flush_human_line(&mut self, newline: bool) {
+    fn flush_human_line(&mut self, newline: bool) -> io::Result<()> {
 
         let OutputMode::Human(mode) = &mut self.output.mode else { panic!() };
 
@@ -235,20 +235,20 @@ impl<const BG: bool> Log<'_, BG> {
             // we use cursor save/restore position in order to easily support wrapping.
             if mode.log_newline {
                 // If the line is currently empty, save the cursor position!
-                lock.write_all(b"\x1b[s").unwrap();
+                lock.write_all(b"\x1b[s")?;
             } else {
                 // If the line is not empty, restore saved cursor position and clear line.
-                lock.write_all(b"\x1b[u\x1b[K").unwrap();
+                lock.write_all(b"\x1b[u\x1b[K")?;
             }
         } else {
-            lock.write_all(b"\r").unwrap();
+            lock.write_all(b"\r")?;
         }
 
-        lock.write_all(mode.log_line.as_bytes()).unwrap();
+        lock.write_all(mode.log_line.as_bytes())?;
         if !mode.log_line.is_empty() && !mode.log_background.is_empty() {
-            lock.write_all(b" -- ").unwrap();
+            lock.write_all(b" -- ")?;
         }
-        lock.write_all(mode.log_background.as_bytes()).unwrap();
+        lock.write_all(mode.log_background.as_bytes())?;
 
         if newline {
 
@@ -256,13 +256,13 @@ impl<const BG: bool> Log<'_, BG> {
             mode.log_background.clear();
             mode.log_newline = true;
 
-            lock.write_all(b"\n").unwrap();
+            lock.write_all(b"\n")?;
 
         } else {
             mode.log_newline = false;
         }
 
-        lock.flush().unwrap();
+        lock.flush()
 
     }
 
@@ -275,7 +275,7 @@ impl Log<'_, false> {
     pub fn newline(&mut self) -> &mut Self {
         if let OutputMode::Human(mode) = &mut self.output.mode {
             if !mode.log_newline {
-                println!();
+                let _ = writeln!(io::stdout());
                 mode.log_line.clear();
                 mode.log_background.clear();
                 mode.log_newline = true;
@@ -331,7 +331,7 @@ impl Log<'_, false> {
                     }
                 }
 
-                self.flush_human_line(level != LogLevel::Pending);
+                let _ = self.flush_human_line(level != LogLevel::Pending);
 
             }
         }
@@ -395,7 +395,7 @@ impl Log<'_, true> {
             mode.log_background.clear();
             write!(mode.log_background, "{message}").unwrap();
 
-            self.flush_human_line(false);
+            let _ = self.flush_human_line(false);
 
         }
         self
@@ -499,7 +499,7 @@ impl<'a> TableOutput<'a> {
             }
             OutputMode::TabSep(mode) => {
                 debug_assert!(mode.buffer.is_empty());
-                println!("sep");
+                let _ = writeln!(io::stdout(), "sep");
             }
         }
 
@@ -540,59 +540,67 @@ impl Drop for TableOutput<'_> {
             };
 
             let mut separators: _ = mode.table_separators.iter().copied().peekable();
-            let mut writer = io::stdout().lock();
+            
+            // Ignore any IO error. Replace with try block when they will be stable.
+            let _ = (|| -> io::Result<()> {
 
-            // Write top segment.
-            write!(writer, "┌─").unwrap();
-            write_separator(&mut writer, "─┬─");
-            write!(writer, "─┐\n").unwrap();
+                let mut writer = io::stdout().lock();
 
-            // Reset and restart again to print.
-            let mut row = 0usize;
-            let mut column = 0usize;
-            let mut last_idx = 0usize;
-            for idx in mode.table_cells.iter().copied() {
+                // Write top segment.
+                write!(writer, "┌─")?;
+                write_separator(&mut writer, "─┬─");
+                write!(writer, "─┐\n")?;
 
-                if column != 0 {
-                    write!(writer, " │ ").unwrap();
-                } else {
+                // Reset and restart again to print.
+                let mut row = 0usize;
+                let mut column = 0usize;
+                let mut last_idx = 0usize;
+                for idx in mode.table_cells.iter().copied() {
 
-                    if separators.next_if_eq(&row).is_some() {
-                        write!(writer, "├─").unwrap();
-                        write_separator(&mut writer, "─┼─");
-                        write!(writer, "─┤\n").unwrap();
+                    if column != 0 {
+                        write!(writer, " │ ")?;
+                    } else {
+
+                        if separators.next_if_eq(&row).is_some() {
+                            write!(writer, "├─")?;
+                            write_separator(&mut writer, "─┼─");
+                            write!(writer, "─┤\n")?;
+                        }
+
+                        write!(writer, "│ ")?;
+
                     }
 
-                    write!(writer, "│ ").unwrap();
+                    let content = &mode.table_buffer[last_idx..idx];
+                    last_idx = idx;
+
+                    let width = columns_width[column];
+                    write!(writer, "{content:width$}")?;
+
+                    column += 1;
+                    if column == self.columns {
+                        row += 1;
+                        column = 0;
+                        write!(writer, " │\n")?;
+                    }
 
                 }
 
-                let content = &mode.table_buffer[last_idx..idx];
-                last_idx = idx;
-
-                let width = columns_width[column];
-                write!(writer, "{content:width$}").unwrap();
-
-                column += 1;
-                if column == self.columns {
-                    row += 1;
-                    column = 0;
-                    write!(writer, " │\n").unwrap();
+                // It's a really special case that will never happen, add last separator.
+                if separators.next_if_eq(&row).is_some() {
+                    write!(writer, "├─")?;
+                    write_separator(&mut writer, "─┼─");
+                    write!(writer, "─┤\n")?;
                 }
 
-            }
+                // Write bottom segment.
+                write!(writer, "└─")?;
+                write_separator(&mut writer, "─┴─");
+                write!(writer, "─┘\n")?;
+                
+                Ok(())
 
-            // It's a really special case that will never happen, add last separator.
-            if separators.next_if_eq(&row).is_some() {
-                write!(writer, "├─").unwrap();
-                write_separator(&mut writer, "─┼─");
-                write!(writer, "─┤\n").unwrap();
-            }
-
-            // Write bottom segment.
-            write!(writer, "└─").unwrap();
-            write_separator(&mut writer, "─┴─");
-            write!(writer, "─┘\n").unwrap();
+            })();
 
             mode.table_buffer.clear();
             mode.table_cells.clear();
@@ -654,7 +662,7 @@ impl Drop for Row<'_> {
                 for _ in 0..self.column_remaining {
                     mode.buffer.push('\t');
                 }
-                println!("{}", mode.buffer);
+                let _ = writeln!(io::stdout(), "{}", mode.buffer);
                 mode.buffer.clear();
             }
         }
