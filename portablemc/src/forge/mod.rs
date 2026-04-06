@@ -576,22 +576,25 @@ impl Repo {
     pub fn find_latest(&self, game_version: &str, stable: bool) -> Option<RepoVersion<'_>> {
 
         // Parse the game version to build a prefix to match versions against.
-        let [major, minor] = parse_game_version(game_version)?;
-        let prefix = if self.neoforge {
-            if major == 20 && minor == 1 {
-                // We ignore the special case of 47.1.82 because it's not the latest 
-                // version anyway...
-                format!("1.20.1-")
+        let prefix = 
+            if !self.neoforge {
+                if game_version == "1.7.10-pre4" {
+                    format!("1.7.10_pre4-")
+                } else {
+                    format!("{game_version}-")
+                }
             } else {
-                format!("{major}.{minor}.")
-            }
-        } else {
-            if game_version == "1.7.10-pre4" {
-                format!("1.7.10_pre4-")
-            } else {
-                format!("{game_version}-")
-            }
-        };
+                let [major, minor, patch] = parse_game_version(game_version)?;
+                if major >= 26 {
+                    format!("{major}.{minor}.{patch}.")
+                } else if major == 20 && minor == 1 {
+                    // We ignore the special case of 47.1.82 because it's not the latest 
+                    // version anyway...
+                    format!("1.20.1-")
+                } else {
+                    format!("{major}.{minor}.")
+                }
+            };
 
         // To search the maximum version...
         let mut max_loader = [0; 4];
@@ -601,11 +604,9 @@ impl Repo {
             let Some(loader) = version.name().strip_prefix(&prefix) else { continue };
             // Ignore unstable versions when not requested!
             if stable && !version.is_stable() { continue }
-            // Remove a potential suffix to that version, such as -1.7.10, -beta, etc...
-            let loader = loader.split_once("-").map(|(before, _)| before).unwrap_or(loader);
             // Parse the loader version as 4-digit versions, because Forge used to have 
             // such long versions, ignoring versions that could not be parsed.
-            let Some(loader) = parse_generic_version::<4, 1>(loader) else { continue };
+            let Some(loader) = parse_generic_version::<4, 1>(loader, true) else { continue };
             // Then compare to find the maximum version...
             if loader > max_loader {
                 max_loader = loader;
@@ -669,17 +670,38 @@ impl<'a> RepoVersion<'a> {
     /// the game version needs to be reconstructed.
     pub fn game_version(&self) -> &'a str {
         if self.repo.neoforge {
-            // Special case from the legacy NeoForge repository where '1.20.1' is missing.
             if self.version == "47.1.82" || self.version.starts_with("1.20.1-") {
+                // Special case from the legacy NeoForge repository where '1.20.1' is missing.
                 "1.20.1"
-            } else if let Some([major, minor]) = parse_generic_version::<2, 2>(self.version) {
-                self.repo.major_versions.insert_with([major, minor], || {
+            } else if self.version.starts_with("0.25w14craftmine.") {
+                // Special case for 25w14craftmine which have bizarre versioning...
+                "25w14craftmine"
+            } else if let Some([major, minor, patch]) = parse_generic_version::<3, 2>(self.version, true) {
+                // Since 2026, Mojang changed the naming scheme of the vanilla version by
+                // removing the '1.' prefix. This means that we can just take a part of 
+                // the name.
+                if major >= 26 {
                     if minor == 0 {
-                        format!("1.{major}")
+                        ""  // Should not happen since 26+ majors all have minors
                     } else {
-                        format!("1.{major}.{minor}")
+                        let major_len = 1 + major.ilog10();
+                        let minor_len = 1 + minor.ilog10();
+                        if patch == 0 {
+                            &self.version[..(major_len + 1 + minor_len) as usize]
+                        } else {
+                            let patch_len = 1 + patch.ilog10();
+                            &self.version[..(major_len + 1 + minor_len + 1 + patch_len) as usize]
+                        }
                     }
-                })
+                } else {
+                    self.repo.major_versions.insert_with([major, minor], || {
+                        if minor == 0 {
+                            format!("1.{major}")
+                        } else {
+                            format!("1.{major}.{minor}")
+                        }
+                    })
+                }
             } else {
                 ""  // Should not happen
             }
@@ -696,7 +718,7 @@ impl<'a> RepoVersion<'a> {
     /// Return true if this version is stable.
     pub fn is_stable(&self) -> bool {
         if self.repo.neoforge {
-            !self.version.ends_with("-beta")
+            !self.version.ends_with("-beta") && !self.version.contains("-alpha")
         } else {
             true  // Forge is always stable
         }
@@ -764,7 +786,7 @@ impl InstallConfig {
 
         let (game_version, loader_version) = name.split_once('-')?;
         let (loader_version, _) = loader_version.split_once('-').unwrap_or((loader_version, ""));
-        let loader_version = parse_generic_version::<4, 2>(loader_version);
+        let loader_version = parse_generic_version::<4, 2>(loader_version, false);
 
         Some(Self {
             default_prefix: "forge",
@@ -821,11 +843,11 @@ impl InstallConfig {
             game_version = "1.20.1".to_string();
             check_libraries = InstallConfigCheckLibraries::ForgeV2;
         } else {
-            // Strip potential -beta suffix...
-            let (loader_version, _) = name.rsplit_once('-').unwrap_or((name, ""));
-            let loader_version = parse_generic_version::<3, 2>(loader_version)?;
+            let loader_version = parse_generic_version::<3, 2>(name, true)?;
             gav = Gav::new("net.neoforged", "neoforge", name, None, None)?;
             game_version = match loader_version {
+                [major, minor, 0] if major >= 26 => format!("{major}.{minor}"),
+                [major, minor, patch] if major >= 26 => format!("{major}.{minor}.{patch}"),
                 [major, 0, _] => format!("1.{major}"),
                 [major, minor, _] => format!("1.{major}.{minor}"),
             };
@@ -1368,7 +1390,10 @@ fn find_jar_main_class(jar_file: &Path) -> Result<Option<String>> {
 }
 
 /// Generic version parsing with dot separator and default value to zero.
-fn parse_generic_version<const MAX: usize, const MIN: usize>(version: &str) -> Option<[u16; MAX]> {
+fn parse_generic_version<const MAX: usize, const MIN: usize>(mut version: &str, ignore_dash: bool) -> Option<[u16; MAX]> {
+    if ignore_dash {
+        version = version.split_once('-').map(|(version, _)| version).unwrap_or(version);
+    }
     let mut it = version.split('.');
     let mut ret = [0; MAX];
     for i in 0..MAX {
@@ -1383,10 +1408,26 @@ fn parse_generic_version<const MAX: usize, const MIN: usize>(version: &str) -> O
 
 /// Internal function that parses the game version major and minor version numbers, if
 /// the version starts with "1.", returning 0 for minor version is not present.
-fn parse_game_version(version: &str) -> Option<[u16; 2]> {
-    let version = version.strip_prefix("1.")?;
-    let (version, _rest) = version.split_once("-pre").unwrap_or((version, ""));
-    parse_generic_version::<2, 1>(version)
+/// This also return None if the version is not a stable (pre, rc, snapshot).
+fn parse_game_version(version: &str) -> Option<[u16; 3]> {
+    match version.strip_prefix("1.") {
+        Some(version) => {
+            // For versions prior to 26.1
+            if version.contains("-pre") || version.contains("-rc") || version.contains(" Pre-Release ") {
+                None
+            } else {
+                parse_generic_version::<3, 1>(version, false)
+            }
+        }
+        None => {
+            // For the new 2026+ scheme
+            if version.contains("-pre") || version.contains("-rc") || version.contains("-snapshot") {
+                None
+            } else {
+                parse_generic_version::<3, 2>(version, false)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1397,17 +1438,30 @@ mod test {
     #[test]
     fn parse_version() {
 
-        assert_eq!(parse_generic_version::<4, 2>("1"), None);
-        assert_eq!(parse_generic_version::<4, 2>("1.2"), Some([1, 2, 0, 0]));
-        assert_eq!(parse_generic_version::<4, 2>("1.2.3"), Some([1, 2, 3, 0]));
-        assert_eq!(parse_generic_version::<4, 2>("1.2.3.4"), Some([1, 2, 3, 4]));
-        assert_eq!(parse_generic_version::<4, 2>("1.2.3.4.5"), Some([1, 2, 3, 4]));
+        assert_eq!(parse_generic_version::<4, 2>("1", false), None);
+        assert_eq!(parse_generic_version::<4, 2>("1.2", false), Some([1, 2, 0, 0]));
+        assert_eq!(parse_generic_version::<4, 2>("1.2.3", false), Some([1, 2, 3, 0]));
+        assert_eq!(parse_generic_version::<4, 2>("1.2.3.4", false), Some([1, 2, 3, 4]));
+        assert_eq!(parse_generic_version::<4, 2>("1.2.3.4.5", false), Some([1, 2, 3, 4]));
+        assert_eq!(parse_generic_version::<4, 2>("1.2.3.4.5-pre", false), Some([1, 2, 3, 4]));
+        assert_eq!(parse_generic_version::<4, 2>("1.2.3.4-pre", false), None);
+        assert_eq!(parse_generic_version::<4, 2>("1.2.3.4-pre", true), Some([1, 2, 3, 4]));
+        assert_eq!(parse_generic_version::<4, 2>("1.2.3-pre", true), Some([1, 2, 3, 0]));
+        assert_eq!(parse_generic_version::<4, 2>("1.2-pre", true), Some([1, 2, 0, 0]));
+        assert_eq!(parse_generic_version::<4, 2>("1-pre", true), None);
 
+        assert_eq!(parse_game_version("25w21a"), None);
+        assert_eq!(parse_game_version("25w14craftmine"), None);
         assert_eq!(parse_game_version("1"), None);
-        assert_eq!(parse_game_version("1.2"), Some([2, 0]));
-        assert_eq!(parse_game_version("1.2-pre3"), Some([2, 0]));
-        assert_eq!(parse_game_version("1.2.5"), Some([2, 5]));
-        assert_eq!(parse_game_version("1.2.5-pre3"), Some([2, 5]));
+        assert_eq!(parse_game_version("1.2"), Some([2, 0, 0]));
+        assert_eq!(parse_game_version("1.2-pre3"), None);
+        assert_eq!(parse_game_version("1.2.5"), Some([2, 5, 0]));
+        assert_eq!(parse_game_version("1.2.5-pre3"), None);
+        assert_eq!(parse_game_version("26.1-snapshot-1"), None);
+        assert_eq!(parse_game_version("26.1-pre-3"), None);
+        assert_eq!(parse_game_version("26.1-rc-3"), None);
+        assert_eq!(parse_game_version("26.1"), Some([26, 1, 0]));
+        assert_eq!(parse_game_version("26.1.1"), Some([26, 1, 1]));
 
     }
 
