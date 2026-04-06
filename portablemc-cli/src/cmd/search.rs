@@ -301,6 +301,9 @@ fn search_forge(cli: &mut Cli, args: &SearchArgs, loader: forge::Loader) -> Exit
     
     table.sep();
 
+    // Forge .xml repositories are not sorted at all and therefore we have to sort them
+    // here for the sorting to make sense to the user.
+    let mut versions = Vec::new();
     for version in repo.iter().take(args.limit) {
         
         if !args.match_filter(version.name()) {
@@ -314,6 +317,35 @@ fn search_forge(cli: &mut Cli, args: &SearchArgs, loader: forge::Loader) -> Exit
         if !args.match_channel(SearchChannel::new_stable_or_unstable(version.is_stable())) {
             continue;
         }
+
+        versions.push(version);
+        
+    }
+
+    versions.sort_by_cached_key(|version| {
+
+        // We take the maximum numbers count used for some forge versions.
+        let version = version.name();
+
+        // Special case for neoforge...
+        if loader == forge::Loader::NeoForge && version == "47.1.82" {
+            [1, 20, 1, 47, 1, 82, 0]
+        } else {
+            // We do a naive sorting where we just split each parsable number 
+            let mut numbers = [0u16; 7];
+            for (index, part) in version
+                .split(|c: char| !c.is_numeric())
+                .filter(|s| !s.is_empty())
+                .take(numbers.len())
+                .enumerate() {
+                numbers[index] = part.parse().unwrap_or(0);
+            }
+            numbers
+        }.map(|n| u16::MAX - n)  // Descending order!
+
+    });
+
+    for version in versions {
 
         let mut row = table.row();
         row.cell(version.name());
