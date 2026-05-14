@@ -1112,12 +1112,29 @@ impl InternalHandler<'_> {
     
     fn apply_fix_lwjgl(&mut self, libraries: &mut Vec<LoadedLibrary>, version: &str) -> Result<()> {
     
-        if version != "3.2.3" && !version.starts_with("3.3.") {
+        let Some(("", minor_patch)) = version.split_once("3.") else {
             return Err(Error::LwjglFixNotFound { 
                 version: version.to_string(),
             });
+        };
+
+        if minor_patch != "2.3" {
+            
+            let (minor, _) = minor_patch.split_once('.').unwrap_or((minor_patch, ""));
+            let Ok(minor) = minor.parse::<u32>() else {
+                return Err(Error::LwjglFixNotFound { 
+                    version: version.to_string(),
+                });
+            };
+
+            if minor < 3 {
+                return Err(Error::LwjglFixNotFound { 
+                    version: version.to_string(),
+                });
+            }
+
         }
-    
+        
         let classifier = match (env::consts::OS, env::consts::ARCH) {
             ("windows", "x86") => "natives-windows-x86",
             ("windows", "x86_64") => "natives-windows",
