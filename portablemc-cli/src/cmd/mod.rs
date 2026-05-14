@@ -8,7 +8,8 @@ mod r#gen;
 use std::process::{self, ExitCode};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use std::io;
+use std::{env, io};
+use std::fs;
 
 use portablemc::{base, download, moj, fabric, forge, msa};
 
@@ -648,8 +649,12 @@ pub fn log_base_error(cli: &mut Cli, error: &base::Error) {
                 .error(format_args!("Library {gav} not found and no download information is available"));
         }
         Error::JvmNotFound { major_version } => {
+            let os_id = os_id();
             let mut log = out.log("error_jvm_not_found");
             log.error(format_args!("No compatible JVM found for the game version, which requires major version {major_version}"));
+            if os_id.iter().any(|s| s == "debian") {
+                log.additional(format_args!("It appears that you run a Debian distribution, you could try 'apt install openjdk-{major_version}-jre'"));
+            }
             log.additional("You can enable verbose mode to learn more about potential JVM rejections");
             if *major_version <= 8 {
                 log.additional("Note that JVM version 8 and prior versions are not compatible with other versions");
@@ -1089,4 +1094,29 @@ fn forge_id_name(loader: forge::Loader) -> (&'static str, &'static str) {
         forge::Loader::Forge => ("forge", "Forge"),
         forge::Loader::NeoForge => ("neoforge", "NeoForge"),
     }
+}
+
+/// Internal function to get the current operating system distribution ID.
+///
+/// See: https://www.freedesktop.org/software/systemd/man/latest/os-release.html
+fn os_id() -> Vec<String> {
+    
+    if env::consts::FAMILY == "unix"
+    && let Ok(release) = fs::read_to_string("/etc/os-release") {
+        let mut ret = Vec::new();
+        for line in release.lines() {
+            let Some((k, v)) = line.split_once('=') else { continue };
+            match k {
+                "ID" => ret.insert(0, v.to_string()),
+                "ID_LIKE" => ret.extend(v.split(' ').map(str::to_string)),
+                _ => continue,
+            }
+        }
+        if !ret.is_empty() {
+            return ret;
+        }
+    }
+
+    vec![env::consts::OS.to_string()]
+
 }
