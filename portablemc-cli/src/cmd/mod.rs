@@ -654,6 +654,8 @@ pub fn log_base_error(cli: &mut Cli, error: &base::Error) {
             log.error(format_args!("No compatible JVM found for the game version, which requires major version {major_version}"));
             if os_id.iter().any(|s| s == "debian") {
                 log.additional(format_args!("It appears that you run a Debian distribution, you could try 'apt install openjdk-{major_version}-jre'"));
+            } else if os_id.iter().any(|s| s == "arch") {
+                log.additional(format_args!("It appears that you run a Arch distribution, you could try 'pacman -Sy jre{major_version}-openjdk'"));
             }
             log.additional("You can enable verbose mode to learn more about potential JVM rejections");
             if *major_version <= 8 {
