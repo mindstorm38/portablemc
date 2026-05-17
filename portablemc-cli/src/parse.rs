@@ -788,10 +788,6 @@ pub enum SearchLatestChannel {
 
 /// Manage the authentication sessions.
 /// 
-/// By default, this command will start a new authentication flow with the Microsoft
-/// authentication service, when completed this will add the newly authenticated session
-/// to the authentication database (specified with '--msa-db-file' argument).
-/// 
 /// If this command fails to load and/or store the database, its exit code is 1 (failure).
 #[derive(Debug, Args)]
 pub struct AuthArgs {
