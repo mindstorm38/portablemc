@@ -291,7 +291,7 @@ pub struct StartArgs {
     /// where the game will check for natives to load. The main use case is for including
     /// shared objects (.so, .dll, .dylib), in case of versioned .so files like we can
     /// see on UNIX systems, the version is discarded when linked or copied to the bin
-    /// directory (/usr/lib/foo.so.1.22.2 -> foo.so).
+    /// directory (/usr/lib/foo.so.1.22.2 copied as foo.so).
     /// 
     /// Read the help message of '--exclude-lib' for a typical use case.
     /// 
@@ -304,11 +304,11 @@ pub struct StartArgs {
     /// This argument can be specified multiple times.
     #[arg(long, value_name = "PATH", display_order = ORDER_LIB)]
     pub include_class: Vec<PathBuf>,
-    /// The path to the JVM executable, 'java' (or 'javaw.exe' on Windows).
+    /// The path to the JVM executable, 'java' (or 'javaw.exe' on Windows) use to launch
+    /// the game.
     /// 
-    /// This is used to launch the game, it has a special use-case with Forge and NeoForge
-    /// loader versions where that JVM executable is also used to run the installer 
-    /// processors.
+    /// Note that with Forge and NeoForge mod loaders, that JVM executable is also used 
+    /// to run the installer processors.
     /// 
     /// Note that when this argument is specified, you cannot specify the '--jvm-policy'
     /// argument.
@@ -322,9 +322,9 @@ pub struct StartArgs {
     /// You can specify multiple arguments after the '--jvm-arg' option, using commas ',',
     /// for example 'start --jvm-arg=-Xms256m,-Xmx2048m'.
     /// 
-    /// Most of the time you should prefer using the '--jvm-arg=' form because JVM 
-    /// arguments also starts with a dash, which would be ambiguous if using 
-    /// '--jvm-arg -X...' (NOT WORKING) for example.
+    /// Most of the time you should prefer using the '--jvm-arg=' (with an EQUAL sign) 
+    /// form because JVM arguments also starts with a dash, which would be ambiguous if 
+    /// using '--jvm-arg -X...' (NOT WORKING) for example.
     #[arg(long, value_name = "ARG", value_delimiter(','), display_order = ORDER_JVM)]
     pub jvm_arg: Vec<String>,
     /// Automatically join the given singleplayer world after game has been launched.
@@ -520,9 +520,9 @@ impl FromStr for StartVersion {
 pub enum StartJvmPolicy {
     /// The installer will try to find a suitable JVM executable in the path, searching
     /// a `java` (or `javaw.exe` on Windows) executable. On operating systems where it's
-    /// supported, this will also check for known directories (on Arch for example).
+    /// supported, this will also check for known directories and registries.
     /// If the version needs a specific JVM major version, each candidate executable is 
-    /// checked and a warning is triggered to notify that the version is not suited.
+    /// checked and a warning is triggered to notify that the version is not suitable.
     /// The install fails if none of those versions is valid.
     System,
     /// The installer will try to find a suitable JVM to install from Mojang-provided
