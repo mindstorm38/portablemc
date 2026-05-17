@@ -1169,6 +1169,7 @@ impl Installer {
                 16 => "java-runtime-alpha",
                 17 => "java-runtime-gamma",
                 21 => "java-runtime-delta",
+                25 => "java-runtime-epsilon",
                 _ => return None
             }));
         
