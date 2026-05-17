@@ -16,7 +16,7 @@ portablemc.workspace = true
 
 uuid.workspace = true
 
-pyo3 = { version = "0.23.4", features = ["extension-module"] }
+pyo3 = { version = "0.28.3", features = ["extension-module"] }
 
 [lib]
 name = "portablemc_py"
