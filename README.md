@@ -1,4 +1,4 @@
-# Portable Minecraft Launcher
+# PortableMC
 Cross platform command line utility for launching Minecraft quickly and reliably with 
 included support for Mojang versions and popular mod loaders. It is also available as 
 a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
@@ -12,6 +12,7 @@ a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
   - [Cargo](#cargo)
   - [Linux third-party packages](#linux-third-party-packages)
     - [Arch Linux](#arch-linux)
+- [Usage](#usage)
 - [Contribute](#contribute)
   - [Repositories](#repositories)
   - [Contributors](#contributors)
@@ -86,6 +87,32 @@ Arch Linux packages are maintained by PortableMC team.
 - Prebuilt binaries: [`portablemc-bin`](https://aur.archlinux.org/packages/portablemc-bin), available on AUR
 
 Prebuilt binaries requires you to install the PGP certificate, as described [above](#binaries).
+
+## Usage
+
+This section shows example usage to get started with PortableMC.
+
+```shell
+# Start the latest Mojang release, with a random username and default options...
+portablemc start
+
+# Start a specific version, let's say 1.16.5...
+portablemc start 1.16.5
+# You can list the Mojang versions...
+portablemc search
+# Search on the release versions, and limit to 10 entries...
+portablemc search --channel release -l10
+
+# Choose your username in offline mode...
+portablemc start -u MyUsername
+
+# Authenticate into your Minecraft account...
+portablemc auth login
+# List your authenticated accounts...
+portablemc auth list
+# Start the game with your authenticated account...
+portablemc start -u <your username> -a
+```
 
 ## Contribute
 
