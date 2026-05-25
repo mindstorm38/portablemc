@@ -10,8 +10,9 @@ a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
 - [Installation](#installation)
   - [Binaries](#binaries)
   - [Cargo](#cargo)
-  - [Linux third-party packages](#linux-third-party-packages)
+  - [Linux packages](#linux-packages)
     - [Arch Linux](#arch-linux)
+    - [NixOS](#nixos)
 - [Usage](#usage)
 - [Contribute](#contribute)
   - [Repositories](#repositories)
@@ -72,10 +73,10 @@ launcher, it is also available on [crates.io](https://crates.io/crates/portablem
 cargo add portablemc
 ```
 
-### Linux third-party packages
+### Linux packages
 
 We try to deploy the package to different Linux packaging repositories, some are managed
-by maintainers of the project and some by external maintainers.
+by maintainers of the project (first-party) and some by external maintainers (third-party).
 
 #### Arch Linux
 
@@ -87,6 +88,10 @@ Arch Linux packages are maintained by PortableMC team.
 - Prebuilt binaries: [`portablemc-bin`](https://aur.archlinux.org/packages/portablemc-bin), available on AUR
 
 Prebuilt binaries requires you to install the PGP certificate, as described [above](#binaries).
+
+#### NixOS
+
+Nix package is maintained by @TomaSajt, at [`nixpkgs/portablemc`](https://github.com/NixOS/nixpkgs/blob/master/pkgs/by-name/po/portablemc/package.nix).
 
 ## Usage
 
