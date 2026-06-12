@@ -764,7 +764,7 @@ pub fn log_forge_error(cli: &mut Cli, error: &forge::Error, loader: forge::Loade
     let out = &mut cli.out;
     let (api_id, api_name) = forge_id_name(loader);
 
-    const CONTACT_DEV: &str = "This version of the loader might not be supported by PortableMC, please contact developers on https://github.com/mindstorm38/portablemc/issues";
+    const CONTACT_DEV: &str = "This version of the loader might not be supported by PortableMC, please contact developers on https://github.com/theorzr/portablemc/issues";
 
     match *error {
         Error::Mojang(ref error) => log_mojang_error(cli, error),
