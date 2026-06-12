@@ -389,7 +389,8 @@ fn run_command(cli: &mut Cli, mut command: Command) -> io::Result<()> {
 
     cli.out.log("launched")
         .arg(child.id())
-        .success("Launched");
+        .success("Launched")
+        .info(format_args!("Process: {}", child.id()));
 
     // Take the stdout pipe and put the child in the shared location, only then we
     // release the guard so any handled Ctrl-C will terminate it.
