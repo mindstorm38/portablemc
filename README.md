@@ -51,7 +51,7 @@ PortableMC project is: `f659b0f0b84a26cac635d72948caee8dc3456b2f`
 
 You can download the full PGP certificate online:
 - [Ubuntu Keyserver](https://keyserver.ubuntu.com/pks/lookup?search=F659+B0F0+B84A+26CA+C635+D729+48CA+EE8D+C345+6B2F&fingerprint=on&op=index)
-- [Maintainer server](https://www.theorozier.fr/assets/pgp/portablemc.asc)
+- [Maintainer server](https://theorozier.fr/assets/pgp/portablemc.asc.html)
 
 ### Cargo
 
