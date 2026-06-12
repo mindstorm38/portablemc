@@ -1,4 +1,4 @@
-# Portable Minecraft Launcher
+# PortableMC
 Cross platform command line utility for launching Minecraft quickly and reliably with 
 included support for Mojang versions and popular mod loaders. It is also available as 
 a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
@@ -10,8 +10,10 @@ a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
 - [Installation](#installation)
   - [Binaries](#binaries)
   - [Cargo](#cargo)
-  - [Linux third-party packages](#linux-third-party-packages)
+  - [Linux packages](#linux-packages)
     - [Arch Linux](#arch-linux)
+    - [NixOS](#nixos)
+- [Usage](#usage)
 - [Contribute](#contribute)
   - [Repositories](#repositories)
   - [Contributors](#contributors)
@@ -37,10 +39,10 @@ a Rust crate for developers ~~and bindings for C and Python~~ (yet to come).
 
 ### Binaries
 
-![GitHub Release](https://img.shields.io/github/v/release/mindstorm38/portablemc)
+![GitHub Release](https://img.shields.io/github/v/release/theorzr/portablemc)
 
 You can directly download and run the portable binaries that are pre-built and available
-as assets on [release pages](https://github.com/mindstorm38/portablemc/releases).
+as assets on [release pages](https://github.com/theorzr/portablemc/releases).
 
 These binaries have been compiled using open source tooling available in this repository. 
 You can ensure that these binaries have been compiled by the official PortableMC project 
@@ -49,7 +51,7 @@ PortableMC project is: `f659b0f0b84a26cac635d72948caee8dc3456b2f`
 
 You can download the full PGP certificate online:
 - [Ubuntu Keyserver](https://keyserver.ubuntu.com/pks/lookup?search=F659+B0F0+B84A+26CA+C635+D729+48CA+EE8D+C345+6B2F&fingerprint=on&op=index)
-- [Maintainer server](https://www.theorozier.fr/assets/pgp/portablemc.asc)
+- [Maintainer server](https://theorozier.fr/assets/pgp/portablemc.asc.html)
 
 ### Cargo
 
@@ -71,10 +73,10 @@ launcher, it is also available on [crates.io](https://crates.io/crates/portablem
 cargo add portablemc
 ```
 
-### Linux third-party packages
+### Linux packages
 
 We try to deploy the package to different Linux packaging repositories, some are managed
-by maintainers of the project and some by external maintainers.
+by maintainers of the project (first-party) and some by external maintainers (third-party).
 
 #### Arch Linux
 
@@ -87,30 +89,76 @@ Arch Linux packages are maintained by PortableMC team.
 
 Prebuilt binaries requires you to install the PGP certificate, as described [above](#binaries).
 
+#### NixOS
+
+Nix package is maintained by @TomaSajt, at [`nixpkgs/portablemc`](https://github.com/NixOS/nixpkgs/blob/master/pkgs/by-name/po/portablemc/package.nix).
+
+## Usage
+
+This section shows example usage to get started with PortableMC.
+
+```shell
+# Start the latest Mojang release, with a random username and default options...
+portablemc start
+
+# Start a specific version, let's say 1.16.5...
+portablemc start 1.16.5
+# You can list the Mojang versions...
+portablemc search
+# Search on the release versions, and limit to 10 entries...
+portablemc search --channel release -l10
+
+# Choose your username in offline mode...
+portablemc start -u MyUsername
+
+# Authenticate into your Minecraft account...
+portablemc auth login
+# List your authenticated accounts...
+portablemc auth list
+# Start the game with your authenticated account...
+portablemc start -u <your username> -a
+```
+
 ## Contribute
 
 ### Repositories
 
-The source code is currently tracked using Git and hosted [on GitHub](https://github.com/mindstorm38/portablemc). 
+The source code is currently tracked using Git and hosted [on GitHub](https://github.com/theorzr/portablemc). 
 
-We also have an official team workspace [on Codeberg.org](https://codeberg.org/portablemc) where we host a mirror 
-of this repository and the official third-party packaging sources.
+We also have an official team workspace [on Codeberg.org](https://codeberg.org/portablemc) 
+where we host a mirror of this repository and the first-party packaging sources.
 
 ### Releasing
 
 Releasing process is mostly managed by GitHub actions, it reacts to new tags being 
-pushed to the repository by a repository admin. This tag should be named `v<version>` where
-`<version>` is the same as the one in `Cargo.toml`, if not matching, the actions will fail.
+pushed to the repository by a repository admin. This section is about how to prepare
+the repository for that releasing process.
 
-Once completed, a draft release note is attached to that new tag under [releases](https://github.com/theorzr/portablemc/releases),
-you should complete it with the actual changelog, and then publish the release note.
-Note that the release artifacts are automatically uploaded and signed by the actions.
+To start with, every new release, which can be either a patch, minor or major release,
+should have an associated branch that will be merged when releasing is done. It should
+be named `v<version>` and created from `main`. When you have merged everything into that
+branch and you are ready for doing the release, you should ensure that the project's 
+version has been updated in `Cargo.toml` to match the branch and the tag you are about
+to create, and then you can create and push a tag named `v<version>`, the GitHub pipeline
+will trigger automatically.
+
+If it make sense to have release candidates or pre-releases, this should be handled on 
+the same branch as the real release: you should append `-rc.<num>` or `-pre.<num>` to the
+final release number.
+
+Once the pipeline is done, a draft release note is attached to that new tag under 
+[releases](https://github.com/theorzr/portablemc/releases), you should complete it with 
+the actual changelog, and then publish the release note manually. Note that the release 
+artifacts are automatically uploaded and signed by the actions.
+
+When this is all done, you can now merge and delete the version branch.
 
 Then, you should manage the releasing of official third-party packaging, such as 
 [portablemc-arch](https://codeberg.org/portablemc/portablemc-arch) and
 [portablemc-bin-arch](https://codeberg.org/portablemc/portablemc-bin-arch).
 
 ### Contributors
+
 This launcher would not be as functional without the contributors, and in particular the 
 following for their bug reports, suggestions and pull requests to make the launcher 
 better: 
@@ -125,10 +173,11 @@ There must be a lot of hidden issues, if you want to contribute you just have to
 and test the launcher, and report every issue you encounter, do not hesitate!
 
 ### Sponsors
+
 I'm currently working on my open-source projects on my free time. So sponsorship is an
 extra income that allows me to spend more time on the project! This can also help me
 on other open-source projects. You can sponsor this project by donating either on
-[GitHub Sponsors](https://github.com/sponsors/mindstorm38) or 
+[GitHub Sponsors](https://github.com/sponsors/theorzr) or 
 [Ko-fi](https://ko-fi.com/theorozier). I've always been passionate about open-source
 programming and the relative success of PortableMC have been a first surprise to me, 
 but the fact that people are now considering to support me financially is even more

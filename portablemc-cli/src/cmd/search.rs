@@ -70,7 +70,12 @@ fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     });
 
     // Finally displaying version(s).
-    for version in manifest.iter().take(args.limit) {
+    let mut remaining = args.limit;
+    for version in manifest.iter() {
+
+        if remaining == 0 {
+            break;
+        }
 
         if let Some(only_name) = only_name {
             if version.name() != only_name {
@@ -92,6 +97,8 @@ fn search_mojang(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
             }
 
         }
+
+        remaining -= 1;
         
         let mut row = table.row();
         row.cell(version.name());
@@ -157,7 +164,12 @@ fn search_local(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
     
     table.sep();
 
-    for entry in reader.take(args.limit) {
+    let mut remaining = args.limit;
+    for entry in reader {
+
+        if remaining == 0 {
+            break;
+        }
         
         let Ok(entry) = entry else { continue };
         let Ok(entry_type) = entry.file_type() else { continue };
@@ -166,6 +178,8 @@ fn search_local(cli: &mut Cli, args: &SearchArgs) -> ExitCode {
         let mut version_dir = entry.path();
         let Some(version_id) = version_dir.file_name().unwrap().to_str() else { continue };
         let version_id = version_id.to_string();
+
+        remaining -= 1;
 
         version_dir.push(&version_id);
         version_dir.as_mut_os_string().push(".json");
@@ -216,8 +230,13 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
         
         table.sep();
 
-        for version in versions.iter().take(args.limit) {
+        let mut remaining = args.limit;
+        for version in versions.iter() {
             
+            if remaining == 0 {
+                break;
+            }
+
             if !args.match_filter(version.name()) {
                 continue;
             }
@@ -225,6 +244,8 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
             if !args.match_channel(SearchChannel::new_stable_or_unstable(version.is_stable())) {
                 continue;
             }
+
+            remaining -= 1;
 
             let mut row = table.row();
             row.cell(version.name());
@@ -253,7 +274,12 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
         
         table.sep();
 
-        for version in versions.iter().take(args.limit) {
+        let mut remaining = args.limit;
+        for version in versions.iter() {
+            
+            if remaining == 0 {
+                break;
+            }
             
             if !args.match_filter(version.name()) {
                 continue;
@@ -262,6 +288,8 @@ fn search_fabric(cli: &mut Cli, args: &SearchArgs, loader: fabric::Loader, game:
             if !args.match_channel(SearchChannel::new_stable_or_unstable(version.is_stable())) {
                 continue;
             }
+
+            remaining -= 1;
 
             let mut row = table.row();
             row.cell(version.name());
@@ -304,8 +332,13 @@ fn search_forge(cli: &mut Cli, args: &SearchArgs, loader: forge::Loader) -> Exit
     // Forge .xml repositories are not sorted at all and therefore we have to sort them
     // here for the sorting to make sense to the user.
     let mut versions = Vec::new();
-    for version in repo.iter().take(args.limit) {
+    let mut remaining = args.limit;
+    for version in repo.iter() {
         
+        if remaining == 0 {
+            break;
+        }
+
         if !args.match_filter(version.name()) {
             continue;
         }
@@ -317,6 +350,8 @@ fn search_forge(cli: &mut Cli, args: &SearchArgs, loader: forge::Loader) -> Exit
         if !args.match_channel(SearchChannel::new_stable_or_unstable(version.is_stable())) {
             continue;
         }
+
+        remaining -= 1;
 
         versions.push(version);
         
