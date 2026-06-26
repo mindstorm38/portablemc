@@ -24,7 +24,7 @@ chrono.workspace = true
 xmlparser.workspace = true
 
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "fs", "time", "net", "macros"] }
-reqwest = { workspace = true, features = ["json"] }
+reqwest = { workspace = true, features = ["json", "form"] }
 
 indexmap.workspace = true
 elsa.workspace = true

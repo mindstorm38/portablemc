@@ -1,0 +1,35 @@
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "i686-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "i686-pc-windows-msvc",
+    "aarch64-unknown-linux-gnu",
+    "arm-unknown-linux-gnueabihf",
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "Zlib",
+    "ISC",
+    "CC0-1.0",
+    "bzip2-1.0.6",
+    "MPL-2.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+allow-workspace = false
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
