@@ -667,7 +667,23 @@ impl XmlLogParser {
                 Token::Text { text } |
                 Token::Cdata { text, .. } => {
                     
+                    // If we did not expect text at this point, but it is not empty. Then
+                    // we add a made-up log line. This has been done to fix issues for 
+                    // users that do pure println while the XML logging is active, and
+                    // their message were discarded by PortableMC.
+                    // See: https://github.com/theorzr/portablemc/issues/281
                     if self.state == XmlLogState::None {
+                        if let text = text.trim_ascii()
+                        && !text.is_empty() {
+                            self.logs.push(XmlLog {
+                                logger: String::new(),
+                                time: Utc::now(),
+                                level: XmlLogLevel::Info,
+                                thread: "_stdout_".to_string(),
+                                message: text.to_string(),
+                                throwable: None,
+                            });
+                        }
                         continue;
                     }
                     
