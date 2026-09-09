@@ -136,11 +136,11 @@ the repository for that releasing process.
 
 To start with, every new release, which can be either a patch, minor or major release,
 should have an associated branch that will be merged when releasing is done. It should
-be named `v<version>` and created from `main`. When you have merged everything into that
-branch and you are ready for doing the release, you should ensure that the project's 
-version has been updated in `Cargo.toml` to match the branch and the tag you are about
-to create, and then you can create and push a tag named `v<version>`, the GitHub pipeline
-will trigger automatically.
+be named `patch-<version>`, or `release-<version>`, and created from `main`. 
+When you have merged everything into that branch and you are ready for doing the release, 
+you should ensure that the project's version has been updated in `Cargo.toml` to match 
+the branch and the tag you are about to create, and then you can create and push a tag 
+named `v<version>`, the GitHub pipeline will trigger automatically.
 
 If it make sense to have release candidates or pre-releases, this should be handled on 
 the same branch as the real release: you should append `-rc.<num>` or `-pre.<num>` to the
