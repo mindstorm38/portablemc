@@ -15,7 +15,7 @@ These binaries have been compiled using open source tooling available in this re
 
 You can download the full public certificate online:
 - [Ubuntu Keyserver](https://keyserver.ubuntu.com/pks/lookup?search=F659+B0F0+B84A+26CA+C635+D729+48CA+EE8D+C345+6B2F&fingerprint=on&op=index)
-- [Maintainer server](https://www.theorozier.fr/assets/pgp/portablemc.asc)
+- [Maintainer server](https://www.theorozier.fr/assets/pgp/portablemc.asc.html)
 
 #### Downloads
 

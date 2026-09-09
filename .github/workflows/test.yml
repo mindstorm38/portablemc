@@ -67,12 +67,17 @@ jobs:
           path: target
           key: cargo-${{ matrix.image }}-${{ hashFiles('**/Cargo.lock') }}
 
+      # Deny check can only run on linux, and it will check all targets so it's ok.
+      - name: Deny check
+        if: ${{ matrix.image == 'ubuntu-24.04' }}
+        uses: EmbarkStudios/cargo-deny-action@v2
+
       - name: Build
-        run: cargo build
+        run: cargo build --locked
 
       - name: Test
         if: ${{ !inputs.include-ignored }}
-        run: cargo test
+        run: cargo test --locked
 
       - name: Test (include ignored)
         if: ${{ inputs.include-ignored }}

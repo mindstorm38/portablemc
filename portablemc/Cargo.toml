@@ -24,7 +24,7 @@ chrono.workspace = true
 xmlparser.workspace = true
 
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "fs", "time", "net", "macros"] }
-reqwest = { workspace = true, features = ["json"] }
+reqwest = { workspace = true, features = ["charset", "http2", "system-proxy", "json", "form"] }
 
 indexmap.workspace = true
 elsa.workspace = true
@@ -44,6 +44,12 @@ md5.workspace = true
 jsonwebtoken.workspace = true
 
 zip.workspace = true
+
+[target.'cfg(not(all(windows, target_arch = "x86")))'.dependencies]
+reqwest = { workspace = true, features = ["rustls"] }
+
+[target.'cfg(all(windows, target_arch = "x86"))'.dependencies]
+reqwest = { workspace = true, features = ["native-tls"] }
 
 [dev-dependencies]
 tempfile.workspace = true

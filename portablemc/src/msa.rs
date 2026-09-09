@@ -12,7 +12,7 @@ use reqwest::{Client, StatusCode};
 use serde_json::json;
 use uuid::Uuid;
 
-use jsonwebtoken::{DecodingKey, TokenData, Validation};
+use jsonwebtoken::TokenData;
 
 
 /// Microsoft Account authenticator.
@@ -469,11 +469,7 @@ where
 {
     // We don't want to validate the token, just decode its data.
     // See https://github.com/Keats/jsonwebtoken/issues/277.
-    let key = DecodingKey::from_secret(&[]);
-    let mut validation = Validation::default();
-    validation.insecure_disable_signature_validation();
-    validation.validate_aud = false;
-    jsonwebtoken::decode(token, &key, &validation)
+    jsonwebtoken::dangerous::insecure_decode(token.as_bytes())
 }
 
 /// The error type containing one error for each failed entry in a download batch.

@@ -5,7 +5,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "5.0.4"
+version = "5.0.5"
 authors = ["Théo Rozier <contact@theorozier.fr>"]
 homepage = "https://github.com/theorzr/portablemc"
 repository = "https://github.com/theorzr/portablemc"
@@ -14,7 +14,7 @@ readme = "README.md"
 rust-version = "1.88.0"
 
 [workspace.dependencies]
-portablemc = { path = "portablemc", version = "=5.0.4" }
+portablemc = { path = "portablemc", version = "=5.0.5" }
 
 # Utils
 thiserror = "2.0.3"
@@ -37,7 +37,7 @@ regex = { version = "1.11.1", default-features = false, features = ["std", "perf
 # Crypto
 sha1 = "0.10.6"
 md5 = "0.7.0" 
-jsonwebtoken = "9.3.0"
+jsonwebtoken = "10.4.0"
 
 # Data structures
 indexmap = "2.7.0"
@@ -52,16 +52,16 @@ zip-extensions = "0.13.1"
 once_cell = "1.20.2"
 
 # OS
-gethostname = "0.5.0"
+gethostname = "1.1.0"
 dunce = "1.0.5"
-os_info = "3.8.2"
+os_info = "3.15.0"
 dirs = "6.0.0"
 webbrowser = "1.0.3"
-windows-registry = "0.2.0"
+windows-registry = "0.6.1"
 
 # Async
-tokio = "1.41.1"
-reqwest = "0.12.9"
+tokio = "1.52.3"
+reqwest = { version = "0.13.4", default-features = false }
 
 # CLI
 clap = "4.5.53"
@@ -70,7 +70,7 @@ ctrlc = "3.4.5"
 
 # Testing
 tempfile = "3.19.1"
-mockito = "1.7.1"
+mockito = "1.7.2"
 
 [profile.release]
 opt-level = 3
