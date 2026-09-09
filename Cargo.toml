@@ -61,7 +61,7 @@ windows-registry = "0.6.1"
 
 # Async
 tokio = "1.52.3"
-reqwest = "0.13.4"
+reqwest = { version = "0.13.4", default-features = false }
 
 # CLI
 clap = "4.5.53"
